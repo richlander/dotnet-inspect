@@ -100,7 +100,7 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -117,7 +117,7 @@ public class DependsCommand
                 context.HttpClient, libraryName, options.SourceOptions, logger);
             if (result is LibraryDependencyGraphResult.Error error)
             {
-                Console.Error.WriteLine($"Error: {error.Message}");
+                CommandError.Write($"{error.Message}");
                 if (error.HintInput != null)
                     NamespacePrefixHints.WriteIfLikelyNamespacePrefix(error.HintInput);
                 return 1;
@@ -162,7 +162,7 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -179,7 +179,7 @@ public class DependsCommand
                 context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);
             if (result is PackageDependencyGraphResult.Error error)
             {
-                Console.Error.WriteLine($"Error: {error.Message}");
+                CommandError.Write($"{error.Message}");
                 if (error.Detail != null)
                     Console.Error.WriteLine(error.Detail);
                 return 1;
@@ -224,7 +224,7 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }

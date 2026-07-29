@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -10,13 +11,53 @@ public enum ShapeProjectionKind
     Paths
 }
 
+/// <summary>
+/// One projected scalar, URL, or path, as printed by <c>--value</c> and by the
+/// structured projection modes.
+/// </summary>
+/// <remarks>
+/// Every text field here is untrusted: fourteen call sites across
+/// <c>ApiCommand</c>, <c>LibraryCommand</c>, <c>PackageCommand</c>, and
+/// <c>ProjectCommand</c> project type names, member signatures, nuspec fields,
+/// ZIP entry paths, and SourceLink URLs into these rows, and the projection
+/// path does not go through the section views that contain them. Containing at
+/// each producer would restate the rule fourteen times, so it lives on the
+/// record instead: a new projection cannot reopen the hole (issue #3319).
+///
+/// <c>Row</c> and <c>Section</c> are tool-owned -- a row number and a section
+/// name drawn from a fixed set -- so neither is contained. Every positional
+/// property is redeclared so the reflected order stays the constructor's, which
+/// is what the structured serializers emit.
+/// </remarks>
 public sealed record ShapeProjectionRow(
     int Row,
     string Section,
     string Value,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Label = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Url = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Path = null);
+    string? Label = null,
+    string? Url = null,
+    string? Path = null)
+{
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    public int Row { get; init; } = Row;
+
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    public string Section { get; init; } = Section;
+
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    public string Value { get; init; } = CSharpIdentifier.ContainRenderedText(Value);
+
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Label { get; init; } = Label is null ? null : CSharpIdentifier.ContainRenderedText(Label);
+
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Url { get; init; } = Url is null ? null : CSharpIdentifier.ContainRenderedText(Url);
+
+    /// <inheritdoc cref="ShapeProjectionRow"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; init; } = Path is null ? null : CSharpIdentifier.ContainRenderedText(Path);
+}
 
 public sealed record ShapeProjectionOptions(
     ShapeProjectionKind Kind,
@@ -40,7 +81,7 @@ public static class ShapeProjectionOutput
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine($"Error: {optionName} requires -S/--select to match exactly one section.");
+        CommandError.Write($"{optionName} requires -S/--select to match exactly one section.");
         return false;
     }
 
@@ -55,7 +96,7 @@ public static class ShapeProjectionOutput
 
         if (rows.Count == 0)
         {
-            Console.Error.WriteLine($"Error: selected section has no {ProjectionName(options.Kind)} values.");
+            CommandError.Write($"selected section has no {ProjectionName(options.Kind)} values.");
             return 1;
         }
 
@@ -80,7 +121,7 @@ public static class ShapeProjectionOutput
 
         if (options.Kind == ShapeProjectionKind.Value && selected.Count != 1)
         {
-            Console.Error.WriteLine($"Error: --value found {selected.Count} rows; use --row N|first|last or select a single-row section.");
+            CommandError.Write($"--value found {selected.Count} rows; use --row N|first|last or select a single-row section.");
             return 1;
         }
 

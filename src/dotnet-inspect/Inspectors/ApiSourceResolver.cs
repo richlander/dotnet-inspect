@@ -69,7 +69,7 @@ internal static class ApiSourceResolver
                         context.Logger.Log);
                     if (!vector.TrySelect(options.PackageRangeAddress, out var address, out var addressError))
                     {
-                        Console.Error.WriteLine($"Error: {addressError}");
+                        CommandError.Write($"{addressError}");
                         return (null!, 1);
                     }
 
@@ -83,7 +83,7 @@ internal static class ApiSourceResolver
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    Console.Error.WriteLine($"Error: {ex.Message}");
+                    CommandError.Write($"{ex.Message}");
                     return (null!, 1);
                 }
             }
@@ -104,7 +104,7 @@ internal static class ApiSourceResolver
             var outcome = await PackageExtractor.ExtractPackageAsync(context.HttpClient, packagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
@@ -117,7 +117,7 @@ internal static class ApiSourceResolver
                 var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
                 if (matchedAssembly == null)
                 {
-                    Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
+                    CommandError.Write($"Library '{options.AssemblyPath}' not found in package.");
                     return (null!, 1);
                 }
                 searchPath = matchedAssembly;
@@ -142,7 +142,7 @@ internal static class ApiSourceResolver
                 var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                 if (tfmAssembly == null)
                 {
-                    Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
+                    CommandError.Write($"No library found for TFM '{options.Tfm}'.");
                     return (null!, 1);
                 }
                 searchPath = tfmAssembly;
@@ -154,7 +154,7 @@ internal static class ApiSourceResolver
         {
             if (!File.Exists(options.AssemblyPath))
             {
-                Console.Error.WriteLine($"Error: File not found: {options.AssemblyPath}");
+                CommandError.Write($"File not found: {options.AssemblyPath}");
                 return (null!, 1);
             }
             searchPath = options.AssemblyPath;
@@ -164,7 +164,7 @@ internal static class ApiSourceResolver
         {
             if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out projectAssetsPath, out var assetsStatus))
             {
-                Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
+                CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
                 return (null!, 1);
             }
 
@@ -192,7 +192,7 @@ internal static class ApiSourceResolver
                 goto ProjectResolved;
             }
 
-            Console.Error.WriteLine($"Error: Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
+            CommandError.Write($"Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
             return (null!, 1);
 
         ProjectResolved:
@@ -273,14 +273,14 @@ internal static class ApiSourceResolver
                         }
                         else
                         {
-                            Console.Error.WriteLine($"Error: Type '{typeName}' not found in any platform framework.");
+                            CommandError.Write($"Type '{typeName}' not found in any platform framework.");
                             return (null!, 1);
                         }
                     }
                 }
                 else
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return (null!, 1);
                 }
             }

@@ -79,7 +79,7 @@ public static class ProjectionAudit
             .ToList();
 
         var conflicts = string.Join(", ", ordered.Skip(1));
-        Console.Error.WriteLine($"Error: {ordered[0]} cannot be combined with {conflicts}.");
+        CommandError.Write($"{ordered[0]} cannot be combined with {conflicts}.");
         return false;
     }
 

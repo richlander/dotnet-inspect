@@ -213,7 +213,7 @@ public static class MemberCommand
                     var sectionLabel = singleOverloadSections.Count == 1
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
-                    Console.Error.WriteLine($"Error: {sectionLabel} a single selected overload for member '{memberName}'.");
+                    CommandError.Write($"{sectionLabel} a single selected overload for member '{memberName}'.");
                     Console.Error.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
                     return 1;
                 }
@@ -239,7 +239,7 @@ public static class MemberCommand
                 }).ToList();
                 if (arityCandidates.Count == 0)
                 {
-                    Console.Error.WriteLine($"Error: No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
+                    CommandError.Write($"No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
                     return 1;
                 }
 
@@ -424,7 +424,7 @@ public static class MemberCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
         finally

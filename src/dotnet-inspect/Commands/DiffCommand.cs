@@ -105,7 +105,7 @@ public class DiffCommand
             }
             if (!TryResolveFindingDescriptor(options, out var findingDescriptor, out var findingError))
             {
-                Console.Error.WriteLine($"Error: {findingError}");
+                CommandError.Write($"{findingError}");
                 return 1;
             }
             if (IsMemberBodyFindingDescriptor(findingDescriptor))
@@ -319,7 +319,7 @@ public class DiffCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }

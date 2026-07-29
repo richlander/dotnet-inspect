@@ -138,12 +138,12 @@ public class LibraryCommand
                 return 1;
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
@@ -234,7 +234,7 @@ public class LibraryCommand
 
                 if (error != null)
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return 1;
                 }
 
@@ -257,7 +257,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
+                    CommandError.Write($"Could not read library: {resolvedPath}");
                     return 1;
                 }
 
@@ -363,7 +363,7 @@ public class LibraryCommand
                 // Load from filesystem
                 if (!File.Exists(assemblyPath))
                 {
-                    Console.Error.WriteLine($"Error: File not found: {assemblyPath}");
+                    CommandError.Write($"File not found: {assemblyPath}");
                     return 1;
                 }
 
@@ -384,7 +384,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
                 if (inspection == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
+                    CommandError.Write($"Could not read library: {assemblyPath}");
                     return 1;
                 }
 
@@ -411,7 +411,7 @@ public class LibraryCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
         finally
@@ -447,7 +447,7 @@ public class LibraryCommand
     {
         if (!File.Exists(options.ILOffsetsPath))
         {
-            Console.Error.WriteLine($"Error: IL offsets file not found: {options.ILOffsetsPath}");
+            CommandError.Write($"IL offsets file not found: {options.ILOffsetsPath}");
             return 1;
         }
 
@@ -818,13 +818,13 @@ public class LibraryCommand
             or SectionNames.CallsiteContext or SectionNames.ReturnAddressContext)
         {
             if (kind != ShapeProjectionKind.Value)
-                Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+                CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
         if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
         if (rows.Count == 0 && section == "Library Info" && kind == ShapeProjectionKind.Value)
@@ -851,7 +851,7 @@ public class LibraryCommand
 
         if (projection.Documents.Count == 0 && section != SectionNames.ILOffset)
         {
-            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
 
@@ -1022,7 +1022,7 @@ public class LibraryCommand
         var value = SelectMemberContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Member Context.");
+            CommandError.Write($"field '{field}' has no value in Member Context.");
             return [];
         }
 
@@ -1065,7 +1065,7 @@ public class LibraryCommand
         var value = SelectInstructionContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Instruction Context.");
+            CommandError.Write($"field '{field}' has no value in Instruction Context.");
             return [];
         }
 
@@ -1115,7 +1115,7 @@ public class LibraryCommand
         }
 
         if (projected.Count == 0)
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Exception Context.");
+            CommandError.Write($"field '{field}' has no value in Exception Context.");
 
         return projected;
     }
@@ -1152,7 +1152,7 @@ public class LibraryCommand
         var value = SelectCallsiteContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Callsite Context.");
+            CommandError.Write($"field '{field}' has no value in Callsite Context.");
             return [];
         }
 
@@ -1190,7 +1190,7 @@ public class LibraryCommand
         var value = SelectReturnAddressContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Return Address Context.");
+            CommandError.Write($"field '{field}' has no value in Return Address Context.");
             return [];
         }
 
@@ -1227,13 +1227,13 @@ public class LibraryCommand
         var values = GetLibraryInfoValues(info);
         if (!values.TryGetValue(field, out var value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' was not found in Library Info.");
+            CommandError.Write($"field '{field}' was not found in Library Info.");
             return [];
         }
 
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Library Info.");
+            CommandError.Write($"field '{field}' has no value in Library Info.");
             return [];
         }
 
@@ -1551,7 +1551,7 @@ public class LibraryCommand
             httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
         if (!outcome.IsSuccess)
         {
-            Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+            CommandError.Write($"{outcome.ErrorMessage}");
             return null;
         }
         var resolution = outcome.Result!;
@@ -1608,7 +1608,7 @@ public class LibraryCommand
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
             if (tfmAssembly == null)
             {
-                Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
+                CommandError.Write($"No library found for TFM '{tfm}'.");
                 Console.Error.WriteLine("Available TFMs:");
                 var tfms = TfmSelector.GetPackageTfms(allDlls, extractPath);
                 foreach (var t in tfms)
@@ -1647,7 +1647,7 @@ public class LibraryCommand
         var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
         if (matchedAssembly == null)
         {
-            Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
+            CommandError.Write($"Library '{assemblyName}' not found in package.");
             Console.Error.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
             DeleteTempDir(tempDir);
             return null;

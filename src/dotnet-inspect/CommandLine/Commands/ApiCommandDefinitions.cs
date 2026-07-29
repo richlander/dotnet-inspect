@@ -141,7 +141,7 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case TypeOptionsParser.UnrecognizedOption error:
-                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    CommandError.Write($"Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case TypeOptionsParser.Success success:
@@ -285,7 +285,7 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case MemberOptionsParser.UnrecognizedOption error:
-                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    CommandError.Write($"Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case MemberOptionsParser.Success success:

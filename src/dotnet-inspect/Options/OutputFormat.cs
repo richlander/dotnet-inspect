@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -125,7 +126,7 @@ public static class OutputFormatResolver
         if (DotnetInspector.Sections.PerformanceKinds.AllShareCommonView(includeSections))
             return true;
 
-        Console.Error.WriteLine($"Error: Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
+        CommandError.Write($"Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
         Console.Error.WriteLine();
         Console.Error.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
         Console.Error.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");

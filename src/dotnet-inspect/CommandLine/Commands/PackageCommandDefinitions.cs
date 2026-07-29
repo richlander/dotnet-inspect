@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
@@ -114,7 +115,7 @@ public static class PackageCommandDefinitions
             switch (result)
             {
                 case PackageOptionsParser.UnrecognizedOption error:
-                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    CommandError.Write($"Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case PackageOptionsParser.Success success:

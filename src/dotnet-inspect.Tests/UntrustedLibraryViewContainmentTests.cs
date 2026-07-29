@@ -1048,3 +1048,202 @@ public class ImplementerRowContainmentTests
         Assert.Contains("INJECTEDTYPE", row.Type, StringComparison.Ordinal);
     }
 }
+
+/// <summary>
+/// Gates the C# spellings the API views compose from a type's own name.
+/// </summary>
+/// <remarks>
+/// Round 14 found two of these still raw. Both sit next to already-contained
+/// text, which is why neither showed up earlier: the constructor signature is
+/// inside a <c>csharp</c> code fence whose heading was contained, and the
+/// finalizer tree node is the one branch of a two-branch select whose other
+/// branch contains. A fence and a tree gutter are both structures a line
+/// terminator can forge a way out of (issue #3319).
+/// </remarks>
+[Collection("Console")]
+public class UntrustedDeclarationSpellingContainmentTests : IDisposable
+{
+    private const string Hazard = "\u202E";
+    private readonly string _dir;
+    private readonly string _path;
+
+    public UntrustedDeclarationSpellingContainmentTests()
+    {
+        _dir = Path.Combine(Path.GetTempPath(), "HostileDecl_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_dir);
+        _path = Path.Combine(_dir, "HostileDecl.dll");
+        WriteHostileAssembly(_path);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { }
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task ConstructorSignature_WithHostileTypeName_RendersNoHazard()
+    {
+        var (_, output, error) = await HostileCli.RunAsync(
+            "member", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--ctor", "-v:n");
+
+        var combined = output + "\n" + error;
+        HostileOutputAssert.MarkersRendered(combined, "ctor", "INJECTEDCTOR");
+        HostileOutputAssert.NoRenderingHazard(combined, "ctor");
+        HostileOutputAssert.NoLineSplit(combined, ["INJECTEDCTOR"]);
+    }
+
+    [Fact]
+    public async Task FinalizerShapeNode_WithHostileTypeName_RendersNoHazard()
+    {
+        var (_, output, error) = await HostileCli.RunAsync(
+            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--shape");
+
+        var combined = output + "\n" + error;
+        // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
+        // proves the node rendered rather than being satisfied by the title.
+        Assert.Contains("~Bad", combined, StringComparison.Ordinal);
+        HostileOutputAssert.MarkersRendered(combined, "shape", "INJECTEDCTOR");
+        HostileOutputAssert.NoRenderingHazard(combined, "shape");
+    }
+
+    private static void WriteHostileAssembly(string path)
+    {
+        var name = new AssemblyName("HostileDecl") { Version = new Version(1, 0, 0, 0) };
+        var ab = new PersistedAssemblyBuilder(name, typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("HostileDecl");
+
+        var type = module.DefineType(
+            $"DeclNs.Bad{Hazard}INJECTEDCTOR",
+            TypeAttributes.Public | TypeAttributes.Class,
+            typeof(object));
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+
+        // A real override of Object.Finalize -- a plain method named "Finalize"
+        // is not recognised as a finalizer, which would leave the node under
+        // test unrendered and the gate vacuous.
+        var finalizer = type.DefineMethod(
+            "Finalize",
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.ReuseSlot,
+            CallingConventions.HasThis,
+            typeof(void),
+            Type.EmptyTypes);
+        finalizer.GetILGenerator().Emit(OpCodes.Ret);
+        type.DefineMethodOverride(
+            finalizer,
+            typeof(object).GetMethod("Finalize", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        type.CreateType();
+
+        ab.Save(path);
+    }
+}
+
+/// <summary>
+/// Gates the rows that carry untrusted text through paths the section views do
+/// not own: the scalar/URL/path projections behind <c>--value</c>, and the two
+/// diff rows whose subject spelling comes straight from metadata.
+/// </summary>
+/// <remarks>
+/// These are gated at their records rather than end to end because each has
+/// many producers -- fourteen for <c>ShapeProjectionRow</c> alone -- and the
+/// record is the single owner the fix placed containment on (issue #3319).
+/// </remarks>
+public class UntrustedRowContainmentTests
+{
+    private const string Hazard = "\u202E";
+
+    [Fact]
+    public void ShapeProjectionRow_WithHostileText_ContainsEveryUntrustedField()
+    {
+        var row = new ShapeProjectionRow(
+            1,
+            "Package Info",
+            $"Value{Hazard}INJECTEDVALUE",
+            Label: $"Label{Hazard}INJECTEDLABEL",
+            Url: $"https://x/{Hazard}INJECTEDURL",
+            Path: $"docs/{Hazard}INJECTEDPATH");
+
+        HostileOutputAssert.NoRenderingHazard(row.Value, "Value");
+        HostileOutputAssert.NoRenderingHazard(row.Label!, "Label");
+        HostileOutputAssert.NoRenderingHazard(row.Url!, "Url");
+        HostileOutputAssert.NoRenderingHazard(row.Path!, "Path");
+        Assert.Contains("INJECTEDVALUE", row.Value, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDLABEL", row.Label!, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDURL", row.Url!, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDPATH", row.Path!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImplementationDiffRow_WithHostileText_ContainsMemberAndEvidence()
+    {
+        var row = new ImplementationDiffRow(
+            $"Ty{Hazard}INJECTEDMEMBER.M",
+            "IlBody",
+            "Changed",
+            "modified",
+            $"ldstr \"{Hazard}INJECTEDEVIDENCE\"");
+
+        HostileOutputAssert.NoRenderingHazard(row.Member, "Member");
+        HostileOutputAssert.NoRenderingHazard(row.Evidence, "Evidence");
+        Assert.Contains("INJECTEDMEMBER", row.Member, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDEVIDENCE", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindingTransitionRow_WithHostileText_ContainsTargetVersionsAndDetail()
+    {
+        var row = new FindingTransitionRow(
+            "FindingComparison.Complete",
+            "Descriptor.Id",
+            $"Ty{Hazard}INJECTEDTARGET",
+            $"1.0.0{Hazard}INJECTEDFROM",
+            $"2.0.0{Hazard}INJECTEDTO",
+            "Present",
+            "Absent",
+            $"failed: {Hazard}INJECTEDDETAIL");
+
+        HostileOutputAssert.NoRenderingHazard(row.Target, "Target");
+        HostileOutputAssert.NoRenderingHazard(row.From, "From");
+        HostileOutputAssert.NoRenderingHazard(row.To, "To");
+        HostileOutputAssert.NoRenderingHazard(row.Detail!, "Detail");
+        Assert.Contains("INJECTEDTARGET", row.Target, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDFROM", row.From, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDTO", row.To, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDDETAIL", row.Detail!, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>
+/// Gates the two stderr channels round 14 found raw: the CLI's <c>Error:</c>
+/// line and the <c>Note:</c> hints.
+/// </summary>
+/// <remarks>
+/// An error message quotes the subject that failed, so it carries the subject's
+/// hazards onto a terminal where an ANSI escape is executed rather than shown.
+/// The hint channel additionally needed its own payload: the <c>depends</c>
+/// subject-echo case uses a dotted name, which fails
+/// <c>LooksLikeBareTypeName</c> and never reaches the hint at all -- the gate
+/// was there but the branch was not (issue #3319).
+/// </remarks>
+[Collection("Console")]
+public class UntrustedErrorChannelContainmentTests
+{
+    [Theory]
+    // A bare (undotted) name reaches the bare-type hint; a dotted `System.`
+    // name reaches the namespace-prefix hint. Neither reaches the other.
+    [InlineData("depends", "Ty\u001BINJECTEDBARE", "INJECTEDBARE")]
+    [InlineData("depends", "System.Ty\u001BINJECTEDPREFIX", "INJECTEDPREFIX")]
+    // `depends` resolves its own failure through the graph-result record, which
+    // round 13 already contained, so it cannot gate the shared `Error:` writer.
+    // `type` reaches that writer, and only that case fails when it is tampered.
+    [InlineData("type", "Ty\u001BINJECTEDERRLINE", "INJECTEDERRLINE")]
+    public async Task ErrorAndHintChannels_WithHostileSubject_RenderNoHazard(string command, string subject, string marker)
+    {
+        var (_, output, error) = await HostileCli.RunAsync(command, subject);
+
+        var combined = output + "\n" + error;
+        HostileOutputAssert.MarkersRendered(combined, "stderr", marker);
+        HostileOutputAssert.NoRenderingHazard(combined, "stderr");
+        HostileOutputAssert.NoLineSplit(combined, [marker]);
+    }
+}

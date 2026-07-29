@@ -16,7 +16,7 @@ public static class SelectOutput
 
         foreach (var miss in unresolved)
         {
-            Console.Error.WriteLine($"Error: Select value '{miss.Value}' not found.");
+            CommandError.Write($"Select value '{miss.Value}' not found.");
             if (miss.Suggestions.Count > 0)
             {
                 Console.Error.WriteLine();

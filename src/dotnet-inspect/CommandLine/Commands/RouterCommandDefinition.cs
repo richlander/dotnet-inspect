@@ -44,7 +44,7 @@ public static class RouterCommandDefinition
 
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
             {
-                Console.Error.WriteLine($"Error: Unknown command '{tokens[0]}'.");
+                CommandError.Write($"Unknown command '{tokens[0]}'.");
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("Did you mean:");
                 Console.Error.WriteLine($"  {suggestion}");
@@ -66,7 +66,7 @@ public static class RouterCommandDefinition
 
             if (rewritten.Length == tokens.Length && rewritten.SequenceEqual(tokens))
             {
-                Console.Error.WriteLine($"Error: Could not route '{tokens[0]}'.");
+                CommandError.Write($"Could not route '{tokens[0]}'.");
                 return 1;
             }
 

@@ -52,7 +52,7 @@ public static class PrintProjectionOutput
         {
             if (documents.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N|first|last to choose one row.");
+                CommandError.Write($"selected section has {documents.Count} printable rows; use --row N|first|last to choose one row.");
                 return 1;
             }
 

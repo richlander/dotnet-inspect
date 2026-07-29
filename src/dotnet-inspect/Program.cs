@@ -160,7 +160,7 @@ catch (RowWindowValidationException ex)
     // command validator (SharedOptions.AddOutputOptionsTo), so this is not the
     // primary path. It converts any escaped validation throw into the clean CLI
     // error contract instead of an unhandled-exception stack trace.
-    Console.Error.WriteLine($"Error: {ex.Message}");
+    CommandError.Write(ex);
     return 1;
 }
 catch (OperationCanceledException)

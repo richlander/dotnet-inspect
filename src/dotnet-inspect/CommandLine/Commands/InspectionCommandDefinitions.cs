@@ -249,7 +249,7 @@ public static class InspectionCommandDefinitions
             switch (result)
             {
                 case DiffOptionsParser.VersionNumberError error:
-                    Console.Error.WriteLine($"Error: '{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
+                    CommandError.Write($"'{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
 
                 case DiffOptionsParser.Success success:

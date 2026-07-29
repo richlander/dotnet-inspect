@@ -96,7 +96,7 @@ public static class ProjectionDiagnostics
         if (resolvedSomewhere.Count > 0)
             return true;
 
-        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
+        CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 
@@ -133,7 +133,7 @@ public static class ProjectionDiagnostics
         if (validation.Resolved.Length > 0)
             return true;
 
-        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
+        CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 }

@@ -563,7 +563,10 @@ public static class ApiOutputFormatter
             int tick = name.IndexOf('`');
             if (tick >= 0)
                 name = name[..tick];
-            return $"~{name}()";
+            // Contained on the composed spelling rather than at the call site:
+            // the sibling branch there contains its own text, and a finalizer
+            // node reached output raw because only that one branch was covered.
+            return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 
         static bool IsOverloadGroupedKind(string kind)
@@ -1168,7 +1171,7 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(type, ctor)}")
+                Signature = new CodeSection("csharp", CSharpIdentifier.ContainRenderedText($"new {type.Name}{ConstructorCall(type, ctor)}"))
             };
 
             if (paramInfo.Count > 0)

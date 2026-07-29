@@ -73,12 +73,12 @@ public class ProjectCommand
                 return 1;
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
@@ -129,7 +129,7 @@ public class ProjectCommand
         var logger = context.Logger;
         if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out var assetsPath, out var assetsStatus))
         {
-            Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
+            CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
             return 1;
         }
 
@@ -137,7 +137,7 @@ public class ProjectCommand
         var dependencies = ProjectAssetsParser.ParsePackageReferences(assetsPath, options.Tfm, logger.Log);
         if (dependencies.Count == 0)
         {
-            Console.Error.WriteLine($"Error: No direct package references found in '{assetsPath}'.");
+            CommandError.Write($"No direct package references found in '{assetsPath}'.");
             return 1;
         }
 
@@ -525,14 +525,14 @@ public class ProjectCommand
             dep.PackageName.Equals(options.ReadmePackageId, StringComparison.OrdinalIgnoreCase));
         if (dependency == null)
         {
-            Console.Error.WriteLine($"Error: Package '{options.ReadmePackageId}' is not a direct dependency of '{options.ProjectPath}'.");
+            CommandError.Write($"Package '{options.ReadmePackageId}' is not a direct dependency of '{options.ProjectPath}'.");
             return 1;
         }
 
         var document = await ReadBestPackageDocumentAsync(dependency, options, context);
         if (document == null)
         {
-            Console.Error.WriteLine($"Error: Package '{dependency.PackageName}' does not contain a readme file.");
+            CommandError.Write($"Package '{dependency.PackageName}' does not contain a readme file.");
             return 1;
         }
 
@@ -568,7 +568,7 @@ public class ProjectCommand
 
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return null;
             }
 

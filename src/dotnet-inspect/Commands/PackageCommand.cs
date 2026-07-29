@@ -84,12 +84,12 @@ public class PackageCommand
                     return 1;
                 if (options.Count || options.Print)
                 {
-                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                    CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                     return 1;
                 }
                 if (options.Rows is not null)
                 {
-                    Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                    CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                     return 1;
                 }
             }
@@ -186,7 +186,7 @@ public class PackageCommand
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    Console.Error.WriteLine($"Error: {ex.Message}");
+                    CommandError.Write(ex);
                     return 1;
                 }
             }
@@ -226,9 +226,9 @@ public class PackageCommand
                 }
 
                 if (knownVersions == null || knownVersions.Count == 0)
-                    Console.Error.WriteLine($"Error: Package '{normalizedName}' not found.");
+                    CommandError.Write($"Package '{normalizedName}' not found.");
                 else
-                    Console.Error.WriteLine($"Error: Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
+                    CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
             }
 
@@ -256,7 +256,7 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
                     return 1;
                 }
 
@@ -267,7 +267,7 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
                 return 1;
             }
 
@@ -299,7 +299,7 @@ public class PackageCommand
         {
             if (!File.Exists(target.OriginalArgument))
             {
-                Console.Error.WriteLine($"Error: File not found: {target.OriginalArgument}");
+                CommandError.Write($"File not found: {target.OriginalArgument}");
                 return 1;
             }
         }
@@ -313,7 +313,7 @@ public class PackageCommand
             if (!PackageExtractor.IsValidPackageReferenceVersion(version))
             {
                 string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
-                Console.Error.WriteLine($"Error: '{badVersion}' is not a valid package version.");
+                CommandError.Write($"'{badVersion}' is not a valid package version.");
                 Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
                 Console.Error.WriteLine($"To list available versions: dotnet-inspect package {packageName} --versions");
                 return 1;
@@ -340,7 +340,7 @@ public class PackageCommand
 
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return 1;
             }
             resolution = outcome.Result!;
@@ -581,7 +581,7 @@ public class PackageCommand
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            Console.Error.WriteLine($"Error: Package '{packageName}' version '{version}' not found on nuget.org.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on nuget.org.");
             Console.Error.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }
@@ -689,7 +689,7 @@ public class PackageCommand
 
         if (options.IncludeSections.Count != 1)
         {
-            Console.Error.WriteLine($"Error: Multiple package row output requires exactly one section; matched {options.IncludeSections.Count}: {string.Join(", ", options.IncludeSections)}.");
+            CommandError.Write($"Multiple package row output requires exactly one section; matched {options.IncludeSections.Count}: {string.Join(", ", options.IncludeSections)}.");
             return false;
         }
 
@@ -700,7 +700,7 @@ public class PackageCommand
             return true;
         }
 
-        Console.Error.WriteLine($"Error: Multiple package row output does not support section: {section}.");
+        CommandError.Write($"Multiple package row output does not support section: {section}.");
         Console.Error.WriteLine("Use --json, or select Package Info, Files, Library Files, or Markdown Files.");
         return false;
     }
@@ -813,7 +813,7 @@ public class PackageCommand
         if (conflicts.Count == 0)
             return true;
 
-        Console.Error.WriteLine($"Error: Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
+        CommandError.Write($"Multiple package inspection cannot be combined with {string.Join(", ", conflicts)}.");
         Console.Error.WriteLine("Use id@version for per-package version pins.");
         return false;
     }
@@ -906,7 +906,7 @@ public class PackageCommand
             if (options.Fields != null) conflicts.Add("--fields");
             if (conflicts.Count > 0)
             {
-                Console.Error.WriteLine($"Error: --content cannot be combined with {string.Join(", ", conflicts)}.");
+                CommandError.Write($"--content cannot be combined with {string.Join(", ", conflicts)}.");
                 return false;
             }
         }
@@ -942,7 +942,7 @@ public class PackageCommand
             && section is not (PackageSections.PackageInfo or PackageSections.Files or PackageSections.LibraryFiles
                 or PackageSections.MarkdownFiles or PackageSections.PackageReadme or PackageSections.SourceFiles))
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
@@ -1059,7 +1059,7 @@ public class PackageCommand
             return true;
         }
 
-        Console.Error.WriteLine($"Error: --match must be 'all' or 'first', not '{options.PathMatchMode}'.");
+        CommandError.Write($"--match must be 'all' or 'first', not '{options.PathMatchMode}'.");
         return false;
     }
 
@@ -1071,7 +1071,7 @@ public class PackageCommand
         {
             if (!File.Exists(packageArg))
             {
-                Console.Error.WriteLine($"Error: File not found: {packageArg}");
+                CommandError.Write($"File not found: {packageArg}");
                 return false;
             }
 
@@ -1081,7 +1081,7 @@ public class PackageCommand
 
         if (!PackageExtractor.IsValidPackageReferenceVersion(parsed.Version))
         {
-            Console.Error.WriteLine($"Error: '{parsed.Version}' is not a valid package version.");
+            CommandError.Write($"'{parsed.Version}' is not a valid package version.");
             Console.Error.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
             Console.Error.WriteLine("Use id@version for per-package version pins.");
             return false;
@@ -1141,7 +1141,7 @@ public class PackageCommand
 
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return null;
             }
 
@@ -1196,7 +1196,7 @@ public class PackageCommand
 
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return null;
             }
 
@@ -1499,7 +1499,11 @@ public class PackageCommand
 
             var row = rows[i];
             var path = row.Found ? row.Path : "<absent>";
-            builder.AppendLine($"------------ {row.Package} :: {path} ------------");
+            // The separator is tool-owned framing, so its untrusted parts are
+            // contained even though the file content below it is deliberately
+            // raw -- otherwise a ZIP entry path forges a second separator.
+            builder.AppendLine(CSharpIdentifier.ContainRenderedText(
+                $"------------ {row.Package} :: {path} ------------"));
             if (!row.Found)
             {
                 builder.AppendLine("(absent)");
@@ -1631,7 +1635,7 @@ public class PackageCommand
             return PrintBarePackageUrlColumn(urls, section, options.OutputPath);
         }
 
-        Console.Error.WriteLine($"Error: --bare does not support section '{section}'. Select a text section or a single URL section.");
+        CommandError.Write($"--bare does not support section '{section}'. Select a text section or a single URL section.");
         return 1;
     }
 
@@ -1671,7 +1675,7 @@ public class PackageCommand
         if (values.Count > 0)
             return WriteBarePackageText(string.Join('\n', values), outputPath);
 
-        Console.Error.WriteLine($"Error: --bare found no URL in section '{section}'.");
+        CommandError.Write($"--bare found no URL in section '{section}'.");
         return 1;
     }
 
@@ -1780,7 +1784,7 @@ public class PackageCommand
         if (conflicts.Count == 0)
             return true;
 
-        Console.Error.WriteLine($"Error: --library cannot be combined with {string.Join(", ", conflicts)}.");
+        CommandError.Write($"--library cannot be combined with {string.Join(", ", conflicts)}.");
         return false;
     }
 
@@ -1801,7 +1805,7 @@ public class PackageCommand
 
         if (conflicts.Count > 0)
         {
-            Console.Error.WriteLine($"Error: --all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
+            CommandError.Write($"--all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
             return false;
         }
 
@@ -1897,7 +1901,7 @@ public class PackageCommand
 
         if (inspections.Count == 0)
         {
-            Console.Error.WriteLine($"Error: No libraries could be read from package '{packageName}'.");
+            CommandError.Write($"No libraries could be read from package '{packageName}'.");
             return 1;
         }
 
@@ -1981,11 +1985,11 @@ public class PackageCommand
             return new PackageLibrarySelection(resolution.Paths[0]);
 
         if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound)
-            Console.Error.WriteLine($"Error: Library '{requestedLibrary}' not found in package '{packageName}'.");
+            CommandError.Write($"Library '{requestedLibrary}' not found in package '{packageName}'.");
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+            CommandError.Write($"No DLLs found in package '{packageName}'.");
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
-            Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}' in package '{packageName}'.");
+            CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
         else
             Console.Error.WriteLine(resolution.Tfm == null
                 ? $"Error: Package '{packageName}' contains multiple libraries."
@@ -2005,12 +2009,12 @@ public class PackageCommand
         var resolution = TfmSelector.SelectPackageLibraries(extractPath, options.Tfm);
         if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
         {
-            Console.Error.WriteLine($"Error: No DLLs found in package '{packageName}'.");
+            CommandError.Write($"No DLLs found in package '{packageName}'.");
             return null;
         }
         if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
         {
-            Console.Error.WriteLine($"Error: No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
+            CommandError.Write($"No libraries found for TFM '{options.Tfm}' in package '{packageName}'.");
             WritePackageLibraryCandidates(extractPath, packageName, version, options.Tfm, resolution.CandidatePaths.ToList());
             return null;
         }
@@ -2069,7 +2073,7 @@ public class PackageCommand
 
         if (sections.Count != 1)
         {
-            Console.Error.WriteLine($"Error: --all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
+            CommandError.Write($"--all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
             Console.Error.WriteLine("Use Markdown output for multi-section selections, or select one concrete section.");
             return false;
         }
@@ -2077,7 +2081,7 @@ public class PackageCommand
         var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
         if (table == null)
         {
-            Console.Error.WriteLine($"Error: --all-libraries row output does not support section: {sections[0]}.");
+            CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
             Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
             return false;
         }
@@ -2572,7 +2576,7 @@ public class PackageCommand
                 searchPath = toolsDir;
             else
             {
-                Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
+                CommandError.Write($"TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
                 return;
             }
 
@@ -2649,7 +2653,7 @@ public class PackageCommand
 
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
         {
-            Console.Error.WriteLine($"Error: No dependencies found for TFM '{selection.TargetFramework}'.");
+            CommandError.Write($"No dependencies found for TFM '{selection.TargetFramework}'.");
             Console.Error.WriteLine("Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
             return 1;
         }

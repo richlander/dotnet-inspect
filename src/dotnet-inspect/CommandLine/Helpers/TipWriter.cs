@@ -16,7 +16,7 @@ public static class TipWriter
     /// </summary>
     public static int MissingArgumentWithTips(Command command, string message, params string[] tips)
     {
-        Console.Error.WriteLine($"Error: {message}");
+        CommandError.Write($"{message}");
         Console.Error.WriteLine($"Run 'dotnet-inspect {command.Name} --help' for usage.");
         if (tips.Length > 0)
         {
