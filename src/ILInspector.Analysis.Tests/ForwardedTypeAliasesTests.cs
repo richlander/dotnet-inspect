@@ -729,22 +729,46 @@ public class ForwardedTypeAliasesTests
     /// <c>984454a3</c> against the version-max rule, but it does not need differing versions — this
     /// fixture holds version fixed to show the disagreement itself is what makes the spelling
     /// unusable.</para>
+    ///
+    /// <para>The rival route is an intermediate facade that <em>verifies</em>, on purpose. An
+    /// earlier fixture pointed the second file straight at a bare <c>Other.Definer</c>, which the
+    /// definer-edge check rejected on its own — so this test passed with the disagreement rule
+    /// disabled and gated nothing (raised in review of <c>7572838c</c>). Routing through a facade
+    /// whose own edge is well formed leaves the disagreement as the only thing that can refuse
+    /// it.</para>
     /// </summary>
     [Fact]
     public void PrefilterDeclinesASpellingWhoseTwoFilesForwardToDifferentDefiners()
     {
         string directory = NewTempDirectory();
+
+        // The rival route: a real intermediate whose edge from `Contoso.Facade` verifies, and which
+        // carries the type on somewhere that is not the target.
+        WriteForwarder(
+            directory, "Contoso.Middle", "Other.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "Contoso.Middle");
+
         WriteForwarder(
             directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
             publicKey: null, fileName: "first");
-        WriteForwarder(
-            directory, "Contoso.Facade", "Other.Definer", "Contoso", "Widget",
-            publicKey: null, fileName: "second");
 
         var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
-        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
-
         using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+        // The premise: the genuine file alone aliases the spelling, so the refusal below is the
+        // second file's doing.
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(
+                caller.GetMetadataReader(),
+                target,
+                ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"))));
+
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Middle", "Contoso", "Widget",
+            publicKey: null, fileName: "second");
+
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
 
         Assert.Equal(
             CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
@@ -992,12 +1016,64 @@ public class ForwardedTypeAliasesTests
 
 
     /// <summary>
+    /// A failing forwarder edge withdraws its own spelling and nothing else. Canonicalization
+    /// collapses the five core-library facade spellings onto one name, so keying the chain map on
+    /// the canonical name made a stray <c>mscorlib</c> that forwards the type somewhere
+    /// unverifiable withdraw the genuine <c>netstandard</c> alias sharing its bucket — a caller
+    /// that really does call the target, dropped. Raised in review of <c>7572838c</c>.
+    ///
+    /// <para>This is the caller side's lesson arriving on the definer side one round later.
+    /// <see cref="PrefilterKeepsAnAliasWhenAnUncheckableReferenceSharesItsCanonicalName"/> settled
+    /// the same question for references in review of <c>b18e5009</c>: withdraw the spelling, never
+    /// the bucket. The fix is to key the chain map on the raw spelling and canonicalize only after
+    /// pruning.</para>
+    /// </summary>
+    [Fact]
+    public void ADeadCorelibFacadeDoesNotWithdrawAGenuineSiblingInItsBucket()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "netstandard", "Contoso.Definer", "Contoso", "Widget");
+
+        // The control: alone, the genuine facade is an alias. Without it this test would pass on a
+        // build where nothing is ever aliased.
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        using var caller = BuildCallerNaming("netstandard", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(
+                caller.GetMetadataReader(),
+                target,
+                ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"))));
+
+        // A stray same-bucket facade pointing at an assembly that is not on disk, so its own edge
+        // cannot be verified and is refused. `mscorlib` and `netstandard` both canonicalize to
+        // `corelib`.
+        WriteForwarder(
+            directory, "mscorlib", "Contoso.Absent", "Contoso", "Widget",
+            publicKey: null, fileName: "mscorlib");
+        File.Delete(Path.Combine(directory, "Contoso.Absent.dll"));
+
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        Assert.True(aliases.IncludesRawSpelling("netstandard"));
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+
+        // And the stray itself is still refused, so this did not buy recall with a fabrication.
+        using var strayCaller = BuildCallerNaming("mscorlib", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(strayCaller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
     /// The negative control for the unsigned multi-version rule: observing two versions widens the
     /// accepted set to exactly those two, not to every version.
     /// </summary>
     [Fact]
-    public void PrefilterDeclinesAVersionUnsignedEvidenceWasNeverObservedAt()
-    {
+    public void PrefilterDeclinesAVersionUnsignedEvidenceWasNeverObservedAt()    {
         string directory = NewTempDirectory();
         WriteForwarder(
             directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
@@ -1218,6 +1294,271 @@ public class ForwardedTypeAliasesTests
         var blob = new BlobBuilder();
         root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
         return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+    }
+
+    /// <summary>
+    /// Two spellings that canonicalize together are still two assemblies, and one that forwards the
+    /// type somewhere else entirely must not be credited with its sibling's target. Collapsing them
+    /// before asking the reachability question pooled their targets, so <c>netstandard</c> vouched
+    /// for callers on the strength of what <c>mscorlib</c> forwards (executed in review of
+    /// <c>7572838c</c>).
+    ///
+    /// <para>This is the fabricating direction of the same defect as
+    /// <see cref="ADeadCorelibFacadeDoesNotWithdrawAGenuineSiblingInItsBucket"/>, which is its
+    /// dropping direction. Canonicalization is right for what the matcher compares and wrong for
+    /// what the evidence says.</para>
+    /// </summary>
+    [Fact]
+    public void ACanonicalSiblingDoesNotLendItsTargetToASpellingThatForwardsElsewhere()
+    {
+        byte[] definerKey = [.. Enumerable.Repeat((byte)0x51, 16)];
+        byte[] msKey = [.. Enumerable.Repeat((byte)0x52, 16)];
+        byte[] netKey = [.. Enumerable.Repeat((byte)0x53, 16)];
+        byte[] otherKey = [.. Enumerable.Repeat((byte)0x54, 16)];
+        byte[] otherDefinerKey = [.. Enumerable.Repeat((byte)0x55, 16)];
+
+        string directory = NewTempDirectory();
+
+        // Written first so no forwarder supplies an unsigned stand-in for them.
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.Definer.dll"),
+            SerializePE(NewAssembly("Contoso.Definer", definerKey)));
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.OtherDefiner.dll"),
+            SerializePE(NewAssembly("Contoso.OtherDefiner", otherDefinerKey)));
+
+        // `netstandard` carries the type to a wholly unrelated definer, by way of a second facade
+        // so the route is a real verified chain rather than a dangling edge.
+        WriteForwarder(
+            directory, "Contoso.Other", "Contoso.OtherDefiner", "Contoso", "Widget",
+            publicKey: otherKey, fileName: "Contoso.Other",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(otherDefinerKey));
+        WriteForwarder(
+            directory, "netstandard", "Contoso.Other", "Contoso", "Widget",
+            publicKey: netKey, fileName: "netstandard",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(otherKey));
+
+        // `mscorlib` is the genuine facade for the target, and canonicalizes to the same bucket.
+        WriteForwarder(
+            directory, "mscorlib", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: msKey, fileName: "mscorlib",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(definerKey));
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // The positive control: the genuine sibling in that bucket still works, so the refusal
+        // below is not the whole bucket having been withdrawn.
+        using var genuine = BuildCallerNaming("mscorlib", "Contoso", "Widget", TokenOf(msKey));
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(genuine.GetMetadataReader(), target, aliases));
+
+        using var elsewhere = BuildCallerNaming("netstandard", "Contoso", "Widget", TokenOf(netKey));
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(elsewhere.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// A file that <em>defines</em> the type contradicts a same-named file that forwards it, just
+    /// as a rival forwarder does. Nothing distinguishes which of the two a caller naming that
+    /// spelling was bound to, so reporting it against the target invents a call it may never have
+    /// made.
+    ///
+    /// <para>Reduced from a review fixture built with the real compiler: two projects both named
+    /// <c>Contoso.Facade</c>, one carrying <c>[assembly: TypeForwardedTo(typeof(Contoso.Widget))]</c>
+    /// and one declaring <c>Contoso.Widget</c> itself, with a caller referencing the second.</para>
+    /// </summary>
+    [Fact]
+    public void ATwinThatDefinesTheTypeContradictsTheFacadeThatForwardsIt()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "ForwardingFacade");
+
+        // The control: with only the forwarder present the spelling is an alias, so the refusal
+        // below is the twin's doing and not this fixture failing to produce an alias at all.
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(
+                caller.GetMetadataReader(),
+                target,
+                ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"))));
+
+        // The twin: same assembly name, same (absent) key, same version — indistinguishable to any
+        // caller — but it declares Contoso.Widget rather than forwarding it.
+        WriteDefiner(directory, "Contoso.Facade", "Contoso", "Widget", fileName: "RivalFacade");
+
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+
+        // The raw spelling survives, as it does for every other contradiction here: it only widens
+        // which assemblies are opened, and the refusal above is what decides the answer. Asserted
+        // so a later reading does not mistake its presence for the alias still applying.
+        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
+    }
+
+    /// <summary>
+    /// The negative control for the rule above: a twin declaring some <em>other</em> type is not a
+    /// contradiction, so it must not withdraw the alias. Without this, "any same-named neighbour
+    /// refuses" would pass the test above while dropping ordinary callers.
+    /// </summary>
+    [Fact]
+    public void ATwinThatDefinesAnUnrelatedTypeLeavesTheAliasStanding()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "ForwardingFacade");
+        WriteDefiner(directory, "Contoso.Facade", "Contoso", "Gadget", fileName: "RivalFacade");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// An unreadable target file must not produce a <em>wider</em> answer than a readable one.
+    /// Losing the authoritative identity used to fall through to the census, which named a rival
+    /// definer the readable path refuses — so deleting a file admitted a caller.
+    /// </summary>
+    [Fact]
+    public void AnUnreadableTargetFileDoesNotWidenTheAnswerTheReadableOneGives()
+    {
+        string directory = NewTempDirectory();
+        byte[] scopeKey = [.. Enumerable.Repeat((byte)0x0A, 16)];
+        byte[] authoritativeKey = [.. Enumerable.Repeat((byte)0x0B, 16)];
+
+        // The facade forwards to a `Contoso.Definer` bearing the SCOPE's key, and a matching
+        // `Contoso.Definer` sits beside it — so the census on its own would confirm this edge.
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.Definer.dll"),
+            SerializePE(NewAssembly("Contoso.Definer", scopeKey)));
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "Contoso.Facade",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(scopeKey));
+
+        // The assembly actually under inspection is a different `Contoso.Definer`, so the facade
+        // does not forward to it and the alias must be refused.
+        string targetDirectory = NewTempDirectory();
+        string targetPath = Path.Combine(targetDirectory, "Contoso.Definer.dll");
+        File.WriteAllBytes(targetPath, SerializePE(NewAssembly("Contoso.Definer", authoritativeKey)));
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var scope = Directory.GetFiles(directory, "*.dll");
+
+        // Read authoritatively, the edge is refused.
+        Assert.False(
+            ForwardedTypeAliases
+                .ForTarget(target, targetPath, scope, seedSpellings: null)
+                .IncludesRawSpelling("Contoso.Facade"));
+
+        // The sensitivity control: the census answers the OTHER way, so the assertion below can
+        // only hold because the fallback is not taken — not because nothing verifies here.
+        Assert.True(
+            ForwardedTypeAliases
+                .ForTarget(target, targetAssemblyPath: null, scope, seedSpellings: null)
+                .IncludesRawSpelling("Contoso.Facade"));
+
+        // Losing the authoritative file must not hand the question to the census, which would make
+        // an unreadable target admit a caller the readable one refuses.
+        string unreadable = Path.Combine(targetDirectory, "Gone.dll");
+        var afterLoss = ForwardedTypeAliases.ForTarget(
+            target, unreadable, scope, seedSpellings: null);
+
+        Assert.False(afterLoss.IncludesRawSpelling("Contoso.Facade"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, afterLoss));
+    }
+
+    /// <summary>
+    /// Assembly names are compared case-insensitively everywhere else here — including this walk's
+    /// own visited set — so the chain's terminal comparison must be too. An ordinal comparison
+    /// there dropped a genuine caller whose facade spelled the definer's name in another case.
+    /// </summary>
+    [Fact]
+    public void AForwarderNamingTheDefinerInAnotherCaseStillReachesIt()
+    {
+        string directory = NewTempDirectory();
+
+        // The facade's ExportedType points at `CONTOSO.DEFINER`; the file on disk claims
+        // `Contoso.Definer`. ECMA identity comparison is case-insensitive, so this is one assembly.
+        WriteForwarder(directory, "Contoso.Facade", "CONTOSO.DEFINER", "Contoso", "Widget");
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.Definer.dll"),
+            SerializePE(NewAssembly("Contoso.Definer", publicKey: null)));
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        string targetPath = Path.Combine(directory, "Contoso.Definer.dll");
+        var aliases = ForwardedTypeAliases.ForTarget(
+            target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+
+        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// One file listed twice is one claimant. Counting it twice made a single-claimant name look
+    /// contested, and the target's identity was then treated as unknowable — dropping every caller.
+    /// </summary>
+    [Fact]
+    public void TheSameFileSuppliedTwiceIsStillOneClaimantOfItsName()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var once = Directory.GetFiles(directory, "*.dll");
+
+        // The control: the answer this fixture gives when nothing is duplicated.
+        Assert.True(
+            ForwardedTypeAliases.ForTarget(target, once).IncludesRawSpelling("Contoso.Facade"));
+
+        var twice = ForwardedTypeAliases.ForTarget(target, [.. once, .. once]);
+
+        Assert.True(twice.IncludesRawSpelling("Contoso.Facade"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, twice));
+    }
+
+    /// <summary>Writes an assembly that declares the named type rather than forwarding it.</summary>
+    static void WriteDefiner(string directory, string name, string ns, string typeName, string fileName)
+    {
+        var metadata = NewAssembly(name);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
     }
 
     /// <summary>
