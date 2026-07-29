@@ -106,8 +106,7 @@ public class PackageCommand
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
-                    : options.ShowContent ? "--content"
-                    : "--readme";
+                    : "--content";
                 Console.Error.WriteLine(
                     $"Error: -S/--select is not available with {lensName}, which renders its own payload rather than sections.");
                 return 1;
@@ -498,7 +497,7 @@ public class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
-            // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
+            // Parse nuspec (needed for the --dependencies early exit and full inspection)
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             // Handle file content modes and exit early.
@@ -1817,7 +1816,7 @@ public class PackageCommand
     {
         if (options.IncludeSections is not { Count: 1 } include)
         {
-            Console.Error.WriteLine("Error: --bare requires exactly one -S section, --readme, or --content payload.");
+            Console.Error.WriteLine("Error: --bare requires exactly one -S section or --content payload.");
             return 1;
         }
 

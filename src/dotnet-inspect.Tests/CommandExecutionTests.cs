@@ -11224,6 +11224,45 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_ReadmeTip_RecommendsAGestureThatActuallyRuns()
+    {
+        // Removing a flag leaves the suggestions that named it behind, and a tip is a command the
+        // user is invited to paste. Parse the gesture out of the emitted tip and run it, so the
+        // tip cannot drift into naming an option the parser no longer recognizes.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Tip.Readme", "README.md", "tip readme body");
+        try
+        {
+            var (_, _, tipError) = await RunAppAsync("package", packagePath, "-T:d");
+
+            var tipLine = tipError
+                .Split('\n')
+                .FirstOrDefault(line => line.Contains("# view README", StringComparison.Ordinal));
+            Assert.NotNull(tipLine);
+
+            var gesture = tipLine!.Split('#')[0].Trim();
+            Assert.StartsWith("package ", gesture, StringComparison.Ordinal);
+            Assert.Contains("--print", gesture, StringComparison.Ordinal);
+
+            // Re-split the way a shell would, so the quoted section name survives as one token.
+            var args = System.Text.RegularExpressions.Regex
+                .Matches(gesture, "\"[^\"]*\"|\\S+")
+                .Select(match => match.Value.Trim('"'))
+                .ToArray();
+            args[1] = packagePath;
+
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Unrecognized option", error, StringComparison.Ordinal);
+            Assert.Contains("tip readme body", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Signals_ReportsAgentDocumentation()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.AgentDocs.Signal", "README.md", "readme", "agents");
