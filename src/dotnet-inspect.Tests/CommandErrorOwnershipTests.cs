@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -114,73 +117,108 @@ public class CommandErrorOwnershipTests
     private static readonly Regex StderrWrite =
         new(@"Console\s*\.\s*Error\s*\.\s*\w+\s*\(", RegexOptions.Compiled);
 
-    /// <summary>
-    /// A using directive that imports <c>System.Console</c>, making
-    /// <c>Error</c> nameable without the receiver every other rule here keys on.
-    /// </summary>
-    /// <remarks>
-    /// <c>using static System.Console;</c> followed by a bare
-    /// <c>Error.WriteLine(untrusted)</c> defeated every regex in this file at
-    /// once -- an uncontained write with all five tests green -- because each
-    /// of them requires the literal <c>Console.</c> to be present. An alias,
-    /// <c>using C = System.Console;</c>, does the same thing.
-    ///
-    /// Rather than chase the spellings that a static import makes possible,
-    /// this forbids the import. After it, the only way to name the type is
-    /// <c>Console</c> or <c>System.Console</c>, which every other rule here
-    /// sees. That closes the set instead of enumerating it -- and the set is
-    /// what the previous eighteen rounds kept failing to enumerate.
-    ///
-    /// The optional <c>global</c> prefix matters: one <c>global using static</c>
-    /// anywhere in a project would apply the import to every file in it.
-    ///
-    /// The alias name may be a verbatim identifier. <c>using @C = System.Console;</c>
-    /// is legal and binds exactly as <c>using C = ...</c> does, and the first
-    /// spelling of the alias branch required the name to start with a letter or
-    /// underscore, so the <c>@</c> walked past it.
-    ///
-    /// It is deliberately not anchored to the start of a line. Requiring one
-    /// was the first spelling, and <c>/* x */ using static System.Console;</c>
-    /// walked straight past it -- the directive is legal there, so anchoring
-    /// re-created in miniature the enumerate-the-spellings mistake this rule
-    /// exists to avoid. A preceding-character guard keeps it from matching
-    /// inside a longer identifier, and genuinely commented-out directives are
-    /// excluded by <see cref="BlankComments"/> before matching rather than by
-    /// the pattern.
-    /// </remarks>
-    private static readonly Regex ConsoleImport =
-        new(
-            @"(?<![\w.])(?:global\s+)?using\s+(?:static\s+|@?[A-Za-z_]\w*\s*=\s*)(?:global\s*::\s*)?(?:System\s*\.\s*)?Console\s*;",
-            RegexOptions.Compiled);
-
-    /// <summary>
-    /// The MSBuild spelling of the same import, which no <c>.cs</c> scan sees.
-    /// </summary>
-    /// <remarks>
-    /// The <c>Include</c> is matched loosely on purpose. A literal
-    /// <c>"System.Console"</c> was the first spelling, and MSBuild evaluates
-    /// properties in that attribute, so
-    /// <c>&lt;Using Include="$(SomeProperty)" Static="true" /&gt;</c> imports
-    /// whatever the property holds while naming nothing. This test is not an
-    /// MSBuild evaluator and should not become one, so an <c>Include</c> that
-    /// contains <c>$(</c> is reported rather than resolved: an import this
-    /// class cannot read is an import it cannot vouch for, and refusing is the
-    /// only answer that does not depend on guessing right.
-    /// </remarks>
-    private static readonly Regex MsBuildStaticUsing =
-        new(
-            @"<Using\s[^>]*?Static\s*=\s*""[Tt]rue""[^>]*?/?>|<Using\s[^>]*?Include\s*=\s*""[^""]*""[^>]*?/?>",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly Regex MsBuildUsingInclude =
-        new(@"Include\s*=\s*""([^""]*)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly Regex MsBuildUsingStatic =
-        new(@"Static\s*=\s*""[Tt]rue""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
     private static readonly Regex ComposedPrefixWrite =
         new(@"\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
 
+    /// <summary>
+    /// The values MSBuild evaluates <paramref name="item"/> to for
+    /// <paramref name="projectPath"/>, in <paramref name="configuration"/>.
+    /// </summary>
+    /// <remarks>
+    /// The alternative -- and what every earlier version of this class did --
+    /// is to read the <c>.csproj</c> as XML and re-derive what it means. That
+    /// answers "what does this project file say", which is not the question:
+    /// the question is what the compiler was handed. A reviewer separated the
+    /// two by declaring
+    /// <c>&lt;Compile Include="$(MSBuildThisFileDirectory)eng\Diagnostics.cs"/&gt;</c>
+    /// in <c>Directory.Build.targets</c>. The file compiles into the CLI, sits
+    /// outside every project directory so the glob misses it, and is named in
+    /// no <c>.csproj</c>, so the XML scan misses it too. Imports, implicit
+    /// build files above the clone, and a package's <c>buildTransitive</c>
+    /// targets all reach the compilation the same way, and none of them is a
+    /// file this repository can enumerate.
+    ///
+    /// MSBuild already answers this exactly, so it is asked. That is the same
+    /// move as reading the generated <c>GlobalUsings.g.cs</c> instead of the
+    /// <c>&lt;Using&gt;</c> elements that produce it, applied to the other two
+    /// item types this class depends on.
+    ///
+    /// A failed evaluation throws. Falling back to the XML reading would be a
+    /// harness compensating for an unavailable observation, and it is exactly
+    /// when evaluation stops working that the difference matters.
+    /// </remarks>
+    private static IReadOnlyList<Dictionary<string, string>> EvaluatedItems(
+        string projectPath,
+        string item,
+        string configuration) =>
+        Evaluations.GetOrAdd((projectPath, item, configuration), static key => Evaluate(key.Project, key.Item, key.Configuration));
+
+    private static readonly ConcurrentDictionary<(string Project, string Item, string Configuration),
+        IReadOnlyList<Dictionary<string, string>>> Evaluations = new();
+
+    private static IReadOnlyList<Dictionary<string, string>> Evaluate(
+        string projectPath,
+        string item,
+        string configuration)
+    {
+        using Process process = new()
+        {
+            StartInfo = new ProcessStartInfo("dotnet")
+            {
+                ArgumentList =
+                {
+                    "msbuild",
+                    projectPath,
+                    $"-getItem:{item}",
+                    $"-p:Configuration={configuration}",
+                },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+
+        process.Start();
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not evaluate {item} for {projectPath} ({configuration}). This class reads the set of files "
+                + $"the compiler was handed rather than deriving it from project XML, so an evaluation it cannot "
+                + $"run is an observation it does not have.{Environment.NewLine}{output}{Environment.NewLine}{error}");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(output);
+        if (!document.RootElement.GetProperty("Items").TryGetProperty(item, out JsonElement values))
+        {
+            return [];
+        }
+
+        return
+        [
+            .. values.EnumerateArray().Select(v => v.EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value.GetString() ?? string.Empty, StringComparer.Ordinal))
+        ];
+    }
+
+    /// <summary>
+    /// The configurations every evaluation here is run in.
+    /// </summary>
+    /// <remarks>
+    /// Both, because a <c>Condition</c> is part of what a build file can say.
+    /// Evaluating only the configuration the tests run in would let
+    /// <c>Condition="'$(Configuration)' == 'Debug'"</c> put a file into a
+    /// compilation that this class never reads -- the same hole, one property
+    /// deeper. The XML readings kept alongside these deliberately ignore
+    /// conditions for the same reason.
+    /// </remarks>
+    private static readonly string[] Configurations = ["Debug", "Release"];
+
+    /// <summary>
+
+    /// </summary>
     /// <summary>
     /// The <c>Include</c> of every <c>ProjectReference</c> in a project file.
     /// </summary>
@@ -230,33 +268,121 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
+    /// Every <c>&lt;Using&gt;</c> element in a build file.
+    /// </summary>
+    /// <remarks>
+    /// Read as XML for the reason the <c>ProjectReference</c> scan next to it
+    /// is: a regex over markup is a guess about markup. This one guessed that
+    /// an attribute list contains no <c>&gt;</c> -- both alternatives crossed it
+    /// with <c>[^&gt;]*?</c> -- and <c>&gt;</c> is legal, unescaped, inside an
+    /// XML attribute value, which MSBuild conditions use it as. A reviewer wrote
+    /// <c>&lt;Using Condition="'1'&gt;'0'" Include="System.Console" Alias="C"/&gt;</c>
+    /// and the element was never reported.
+    /// </remarks>
+    private static IEnumerable<XElement> UsingElements(string path)
+    {
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(path, LoadOptions.SetLineInfo);
+        }
+        catch (XmlException)
+        {
+            yield break;
+        }
+
+        foreach (XElement element in document.Descendants())
+        {
+            if (string.Equals(element.Name.LocalName, "Using", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return element;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a <c>&lt;Using&gt;</c> element makes <c>Console</c>'s members
+    /// nameable without a receiver.
+    /// </summary>
+    /// <remarks>
+    /// An <c>Include</c> this class cannot resolve counts. MSBuild evaluates
+    /// properties in that attribute, so
+    /// <c>&lt;Using Include="$(SomeProperty)" Static="true"/&gt;</c> imports
+    /// whatever the property holds while naming nothing. This is not an MSBuild
+    /// evaluator and should not become one, so an unresolvable value is reported
+    /// rather than guessed at -- an import this class cannot read is one it
+    /// cannot vouch for.
+    /// </remarks>
+    private static bool DeclaresConsoleImport(XElement element)
+    {
+        string include = Attribute(element, "Include") ?? string.Empty;
+        bool bindsWithoutReceiver =
+            string.Equals(Attribute(element, "Static"), "true", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrEmpty(Attribute(element, "Alias"));
+
+        return string.Equals(include, "Console", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(include, "System.Console", StringComparison.OrdinalIgnoreCase)
+            || (bindsWithoutReceiver && include.Contains("$(", StringComparison.Ordinal));
+    }
+
+    private static string? Attribute(XElement element, string name) =>
+        element.Attributes()
+            .FirstOrDefault(a => string.Equals(a.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))
+            ?.Value;
+
+    /// <summary>
     /// Every project reachable from <paramref name="projectPath"/> through
     /// ProjectReference, including itself.
     /// </summary>
     private static HashSet<string> ProjectClosure(string projectPath)
     {
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        Queue<string> queue = new();
-        queue.Enqueue(Path.GetFullPath(projectPath));
+        return Closures.GetOrAdd(Path.GetFullPath(projectPath), Walk);
 
-        while (queue.Count > 0)
+        static HashSet<string> Walk(string start)
         {
-            string current = queue.Dequeue();
-            if (!seen.Add(current) || !File.Exists(current))
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            List<string> frontier = [start];
+
+            while (frontier.Count > 0)
             {
-                continue;
+                List<string> current = [.. frontier.Where(p => seen.Add(p) && File.Exists(p))];
+                ConcurrentBag<string> found = [];
+
+                // A level at a time, because each project costs two MSBuild
+                // evaluations and they do not depend on each other.
+                Parallel.ForEach(current, project =>
+                {
+                    string directory = Path.GetDirectoryName(project)!;
+
+                    foreach (string relative in ProjectReferences(project))
+                    {
+                        found.Add(Path.GetFullPath(
+                            Path.Combine(directory, relative.Replace('\\', Path.DirectorySeparatorChar))));
+                    }
+
+                    // ... and the references the build actually resolves, which
+                    // is a different set: one added by an imported build file
+                    // appears here and in no project XML.
+                    foreach (string configuration in Configurations)
+                    {
+                        foreach (var reference in EvaluatedItems(project, "ProjectReference", configuration))
+                        {
+                            if (reference.TryGetValue("FullPath", out string? full) && !string.IsNullOrEmpty(full))
+                            {
+                                found.Add(Path.GetFullPath(full));
+                            }
+                        }
+                    }
+                });
+
+                frontier = [.. found.Where(p => !seen.Contains(p)).Distinct(StringComparer.Ordinal)];
             }
 
-            string? directory = Path.GetDirectoryName(current);
-            foreach (string relative in ProjectReferences(current))
-            {
-                queue.Enqueue(Path.GetFullPath(
-                    Path.Combine(directory!, relative.Replace('\\', Path.DirectorySeparatorChar))));
-            }
+            return seen;
         }
-
-        return seen;
     }
+
+    private static readonly ConcurrentDictionary<string, HashSet<string>> Closures = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Every C# file belonging to code that runs inside the CLI process.
@@ -292,6 +418,22 @@ public class CommandErrorOwnershipTests
             foreach (string included in CompileIncludes(project))
             {
                 files.Add(included);
+            }
+
+            // ... and, finally, the set the compiler is actually handed, which
+            // is the only one of the three that sees a Compile item contributed
+            // by a build file rather than by the project.
+            foreach (string configuration in Configurations)
+            {
+                foreach (var compile in EvaluatedItems(project, "Compile", configuration))
+                {
+                    if (compile.TryGetValue("FullPath", out string? full)
+                        && !string.IsNullOrEmpty(full)
+                        && File.Exists(full))
+                    {
+                        files.Add(Path.GetFullPath(full));
+                    }
+                }
             }
         }
 
@@ -535,55 +677,76 @@ public class CommandErrorOwnershipTests
     /// list is the same mistake as the lexer: a first draft of this defined
     /// <c>DEBUG</c> and nothing else, and the CLI turned out to test
     /// <c>NET11_0_OR_GREATER</c> too, so a write under that condition would
-    /// have been invisible in every reading. Three parses -- none defined, all
-    /// defined, all defined but <c>DEBUG</c> -- put every symbol the file names
-    /// on both sides of at least one reading. That this suffices depends on the
-    /// conditions being simple, so
-    /// <see cref="StderrScan_MatchesTheShapeItIsMeantToCatch"/> asserts they
-    /// are: a compound condition would need a reading none of these three is,
-    /// and must fail here rather than quietly go unread.
+    /// have been invisible in every reading.
+    ///
+    /// Every assignment of those symbols is read -- not a chosen few, because
+    /// choosing needs an argument about which configurations matter and the
+    /// second draft's argument was also wrong. It read three configurations
+    /// (none, all, all-but-<c>DEBUG</c>) and asserted every condition tested one
+    /// optionally-negated symbol, which sounds sufficient and is not: those
+    /// three only ever assign a pair of symbols <c>(off,off)</c> or
+    /// <c>(on,on)</c>, while an <c>#elif B</c> after <c>#if A</c> is live under
+    /// <c>!A &amp;&amp; B</c>. A reviewer put a live
+    /// <c>Console.Error.WriteLine(args[0])</c> in exactly that branch; it
+    /// compiled, it ran, it forged an <c>Error:</c> line from argv, and all five
+    /// tests here stayed green. Per-condition simplicity was never the property
+    /// that mattered -- reachability of a branch is a conjunction across the
+    /// chain, not a fact about one directive.
+    ///
+    /// Enumerating retires that argument and the shape restriction with it:
+    /// compound conditions, nested chains and <c>#else</c> all follow from each
+    /// symbol being tried both ways. It is affordable because the exponent is
+    /// tiny -- measured over the CLI's sources and its generated files, 1978
+    /// name no symbol at all and 5 name exactly one -- and where it would not
+    /// be, <see cref="MaxConditionalSymbols"/> throws rather than quietly
+    /// reading fewer configurations than the file has.
     /// </remarks>
-    private static string Code(string source) => CodeText(source, []);
-
-    private static IEnumerable<string> CodeReadings(string source)
-    {
-        string[] all = ConditionalSymbols(source).Distinct(StringComparer.Ordinal).ToArray();
-        string[] withoutDebug = all.Where(s => !string.Equals(s, "DEBUG", StringComparison.Ordinal)).ToArray();
-
-        yield return CodeText(source, []);
-        yield return CodeText(source, withoutDebug);
-        yield return CodeText(source, [.. withoutDebug, "DEBUG"]);
-    }
+    private static string Code(string source) => CodeText(source, []).Text;
 
     /// <summary>
-    /// Whether every <c>#if</c>/<c>#elif</c> in <paramref name="source"/> tests
-    /// one symbol, optionally negated -- the shape
-    /// <see cref="CodeReadings"/>'s three parses are exhaustive for.
+    /// One configuration of a file: the tokens the compiler produces for it,
+    /// written back at their own offsets, and the tree they came from.
     /// </summary>
-    private static bool ConditionsAreSimple(string source)
+    /// <remarks>
+    /// The tree travels with the text because two questions here are not
+    /// answerable by matching it. Which imports a file makes is one -- a
+    /// using directive has a grammar, and every regex spelling of it has lost
+    /// to a legal one. Where a match sits is the other: a syntax tree turns an
+    /// offset into the statement it belongs to, which is what makes an
+    /// accounted sink identifiable as itself.
+    /// </remarks>
+    private readonly record struct Reading(string Text, SyntaxTree Tree);
+
+    /// <summary>
+    /// The most distinct conditional symbols one file may name.
+    /// </summary>
+    /// <remarks>
+    /// The bound is on the enumeration, not on the code. Exceeding it means
+    /// this class can no longer read every configuration of that file, which
+    /// has to be a failure rather than a silently smaller set of readings.
+    /// </remarks>
+    private const int MaxConditionalSymbols = 8;
+
+    private static IEnumerable<Reading> CodeReadings(string source)
     {
-        SyntaxTree tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        string[] symbols =
+        [
+            .. ConditionalSymbols(source).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)
+        ];
 
-        foreach (SyntaxTrivia trivia in tree.GetRoot().DescendantTrivia())
+        if (symbols.Length > MaxConditionalSymbols)
         {
-            if (trivia.GetStructure() is not ConditionalDirectiveTriviaSyntax directive)
-            {
-                continue;
-            }
-
-            ExpressionSyntax condition = directive.Condition;
-            if (condition is PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.LogicalNotExpression } negation)
-            {
-                condition = negation.Operand;
-            }
-
-            if (condition is not IdentifierNameSyntax)
-            {
-                return false;
-            }
+            throw new InvalidOperationException(
+                $"A file names {symbols.Length} conditional symbols ({string.Join(", ", symbols)}), more than the "
+                + $"{MaxConditionalSymbols} configurations of which this scan enumerates. Reading only some of them "
+                + "leaves the rest unread, which is the hole the enumeration exists to close.");
         }
 
-        return true;
+        for (int assignment = 0; assignment < 1 << symbols.Length; assignment++)
+        {
+            int defined = assignment;
+            yield return CodeText(source, [.. symbols.Where((_, i) => (defined & (1 << i)) != 0)]);
+        }
     }
 
     /// <summary>
@@ -591,7 +754,7 @@ public class CommandErrorOwnershipTests
     /// for it under <paramref name="symbols"/>, each written back at its own
     /// offset with identifiers spelled the way they bind.
     /// </summary>
-    private static string CodeText(string source, string[] symbols)
+    private static Reading CodeText(string source, string[] symbols)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(
             source,
@@ -621,7 +784,7 @@ public class CommandErrorOwnershipTests
             }
         }
 
-        return new string(result);
+        return new Reading(new string(result), tree);
     }
 
     /// <summary>
@@ -645,6 +808,102 @@ public class CommandErrorOwnershipTests
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Every using directive in <paramref name="tree"/> that makes
+    /// <c>Console</c>'s members nameable without writing <c>Console</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>using static System.Console;</c> followed by a bare
+    /// <c>Error.WriteLine(untrusted)</c> defeats every other rule in this file
+    /// at once, because each of them requires the literal receiver. An alias,
+    /// <c>using C = System.Console;</c>, does the same thing. So the import is
+    /// forbidden rather than its consequences enumerated: after it, the only
+    /// way to name the type is <c>Console</c> or <c>System.Console</c>, and
+    /// that is a set rather than a list of spellings.
+    ///
+    /// Which is only true if the import itself is recognised, and the regex
+    /// this replaces recognised a grammar it had guessed. Four rounds of
+    /// reviewers spent their findings on that guess: <c>@C</c>, a leading
+    /// comment where the pattern wanted a line start, <c>global::</c>,
+    /// <c>\u0043onsole</c>. The last two arrived together --
+    /// <c>using Ω = System.Console;</c>, because the alias character class was
+    /// <c>[A-Za-z_]</c> and a C# identifier is any Unicode letter, and
+    /// <c>using static sys::System.Console;</c>, because the only alias
+    /// qualifier the pattern knew was <c>global</c>. Both compile; neither
+    /// matched.
+    ///
+    /// A using directive is not a string with a shape, so this asks the parser
+    /// instead. <see cref="UsingDirectiveSyntax"/> tells us whether the
+    /// directive is static or aliased without any spelling being involved, and
+    /// walking the name to its last identifier is indifferent to how the
+    /// qualifier in front of it is written or which alphabet the alias is in.
+    /// </remarks>
+    private static IEnumerable<UsingDirectiveSyntax> ConsoleImports(SyntaxTree tree)
+    {
+        foreach (UsingDirectiveSyntax directive in tree.GetRoot().DescendantNodes().OfType<UsingDirectiveSyntax>())
+        {
+            bool bindsWithoutReceiver = directive.Alias is not null
+                || directive.StaticKeyword.IsKind(SyntaxKind.StaticKeyword);
+
+            if (bindsWithoutReceiver
+                && string.Equals(LastIdentifier(directive.NamespaceOrType), "Console", StringComparison.Ordinal))
+            {
+                yield return directive;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The last identifier of a possibly-qualified name -- the type or
+    /// namespace being named, with every qualifier in front of it discarded.
+    /// </summary>
+    /// <remarks>
+    /// The qualifier is discarded rather than checked because it cannot make
+    /// the import safe. <c>global::System.Console</c>, <c>sys::System.Console</c>
+    /// and <c>System.Console</c> import the same type; an extern alias root is
+    /// declared elsewhere in the file, so reading it here would be one more
+    /// spelling to get right. Matching on the last identifier over-reports a
+    /// hypothetical unrelated <c>Console</c>, which costs a rename.
+    /// </remarks>
+    private static string? LastIdentifier(TypeSyntax? name) => name switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+        QualifiedNameSyntax qualified => LastIdentifier(qualified.Right),
+        AliasQualifiedNameSyntax aliased => LastIdentifier(aliased.Name),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The smallest statement or member containing <paramref name="offset"/>,
+    /// as its own tokens with the whitespace, comments, and line breaks between
+    /// them removed.
+    /// </summary>
+    /// <remarks>
+    /// This is how an accounted stderr sink is named. A per-file count is not
+    /// an identity: a reviewer pointed out that removing one accounted sink and
+    /// adding an unaccounted one in the same file leaves the tally where it was,
+    /// so the one file with two accounted sinks could carry a substitution that
+    /// this class calls accounted. Naming the statement makes the substitution
+    /// a change to the pinned set, which is the point of pinning it.
+    ///
+    /// Normalising to tokens keeps reformatting, rewrapping, and comments from
+    /// churning the pin, so the pin moves when the code moves and not when the
+    /// file does.
+    /// </remarks>
+    private static string EnclosingStatement(SyntaxTree tree, int offset)
+    {
+        SyntaxNode? node = tree.GetRoot().FindToken(offset).Parent;
+
+        while (node is not null and not StatementSyntax and not MemberDeclarationSyntax)
+        {
+            node = node.Parent;
+        }
+
+        return node is null
+            ? "<unattached>"
+            : string.Concat(node.DescendantTokens().Select(t => t.Text));
     }
 
     /// <summary>
@@ -715,17 +974,26 @@ public class CommandErrorOwnershipTests
             }
 
             string source = File.ReadAllText(path);
-            foreach (string text in CodeReadings(source))
+            foreach (Reading reading in CodeReadings(source))
             {
-                foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
+                // Token text is written back at its own offset, so a line
+                // number is the source's in every reading -- which is also what
+                // makes the offender string a sound key for the overlap between
+                // configurations that compile the same code.
+                foreach (Match match in StderrWrite.Matches(reading.Text))
                 {
-                    // Both blanking modes preserve newlines and escape decoding
-                    // only ever shortens within a line, so the line number is
-                    // the source's in either reading -- which is also what makes
-                    // the offender string a sound key for the two readings'
-                    // overlap.
-                    int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                    string offender = $"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Trim()}";
+                    Report(match.Index, match.Value.Trim());
+                }
+
+                foreach (UsingDirectiveSyntax import in ConsoleImports(reading.Tree))
+                {
+                    Report(import.Span.Start, import.ToString().Trim());
+                }
+
+                void Report(int offset, string what)
+                {
+                    int line = reading.Text.Take(offset).Count(c => c == '\n') + 1;
+                    string offender = $"{Path.GetRelativePath(root, path)}:{line}: {what}";
                     if (!offenders.Contains(offender))
                     {
                         offenders.Add(offender);
@@ -740,27 +1008,45 @@ public class CommandErrorOwnershipTests
         // build file a contributor has to edit, which the generated file cannot.
         foreach (string project in MsBuildFiles(root))
         {
-            string text = File.ReadAllText(project);
-            foreach (Match match in MsBuildStaticUsing.Matches(text))
+            foreach (XElement element in UsingElements(project))
             {
-                string element = match.Value;
-                string include = MsBuildUsingInclude.Match(element).Groups[1].Value;
-                bool isStatic = MsBuildUsingStatic.IsMatch(element);
-
-                bool namesConsole = string.Equals(include, "Console", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(include, "System.Console", StringComparison.OrdinalIgnoreCase);
-                bool unresolvable = isStatic && include.Contains("$(", StringComparison.Ordinal);
-
-                if (!namesConsole && !unresolvable)
+                if (!DeclaresConsoleImport(element))
                 {
                     continue;
                 }
 
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                string why = unresolvable
+                int line = ((IXmlLineInfo)element).HasLineInfo() ? ((IXmlLineInfo)element).LineNumber : 0;
+                string why = (Attribute(element, "Include") ?? string.Empty).Contains("$(", StringComparison.Ordinal)
                     ? " (Include is a property this rule cannot evaluate; spell the type literally)"
                     : string.Empty;
-                offenders.Add($"{Path.GetRelativePath(root, project)}:{line}: {element.Trim()}{why}");
+                offenders.Add($"{Path.GetRelativePath(root, project)}:{line}: {element}{why}");
+            }
+        }
+
+        // ... and the resolved side, which is what the projects in the closure
+        // were actually built with. A property-valued Include is a name only
+        // here; a Using contributed by a build file this repository does not
+        // contain appears only here.
+        foreach (string project in ProjectClosure(
+            Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        {
+            foreach (string configuration in Configurations)
+            {
+                foreach (var import in EvaluatedItems(project, "Using", configuration))
+                {
+                    import.TryGetValue("Identity", out string? identity);
+                    bool bindsWithoutReceiver = string.Equals(
+                            import.GetValueOrDefault("Static"), "true", StringComparison.OrdinalIgnoreCase)
+                        || !string.IsNullOrEmpty(import.GetValueOrDefault("Alias"));
+
+                    if (bindsWithoutReceiver
+                        && (string.Equals(identity, "Console", StringComparison.Ordinal)
+                            || string.Equals(identity, "System.Console", StringComparison.Ordinal)))
+                    {
+                        offenders.Add(
+                            $"{Path.GetRelativePath(root, project)} ({configuration}): <Using Include=\"{identity}\"/>");
+                    }
+                }
             }
         }
 
@@ -796,43 +1082,52 @@ public class CommandErrorOwnershipTests
 
         foreach (string path in CliSourceFiles(root))
         {
-            // Counted across every configuration, and deduplicated by offset:
-            // each token is written back at its own position, so a sink visible
-            // in two readings is the same sink at the same offset in both. A
-            // sink compiled in only one configuration -- the DEBUG-only one
-            // below is real -- still counts once.
+            // Read in every configuration -- a sink compiled in only one of
+            // them, as the DEBUG-only one below is, is still a sink -- and
+            // deduplicated by offset, because token text is written back at its
+            // own position, so one site seen in two configurations is one
+            // offset in both.
             string source = File.ReadAllText(path);
-            HashSet<int> offsets = [];
-            foreach (string text in CodeReadings(source))
+            string file = Path.GetRelativePath(root, path).Replace('\\', '/');
+            Dictionary<int, string> sites = [];
+
+            foreach (Reading reading in CodeReadings(source))
             {
-                foreach (Match match in StderrSink.Matches(text))
+                foreach (Match match in StderrSink.Matches(reading.Text))
                 {
-                    offsets.Add(match.Index);
+                    sites[match.Index] = EnclosingStatement(reading.Tree, match.Index);
                 }
             }
 
-            if (offsets.Count > 0)
+            // Counted per statement rather than per file. Two sites that are
+            // the same statement are indistinguishable and are pinned as a
+            // count; two that are not are separate entries, which is what makes
+            // a substitution within one file visible.
+            foreach (var site in sites.Values.GroupBy(v => v, StringComparer.Ordinal))
             {
-                sinks[Path.GetRelativePath(root, path).Replace('\\', '/')] = offsets.Count;
+                sinks[$"{file}: {site.Key}"] = site.Count();
             }
         }
 
         Dictionary<string, int> accounted = new(StringComparer.Ordinal)
         {
-            // Markout views of the tips and legend; every field of both rows is
-            // contained where the row is built.
-            ["src/dotnet-inspect/Output/Hints.cs"] = 2,
+            // Markout views of the tips and the legend, written through one
+            // call site; every field of both rows is contained where the row is
+            // built.
+            ["src/dotnet-inspect/Output/Hints.cs: MarkoutSerializer.Serialize(view,Console.Error,newPlainTextFormatter(),TipsViewContext.Default);"] = 2,
 
-            // --info (a view of counts and durations, plus the readme path from
-            // inside the .nupkg, contained at row construction) and
-            // --trace-mermaid (contained at composition, containment a required
-            // parameter so no caller can omit it).
-            ["src/dotnet-inspect/Program.cs"] = 2,
+            // --info: a view of counts and durations, plus the readme path from
+            // inside the .nupkg, contained at row construction.
+            ["src/dotnet-inspect/Program.cs: MarkoutSerializer.Serialize(view,Console.Error,InfoViewContext.Default);"] = 1,
+
+            // --trace-mermaid: contained at composition, with containment a
+            // required parameter so no caller can omit it.
+            ["src/dotnet-inspect/Program.cs: traceMermaid.WriteTo(Console.Error,CSharpIdentifier.ContainRenderedText);"] = 1,
 
             // DEBUG-only network traffic log. Not in the shipped build, but the
             // logged URL carries the package id from argv, so its consumer takes
             // containment as a required constructor parameter.
-            ["src/DotnetInspector.Core/HttpClientFactory.cs"] = 1,
+            ["src/DotnetInspector.Core/HttpClientFactory.cs: return_networkTrafficLoggingSubscription??=NetworkTelemetry.Subscribe(newNetworkTrafficLogConsumer(Console.Error,contain));"] = 1,
         };
 
         Assert.Equal(accounted, sinks);
@@ -868,26 +1163,39 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrWrite, "System.Console.Error.WriteLine(x);");
 
         // An import of the type makes `Error` nameable with no receiver, which
-        // is invisible to every other pattern in this file.
-        Assert.Matches(ConsoleImport, "using static System.Console;\n");
-        Assert.Matches(ConsoleImport, "using static Console;\n");
-        Assert.Matches(ConsoleImport, "global using static System.Console;\n");
-        Assert.Matches(ConsoleImport, "using C = System.Console;\n");
-        Assert.Matches(ConsoleImport, "using C = global::System.Console;\n");
+        // is invisible to every other rule in this file.
+        Assert.True(ImportsConsole("using static System.Console;"));
+        Assert.True(ImportsConsole("using static Console;"));
+        Assert.True(ImportsConsole("global using static System.Console;"));
+        Assert.True(ImportsConsole("using C = System.Console;"));
+        Assert.True(ImportsConsole("using C = global::System.Console;"));
 
-        // A directive is legal after anything on its line, so anchoring the
-        // pattern to the line start left a one-comment bypass.
-        Assert.Matches(ConsoleImport, "/* bypass */ using static System.Console;\n");
-        Assert.Matches(ConsoleImport, "\t  using   static   System . Console ;\n");
+        // A directive is legal after anything on its line, and the regex this
+        // replaces was anchored to the line start.
+        Assert.True(ImportsConsole("/* bypass */ using static System.Console;"));
+        Assert.True(ImportsConsole("\t  using   static   System . Console ;"));
 
-        // The guard is against matching inside a longer token, not against
-        // position on the line.
-        Assert.DoesNotMatch(ConsoleImport, "Notusing static System.Console;\n");
-        Assert.DoesNotMatch(ConsoleImport, "using System;\n");
-        Assert.DoesNotMatch(ConsoleImport, "using static System.Math;\n");
-        Assert.DoesNotMatch(ConsoleImport, "using DotnetInspector.Output.ConsoleTheme;\n");
-        Assert.Matches(MsBuildStaticUsing, "<Using Include=\"System.Console\" Static=\"true\" />");
-        Assert.Matches(MsBuildStaticUsing, "<Using Static=\"true\" Include=\"$(Reviewer)\" />");
+        // An alias is an identifier, not `[A-Za-z_]\w*`, and the qualifier in
+        // front of the name is not always `global`. Both of these compiled
+        // against the pattern this replaces and matched nothing.
+        Assert.True(ImportsConsole("using \u03a9 = System.Console;"));
+        Assert.True(ImportsConsole("extern alias sys;\nusing static sys::System.Console;"));
+        Assert.True(ImportsConsole("using \u00c9rr = global::System.Console;"));
+
+        // Naming the type is not importing it.
+        Assert.False(ImportsConsole("using System;"));
+        Assert.False(ImportsConsole("using static System.Math;"));
+        Assert.False(ImportsConsole("using DotnetInspector.Output.ConsoleTheme;"));
+        Assert.False(ImportsConsole("var x = Console.Out;"));
+
+        // The MSBuild spelling of the same import, including one whose value
+        // this class cannot resolve, and one whose attribute list carries a
+        // raw `>` -- legal in XML, and the character the retired regex used to
+        // find the end of the element.
+        Assert.True(DeclaresConsoleImport("<Using Include=\"System.Console\" Static=\"true\" />"));
+        Assert.True(DeclaresConsoleImport("<Using Static=\"true\" Include=\"$(Reviewer)\" />"));
+        Assert.True(DeclaresConsoleImport("<Using Condition=\"'1'>'0'\" Include=\"System.Console\" Alias=\"C\" />"));
+        Assert.False(DeclaresConsoleImport("<Using Include=\"System.Linq\" />"));
 
         // Every construction that defeated an earlier version of this scan.
         // The rules now run over the compiler's token stream, so each of these
@@ -915,7 +1223,7 @@ public class CommandErrorOwnershipTests
         // A Unicode-escaped identifier binds to the same type...
         Assert.Matches(StderrWrite, Code("System.\\u0043onsole.Error.WriteLine(x);"));
         Assert.Matches(StderrWrite, Code("System.\\U00000043onsole.Error.WriteLine(x);"));
-        Assert.Matches(ConsoleImport, Code("using static System.\\u0043onsole;"));
+        Assert.True(ImportsConsole("using static System.\\u0043onsole;"));
 
         // ...including inside an interpolation hole, which is code however the
         // string around it is quoted.
@@ -928,14 +1236,14 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrWrite, Code("System.Console.@Error.WriteLine(x);"));
         Assert.Matches(StderrWrite, Code("System.@Console.@Error.@WriteLine(x);"));
         Assert.Matches(StderrSink, Code("var sink = Console.@Error;"));
-        Assert.Matches(ConsoleImport, Code("using static System.@Console;"));
-        Assert.Matches(ConsoleImport, Code("using @C = System.Console;"));
+        Assert.True(ImportsConsole("using static System.@Console;"));
+        Assert.True(ImportsConsole("using @C = System.Console;"));
 
         // A `@` before an escape is still an identifier prefix. Deciding that
         // against the raw next character kept the `@`, decoded to `@Error`, and
         // matched nothing.
         Assert.Matches(StderrWrite, Code("Console.@\\u0045rror.WriteLine(x);"));
-        Assert.Matches(ConsoleImport, Code("using static System.@\\u0043onsole;"));
+        Assert.True(ImportsConsole("using static System.@\\u0043onsole;"));
 
         // A literal is kept as a literal, so an escape inside one stays part of
         // its value and cannot forge syntax. Quoting the call in a string is
@@ -947,25 +1255,36 @@ public class CommandErrorOwnershipTests
         // tokens, which is why the CLI is read once per configuration it is
         // built in.
         const string Conditional = "#if DEBUG\nConsole.Error.WriteLine(x);\n#endif\n";
-        Assert.DoesNotMatch(StderrWrite, CodeText(Conditional, []));
-        Assert.Matches(StderrWrite, CodeText(Conditional, ["DEBUG"]));
-        Assert.Contains(CodeReadings(Conditional), r => StderrWrite.IsMatch(r));
+        Assert.DoesNotMatch(StderrWrite, CodeText(Conditional, []).Text);
+        Assert.Matches(StderrWrite, CodeText(Conditional, ["DEBUG"]).Text);
+        Assert.Contains(CodeReadings(Conditional), r => StderrWrite.IsMatch(r.Text));
 
         // A symbol nobody thought to list is read out of the file, and both
         // polarities of it are covered.
         const string Unlisted = "#if NET11_0_OR_GREATER\nConsole.Error.WriteLine(x);\n#endif\n";
-        Assert.Contains(CodeReadings(Unlisted), r => StderrWrite.IsMatch(r));
+        Assert.Contains(CodeReadings(Unlisted), r => StderrWrite.IsMatch(r.Text));
         const string Negated = "#if !DEBUG\nConsole.Error.WriteLine(x);\n#endif\n";
-        Assert.Contains(CodeReadings(Negated), r => StderrWrite.IsMatch(r));
-        Assert.False(ConditionsAreSimple("#if DEBUG && TRACE\n#endif\n"));
+        Assert.Contains(CodeReadings(Negated), r => StderrWrite.IsMatch(r.Text));
 
-        // Three readings are exhaustive only for conditions that test one
-        // symbol, so that is checked rather than assumed. A compound condition
-        // would need a reading none of the three is, and is code no rule here
-        // would read.
-        Assert.All(
-            CliSourceFiles(RepositoryRoot()),
-            f => Assert.True(ConditionsAreSimple(File.ReadAllText(f)), f));
+        // A branch's reachability is a conjunction across its chain, not a
+        // property of one directive. These three are live under an assignment
+        // that no fixed handful of readings produces: the first needs
+        // `!A && B`, the second needs an outer symbol on and an inner one off,
+        // and the third is a condition no per-directive shape rule admits. A
+        // reviewer put a live write in the first and every test here stayed
+        // green.
+        const string Elif = "#if A\n#elif B\nConsole.Error.WriteLine(x);\n#endif\n";
+        Assert.Contains(CodeReadings(Elif), r => StderrWrite.IsMatch(r.Text));
+        const string Nested = "#if A\n#if !B\nConsole.Error.WriteLine(x);\n#endif\n#endif\n";
+        Assert.Contains(CodeReadings(Nested), r => StderrWrite.IsMatch(r.Text));
+        const string Compound = "#if A && !B\nConsole.Error.WriteLine(x);\n#endif\n";
+        Assert.Contains(CodeReadings(Compound), r => StderrWrite.IsMatch(r.Text));
+
+        // Enumeration is only exhaustive while it is affordable, so the bound
+        // on it fails rather than silently reading fewer configurations.
+        Assert.Throws<InvalidOperationException>(
+            () => CodeReadings(string.Concat(
+                Enumerable.Range(0, MaxConditionalSymbols + 1).Select(i => $"#if S{i}\n#endif\n"))).ToList());
 
         // The symbols really are read from the file: the CLI tests more than
         // DEBUG, which is what retired the hard-coded list.
@@ -982,7 +1301,7 @@ public class CommandErrorOwnershipTests
 
         // The generated sources are read as the compiler's input, so the
         // spelling the SDK emits has to match.
-        Assert.Matches(ConsoleImport, "global using static global::System.Console;\n");
+        Assert.True(ImportsConsole("global using static global::System.Console;"));
 
         // Source-generator output is only observable because the build is asked
         // to write it down. If EmitCompilerGeneratedFiles is removed from
@@ -1052,35 +1371,49 @@ public class CommandErrorOwnershipTests
         Assert.DoesNotContain("mdi", names);
         Assert.DoesNotContain("runfaster", names);
 
+        // The same set of files its sibling reads, for the same reason: a
+        // directory glob is the SDK's default, not the compiler's input, and
+        // this rule used the glob while the stream rule had already stopped.
+        // src/UnionPolyfill.cs is compiled into the CLI through a Compile item
+        // today and was scanned for stderr writes but never for a prefix.
         List<string> offenders = [];
-        foreach (string path in products.SelectMany(p => Directory.EnumerateFiles(p, "*.cs", SearchOption.AllDirectories)))
+        foreach (string path in CliSourceFiles(root))
         {
             if (string.Equals(path, owner, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            string text = File.ReadAllText(path);
-            string[] lines = text.Split('\n');
-            for (int i = 0; i < lines.Length; i++)
+            // Read as the compiler reads it rather than as lines of text. The
+            // line version skipped any line whose first non-space characters
+            // were `//`, so a prefix after a block comment, or under a `#if`,
+            // was outside the rule; blanking comments and disabled regions
+            // makes that a property of the code rather than of the layout.
+            string source = File.ReadAllText(path);
+            foreach (Reading reading in CodeReadings(source))
             {
-                // A comment may quote the prefix while describing this very
-                // rule, which is not a write.
-                if (lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal))
+                string[] lines = reading.Text.Split('\n');
+                for (int i = 0; i < lines.Length; i++)
                 {
-                    continue;
+                    if (SeverityLiteral.IsMatch(lines[i]))
+                    {
+                        Add($"{Path.GetRelativePath(root, path)}:{i + 1}: {lines[i].Trim()}");
+                    }
                 }
 
-                if (SeverityLiteral.IsMatch(lines[i]))
+                foreach (Match match in ComposedPrefixWrite.Matches(reading.Text))
                 {
-                    offenders.Add($"{Path.GetRelativePath(root, path)}:{i + 1}: {lines[i].Trim()}");
+                    int line = reading.Text.Take(match.Index).Count(c => c == '\n') + 1;
+                    Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Replace('\n', ' ').Trim()}");
                 }
             }
+        }
 
-            foreach (Match match in ComposedPrefixWrite.Matches(text))
+        void Add(string offender)
+        {
+            if (!offenders.Contains(offender))
             {
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Replace('\n', ' ').Trim()}");
+                offenders.Add(offender);
             }
         }
 
@@ -1132,4 +1465,17 @@ public class CommandErrorOwnershipTests
 
         throw new DirectoryNotFoundException("Could not find repository root containing dotnet-inspect.slnx.");
     }
+
+    /// <summary>
+    /// Whether <paramref name="source"/>, read in every configuration, imports
+    /// <c>System.Console</c>.
+    /// </summary>
+    private static bool ImportsConsole(string source) =>
+        CodeReadings(source).Any(r => ConsoleImports(r.Tree).Any());
+
+    /// <summary>
+    /// Whether <paramref name="xml"/>, a single MSBuild element, declares one.
+    /// </summary>
+    private static bool DeclaresConsoleImport(string xml) => DeclaresConsoleImport(XElement.Parse(xml));
+
 }
