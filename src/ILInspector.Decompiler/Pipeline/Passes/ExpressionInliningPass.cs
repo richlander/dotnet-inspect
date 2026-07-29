@@ -131,7 +131,33 @@ public sealed class ExpressionInliningPass : IIrPass
 
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
             bool firstLeaf = IsFirstEvaluatedLeaf(load, next);
-            if (!firstLeaf && !pure)
+            // A value that is neither the first-evaluated leaf nor pure normally
+            // cannot defer to its load: it would move past whatever `next`
+            // evaluates first, reordering effects or which exception surfaces. It
+            // IS safe when everything evaluated before the load is itself pure
+            // (effect-free and non-throwing) — the deferral then crosses nothing
+            // observable. This is the spilled receiver-then-value shape a field or
+            // array store leaves behind: `this._f = o ?? new()` spills `this` and
+            // the coalesce across the `??` branch, and once the receiver spill
+            // collapses to a pure `this`/argument load the value spill follows it
+            // back into the store (a value-type `this` stays impure, so a struct
+            // receiver keeps the value spilled). Restricted to synthetic stack
+            // slots — the compiler's spill scratch. A user local carries source
+            // meaning and later passes (foreach, deconstruction, merged-slot
+            // naming) reshape constructs around it, so deferring one changes
+            // already-raised code and drops its source name. A slot whose stored
+            // value type differs from the type at which it is loaded carries a
+            // type reconciliation the materialized `T S_n = ...` declaration would
+            // spell (e.g. an object-merged ternary narrowed to an unresolved,
+            // possibly value-type, target); inlining would drop that witness, so
+            // require the two to agree — the analogue of the StoreLocal type
+            // witness guard above.
+            bool precedingPure = isSlot && !firstLeaf && !pure
+                && store is StoreStackSlot { Value.ResultType: { } slotValueType }
+                && load is LoadStackSlot { ResultType: { } slotLoadType }
+                && slotValueType.Equals(slotLoadType)
+                && PrecedingEvaluationIsPure(load, next, locals, argumentAddresses, function);
+            if (!firstLeaf && !pure && !precedingPure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
             // Purity proves the value has no effect and cannot throw, but a value
             // deferred to a NON-first-leaf load also moves past `next`'s prefix.
@@ -307,14 +333,15 @@ public sealed class ExpressionInliningPass : IIrPass
     }
 
     // A read is stable to move only if no escaped address could let an
-    // intervening call mutate it: arg whose address is never taken (and not the
-    // possibly-byref `this` of an instance method), or a local never addressed.
+    // intervening call mutate it: arg whose address is never taken (and not a
+    // byref value-type `this`), or a local never addressed. A CONFIRMED
+    // reference-type `this` is a plain object reference, so it stays stable.
     static bool ReadIsStable(
         (PlaceKind Kind, int Index) read, HashSet<int> argumentAddresses, HashSet<int> addressTakenLocals, IrFunction function)
         => read.Kind switch
         {
             PlaceKind.Argument => !argumentAddresses.Contains(read.Index)
-                && !(function.Signature.HasThis && read.Index == 0),
+                && !(function.Signature.HasThis && read.Index == 0 && !ReceiverThisIsPure(function)),
             PlaceKind.Local => !addressTakenLocals.Contains(read.Index),
             _ => true,
         };
@@ -522,6 +549,56 @@ public sealed class ExpressionInliningPass : IIrPass
         return false;
     }
 
+    /// <summary>
+    /// True when <c>this</c> (arg 0) of an instance method loads a plain,
+    /// non-reassignable object reference rather than a byref managed pointer —
+    /// i.e. the declaring type is a CONFIRMED reference type. The only
+    /// value-type bases are the corelib <c>System.ValueType</c> (struct) and
+    /// <c>System.Enum</c> (enum); any other resolved base is a class. An
+    /// unresolved base (<c>null</c>, including <c>System.Object</c> itself) stays
+    /// conservative — treated as possibly byref, so the receiver is not moved.
+    /// </summary>
+    static bool ReceiverThisIsPure(IrFunction function)
+        => function.BaseType is { } baseType
+            && baseType is not { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Enum" };
+
+    /// <summary>
+    /// True when everything evaluated before <paramref name="load"/> within
+    /// <paramref name="statement"/> is pure — effect-free and non-throwing.
+    /// Walks the path from the statement root down to the load; at each level the
+    /// children before the path-child are its left siblings, fully evaluated
+    /// before the load, so each must be pure. The operations ON the path sit
+    /// above the load and execute AFTER their operands, so they are not part of
+    /// the preceding evaluation.
+    /// </summary>
+    static bool PrecedingEvaluationIsPure(
+        IrNode load,
+        IrNode statement,
+        Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)> locals,
+        HashSet<int> argumentAddresses,
+        IrFunction function)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+                if (child is not IrExpression expression || !IsPure(expression, locals, argumentAddresses, function))
+                    return false;
+            }
+            if (onPath is null)
+                return false;
+            node = onPath;
+        }
+        return true;
+    }
+
     /// <summary>Expressions whose evaluation cannot observe or produce effects, so reordering them is invisible.</summary>
     static bool IsPure(
         IrExpression value,
@@ -533,11 +610,13 @@ public sealed class ExpressionInliningPass : IIrPass
         // Reads are reorder-safe only if nothing can mutate the place from
         // inside an expression: stores are statement-level in this IR, so
         // the remaining hazard is a call writing through an escaped address.
-        // For instance methods, arg 0 may be a byref struct receiver that
-        // any instance call mutates — TypeRef cannot yet tell struct from
-        // class, so the receiver is never pure.
+        // For instance methods, arg 0 is a byref managed pointer only for a
+        // value-type receiver, which any instance call can mutate through; for
+        // a CONFIRMED reference type it is a plain, non-reassignable object
+        // reference, so the receiver load is pure. An unknown/unresolved
+        // declaring type stays conservative (treated as possibly byref).
         LoadArgument argument => !argumentAddresses.Contains(argument.Index)
-            && !(function.Signature.HasThis && argument.Index == 0),
+            && !(function.Signature.HasThis && argument.Index == 0 && !ReceiverThisIsPure(function)),
         LoadLocal load => !locals.TryGetValue((false, load.Index), out var entry) || !entry.AddressTaken,
         // Side-effect-free, non-throwing composites: pure iff every operand is
         // pure. Purity here must imply "cannot throw" as well as "no effect",
