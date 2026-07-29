@@ -489,8 +489,11 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
 
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
   records the exact version and TFM of every swept package, and the sweep refuses
-  to run against a package it cannot acquire as pinned (#3353). A fresh sweep
-  therefore reproduces the same assemblies, and its pool identity is stable.
+  to run against a package it cannot acquire as pinned (#3353). Nine of the top
+  hundred ship no primary library and are pinned as `no-library`; those are
+  acquired too, and the absence is confirmed rather than believed, so the status
+  cannot be used to drop a package out of the pool. A fresh sweep therefore
+  reproduces the same assemblies, and its pool identity is stable.
 
   What still stops this lane ratcheting is that no trend-store row has yet been
   measured against the pinned pool. The ratchet compares the newest row to a
