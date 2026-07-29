@@ -7626,6 +7626,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverSectionExcludedBySelection_StaysQuiet()
+    {
+        // -S narrows effective discovery, so a section it excludes is not "matched". Without the
+        // intersection this printed the note for Dependencies in the same breath as the pipeline
+        // reporting Dependencies had no data for the query -- a note about a section the user had
+        // just excluded.
+        var (exit, _, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "Dependencies", "-S", "References", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not row-shaped", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectDependenciesAndReferences_RendersBoth()
     {
         // The flat list and the tree are independent lenses. References used to blank itself
