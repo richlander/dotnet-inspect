@@ -2562,19 +2562,34 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void StackSlotLiveRange_ReusedStringListCount_SplitsTypedCarriers()
+    public void ReusedTempSpillFold_StringListCount_RaisesObjectInitializer()
     {
-        // One edge slot can carry unrelated straight-line values: a string
-        // property value, then a nullable list receiver, then the int Count. The
-        // final C# needs distinct synthetic carriers rather than assigning the
-        // list/int values through the earlier string slot (CS0029).
+        // This fixture used to reach StackSlotLiveRangePass with one edge slot
+        // carrying a string property value, then a nullable list receiver, then
+        // the int Count — disjoint live ranges that needed distinct typed
+        // carriers to avoid CS0029. After #3336 stage 2, the post-structuring
+        // reused-temp spill fold raises that dup-chain into an object initializer
+        // *before* StackSlotLiveRangePass runs, so the reused edge slot no longer
+        // reaches that pass. That reuse is intrinsic to the foldable dup-chain
+        // lowering (the member values sit on the stack beneath the dup'd receiver
+        // and merge into reused edge slots), so it cannot be reproduced in a
+        // non-folding fixture. The slot-splitting mechanism itself stays guarded
+        // by BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct
+        // (string -> bool) and the SlotMergedDateTimeFormat object-slot case.
+        //
+        // This test now pins the fold: the method raises to
+        // `new SlotReuseSection { Status = ..., Missing = ... }`, with the
+        // nullable-list Count spelled correctly and no mistyped carrier leaked.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotStringListCount), source);
 
-        Assert.Contains(".Missing", output);
-        Assert.Contains(".Count", output);
-        Assert.DoesNotContain("string S_0 = missing", output);
-        Assert.DoesNotContain("string S_0 = S_", output);
+        Assert.Contains("new SlotReuseSection", output);
+        Assert.Contains("Status = complete ? \"Complete\" : \"Partial\"", output);
+        Assert.Contains("Missing = missing is not null ? missing.Count : 0", output);
+        // The verbose S_NNN version-copy chain is gone: no leaked receiver copy
+        // and no member store through a synthetic carrier.
+        Assert.DoesNotContain("section.Missing", output);
+        Assert.DoesNotContain("string S_0 = ", output);
     }
 
     [Fact]
