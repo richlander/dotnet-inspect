@@ -425,7 +425,8 @@ corpus; only EVIL rows populate it.
 The EVIL corpus draws from a much broader assembly pool than the 14 pinned
 real-world libraries. `eng/prepare-evil-corpus.sh` composes that pool: it runs
 the package sweep (`eng/prepare-decompiler-package-sweep.cs`, ranks 1..N from
-`docs/data/nuget-top-packages.json`, `EVIL_PACKAGE_COUNT` default 100) and
+`docs/data/nuget-top-packages.json` at the versions pinned in
+`docs/data/nuget-top-packages.lock.json`, `EVIL_PACKAGE_COUNT` default 100) and
 unions it with the 14 pinned real-world assemblies
 (`eng/prepare-decompiler-corpus.sh`) into a single deduped `assemblies.txt`,
 preserving the sweep `manifest.json` as `sweep-manifest.json`:
@@ -468,7 +469,9 @@ the discovery pattern list while separately projecting correctness defect
 classes and package-promotion candidates.
 
 The weekly Deep Inspect `package-sweep` lane prepares ranks 1-10 from
-`docs/data/nuget-top-packages.json` with product-owned package acquisition and
+`docs/data/nuget-top-packages.json` with `--resolve-latest`, deliberately
+ignoring the version pin because this lane reports what ships today rather than
+what the EVIL corpus measures. It uses product-owned package acquisition and
 TFM selection, then runs this report with bounded method and semantic-validity
 caps. Its manifest records the resolved package version, TFM, selected assembly,
 cache status, and failures. This is current-package discovery evidence, not a

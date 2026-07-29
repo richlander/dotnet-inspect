@@ -58,8 +58,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p artifacts/package-sweep
+          # --resolve-latest on purpose: this lane is current-package discovery
+          # evidence, so it wants what ships today, not the pinned pool the EVIL
+          # corpus measures. The pin exists to make the corpus reproducible
+          # (#3353); honoring it here would quietly turn discovery into a replay.
           dotnet run eng/prepare-decompiler-package-sweep.cs -- \
-            artifacts/package-sweep 1 10 \
+            artifacts/package-sweep 1 10 --resolve-latest \
             | tee artifacts/package-sweep/acquisition.txt
 
       - name: Run bounded library report
@@ -498,12 +502,14 @@ jobs:
     # corpus (an orphan branch) plus a 100-package NuGet sweep, so it is far too
     # expensive for the PR lane.
     #
-    # This lane deliberately does NOT pass --ratchet-baseline. docs/data/nuget-top-packages.json
-    # records no versions, so the sweep resolves *latest* and a fresh pool can never
-    # match a recorded baseline's pool identity — the ratchet would skip, and a skip
-    # fails, so the job would be red by construction. Pinning the pool is tracked
-    # separately (#3353); until then this lane is the integrity gate and the artifact
-    # source, and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    # This lane deliberately does NOT pass --ratchet-baseline. The pool is now pinned
+    # (docs/data/nuget-top-packages.lock.json, #3353), so a fresh sweep reproduces the
+    # same assemblies and its pool identity is stable — but no trend-store row has yet
+    # been measured against that pinned pool, so there is still nothing comparable to
+    # ratchet against: the ratchet would skip, and a skip fails. Recording the first
+    # pinned-pool row (and then a second, which is the first ratchetable pair) is what
+    # closes this. Until then this lane is the integrity gate and the artifact source,
+    # and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
     #
     # It passes --integrity-only to say that in the exit code. Merely omitting
     # --ratchet-baseline is NOT enough: that selects the historical perfection

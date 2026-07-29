@@ -487,10 +487,18 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   `--ratchet-baseline`: this lane is the measurement-integrity gate and the
   source of the run JSON that an append starts from.
 
-  The reason it cannot ratchet is that `docs/data/nuget-top-packages.json`
-  records no versions, so the sweep resolves *latest* and a fresh pool can never
-  match a recorded baseline's identity. The ratchet would skip, and a skip fails,
-  so the job would be red by construction. Merely omitting `--ratchet-baseline`
+  The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
+  records the exact version and TFM of every swept package, and the sweep refuses
+  to run against a package it cannot acquire as pinned (#3353). A fresh sweep
+  therefore reproduces the same assemblies, and its pool identity is stable.
+
+  What still stops this lane ratcheting is that no trend-store row has yet been
+  measured against the pinned pool. The ratchet compares the newest row to a
+  baseline, and every recorded row predates the pin, so `--ratchet-baseline`
+  would still find nothing comparable — it would skip, and a skip fails. Closing
+  that needs one full run over the pinned pool, recorded as a row carrying
+  `poolSha256` and `corpusSha256`; the pair after it is the first that can
+  ratchet. Merely omitting `--ratchet-baseline`
   is not enough either: that selects the historical `invalid == 0` contract,
   which this corpus cannot satisfy, so the job would still fail every week and
   file a scheduled-failure issue each time. `--integrity-only` is how the lane

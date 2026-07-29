@@ -1,0 +1,705 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "package": "anglesharp",
+      "version": "1.6.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "autofac",
+      "version": "9.3.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "automapper",
+      "version": "16.2.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.bedrockruntime",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.core",
+      "version": "4.0.100.9",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.dynamodbv2",
+      "version": "4.0.102.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.polly",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.s3",
+      "version": "4.0.101.5",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.secretsmanager",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.securitytoken",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.simplesystemsmanagement",
+      "version": "4.0.103.2",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.sqs",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "awssdk.textract",
+      "version": "4.0.100.7",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "bogus",
+      "version": "35.6.5",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "bouncycastle.cryptography",
+      "version": "2.6.2",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "castle.core",
+      "version": "5.2.1",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "coverlet.collector",
+      "version": "10.0.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "csvhelper",
+      "version": "33.1.0",
+      "tfm": "net9.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "dapper",
+      "version": "2.1.79",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "dnsclient",
+      "version": "1.8.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "documentformat.openxml",
+      "version": "3.5.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "ecng.collections",
+      "version": "1.0.298",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "eo.webbrowser",
+      "version": "26.2.42",
+      "tfm": null,
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "fluentassertions",
+      "version": "8.10.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "fluentvalidation",
+      "version": "12.1.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "fluentvalidation.dependencyinjectionextensions",
+      "version": "12.1.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "google.apis",
+      "version": "1.75.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "google.apis.auth",
+      "version": "1.75.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "google.apis.core",
+      "version": "1.75.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "google.protobuf",
+      "version": "3.35.1",
+      "tfm": "net5.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "grpc.core.api",
+      "version": "2.80.0",
+      "tfm": "netstandard2.1",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "grpc.net.client",
+      "version": "2.80.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "grpc.net.clientfactory",
+      "version": "2.80.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "grpc.net.common",
+      "version": "2.80.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "grpc.tools",
+      "version": "2.83.0",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "Ambiguous: Protobuf.MSBuild.dll, Protobuf.MSBuild.dll"
+    },
+    {
+      "package": "hangfire.core",
+      "version": "1.8.24",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "humanizer.core",
+      "version": "3.0.10",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "identitymodel",
+      "version": "7.0.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "jetbrains.annotations",
+      "version": "2026.2.0",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "mediatr",
+      "version": "14.2.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "microsoft.net.workloads.10.0.100",
+      "version": "10.110.0",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "NoAssemblies"
+    },
+    {
+      "package": "mongodb.bson",
+      "version": "3.10.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "mono.texttemplating",
+      "version": "3.0.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "moq",
+      "version": "4.20.72",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "mysqlconnector",
+      "version": "2.6.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "newrelic.agent",
+      "version": "10.53.0",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "Ambiguous: NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AspNetCore6Plus.dll, NewRelic.Providers.Wrapper.AwsLambda.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Api.Agent.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll"
+    },
+    {
+      "package": "newrelic.agent.api",
+      "version": "10.53.0",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "newtonsoft.json",
+      "version": "13.0.4",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "newtonsoft.json.bson",
+      "version": "1.0.3",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "njsonschema",
+      "version": "11.6.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "nlog",
+      "version": "6.1.4",
+      "tfm": "netstandard2.1",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "nodatime",
+      "version": "3.3.3",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "npgsql",
+      "version": "10.0.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "npgsql.entityframeworkcore.postgresql",
+      "version": "10.0.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "nunit",
+      "version": "4.6.1",
+      "tfm": "net8.0",
+      "status": "no-library",
+      "detail": "Ambiguous: nunit.framework.dll, nunit.framework.legacy.dll"
+    },
+    {
+      "package": "nunit3testadapter",
+      "version": "6.2.0",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "Ambiguous: nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll, nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll"
+    },
+    {
+      "package": "opentelemetry",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.api",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.api.providerbuilderextensions",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.exporter.opentelemetryprotocol",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.extensions.hosting",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.instrumentation.aspnetcore",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "opentelemetry.instrumentation.http",
+      "version": "1.17.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "pipelines.sockets.unofficial",
+      "version": "2.2.16",
+      "tfm": "net9.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "polly",
+      "version": "8.7.0",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "polly.core",
+      "version": "8.7.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "polly.extensions.http",
+      "version": "3.0.0",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "rabbitmq.client",
+      "version": "7.2.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "restsharp",
+      "version": "114.0.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog",
+      "version": "4.4.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.aspnetcore",
+      "version": "10.0.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.extensions.hosting",
+      "version": "10.0.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.extensions.logging",
+      "version": "10.0.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.formatting.compact",
+      "version": "3.0.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.settings.configuration",
+      "version": "10.0.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.sinks.console",
+      "version": "6.1.1",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.sinks.debug",
+      "version": "3.0.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.sinks.eventlog",
+      "version": "4.0.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "serilog.sinks.file",
+      "version": "7.0.0",
+      "tfm": "net9.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "sfa.core.servicemodel",
+      "version": "4.0.2",
+      "tfm": "net461",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "sharpcompress",
+      "version": "0.50.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "sharpziplib",
+      "version": "1.4.2",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "sixlabors.fonts",
+      "version": "3.0.0",
+      "tfm": "net8.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "stackexchange.redis",
+      "version": "3.0.17",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "swashbuckle.aspnetcore",
+      "version": "10.2.3",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "NoAssemblies"
+    },
+    {
+      "package": "swashbuckle.aspnetcore.annotations",
+      "version": "10.2.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "swashbuckle.aspnetcore.swagger",
+      "version": "10.2.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "swashbuckle.aspnetcore.swaggergen",
+      "version": "10.2.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "swashbuckle.aspnetcore.swaggerui",
+      "version": "10.2.3",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "system.linq.async",
+      "version": "7.0.1",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "system.reactive",
+      "version": "7.0.0",
+      "tfm": "net8.0-windows10.0.19041",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit",
+      "version": "2.9.3",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "NoAssemblies"
+    },
+    {
+      "package": "xunit.abstractions",
+      "version": "2.0.3",
+      "tfm": "netstandard2.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit.analyzers",
+      "version": "1.27.0",
+      "tfm": null,
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit.assert",
+      "version": "2.9.3",
+      "tfm": "net6.0",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit.core",
+      "version": "2.9.3",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "NoAssemblies"
+    },
+    {
+      "package": "xunit.extensibility.core",
+      "version": "2.9.3",
+      "tfm": "netstandard1.1",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit.extensibility.execution",
+      "version": "2.9.3",
+      "tfm": "netstandard1.1",
+      "status": "pinned",
+      "detail": null
+    },
+    {
+      "package": "xunit.runner.visualstudio",
+      "version": "3.1.5",
+      "tfm": null,
+      "status": "no-library",
+      "detail": "Ambiguous: xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll, xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll"
+    },
+    {
+      "package": "yamldotnet",
+      "version": "18.1.0",
+      "tfm": "net10.0",
+      "status": "pinned",
+      "detail": null
+    }
+  ]
+}
