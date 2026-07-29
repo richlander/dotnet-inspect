@@ -203,6 +203,14 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
+    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
+    /// facet surface reads the same bytes this context read instead of reopening
+    /// <see cref="AssemblyPath"/>. Internal because the reader is metadata-internal; borrowers go
+    /// through the session.
+    /// </summary>
+    internal PEReader BorrowedPEReader => _peReader;
+
+    /// <summary>
     /// Opens a PE file with its complete image prefetched so downstream body
     /// producers can safely share the reader during parallel analysis.
     /// </summary>

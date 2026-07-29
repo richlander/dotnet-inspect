@@ -23,6 +23,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Opens a session from a resolved assembly reference (path or stream opener).</summary>
     public static AssemblyInspectionSession Open(ResolvedAssemblyReference reference) => new(AssemblyImage.Open(reference));
 
+    /// <summary>
+    /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
+    /// one can reach the facets without opening the path a second time.
+    ///
+    /// Two opens of one path are only the same assembly by assumption. Anything that replaces the
+    /// file between them — a build, a package restore, a retargeted symlink — makes one inspection
+    /// report facts from two different assemblies with a zero exit code. Borrowing removes the
+    /// assumption rather than narrowing the window.
+    ///
+    /// The session does not own the image: disposing it leaves <paramref name="context"/> open, and
+    /// using it after <paramref name="context"/> is disposed throws rather than reading freed
+    /// state — the same contract an owned session has.
+    ///
+    /// Gated by <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c> and
+    /// <c>BorrowedSession_DoesNotDisposeTheOwningContext</c>.
+    /// </summary>
+    public static AssemblyInspectionSession Borrow(PdbContext context)
+        => new(AssemblyImage.Borrow(context.BorrowedPEReader));
+
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
 

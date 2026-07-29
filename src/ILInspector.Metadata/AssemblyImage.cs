@@ -14,12 +14,12 @@ namespace ILInspector.Metadata;
 /// </summary>
 public sealed class AssemblyImage : IDisposable
 {
-    readonly Stream _stream;
+    readonly Stream? _stream;
     bool _disposed;
 
     internal PEReader PEReader { get; }
 
-    AssemblyImage(Stream stream, PEReader peReader)
+    AssemblyImage(Stream? stream, PEReader peReader)
     {
         _stream = stream;
         PEReader = peReader;
@@ -30,6 +30,20 @@ public sealed class AssemblyImage : IDisposable
 
     /// <summary>Opens an image from a file path.</summary>
     public static AssemblyImage Open(string path) => FromStream(File.OpenRead(path));
+
+    /// <summary>
+    /// Wraps an image another component already opened, without taking ownership of it. Use this
+    /// to give the facet surface a second reader over the <em>same bytes</em> rather than a second
+    /// open of the same path: two opens of one path are two different files whenever the path is
+    /// retargeted between them, and the result mixes two assemblies while exiting zero.
+    ///
+    /// A borrow does not control its reader's lifetime. <see cref="Dispose"/> releases only the
+    /// borrow, and using a borrow after the opener disposed it throws
+    /// <see cref="ObjectDisposedException"/> from the underlying reader, exactly as using an owned
+    /// image after its own disposal does.
+    /// </summary>
+    internal static AssemblyImage Borrow(PEReader peReader)
+        => new(stream: null, peReader);
 
     /// <summary>
     /// Opens an image from a resolved assembly reference, using its stream opener. This is the
@@ -62,6 +76,11 @@ public sealed class AssemblyImage : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+
+        // A borrowed image owns neither the reader nor a stream; the opener disposes both.
+        if (_stream is null)
+            return;
+
         PEReader.Dispose();
         _stream.Dispose();
     }

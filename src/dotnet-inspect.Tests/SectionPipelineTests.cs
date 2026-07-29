@@ -1703,6 +1703,119 @@ public class SectionPipelineTests
         }
     }
 
+    [Fact]
+    public void SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened()
+    {
+        // The wider half of the same attack, and the reason the shared session borrows instead of
+        // opening. A command opens the assembly once for identity, presence flags, and debug
+        // directory facts, then hands that PdbContext to the scanners. If the scanner session
+        // opened AssemblyPath again, everything between the two opens would be a window in which
+        // the path can be retargeted, and the command would report one assembly's identity beside
+        // another assembly's counts -- with a zero exit code.
+        //
+        // Sharing one session among the scanners does not close that window; it only moves it
+        // earlier. Borrowing the already-open image removes it, because there is nothing left to
+        // race: no second open of the path happens at all.
+        var pathA = typeof(SectionPipelineTests).Assembly.Location;
+        var pathB = typeof(AssemblyInspectionSession).Assembly.Location;
+
+        var root = Path.Combine(Path.GetTempPath(), $"borrow-{Guid.NewGuid():N}");
+        var dirA = Path.Combine(root, "a");
+        var dirB = Path.Combine(root, "b");
+        var link = Path.Combine(root, "active");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+        File.Copy(pathA, Path.Combine(dirA, "lib.dll"));
+        File.Copy(pathB, Path.Combine(dirB, "lib.dll"));
+
+        try
+        {
+            if (!TryLinkDirectory(link, dirA))
+            {
+                throw new InvalidOperationException(
+                    $"Could not create a directory link at '{link}'. On Windows this needs " +
+                    "Developer Mode, admin, or working `mklink /J`.");
+            }
+
+            var linkedAssembly = Path.Combine(link, "lib.dll");
+
+            var expectedA = CensusSignature(pathA);
+            var expectedB = CensusSignature(pathB);
+            Assert.NotEqual(expectedA, expectedB);
+
+            // Stand in for the command's own open: identity is read here, scanners run later.
+            using var metadataContext = PdbContext.Open(linkedAssembly);
+            var identity = metadataContext.ExtractAssemblyInfo();
+
+            // Everything between the command's open and the scanner run is the window under test.
+            Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
+
+            var model = new LibraryInspection();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = linkedAssembly,
+                Model = model,
+                Logger = new Output.VerboseLogger(false),
+                MetadataContext = metadataContext,
+            };
+
+            var registry = LibrarySections.CreateScannerRegistry();
+            registry.RunScanners(
+                registry.ExpandRequired(
+                [
+                    LibrarySections.ScannerExtensionMethods,
+                    LibrarySections.ScannerClassifiedMethods,
+                    LibrarySections.ScannerResources,
+                    LibrarySections.ScannerCustomAttributes,
+                    LibrarySections.ScannerTypeForwarders,
+                ]),
+                context);
+
+            // Identity and counts have to describe the same assembly, not merely each be valid.
+            Assert.Equal(
+                Path.GetFileNameWithoutExtension(pathA),
+                identity.AssemblyName);
+            Assert.Equal(expectedA, SignatureOf(model));
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BorrowedSession_DoesNotDisposeTheOwningContext()
+    {
+        // A borrow that disposed the shared reader would break the command that lent it, and a
+        // borrow that outlived it would read through a released handle. Both directions are
+        // checked here because the borrow is what removes the second open.
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        var metadataContext = PdbContext.Open(path);
+        try
+        {
+            var borrowed = AssemblyInspectionSession.Borrow(metadataContext);
+            var attributeCount = borrowed.CustomAttributes().Count;
+            borrowed.Dispose();
+
+            // The lender is unaffected by the borrow ending.
+            Assert.NotNull(metadataContext.ExtractAssemblyInfo().AssemblyName);
+            using var second = AssemblyInspectionSession.Borrow(metadataContext);
+            Assert.Equal(attributeCount, second.CustomAttributes().Count);
+
+            // And a borrow cannot outlive its lender: the shared reader is gone, so the borrow
+            // throws rather than reading freed state. This is the underlying reader's own contract,
+            // not extra bookkeeping here -- an owned session behaves identically after disposal.
+            metadataContext.Dispose();
+            Assert.Throws<ObjectDisposedException>(() => second.MethodBodies);
+        }
+        finally
+        {
+            metadataContext.Dispose();
+        }
+    }
+
     /// <summary>Runs the census scanners over an untouched path and returns their signature.</summary>
     private static string CensusSignature(string assemblyPath)
     {

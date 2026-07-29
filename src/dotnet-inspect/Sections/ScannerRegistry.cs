@@ -31,20 +31,21 @@ public sealed class ScannerContext : IDisposable
         _drillMap;
 
     /// <summary>
-    /// One metadata session over <see cref="AssemblyPath"/>, opened on first use and shared by the
-    /// scanners that ask for it through <see cref="Scan{TScan}"/>.
+    /// One metadata session over the assembly, opened on first use and shared by the scanners that
+    /// ask for it through <see cref="Scan{TScan}"/>.
     ///
     /// This exists for atomicity, not speed. Each of the three scanner fan-out sites that declared
     /// prerequisites replaced held its callees inside one open, so a single run could not mix two
     /// assemblies. Reopening the path per scanner would reintroduce that window: retargeting the
     /// path between opens (a symlink swap, or a build replacing the file) yields an incoherent
-    /// result with a zero exit code. Sharing one open closes it.
+    /// result with a zero exit code.
     ///
-    /// The guarantee is scoped to the scanners. It is NOT whole-run atomicity: assembly info comes
-    /// from the PdbContext that InspectAsync opens separately and earlier, so a retarget between
-    /// that open and this one can still mix assembly identity with scanner output. That hole
-    /// predates the prerequisite work — it is measurable at this PR's base — and closing it means
-    /// threading one session through all of InspectAsync, which is not attempted here.
+    /// When <see cref="MetadataContext"/> is present — which is every path the library and package
+    /// commands take — the session <em>borrows</em> that already-open image rather than opening
+    /// <see cref="AssemblyPath"/> again. So the scanners are coherent not only with each other but
+    /// with the assembly identity, presence flags, and debug-directory facts the command read from
+    /// the same image. Reopening here would leave that wider window open even though every scanner
+    /// shared one session.
     ///
     /// Returns <see langword="null"/> when the assembly cannot be opened, so the caller falls back
     /// to the path-based overload. That is deliberate: each path overload maps its own open
@@ -55,7 +56,9 @@ public sealed class ScannerContext : IDisposable
     /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
     /// synchronization is required.
     ///
-    /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c> and
+    /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c>,
+    /// <c>SharedSessionScanners_DoNotObserveAPathRetargetedMidRun</c>,
+    /// <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>, and
     /// <c>SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened</c>.
     /// </summary>
     public AssemblyInspectionSession? Session()
@@ -66,7 +69,9 @@ public sealed class ScannerContext : IDisposable
         _sessionOpenAttempted = true;
         try
         {
-            _session = AssemblyInspectionSession.Open(AssemblyPath);
+            _session = MetadataContext is { HasMetadata: true } context
+                ? AssemblyInspectionSession.Borrow(context)
+                : AssemblyInspectionSession.Open(AssemblyPath);
         }
         catch (Exception)
         {
