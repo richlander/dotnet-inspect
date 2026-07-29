@@ -64,8 +64,46 @@ public sealed class ForwardedTypeAliases
     /// <para>Culture is compared for equality: it disagreed <b>0</b> times in the same corpus, and
     /// a culture-specific assembly is a different assembly (found in review of
     /// <c>372be6d1</c>).</para>
+    ///
+    /// <para><paramref name="Version"/> is the highest version observed for the spelling and
+    /// <paramref name="ObservedVersions"/> is every version observed for it. Signed evidence uses
+    /// the highest — roll-forward admits everything at or below it — while unsigned evidence needs
+    /// the whole set, because it matches exactly. Collapsing unsigned evidence to the highest
+    /// dropped genuine callers: with unsigned v1 and v2 files both forwarding the type, a caller
+    /// referencing v1 exactly was refused, so <em>adding</em> valid v2 evidence removed a real
+    /// caller (executed in review of <c>a749cd4d</c>).</para>
     /// </summary>
-    readonly record struct EvidenceIdentity(byte[] Token, string Culture, Version Version);
+    readonly record struct EvidenceIdentity(
+        byte[] Token,
+        string Culture,
+        Version Version,
+        ImmutableArray<Version> ObservedVersions)
+    {
+        internal EvidenceIdentity(byte[] token, string culture, Version version)
+            : this(token, culture, version, [version])
+        {
+        }
+
+        /// <summary>This identity widened to also account for <paramref name="version"/>.</summary>
+        internal EvidenceIdentity Observing(Version version)
+            => ObservedVersions.Contains(version)
+                ? this with { Version = version > Version ? version : Version }
+                : this with
+                {
+                    Version = version > Version ? version : Version,
+                    ObservedVersions = ObservedVersions.Add(version),
+                };
+    }
+
+    /// <summary>
+    /// One assembly's forwarder for the target type: who declared it, where it points, that
+    /// assembly's own identity, and the reference row naming the assembly it points at.
+    /// </summary>
+    readonly record struct ForwarderEdge(
+        string Assembly,
+        string Target,
+        EvidenceIdentity Identity,
+        AssemblyReferenceSpelling TargetReference);
 
     readonly HashSet<string> _aliases;
     readonly HashSet<string> _rawSpellings;
@@ -307,10 +345,25 @@ public sealed class ForwardedTypeAliases
     ReferenceVerdict VerdictFor(
         string rawSpelling,
         AssemblyReferenceSpelling reference)
-    {
-        if (!_spellingTokens.TryGetValue(rawSpelling, out EvidenceIdentity evidence))
-            return ReferenceVerdict.Indeterminate;
+        => _spellingTokens.TryGetValue(rawSpelling, out EvidenceIdentity evidence)
+            ? VerdictFor(reference, evidence)
+            : ReferenceVerdict.Indeterminate;
 
+    /// <summary>
+    /// The same question with the evidence supplied directly, for the edges that are not a caller's
+    /// reference to a facade.
+    ///
+    /// <para>Both halves of the forwarder graph ask it. A caller's <c>AssemblyRef</c> to a facade is
+    /// one edge; the facade's own <c>AssemblyRef</c> to the assembly it forwards <em>to</em> is the
+    /// other, and until review of <c>a749cd4d</c> only the first was ever checked. A facade that
+    /// forwarded the type to a different assembly of the same name as the target still vouched for
+    /// the caller, so the tool reported a call to the target that the caller never made. Routing
+    /// both through this one method is what keeps the two edges from drifting apart again.</para>
+    /// </summary>
+    static ReferenceVerdict VerdictFor(
+        AssemblyReferenceSpelling reference,
+        EvidenceIdentity evidence)
+    {
         if (evidence.Token.AsSpan().SequenceEqual(AmbiguousSpelling))
             return ReferenceVerdict.Indeterminate;
 
@@ -334,10 +387,15 @@ public sealed class ForwardedTypeAliases
         // (16,294 references resolving to a definition on disk): 712 legitimate roll-forwards are
         // strong-named and exactly 1 is unsigned. So this costs one miss and closes the
         // fabrication.
+        //
+        // Unsigned evidence matches any version actually observed for the spelling, not just the
+        // highest. Comparing against the highest alone meant a second, newer unsigned file
+        // suppressed the older one's genuine callers (executed in review of a749cd4d).
         bool evidenceIsSigned = evidence.Token.Length > 0;
         bool versionAgrees = evidenceIsSigned
             ? reference.Version <= evidence.Version
-            : reference.Version == evidence.Version;
+            : !evidence.ObservedVersions.IsDefaultOrEmpty
+                && evidence.ObservedVersions.Contains(reference.Version);
 
         if (!versionAgrees)
             return ReferenceVerdict.Contradicted;
@@ -448,18 +506,22 @@ public sealed class ForwardedTypeAliases
     public static ForwardedTypeAliases ForTarget(
         TypeRef openDeclaringType,
         IEnumerable<string> scopeAssemblyPaths)
-        => ForTarget(openDeclaringType, scopeAssemblyPaths, seedSpellings: null);
+        => ForTarget(openDeclaringType, targetAssemblyPath: null, scopeAssemblyPaths, seedSpellings: null);
 
     /// <summary>
     /// The demand-driven form. <paramref name="seedSpellings"/> names the assembly spellings a
     /// caller could actually have written — its own <c>AssemblyRef</c> entries — so only those
-    /// files are opened, and then only the files their forwarder chains actually point at.
+    /// files' forwarder tables are read, and then only the files their chains actually point at.
     ///
     /// <para>This is what keeps the sweep off the hot path. A framework directory holds hundreds of
-    /// assemblies and a caller can name only the handful it references; opening the rest cannot
+    /// assemblies and a caller can name only the handful it references; reading the rest cannot
     /// change an answer, because an alias is consulted solely for a spelling some caller wrote.
     /// Chains are still followed to the end, so an intermediate facade that no caller names is
-    /// opened when — and only when — a chain reaches it.</para>
+    /// read when — and only when — a chain reaches it.</para>
+    ///
+    /// <para>Seeding narrows which <em>forwarder tables</em> are read, never which identities are
+    /// known: every path is still censused for the name it claims. Narrowing the identities too is
+    /// what let the seeded walk admit an alias the unseeded walk refused.</para>
     ///
     /// <para>A null <paramref name="seedSpellings"/> means the callers' spellings could not be
     /// enumerated, and every supplied path is read. That is the sound direction: a narrower sweep
@@ -467,6 +529,20 @@ public sealed class ForwardedTypeAliases
     /// </summary>
     public static ForwardedTypeAliases ForTarget(
         TypeRef openDeclaringType,
+        IEnumerable<string> scopeAssemblyPaths,
+        IReadOnlySet<string>? seedSpellings)
+        => ForTarget(openDeclaringType, targetAssemblyPath: null, scopeAssemblyPaths, seedSpellings);
+
+    /// <summary>
+    /// The full form. <paramref name="targetAssemblyPath"/> is the file that defines the target
+    /// type, and supplying it is what lets the terminal hop of a forwarder chain be verified: the
+    /// chain claims to arrive at that assembly, and only its real <c>AssemblyDef</c> can say
+    /// whether it did. Without it the identity is taken from the census, and when the census cannot
+    /// name it unambiguously no alias is produced at all.
+    /// </summary>
+    public static ForwardedTypeAliases ForTarget(
+        TypeRef openDeclaringType,
+        string? targetAssemblyPath,
         IEnumerable<string> scopeAssemblyPaths,
         IReadOnlySet<string>? seedSpellings)
     {
@@ -484,17 +560,55 @@ public sealed class ForwardedTypeAliases
 
         var paths = scopeAssemblyPaths.ToList();
 
-        // File name to path, for following a chain to its next hop without reopening the world.
-        // A file whose name differs from its assembly name is simply not found here, which costs an
-        // alias and never invents one. Tracked as #3479; indexing by metadata identity instead would
-        // mean opening every evidence file, which is exactly what the seeded walk avoids.
-        var pathsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Every path's assembly name and AssemblyDef identity, read without touching the
+        // ExportedType table. Indexing evidence by the identity a file *claims* rather than by its
+        // file name is what makes the ambiguity check trustworthy: the seeded frontier used to
+        // filter on file name, so a second file claiming an admitted spelling under a different
+        // file name was never opened and never contradicted anything, and the seeded walk admitted
+        // an alias the unseeded walk correctly refused (executed in review of a749cd4d).
+        //
+        // Measured warm over the shared framework (301 files): the census costs 237 ms against
+        // 368 ms for the full forwarder read it protects, so seeding still earns its keep — it
+        // skips the 9,267-row ExportedType scan, which is the part that actually costs. This also
+        // retires the file-name assumption tracked as #3479.
+        var census = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (string path in paths)
-            pathsByName.TryAdd(Path.GetFileNameWithoutExtension(path), path);
+        {
+            if (AssemblyNameOf(path) is not { } claimed)
+                continue;
+
+            if (!census.TryGetValue(claimed, out var claimants))
+                census[claimed] = claimants = [];
+            claimants.Add(path);
+        }
 
         var frontier = seedSpellings is null
             ? paths
-            : paths.Where(p => seedSpellings.Contains(Path.GetFileNameWithoutExtension(p))).ToList();
+            : census
+                .Where(entry => seedSpellings.Contains(entry.Key))
+                .SelectMany(entry => entry.Value)
+                .ToList();
+
+        // Who the target assembly actually is. The terminal hop of a forwarder chain claims to
+        // point at it, and that claim is only checkable against a real identity. The inspected
+        // library supplies it on the product path; otherwise the census can name it, but only when
+        // exactly one file claims it — two claimants is the ambiguity this whole file is about.
+        string targetAssemblyName = openDeclaringType.RawAssembly.Length > 0
+            ? openDeclaringType.RawAssembly
+            : openDeclaringType.Assembly;
+
+        EvidenceIdentity? targetIdentity = null;
+        if (targetAssemblyPath is not null && IdentityOf(targetAssemblyPath) is { } supplied)
+        {
+            targetAssemblyName = supplied.Name;
+            targetIdentity = supplied.Identity;
+        }
+        else if (census.TryGetValue(targetAssemblyName, out var targetClaimants)
+            && targetClaimants.Count == 1
+            && IdentityOf(targetClaimants[0]) is { } found)
+        {
+            targetIdentity = found.Identity;
+        }
 
         // assembly name -> the assembly its forwarder for this type points at. Both sides are
         // canonicalized, because the matcher compares TypeRef.Assembly values that already are.
@@ -507,6 +621,12 @@ public sealed class ForwardedTypeAliases
         var tokensBySpelling = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var probed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Every edge read, kept so the definer side can be verified once the identity of every
+        // evidence file is known. It cannot be verified while reading: the file an edge points at
+        // may not have been opened yet, and deciding on partial evidence is what made the result
+        // depend on enumeration order.
+        var edges = new List<ForwarderEdge>();
+
         for (int hop = 0; hop <= MaxHops && frontier.Count > 0; hop++)
         {
             var next = new List<string>();
@@ -518,62 +638,101 @@ public sealed class ForwardedTypeAliases
                 if (ReadForwarder(path, fullName) is not { } edge)
                     continue;
 
-                string canonical = TypeRef.CanonicalAssembly(edge.Assembly);
+                edges.Add(edge);
 
-                // First writer wins; two files claiming the same assembly name are not
-                // distinguishable here, and picking either cannot make the filter narrower than
-                // the matcher.
-                forwardsTo.TryAdd(canonical, TypeRef.CanonicalAssembly(edge.Target));
+                string canonical = TypeRef.CanonicalAssembly(edge.Assembly);
 
                 if (!rawByCanonical.TryGetValue(canonical, out var raw))
                     rawByCanonical[canonical] = raw = [];
-                raw.Add(edge.Assembly);
-
-                // Two files claiming one simple name cannot both answer for it. Recording only the
-                // first would let the loser's callers be validated against the winner's key, so an
-                // ambiguous spelling is marked unusable (empty token never matches a real one).
-                // Differing only in version is not ambiguity: both files are the same signed
-                // identity and both forward the type, so the highest of them is the newest version
-                // known to forward, and roll-forward admits every reference at or below it.
-                //
-                // Unless they disagree about where the type went. Then raising the version to the
-                // max would vouch for a reference to the later file while `forwardsTo` still holds
-                // the earlier file's definer, aliasing the caller to a type it does not name.
-                // Same identity, same spelling, two answers: that is the ambiguity this arm is for
-                // (raised in review of 984454a3).
-                bool retargets =
-                    forwardsTo.TryGetValue(canonical, out string? already)
-                    && already != TypeRef.CanonicalAssembly(edge.Target);
-
-                if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen))
-                {
-                    if (retargets
-                        || !(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
-                        && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        tokensBySpelling[edge.Assembly] =
-                            new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
-                    }
-                    else if (edge.Identity.Version > seen.Version)
-                    {
-                        tokensBySpelling[edge.Assembly] = edge.Identity;
-                    }
-                }
-                else
-                {
-                    tokensBySpelling[edge.Assembly] = edge.Identity;
-                }
+                if (!raw.Contains(edge.Assembly))
+                    raw.Add(edge.Assembly);
 
                 // Follow the chain: the assembly this one forwards to may itself be a facade that
                 // no caller names, and dropping it would break a multi-hop chain.
-                if (pathsByName.TryGetValue(edge.Target, out string? nextPath)
-                    && !probed.Contains(nextPath))
+                foreach (string nextPath in census.TryGetValue(edge.Target, out var hops) ? hops : [])
                 {
-                    next.Add(nextPath);
+                    if (!probed.Contains(nextPath))
+                        next.Add(nextPath);
                 }
             }
 
             frontier = next;
+        }
+
+        // Now that every claimed identity is known, fold the edges together. Two files claiming one
+        // simple name cannot both answer for it: recording only the first would let the loser's
+        // callers be validated against the winner's key, so an ambiguous spelling is marked
+        // unusable (a one-byte token never matches a real one). Differing only in version is not
+        // ambiguity — both files are the same identity and both forward the type — so those
+        // versions are merged instead.
+        foreach (var edge in edges)
+        {
+            string canonical = TypeRef.CanonicalAssembly(edge.Assembly);
+            string target = TypeRef.CanonicalAssembly(edge.Target);
+
+            if (!rawByCanonical.TryGetValue(canonical, out var raw))
+                rawByCanonical[canonical] = raw = [];
+            if (!raw.Contains(edge.Assembly))
+                raw.Add(edge.Assembly);
+
+            bool retargets = forwardsTo.TryGetValue(canonical, out string? already) && already != target;
+
+            if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen))
+            {
+                bool sameIdentity =
+                    seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
+                    && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase);
+
+                if (retargets || !sameIdentity)
+                {
+                    tokensBySpelling[edge.Assembly] =
+                        new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+                }
+                else
+                {
+                    tokensBySpelling[edge.Assembly] = seen.Observing(edge.Identity.Version);
+                }
+            }
+            else
+            {
+                tokensBySpelling[edge.Assembly] = edge.Identity;
+            }
+
+            forwardsTo.TryAdd(canonical, target);
+        }
+
+        // Verify the definer side of every edge. Until now only the caller's reference to a facade
+        // was ever checked; the facade's own reference to the assembly it forwards *to* was taken
+        // on its name. A facade forwarding the type to a different assembly that merely shares the
+        // target's name therefore vouched for the caller, and the tool reported a call the caller
+        // never made (executed in review of a749cd4d).
+        //
+        // Verification requires knowing who the far side really is, so an edge is kept only when
+        // its target's identity is known and agrees. Indeterminate is not good enough here: on the
+        // caller side an unverifiable row is merely unusable, but on this side admitting one
+        // asserts a forwarding relationship that was never established. Refusing costs an alias
+        // and never invents one.
+        //
+        // This is also what refuses an ambiguous *intermediate* hop, which an earlier revision
+        // handled with a second mechanism beside this one. It does not need one: an alias can be
+        // produced in exactly two ways, and the sentinel identity an ambiguous spelling carries
+        // stops both. A caller naming the ambiguous spelling itself is refused by the caller-side
+        // check, and anything reaching it through a chain must hold an edge whose TargetReference
+        // is verified here against that same sentinel, which no reference matches. Removing the
+        // duplicate left one enforcement path, so the order-independence test below gates it.
+        foreach (var edge in edges)
+        {
+            string canonical = TypeRef.CanonicalAssembly(edge.Assembly);
+            if (!forwardsTo.ContainsKey(canonical))
+                continue;
+            EvidenceIdentity? far =
+                targetIdentity is { } known
+                && string.Equals(edge.Target, targetAssemblyName, StringComparison.OrdinalIgnoreCase)
+                    ? known
+                    : tokensBySpelling.TryGetValue(edge.Target, out EvidenceIdentity hop) ? hop : null;
+
+            if (far is not { } evidence || VerdictFor(edge.TargetReference, evidence) != ReferenceVerdict.Verified)
+                forwardsTo.Remove(canonical);
         }
 
         if (forwardsTo.Count == 0)
@@ -644,11 +803,56 @@ public sealed class ForwardedTypeAliases
     }
 
     /// <summary>
-    /// The assembly's own name and the assembly its forwarder for <paramref name="fullName"/>
-    /// points at, or null when it carries no such forwarder. Reads metadata only; an unreadable
-    /// image contributes no alias, which leaves the matcher exactly where it is today.
+    /// The name an assembly claims in its own <c>AssemblyDef</c>, or null when the file is not a
+    /// readable managed assembly. Read on its own because the census needs the claimed identity of
+    /// every candidate without paying for its <c>ExportedType</c> table.
     /// </summary>
-    static (string Assembly, string Target, EvidenceIdentity Identity)? ReadForwarder(string path, string fullName)
+    static string? AssemblyNameOf(string path) => IdentityOf(path)?.Name;
+
+    /// <summary>
+    /// The name and <c>AssemblyDef</c> identity an assembly claims for itself, or null when the
+    /// file is not a readable managed assembly.
+    /// </summary>
+    static (string Name, EvidenceIdentity Identity)? IdentityOf(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return null;
+
+            var reader = peReader.GetMetadataReader();
+            if (!reader.IsAssembly)
+                return null;
+
+            var definition = reader.GetAssemblyDefinition();
+            return (
+                reader.GetString(definition.Name),
+                new EvidenceIdentity(
+                    PublicKeyTokenOf(reader.GetBlobContent(definition.PublicKey).AsSpan()),
+                    definition.Culture.IsNil ? "" : reader.GetString(definition.Culture),
+                    definition.Version));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+                                      or IOException
+                                      or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The assembly's own name and identity, the assembly its forwarder for
+    /// <paramref name="fullName"/> points at, and the full <c>AssemblyRef</c> row naming that
+    /// assembly — or null when it carries no such forwarder. Reads metadata only; an unreadable
+    /// image contributes no alias, which leaves the matcher exactly where it is today.
+    ///
+    /// <para>The target's <c>AssemblyRef</c> row is returned whole rather than by name because the
+    /// name alone cannot say <em>which</em> assembly of that name the forwarder meant, and that is
+    /// the question the terminal hop has to answer.</para>
+    /// </summary>
+    static ForwarderEdge? ReadForwarder(string path, string fullName)
     {
         try
         {
@@ -687,7 +891,16 @@ public sealed class ForwardedTypeAliases
 
                 var target = reader.GetAssemblyReference(
                     (AssemblyReferenceHandle)exported.Implementation);
-                return (assembly, reader.GetString(target.Name), identity);
+                return new ForwarderEdge(
+                    assembly,
+                    reader.GetString(target.Name),
+                    identity,
+                    new AssemblyReferenceSpelling(
+                        reader.GetString(target.Name),
+                        [.. reader.GetBlobContent(target.PublicKeyOrToken)],
+                        target.Flags,
+                        target.Culture.IsNil ? "" : reader.GetString(target.Culture),
+                        target.Version));
             }
 
             return null;

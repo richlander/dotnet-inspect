@@ -324,7 +324,7 @@ internal sealed class ApiMemberAnalysisInspection
 
         // Reads only ExportedType tables.
         var aliases = Analysis.ForwardedTypeAliases.ForTarget(
-            openDeclaringType, AliasEvidencePaths(), AliasSeedSpellings());
+            openDeclaringType, _assemblyPath, AliasEvidencePaths(), AliasSeedSpellings());
         _directCallerAliases[openDeclaringType] = aliases;
         return aliases;
     }

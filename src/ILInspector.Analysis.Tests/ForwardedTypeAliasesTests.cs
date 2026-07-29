@@ -499,16 +499,12 @@ public class ForwardedTypeAliasesTests
     [InlineData("tokenless reference, signed evidence")]
     // An unsigned facade cannot answer for a reference that carries a token.
     [InlineData("signed reference, unsigned evidence")]
-    // Two differently signed assemblies claim the spelling, so neither can be confirmed. The
-    // poisoning was previously skipped entirely for a tokenless reference.
-    [InlineData("ambiguous spelling")]
     // A retargetable reference declares its identity substitutable, so its token is not the
     // definition's and confirms nothing.
     [InlineData("retargetable reference")]
     public void PrefilterDeclinesAnAliasItCannotVerify(string shape)
     {
         byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
-        byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
 
         string directory = NewTempDirectory();
         WriteForwarder(
@@ -519,20 +515,6 @@ public class ForwardedTypeAliasesTests
             "Widget",
             shape == "signed reference, unsigned evidence" ? null : evidenceKey);
 
-        if (shape == "ambiguous spelling")
-        {
-            // A second file claiming the same assembly name under a different key. Its own file
-            // name has to differ, but the assembly identity inside it is what the walk records.
-            WriteForwarder(
-                directory,
-                "Contoso.Facade",
-                "Contoso.Definer",
-                "Contoso",
-                "Widget",
-                rivalKey,
-                fileName: "Contoso.Facade.Rival");
-        }
-
         var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
         var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
         Assert.False(aliases.IsEmpty);
@@ -541,7 +523,6 @@ public class ForwardedTypeAliasesTests
         {
             "tokenless reference, signed evidence" => (null, default(AssemblyFlags)),
             "signed reference, unsigned evidence" => (TokenOf(evidenceKey), default),
-            "ambiguous spelling" => (null, default),
             "retargetable reference" => (TokenOf(evidenceKey), AssemblyFlags.Retargetable),
             _ => throw new ArgumentOutOfRangeException(nameof(shape)),
         };
@@ -771,7 +752,276 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// A spelling the image failed to verify must stay refused even when a verified sibling shares
+    /// The <em>facade to definer</em> edge carries identity too. Six review rounds hardened the
+    /// caller-to-facade edge while this one was a bare name comparison, so a facade whose
+    /// <c>AssemblyRef</c> names a definer that does not exist under that identity still vouched
+    /// for its callers — reporting a call to one assembly's type as a call to another's. Raised
+    /// against <c>a749cd4d</c>.
+    ///
+    /// <para>An unverified definer edge is refused outright rather than merely withdrawn, because
+    /// the polarity is inverted from the caller side: an unusable caller row costs an alias, while
+    /// an unconfirmed forwarding relationship <em>asserts</em> one that was never established.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PrefilterVerifiesTheEdgeFromTheFacadeToItsDefiner(bool edgeIsGenuine)
+    {
+        byte[] facadeKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] definerKey = [.. Enumerable.Repeat((byte)0xC3, 16)];
+        byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+
+        // Written first so the forwarder does not supply its own unsigned definer.
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.Definer.dll"),
+            SerializePE(NewAssembly("Contoso.Definer", definerKey)));
+
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: facadeKey, fileName: "Contoso.Facade",
+            version: new Version(1, 0, 0, 0),
+            targetPublicKeyToken: TokenOf(edgeIsGenuine ? definerKey : rivalKey));
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(facadeKey));
+
+        // The caller side is identical in both cases and verifies in both, so this pins the
+        // definer edge alone: only the token the facade records for its definer differs.
+        Assert.Equal(
+            edgeIsGenuine
+                ? CallerScopeTypeFilter.TypeReferenceState.Names
+                : CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// An ambiguous spelling must be refused wherever it appears in a chain, not only as the hop a
+    /// caller names. Marking the spelling ambiguous while leaving its entry in the chain map let an
+    /// ambiguous <em>intermediate</em> still route <c>Outer → Middle → Definer</c>, and which of
+    /// the two rival files won depended on directory enumeration order. Raised against
+    /// <c>a749cd4d</c>; this asserts both orders to gate the order-dependence directly.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PrefilterRoutesNoChainThroughAnAmbiguousIntermediateHop(bool rivalFirst)
+    {
+        byte[] middleKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Outer", "Contoso.Middle", "Contoso", "Widget",
+            publicKey: null, fileName: "Contoso.Outer",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(middleKey));
+        WriteForwarder(directory, "Contoso.Outermost", "Contoso.Outer", "Contoso", "Widget");
+
+        var keys = rivalFirst ? new[] { rivalKey, middleKey } : [middleKey, rivalKey];
+        for (int i = 0; i < keys.Length; i++)
+        {
+            WriteForwarder(
+                directory, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+                publicKey: keys[i], fileName: "Contoso.Middle." + i);
+        }
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // The control: the same three-hop chain with one Middle file. Without it, "no alias" would
+        // be satisfied by a chain of this depth simply not resolving.
+        string unambiguous = NewTempDirectory();
+        WriteForwarder(unambiguous, "Contoso.Outermost", "Contoso.Outer", "Contoso", "Widget");
+        WriteForwarder(
+            unambiguous, "Contoso.Outer", "Contoso.Middle", "Contoso", "Widget",
+            publicKey: null, fileName: "Contoso.Outer",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(middleKey));
+        WriteForwarder(
+            unambiguous, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: middleKey);
+
+        var control = ForwardedTypeAliases.ForTarget(
+            target, Directory.GetFiles(unambiguous, "*.dll"));
+
+        using var controlCaller = BuildCallerNaming("Contoso.Outermost", "Contoso", "Widget");
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(controlCaller.GetMetadataReader(), target, control));
+
+        using var throughMiddle = BuildCallerNaming("Contoso.Middle", "Contoso", "Widget");
+        using var throughOuter = BuildCallerNaming("Contoso.Outer", "Contoso", "Widget");
+        using var throughOutermost = BuildCallerNaming("Contoso.Outermost", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(throughMiddle.GetMetadataReader(), target, aliases));
+
+        // The hop the caller names is not ambiguous; the hop it forwards through is. Refusing the
+        // one and admitting the other is what fabricated the edge.
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(throughOuter.GetMetadataReader(), target, aliases));
+
+        // And at a remove, so the claim covers a chain rather than only the hop adjacent to the
+        // ambiguity.
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(throughOutermost.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// Evidence is sought by the assembly identity a file <em>claims</em>, not by what it is called
+    /// on disk. Seeding the walk by file name meant a rival file claiming the same identity under
+    /// another name was never opened, so the ambiguity defence never fired and the seeded walk
+    /// returned an alias the unseeded walk correctly refused. Raised against <c>a749cd4d</c>.
+    /// </summary>
+    [Fact]
+    public void SeededAndUnseededWalksAgreeWhenARivalClaimsTheNameUnderAnotherFileName()
+    {
+        byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: evidenceKey, fileName: "Contoso.Facade");
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: rivalKey, fileName: "unrelated.file.name");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        string[] evidence = Directory.GetFiles(directory, "*.dll");
+
+        var unseeded = ForwardedTypeAliases.ForTarget(target, evidence);
+
+        // The seed names the assembly the caller binds against. Only the file whose *name* matches
+        // it was previously opened, so the rival beside it went unseen.
+        var seeded = ForwardedTypeAliases.ForTarget(
+            target, evidence, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Contoso.Facade" });
+
+        using var caller = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(evidenceKey));
+
+        var unseededVerdict = CallerScopeTypeFilter.Classify(
+            caller.GetMetadataReader(), target, unseeded);
+        var seededVerdict = CallerScopeTypeFilter.Classify(
+            caller.GetMetadataReader(), target, seeded);
+
+        Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, unseededVerdict);
+        Assert.Equal(unseededVerdict, seededVerdict);
+    }
+
+    /// <summary>
+    /// Unsigned evidence observed at several versions keeps the callers of each. Collapsing the
+    /// observed version to the highest one meant adding valid newer evidence <em>removed</em> a
+    /// genuine caller of the older, because an unsigned identity has to match exactly — there is no
+    /// strong name to make roll-forward provable. Raised against <c>a749cd4d</c>.
+    ///
+    /// <para>Measured on the shared framework plus this repository's output — 2,267 assemblies and
+    /// 16,294 references — roll-forward is real (713 references) but unsigned roll-forward is
+    /// vanishingly rare (1), so requiring equality for unsigned identity costs almost nothing while
+    /// admitting it would let any version of an unsigned assembly answer for any other.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PrefilterKeepsCallersOfEveryVersionUnsignedEvidenceWasObservedAt(int callerMajor)
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "v1",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "v2",
+            version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget",
+            publicKeyOrToken: null, flags: default,
+            culture: null, version: new Version(callerMajor, 0, 0, 0));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// Aliasing applies to the declaring type and stops there. A parameter type the caller spells
+    /// through a facade is compared by plain <see cref="TypeRef"/> equality, so the overload does
+    /// not match and the caller is not listed.
+    ///
+    /// <para>This pins a documented boundary rather than a desired behavior. It is a conservative
+    /// miss — it can lose an edge and can never invent one — and closing it needs an alias set per
+    /// parameter type, because <c>ForTarget</c> builds a forwarding map for one named type.
+    /// Raised in review of <c>a749cd4d</c> and tracked as #3513. The positive half is the
+    /// sensitivity control: the identical call with the parameter spelled directly does match, so
+    /// this cannot pass by the whole comparison being broken.</para>
+    /// </summary>
+    [Fact]
+    public void AliasingAppliesToTheDeclaringTypeAndNotToParameterTypes()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var widget = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(widget, Directory.GetFiles(directory, "*.dll"));
+        Assert.True(aliases.Includes("Contoso.Facade"));
+
+        var pattern = MemberPattern.Method(widget, "Ping", [widget]);
+        var facadeSpelling = TypeRef.Definition("Contoso.Facade", "Contoso", "Widget");
+        var returnType = TypeRef.CoreLib("System", "Void");
+
+        // Declaring type through the facade, parameter type spelled directly: matched.
+        Assert.True(pattern.MatchesCrossAssembly(
+            new MemberRef(facadeSpelling, "Ping", [widget], returnType, MemberKind.Method), aliases));
+
+        // The same call with the parameter also spelled through the facade: not matched.
+        Assert.False(pattern.MatchesCrossAssembly(
+            new MemberRef(facadeSpelling, "Ping", [facadeSpelling], returnType, MemberKind.Method),
+            aliases));
+    }
+
+
+    /// <summary>
+    /// The negative control for the unsigned multi-version rule: observing two versions widens the
+    /// accepted set to exactly those two, not to every version.
+    /// </summary>
+    [Fact]
+    public void PrefilterDeclinesAVersionUnsignedEvidenceWasNeverObservedAt()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "v1",
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "v3",
+            version: new Version(3, 0, 0, 0), targetPublicKeyToken: null);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget",
+            publicKeyOrToken: null, flags: default,
+            culture: null, version: new Version(2, 0, 0, 0));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+
     /// its canonical bucket. Canonicalization collapses the five corelib facade spellings onto one
     /// name, so withdrawing a spelling from the verified set does not withdraw it from the matcher
     /// — which compares canonicalized names — and an unused verified sibling silently readmitted
@@ -1015,13 +1265,36 @@ public class ForwardedTypeAliasesTests
         string typeName,
         byte[]? publicKey,
         string fileName)
+        => WriteForwarder(
+            directory, name, target, ns, typeName, publicKey, fileName,
+            version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+    /// <summary>
+    /// The widest form. <paramref name="version"/> is the forwarder's own assembly version, and
+    /// <paramref name="targetPublicKeyToken"/> the token it records on the reference to its
+    /// definer — the identity that is verified against the definer's real
+    /// <c>AssemblyDef</c>, so a test can make a facade point at an assembly that does not exist
+    /// under that identity.
+    /// </summary>
+    static void WriteForwarder(
+        string directory,
+        string name,
+        string target,
+        string ns,
+        string typeName,
+        byte[]? publicKey,
+        string fileName,
+        Version version,
+        byte[]? targetPublicKeyToken)
     {
-        var metadata = NewAssembly(name, publicKey);
+        var metadata = NewAssembly(name, publicKey, version);
         var targetReference = metadata.AddAssemblyReference(
             metadata.GetOrAddString(target),
             new Version(1, 0, 0, 0),
             culture: default,
-            publicKeyOrToken: default,
+            publicKeyOrToken: targetPublicKeyToken is null
+                ? default
+                : metadata.GetOrAddBlob(targetPublicKeyToken),
             flags: default,
             hashValue: default);
         metadata.AddExportedType(
@@ -1033,6 +1306,15 @@ public class ForwardedTypeAliasesTests
             typeDefinitionId: 0);
 
         File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
+
+        // The assembly the forwarder points at, unless the test already placed one. The terminal
+        // hop of a chain is verified against the target's real AssemblyDef, so a fixture with no
+        // definer on disk is asserting a forwarding relationship nothing can confirm — which is
+        // the shape that fabricated a caller edge (review of a749cd4d). Writing it here keeps the
+        // fixtures modelling reality: the library under inspection always exists.
+        string definer = Path.Combine(directory, target + ".dll");
+        if (!File.Exists(definer))
+            File.WriteAllBytes(definer, SerializePE(NewAssembly(target, publicKey: null)));
     }
 
     /// <summary>Metadata for an image whose only TypeRef names one type in one assembly.</summary>
@@ -1102,6 +1384,9 @@ public class ForwardedTypeAliasesTests
     static MetadataBuilder NewAssembly(string name) => NewAssembly(name, publicKey: null);
 
     static MetadataBuilder NewAssembly(string name, byte[]? publicKey)
+        => NewAssembly(name, publicKey, new Version(1, 0, 0, 0));
+
+    static MetadataBuilder NewAssembly(string name, byte[]? publicKey, Version version)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1112,7 +1397,7 @@ public class ForwardedTypeAliasesTests
             default);
         metadata.AddAssembly(
             metadata.GetOrAddString(name),
-            new Version(1, 0, 0, 0),
+            version,
             culture: default,
             publicKey: publicKey is null ? default : metadata.GetOrAddBlob(publicKey),
             flags: default,

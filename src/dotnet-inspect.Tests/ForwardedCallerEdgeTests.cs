@@ -211,7 +211,7 @@ public class ForwardedCallerEdgeTests
             var xmlReader = ILInspector.Analysis.TypeRef.Definition(
                 "System.Private.Xml", "System.Xml", "XmlReader");
             var impostorAliases = ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
-                xmlReader, Directory.GetFiles(directory, "*.dll"));
+                xmlReader, target!, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
 
             // Premise: the impostor really does supply an alias for the facade spelling, so the
             // rejection below is the identity check and not an empty alias set.
@@ -351,7 +351,7 @@ public class ForwardedCallerEdgeTests
                 CreateFromUriToken(target!),
                 [MethodBodyInspectionSession.Open(SelfPath)],
                 ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
-                    xmlReader, Directory.GetFiles(control, "*.dll")));
+                    xmlReader, target!, Directory.GetFiles(control, "*.dll"), seedSpellings: null));
 
             // Premise: the wiring works at all under this synthetic evidence, so the absence below
             // is the version check rather than a facade the walk never accepted.
@@ -361,7 +361,7 @@ public class ForwardedCallerEdgeTests
                 CreateFromUriToken(target!),
                 [MethodBodyInspectionSession.Open(SelfPath)],
                 ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
-                    xmlReader, Directory.GetFiles(below, "*.dll")));
+                    xmlReader, target!, Directory.GetFiles(below, "*.dll"), seedSpellings: null));
 
             Assert.DoesNotContain(refused, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
         }
@@ -403,6 +403,12 @@ public class ForwardedCallerEdgeTests
     /// </summary>
     static void WriteFacade(string directory, byte[] publicKey, Version version)
     {
+        // The reference to the definer carries the definer's real identity, because a real facade's
+        // does and because that edge is now verified. An earlier revision recorded a tokenless
+        // 1.0.0.0 reference, which no compiler emits — the same "synthetic fixture too clean to be
+        // reachable" shape that a reviewer found in this file's netmodule test.
+        var definerIdentity = System.Reflection.AssemblyName.GetAssemblyName(PrivateXmlPath()!);
+
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -418,11 +424,14 @@ public class ForwardedCallerEdgeTests
             flags: System.Reflection.AssemblyFlags.PublicKey,
             hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
 
+        byte[]? definerToken = definerIdentity.GetPublicKeyToken();
         var definer = metadata.AddAssemblyReference(
             metadata.GetOrAddString("System.Private.Xml"),
-            new Version(1, 0, 0, 0),
+            definerIdentity.Version ?? new Version(1, 0, 0, 0),
             culture: default,
-            publicKeyOrToken: default,
+            publicKeyOrToken: definerToken is { Length: > 0 }
+                ? metadata.GetOrAddBlob(definerToken)
+                : default,
             flags: default,
             hashValue: default);
         metadata.AddExportedType(

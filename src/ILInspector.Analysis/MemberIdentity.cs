@@ -371,6 +371,17 @@ public sealed class MemberPattern
     /// matched (#3419). It defaults to <see cref="ForwardedTypeAliases.None"/>, which is
     /// exactly the pre-#3419 comparison. <see cref="CallerScopeTypeFilter"/> must be given
     /// the same instance, or it will rule out assemblies this would have matched.
+    ///
+    /// <para><b>Boundary:</b> aliasing applies to the <em>declaring</em> type only. Parameter
+    /// types below are compared by plain <see cref="TypeRef"/> equality, so an overload one of
+    /// whose parameters the caller spells through a facade is not matched, and the caller is not
+    /// listed. This is a conservative miss in the same family as #3479 and #3480: it can lose an
+    /// edge and can never invent one. It is not a patch away, because
+    /// <see cref="ForwardedTypeAliases.ForTarget(TypeRef, string?, IEnumerable{string}, IReadOnlySet{string})"/>
+    /// builds a forwarding map for one named type, so answering for parameter types needs an alias
+    /// set per parameter rather than a wider comparison here. Raised in review of <c>a749cd4d</c>
+    /// and tracked as #3513; pinned by
+    /// <c>ForwardedTypeAliasesTests.AliasingAppliesToTheDeclaringTypeAndNotToParameterTypes</c>.</para>
     /// </summary>
     public bool MatchesCrossAssembly(MemberRef member, ForwardedTypeAliases? aliases = null)
     {
