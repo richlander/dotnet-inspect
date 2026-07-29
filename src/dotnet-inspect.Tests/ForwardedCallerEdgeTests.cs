@@ -243,6 +243,60 @@ public class ForwardedCallerEdgeTests
     }
 
     /// <summary>
+    /// A caller image that indexed successfully keeps its callers even if the file underneath it
+    /// becomes unreadable afterwards.
+    ///
+    /// <para>The gate for answering identity from the bytes that were indexed. An earlier revision
+    /// re-opened <c>BodyIndex.Path</c> to read the caller's <c>AssemblyRef</c> rows, so a file
+    /// deleted, locked, or replaced between indexing and rendering silently produced zero forwarded
+    /// edges — with every method body still in hand. Reported with an executed reproduction in
+    /// review of <c>7181e795</c>.</para>
+    ///
+    /// <para>Deletion is the cheapest way to make the second read fail; the property under test is
+    /// that there is no second read, not anything about deletion in particular.</para>
+    /// </summary>
+    [Fact]
+    public void CallerEdges_SurviveTheCallerImageBecomingUnreadableAfterItWasIndexed()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), "fwd-vanish-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string copy = Path.Combine(directory, Path.GetFileName(SelfPath));
+            File.Copy(SelfPath, copy);
+
+            var xmlReader = ILInspector.Analysis.TypeRef.Definition(
+                "System.Private.Xml", "System.Xml", "XmlReader");
+            var aliases = ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
+                xmlReader, Directory.GetFiles(FrameworkDirectory, "*.dll"));
+
+            var targetSession = MethodBodyInspectionSession.Open(target!);
+
+            // Premise: the copy is a caller before anything is removed, so a later empty result is
+            // the vanished file and not an artifact of indexing a copy.
+            var control = targetSession.CallerEdges(
+                CreateFromUriToken(target!), [MethodBodyInspectionSession.Open(copy)], aliases);
+            Assert.Contains(control, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+
+            var callerSession = MethodBodyInspectionSession.Open(copy);
+            File.Delete(copy);
+
+            var edges = targetSession.CallerEdges(
+                CreateFromUriToken(target!), [callerSession], aliases);
+
+            Assert.Contains(edges, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A strong-named assembly calling itself <c>System.Xml.ReaderWriter</c> and forwarding
     /// <c>System.Xml.XmlReader</c> to <c>System.Private.Xml</c>, exactly as the real facade does.
     /// Everything about it matches the genuine article except the key it is signed with.

@@ -67,9 +67,11 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int> nonHeapNewObjOperandTokens,
         bool opportunitiesComputed,
         LibraryBodyAnalysisFeatures features,
-        LeakTriageResult? leakTriage)
+        LeakTriageResult? leakTriage,
+        ImmutableArray<AssemblyReferenceSpelling> assemblyReferences)
     {
         Path = path;
+        AssemblyReferences = assemblyReferences;
         DeclaredMethods = declaredMethods;
         Methods = methods;
         DirectCalls = directCalls;
@@ -92,6 +94,14 @@ public sealed class LibraryBodyIndex
     }
 
     public string Path { get; }
+
+    /// <summary>
+    /// This image's own <c>AssemblyRef</c> rows, captured while it was indexed. Identity questions
+    /// about an indexed image are answered from these rather than by re-reading
+    /// <see cref="Path"/>: a second read can fail after a successful index, and would answer from
+    /// whatever is on disk at that later moment rather than from the image that was indexed.
+    /// </summary>
+    public ImmutableArray<AssemblyReferenceSpelling> AssemblyReferences { get; }
     /// <summary>
     /// Every decoded method identity, including abstract and extern members,
     /// when <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
@@ -1371,7 +1381,11 @@ public sealed class LibraryBodyIndex
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
                     : LibraryBodyAnalysisFeatures.Allocations),
-            leakTriage: null);
+            leakTriage: null,
+            // A synthetic evidence-only index has no image and therefore no AssemblyRef table.
+            // Empty is the honest snapshot: it verifies no forwarder spelling, which declines
+            // every alias rather than vouching for one on identity this index does not have.
+            assemblyReferences: []);
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
@@ -1463,7 +1477,23 @@ public sealed class LibraryBodyIndex
             opportunitiesComputed:
                 (features & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0,
             features,
-            index.LeakTriage);
+            index.LeakTriage,
+            CaptureAssemblyReferences(reader));
+    }
+
+    static ImmutableArray<AssemblyReferenceSpelling> CaptureAssemblyReferences(MetadataReader reader)
+    {
+        var spellings = ImmutableArray.CreateBuilder<AssemblyReferenceSpelling>();
+        foreach (var handle in reader.AssemblyReferences)
+        {
+            var reference = reader.GetAssemblyReference(handle);
+            spellings.Add(new AssemblyReferenceSpelling(
+                reader.GetString(reference.Name),
+                [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
+                reference.Flags));
+        }
+
+        return spellings.ToImmutable();
     }
 
     static LibraryBodyAnalysisFeatures NormalizeFeatures(

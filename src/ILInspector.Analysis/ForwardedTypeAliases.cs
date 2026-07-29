@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -107,6 +108,13 @@ public sealed class ForwardedTypeAliases
     /// for ordinary identity matching, and deliberately so. Aliasing is additive: declining to
     /// apply one restores the behavior callers had before #3419, which is a display gap. Applying
     /// one wrongly invents an edge. So unknown, unverifiable, or ambiguous identity declines.</para>
+    ///
+    /// <para><b>Every reference to a spelling must verify, not merely one.</b> A
+    /// <see cref="TypeRef"/> records only a name, so when an image holds two <c>AssemblyRef</c> rows
+    /// that spell one name under different keys, nothing downstream can tell which row a given row
+    /// resolved through. Admitting the spelling because <em>some</em> row verified would let a
+    /// genuine reference vouch for a call made through the impostor beside it (found in review of
+    /// <c>7181e795</c>). One failing row therefore withdraws the spelling for the whole image.</para>
     /// </summary>
     public ForwardedTypeAliases RestrictedTo(MetadataReader reader)
     {
@@ -115,22 +123,49 @@ public sealed class ForwardedTypeAliases
         if (_aliases.Count == 0)
             return this;
 
-        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var spellings = ImmutableArray.CreateBuilder<AssemblyReferenceSpelling>();
         foreach (var handle in reader.AssemblyReferences)
         {
             var reference = reader.GetAssemblyReference(handle);
-            string name = reader.GetString(reference.Name);
-            if (!_rawSpellings.Contains(name) || verified.Contains(name))
+            spellings.Add(new AssemblyReferenceSpelling(
+                reader.GetString(reference.Name),
+                [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
+                reference.Flags));
+        }
+
+        return RestrictedTo(spellings.ToImmutable());
+    }
+
+    /// <summary>
+    /// <see cref="RestrictedTo(MetadataReader)"/> over an image's already-read <c>AssemblyRef</c>
+    /// rows, for callers holding a snapshot rather than an open reader.
+    /// </summary>
+    public ForwardedTypeAliases RestrictedTo(ImmutableArray<AssemblyReferenceSpelling> references)
+    {
+        if (_aliases.Count == 0)
+            return this;
+
+        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var refuted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in references)
+        {
+            if (!_rawSpellings.Contains(reference.Name))
                 continue;
 
             if (EvidenceIdentityVerified(
-                    name,
-                    reader.GetBlobContent(reference.PublicKeyOrToken).AsSpan(),
+                    reference.Name,
+                    reference.PublicKeyOrToken.AsSpan(),
                     reference.Flags))
             {
-                verified.Add(name);
+                verified.Add(reference.Name);
+            }
+            else
+            {
+                refuted.Add(reference.Name);
             }
         }
+
+        verified.ExceptWith(refuted);
 
         if (verified.Count == _rawSpellings.Count)
             return this;
@@ -150,31 +185,18 @@ public sealed class ForwardedTypeAliases
                 spellingTokens[raw] = token;
         }
 
+        // A canonical alias any refuted spelling also maps to cannot be admitted either: the
+        // spellings are indistinguishable to the matcher once canonicalized, so keeping it would
+        // readmit the row that was just refused.
+        foreach (string raw in refuted)
+        {
+            if (_canonicalByRaw.TryGetValue(raw, out string? canonical))
+                aliases.Remove(canonical);
+        }
+
         return aliases.Count == 0
             ? None
             : new ForwardedTypeAliases(aliases, verified, spellingTokens, canonicalByRaw);
-    }
-
-    /// <summary>
-    /// <see cref="RestrictedTo(MetadataReader)"/> for an image on disk, opened for metadata only.
-    /// An image that cannot be opened or read declines every alias: an alias may only be applied on
-    /// positive evidence, and there is none here.
-    /// </summary>
-    public ForwardedTypeAliases RestrictedTo(string assemblyPath)
-    {
-        if (_aliases.Count == 0)
-            return this;
-
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-            return peReader.HasMetadata ? RestrictedTo(peReader.GetMetadataReader()) : None;
-        }
-        catch (Exception e) when (e is IOException or BadImageFormatException or UnauthorizedAccessException)
-        {
-            return None;
-        }
     }
 
     /// <summary>

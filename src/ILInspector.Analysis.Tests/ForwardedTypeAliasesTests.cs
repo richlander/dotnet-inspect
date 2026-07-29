@@ -419,6 +419,173 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// One image, two <c>AssemblyRef</c> rows spelling the same name under different keys. A
+    /// <see cref="TypeRef"/> records only the name, so nothing downstream can tell which row it
+    /// resolved through — and admitting the spelling because the genuine row verified would let it
+    /// vouch for the call made through the impostor beside it.
+    ///
+    /// <para>Found in review of <c>7181e795</c> against an executed reproduction. Per-image
+    /// verification is what made this reachable: the first revision accepted a spelling as soon as
+    /// any row verified it, so the fix is that one failing row withdraws the spelling entirely.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterDeclinesASpellingOneOfWhoseReferencesFailsVerification()
+    {
+        byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] impostorKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", evidenceKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+        Assert.False(aliases.IsEmpty);
+
+        // The premise: the genuine row alone is admitted, so the rejection below is the second row
+        // and not the first failing to verify.
+        using (var genuine = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(evidenceKey)))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(genuine.GetMetadataReader(), target, aliases));
+        }
+
+        using var mixed = BuildCallerNamingThroughTwoReferences(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(impostorKey), TokenOf(evidenceKey));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(mixed.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// An image with two <c>AssemblyRef</c> rows for one assembly name under different keys, whose
+    /// only <see cref="TypeRef"/> resolves through the first of them.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNamingThroughTwoReferences(
+        string assembly,
+        string ns,
+        string typeName,
+        byte[] resolvedThrough,
+        byte[] alsoPresent)
+    {
+        var metadata = NewAssembly("Contoso.Caller");
+        var used = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(assembly),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(resolvedThrough),
+            flags: default,
+            hashValue: default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString(assembly),
+            new Version(2, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(alsoPresent),
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeReference(
+            used,
+            metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(typeName));
+
+        var root = new MetadataRootBuilder(metadata);
+        var blob = new BlobBuilder();
+        root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+    }
+
+    /// <summary>
+    /// Two forwarder spellings that canonicalize to one name. <see cref="TypeRef"/> collapses
+    /// <c>mscorlib</c>, <c>netstandard</c>, <c>System.Runtime</c> and friends onto a single
+    /// canonical corelib name, and <see cref="ForwardedTypeAliases.Includes"/> asks about the
+    /// canonical name — so a spelling that failed verification would be readmitted through a
+    /// verified sibling in the same bucket unless the bucket goes with it.
+    ///
+    /// <para>Reported by reasoning in review of <c>7181e795</c> and confirmed here. The removal is
+    /// deliberately limited to spellings that supplied forwarder evidence: poisoning the bucket for
+    /// <em>any</em> unverified reference that canonicalizes into it would break ordinary images,
+    /// which routinely reference <c>System.Runtime</c> (no forwarder, hence never verifiable)
+    /// alongside the facade that does forward. The residual — a <c>TypeRef</c> spelled through a
+    /// corelib facade this image never referenced — is <see cref="TypeRef"/> canonicalization
+    /// imprecision that predates aliasing and is tracked separately.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterDeclinesACanonicalAliasARefutedSpellingAlsoMapsTo()
+    {
+        byte[] trustedKey = [.. Enumerable.Repeat((byte)0xC3, 16)];
+        byte[] impostorKey = [.. Enumerable.Repeat((byte)0xD4, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "netstandard", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+        WriteForwarder(directory, "mscorlib", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+        Assert.True(aliases.IncludesRawSpelling("netstandard"));
+        Assert.True(aliases.IncludesRawSpelling("mscorlib"));
+
+        // Premise: verifying both spellings admits the type, so the rejection below is the refuted
+        // sibling and not the alias set being empty to begin with.
+        using (var both = BuildCallerNamingThroughTwoAssemblies(
+            "netstandard", TokenOf(trustedKey), "mscorlib", TokenOf(trustedKey), "Contoso", "Widget"))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(both.GetMetadataReader(), target, aliases));
+        }
+
+        // The TypeRef names the verified spelling; the refuted one merely sits beside it. Both
+        // decode to the same canonical assembly, so admitting it would admit the impostor's.
+        using var mixed = BuildCallerNamingThroughTwoAssemblies(
+            "netstandard", TokenOf(trustedKey), "mscorlib", TokenOf(impostorKey), "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(mixed.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// An image referencing two differently named assemblies, whose only <see cref="TypeRef"/>
+    /// resolves through the first.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNamingThroughTwoAssemblies(
+        string namingAssembly,
+        byte[] namingToken,
+        string otherAssembly,
+        byte[] otherToken,
+        string ns,
+        string typeName)
+    {
+        var metadata = NewAssembly("Contoso.Caller");
+        var naming = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(namingAssembly),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(namingToken),
+            flags: default,
+            hashValue: default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString(otherAssembly),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(otherToken),
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeReference(
+            naming,
+            metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(typeName));
+
+        var root = new MetadataRootBuilder(metadata);
+        var blob = new BlobBuilder();
+        root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+    }
+
+    /// <summary>
     /// The public key token for a public key, restated from ECMA-335 II.6.3 rather than shared with
     /// the product code, so this is an independent oracle rather than the same computation twice.
     /// </summary>

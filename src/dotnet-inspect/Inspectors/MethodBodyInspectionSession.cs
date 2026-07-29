@@ -41,12 +41,17 @@ public sealed class MethodBodyInspectionSession
     /// The subset of <paramref name="aliases"/> this image's own <c>AssemblyRef</c> identities
     /// verify, memoized because a command may ask for edges more than once while the answer depends
     /// only on this image.
+    ///
+    /// <para>Answered from the rows captured when the image was indexed, not by re-reading it: an
+    /// image that indexed successfully can fail to open a moment later, or can have been replaced,
+    /// and either would silently drop genuine forwarded edges the index already holds the bodies
+    /// for (found in review of <c>7181e795</c>).</para>
     /// </summary>
     internal Analysis.ForwardedTypeAliases ApplicableAliases(Analysis.ForwardedTypeAliases aliases)
     {
         if (!ReferenceEquals(_restrictedFrom, aliases))
         {
-            _restricted = aliases.RestrictedTo(BodyIndex.Path);
+            _restricted = aliases.RestrictedTo(BodyIndex.AssemblyReferences);
             _restrictedFrom = aliases;
         }
 
