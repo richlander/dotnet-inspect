@@ -180,7 +180,7 @@ public static class PackageOptionsParser
         else if (pathFilters != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
-            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceFiles] };
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

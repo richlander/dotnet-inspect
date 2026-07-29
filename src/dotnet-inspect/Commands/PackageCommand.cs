@@ -1003,14 +1003,14 @@ public class PackageCommand
             PackageSections.FilesRuntime => ProjectPackageFiles(new InspectionResultView(result).RuntimeFiles, section, kind, options),
             PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.PackageReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
-            PackageSections.SourceFiles => ProjectPackageSourceFiles(result, section, kind, options),
+            PackageSections.SourceLinkFiles => ProjectPackageSourceFiles(result, section, kind, options),
             _ => []
         };
 
         if (rows.Count == 0
             && !PackageFileFamily.IsFamilySection(section)
             && section is not (PackageSections.PackageInfo or PackageSections.Files
-                or PackageSections.PackageReadme or PackageSections.SourceFiles))
+                or PackageSections.PackageReadme or PackageSections.SourceLinkFiles))
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -1388,7 +1388,7 @@ public class PackageCommand
                || PackageFileFamily.IsFamilySection(section));
 
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
-        => options.IncludeSections?.Contains(PackageSections.SourceFiles) == true
+        => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true
            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
 
     private static async Task PopulatePackageSourceFilesAsync(
@@ -1694,7 +1694,7 @@ public class PackageCommand
             return PrintBarePackageFiles(extractPath, packageName, version, files, options, section);
         }
 
-        if (section.Equals(PackageSections.SourceFiles, StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(PackageSections.SourceLinkFiles, StringComparison.OrdinalIgnoreCase))
         {
             var urls = result.SourceFiles?.Select(row => row.Url);
             return PrintBarePackageUrlColumn(urls, section, options.OutputPath);

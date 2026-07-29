@@ -84,7 +84,7 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.FilesNuspec)]
     public List<PackageFileRow>? NuspecFiles => FamilyRows(PackageSections.FilesNuspec);
 
-    [MarkoutSection(Name = PackageSections.SourceFiles, EmptyText = "No SourceLink source files found for this package.")]
+    [MarkoutSection(Name = PackageSections.SourceLinkFiles, EmptyText = "No SourceLink source files found for this package.")]
     public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
         .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
         .ToList();

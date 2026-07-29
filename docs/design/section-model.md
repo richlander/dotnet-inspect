@@ -63,6 +63,14 @@ the family under alphabetical render order. This is why the array-pool escape
 section is a flat `Array Pool Escapes` rather than a prefixed member of a
 single-member `@Escape` door.
 
+The rule is about *permanent* single-member doors, and it is scoped per command
+rather than globally. A family that one command owns fully may reach another
+command as a single member first: `package` exposes only `SourceLink: Files` of
+the four-section `SourceLink:` family that `library` exposes. There the door is
+still correct, because the prefix already advertises it and because the name has
+to agree across commands for identical data. Cross-command agreement, not member
+count, is what earns the door in that case.
+
 **A prefix and a category door are two halves of one claim.** A `Group: Leaf`
 prefix advertises membership in a family, so every prefixed section must be
 reachable through that family's door, and a prefix is only appropriate when the
@@ -300,12 +308,13 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 | @All | category |
 | @Default | category |
 | @Files | category |
+| @SourceLink | category |
 | Files | section (opt-in) |
 | Files: Markdown | section (opt-in) |
 | Files: Nuspec | section (opt-in) |
 | Grounding | section (opt-in) |
 | Signals | section (opt-in) |
-| Source Files | section (opt-in) |
+| SourceLink: Files | section (opt-in) |
 ```
 
 Discovery is data-aware, so this listing is a property of the target and not a

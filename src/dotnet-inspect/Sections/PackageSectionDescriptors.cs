@@ -35,7 +35,12 @@ public static class PackageSectionDescriptors
             // The "Files:" family. Plain Files is the whole-package listing, so
             // it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
-            .AddCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames);
+            .AddCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
+            // SourceLink: Files carries the "SourceLink:" prefix, which advertises a door,
+            // so the door has to exist here too. It is a one-member family today only
+            // because the package command has not yet grown the other three sections the
+            // library command exposes; the name matching across commands is the point.
+            .AddCategory(SectionCategoryNames.SourceLink, [PackageSections.SourceLinkFiles]);
     }
 
     // ===== Primary sections (Summary preamble + Package Info) =====
@@ -159,7 +164,7 @@ public static class PackageSectionDescriptors
 
     public sealed class SourceFiles : ISectionDescriptor<InspectionResult>
     {
-        public static string Name => PackageSections.SourceFiles;
+        public static string Name => PackageSections.SourceLinkFiles;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;

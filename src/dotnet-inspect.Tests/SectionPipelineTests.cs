@@ -1105,6 +1105,30 @@ public class SectionPipelineTests
         Assert.False(PackageFileFamily.IsFamilySection(PackageSections.Files));
     }
 
+    /// <summary>
+    /// The package and library commands surface the same SourceLink data from the same
+    /// collector, so they must spell it the same way. This pins the agreement: renaming one
+    /// side without the other fails here rather than silently reintroducing the split where
+    /// package called it "Source Files" and library called it "SourceLink: Files".
+    /// </summary>
+    [Fact]
+    public void PackageAndLibraryPipelines_AgreeOnTheSourceLinkFilesSectionName()
+    {
+        Assert.Equal(SectionNames.SourceLinkFiles, PackageSections.SourceLinkFiles);
+
+        var package = PackageSectionDescriptors.CreatePipeline();
+        Assert.Contains(SectionNames.SourceLinkFiles, package.AllSectionNames);
+
+        // The prefix advertises a door, so the package command has to root it too.
+        var categories = package.GetCategoryMap();
+        Assert.True(categories.TryGetValue(SectionCategoryNames.SourceLink, out var sections));
+        Assert.Equal(
+            package.AllSectionNames
+                .Where(n => n.StartsWith("SourceLink:", StringComparison.Ordinal))
+                .OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
     [Fact]
     public void LibraryPipeline_IntegrationsCategory_ExcludesUnionTypes()
     {
@@ -1727,7 +1751,7 @@ public class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        Assert.Equal(["Dependencies", "Files: Library", "Manifest", "Signals", "Source Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+        Assert.Equal(["Dependencies", "Files: Library", "Manifest", "Signals", "SourceLink: Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
     [Fact]

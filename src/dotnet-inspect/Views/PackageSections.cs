@@ -23,7 +23,13 @@ public static class PackageSections
     public const string FilesMarkdown = "Files: Markdown";
     public const string FilesNuspec = "Files: Nuspec";
 
-    public const string SourceFiles = "Source Files";
+    /// <summary>
+    /// SourceLink-derived source file rows. Same collector and same data as the library
+    /// command's <c>SourceLink: Files</c>, so it carries the same name and joins the same
+    /// <c>@SourceLink</c> door rather than reading as a sibling of the <c>Files:</c> family,
+    /// which lists files the package actually ships.
+    /// </summary>
+    public const string SourceLinkFiles = "SourceLink: Files";
     public const string Dependencies = "Dependencies";
     public const string Files = "Files";
     public const string Vulnerabilities = "Vulnerabilities";

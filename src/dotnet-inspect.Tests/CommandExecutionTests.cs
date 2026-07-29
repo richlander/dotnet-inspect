@@ -9634,7 +9634,7 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
             Assert.Contains("| Signals | section (opt-in) |", output);
-            Assert.Contains("| Source Files | section (opt-in) |", output);
+            Assert.Contains("| SourceLink: Files | section (opt-in) |", output);
             Assert.Contains("Manifest", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
@@ -9689,7 +9689,7 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
             Assert.Contains("Signals", output);
-            Assert.Contains("Source Files", output);
+            Assert.Contains("SourceLink: Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
             Assert.Contains("@All", output);
@@ -9712,7 +9712,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Files", output);
+        Assert.Contains("## SourceLink: Files", output);
         Assert.Contains("| Library | Type | Url |", output);
         Assert.Contains("lib/net8.0/System.CommandLine.dll", output);
         Assert.Contains("System.CommandLine.Command", output);
