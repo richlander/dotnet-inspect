@@ -89,13 +89,13 @@ internal static class ApiSourceResolver
             }
             else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
             {
-                Console.Error.WriteLine("Error: --at requires a package version range such as Package@A..B.");
+                CommandError.Write("--at requires a package version range such as Package@A..B.");
                 return (null!, 1);
             }
         }
         else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
         {
-            Console.Error.WriteLine("Error: --at requires --package Package@A..B.");
+            CommandError.Write("--at requires --package Package@A..B.");
             return (null!, 1);
         }
 
@@ -170,7 +170,7 @@ internal static class ApiSourceResolver
 
             if (string.IsNullOrWhiteSpace(typeName))
             {
-                Console.Error.WriteLine("Error: --project requires a type name for type/member resolution.");
+                CommandError.Write("--project requires a type name for type/member resolution.");
                 return (null!, 1);
             }
 
@@ -306,7 +306,7 @@ internal static class ApiSourceResolver
         }
         else
         {
-            Console.Error.WriteLine("Error: No package, library, or platform specified.");
+            CommandError.Write("No package, library, or platform specified.");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Examples:");
             Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
@@ -340,7 +340,7 @@ internal static class ApiSourceResolver
                 }
                 else if (dlls.Count > 1)
                 {
-                    Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
+                    CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
                     return (null!, 1);
                 }
             }

@@ -14,6 +14,11 @@ internal sealed record LibraryIntegrationDescriptor(
     Func<LibraryInspection, bool> HasPresence,
     bool IncludeTypesWhenApisPresent)
 {
+    // User-facing section name/selector for this integration (e.g. "Integration: AI").
+    // Distinct from Name, which stays the unprefixed integration identity used for
+    // signal matching and finding payloads.
+    public string SectionName => IntegrationSectionNames.Prefix + Name;
+
     public bool CanRender(LibraryInspection inspection)
     {
         var failed = Source switch
@@ -167,7 +172,7 @@ internal static class LibraryIntegrationCatalog
         HttpClient,
     ];
 
-    public static string[] CategorySections => [RollupName, .. All.Select(descriptor => descriptor.Name)];
+    public static string[] CategorySections => [.. All.Select(descriptor => descriptor.SectionName)];
 
     public static bool CanRenderAny(LibraryInspection inspection)
         => All.Any(descriptor => descriptor.CanRender(inspection));

@@ -132,7 +132,7 @@ public static class ApiCommandDefinitions
                         sectionCategories: typePipeline.GetCategoryMap());
 
                 case TypeOptionsParser.ShowHelp:
-                    Console.Error.WriteLine("Error: Type name, pattern, or source required.");
+                    CommandError.Write("Type name, pattern, or source required.");
                     Console.Error.WriteLine("Run 'dotnet-inspect type --help' for usage.");
                     return 1;
 
@@ -276,7 +276,7 @@ public static class ApiCommandDefinitions
                         sectionCategories: memberPipeline.GetCategoryMap());
 
                 case MemberOptionsParser.ShowHelp:
-                    Console.Error.WriteLine("Error: Type name or source required.");
+                    CommandError.Write("Type name or source required.");
                     Console.Error.WriteLine("Run 'dotnet-inspect member --help' for usage.");
                     return 1;
 

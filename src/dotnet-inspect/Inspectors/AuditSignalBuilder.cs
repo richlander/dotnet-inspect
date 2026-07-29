@@ -137,7 +137,6 @@ internal static class AuditSignalBuilder
         ReadOnlySpan<SignalRow<LibrarySignalContext>> registry =
         [
             LibrarySignalRows.ProvenanceSourceLink,
-            LibrarySignalRows.ProvenanceSourceLinkAvailability,
             LibrarySignalRows.ProvenanceDeterministic,
             LibrarySignalRows.DependenciesDirectAssemblyReferences,
             LibrarySignalRows.CompatibilityAsyncKind,
@@ -201,9 +200,6 @@ internal static class AuditSignalBuilder
         public static SignalRow<LibrarySignalContext> ProvenanceSourceLink =>
             new("Provenance", "SourceLink", ResolveProvenanceSourceLink);
 
-        public static SignalRow<LibrarySignalContext> ProvenanceSourceLinkAvailability =>
-            new("Provenance", "SourceLink availability", ResolveProvenanceSourceLinkAvailability);
-
         public static SignalRow<LibrarySignalContext> ProvenanceDeterministic =>
             new("Provenance", "Deterministic", ResolveProvenanceDeterministic);
 
@@ -254,9 +250,6 @@ internal static class AuditSignalBuilder
 
         private static SignalValue? ResolveProvenanceSourceLink(in LibrarySignalContext context) =>
             FormatSourceLink(context.Inspection).ToSignalValue();
-
-        private static SignalValue? ResolveProvenanceSourceLinkAvailability(in LibrarySignalContext context) =>
-            FormatSourceLinkAvailability(context.Inspection).ToSignalValue();
 
         private static SignalValue? ResolveProvenanceDeterministic(in LibrarySignalContext context) =>
             new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
@@ -599,20 +592,6 @@ internal static class AuditSignalBuilder
             return ("Not found", FormatPdbEvidence(inspection, hasSourceLink: false));
 
         return ("Not checked", "PDB not checked");
-    }
-
-    private static (string Value, string Evidence) FormatSourceLinkAvailability(LibraryInspection inspection)
-    {
-        if (inspection.AllSourcesAccessible.HasValue || inspection.TotalSourceFiles > 0)
-        {
-            return (inspection.AllSourcesAccessible == true ? "Complete" : "Partial",
-                $"{inspection.AccessibleSourceFiles}/{inspection.TotalSourceFiles} tracked source files available");
-        }
-
-        if (!inspection.HasSourceLink)
-            return ("Not available", "SourceLink data not available");
-
-        return ("Not checked", "SourceLink availability not selected");
     }
 
     private static string FormatPdbEvidence(LibraryInspection inspection, bool hasSourceLink)

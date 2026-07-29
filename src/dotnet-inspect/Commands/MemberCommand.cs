@@ -24,7 +24,7 @@ public static class MemberCommand
             if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
                 return findIfMissExitCode;
 
-            Console.Error.WriteLine("Error: member requires a type name.");
+            CommandError.Write("member requires a type name.");
             Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
             Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.PlatformAssembly ?? "");
@@ -68,7 +68,7 @@ public static class MemberCommand
                 apiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
             if (loaded == null)
             {
-                Console.Error.WriteLine("Error: Could not extract API from library.");
+                CommandError.Write("Could not extract API from library.");
                 return 1;
             }
 

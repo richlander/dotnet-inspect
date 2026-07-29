@@ -156,7 +156,7 @@ A **facet is neither a verbosity level nor a CLI section name.** Verbosity (`-v:
 section selection (`-S`) are CLI-facing *inputs*; at the command boundary the CLI **maps**
 `(verbosity + selected sections)` to a **set of facets**, and the request carries the facets.
 The service produces each facet once; the CLI renders sections from the results. Many sections
-can project the same facet (e.g. `Allocation Facts` and `Allocation Context` both render
+can project the same facet (e.g. `Allocation Facts` and `Context: Allocation` both render
 `AllocationFacts`), and a facet has exactly one owner, so no two sections recompute it.
 
 **One request object, threaded to owners.** The service does not take a long discrete parameter

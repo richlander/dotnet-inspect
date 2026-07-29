@@ -200,14 +200,14 @@ internal static class ILOffsetQuery
         Console.Error.WriteLine();
         if (context.WindowsPdbDetected)
         {
-            Console.Error.WriteLine("Error: PDB is Windows format (not supported).");
+            CommandError.Write("PDB is Windows format (not supported).");
             Console.Error.WriteLine("       Only Portable PDBs are supported.");
         }
         else
         {
-            Console.Error.WriteLine("Error: No readable PDB found.");
+            CommandError.Write("No readable PDB found.");
         }
-        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
+        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
 }

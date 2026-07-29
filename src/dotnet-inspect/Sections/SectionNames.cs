@@ -105,8 +105,26 @@ public static class SectionNames
     /// <summary>Section for a line diff between original and decompiled method source.</summary>
     public const string SourceDiff = "Source Diff";
 
-    /// <summary>Section for SourceLink source file URLs for a type.</summary>
+    /// <summary>Section for SourceLink source file URLs for a type (API/package scope).</summary>
     public const string SourceFiles = "Source Files";
+
+    /// <summary>
+    /// SourceLink source file listing (library scope). Part of the <c>@SourceLink</c> family;
+    /// prefixed <c>SourceLink:</c> to match the category door so the family sorts together.
+    /// </summary>
+    public const string SourceLinkFiles = "SourceLink: Files";
+
+    /// <summary>
+    /// SourceLink availability audit (library scope): per-source-file HEAD probe results. Part of
+    /// the <c>@SourceLink</c> family; prefixed <c>SourceLink:</c> to match the category door.
+    /// </summary>
+    public const string SourceLinkAvailability = "SourceLink: Availability";
+
+    /// <summary>SourceLink audit rows for source files that failed their availability probe.</summary>
+    public const string SourceLinkMissingFiles = "SourceLink: Missing Files";
+
+    /// <summary>SourceLink integrity audit (library scope): content hash verification of sources.</summary>
+    public const string SourceLinkIntegrity = "SourceLink: Integrity";
 
     /// <summary>Section for SourceLink source locations for member signatures.</summary>
     public const string SourceLocations = "Source Locations";
@@ -115,34 +133,34 @@ public static class SectionNames
     public const string IL = "IL";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to source.</summary>
-    public const string ILOffset = "Source Location";
+    public const string ILOffset = "Context: Source Location";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to its owning member/type.</summary>
-    public const string MemberContext = "Member Context";
+    public const string MemberContext = "Context: Member";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to its exact IL instruction.</summary>
-    public const string InstructionContext = "Instruction Context";
+    public const string InstructionContext = "Context: Instruction";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to containing exception regions.</summary>
-    public const string ExceptionContext = "Exception Context";
+    public const string ExceptionContext = "Context: Exception";
 
     /// <summary>Section for exception regions contained by a selected member body.</summary>
     public const string ExceptionRegions = "Exception Regions";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to a call-like instruction.</summary>
-    public const string CallsiteContext = "Callsite Context";
+    public const string CallsiteContext = "Context: Callsite";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to the preceding call instruction.</summary>
-    public const string ReturnAddressContext = "Return Address Context";
+    public const string ReturnAddressContext = "Context: Return Address";
 
     /// <summary>Section for allocation facts at an exact IL coordinate.</summary>
-    public const string AllocationContext = "Allocation Context";
+    public const string AllocationContext = "Context: Allocation";
 
     /// <summary>Section for safety facts at an exact IL coordinate.</summary>
-    public const string SafetyContext = "Safety Context";
+    public const string SafetyContext = "Context: Safety";
 
     /// <summary>Section for objective cost facts at an exact IL coordinate.</summary>
-    public const string CostContext = "Cost Context";
+    public const string CostContext = "Context: Cost";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
@@ -194,16 +212,16 @@ public static class SectionNames
     public const string PerformanceArrays = "Performance: Arrays";
 
     /// <summary>Closure/delegate-allocation performance findings.</summary>
-    public const string PerformanceClosures = "Performance: Closures and delegates";
+    public const string PerformanceClosures = "Performance: Closures and Delegates";
 
     /// <summary>Enumerator-allocation performance findings.</summary>
     public const string PerformanceEnumerators = "Performance: Enumerators";
 
     /// <summary>Loop hot-path performance findings (scan/materialize/build inside loops).</summary>
-    public const string PerformanceLoops = "Performance: Loop hot paths";
+    public const string PerformanceLoops = "Performance: Loop Hot Paths";
 
     /// <summary>Aggregate allocation hotspot/fanout performance findings.</summary>
-    public const string PerformanceHotspots = "Performance: Allocation hotspots";
+    public const string PerformanceHotspots = "Performance: Allocation Hotspots";
 
     /// <summary>Async state-machine performance findings.</summary>
     public const string PerformanceAsync = "Performance: Async";
@@ -211,10 +229,59 @@ public static class SectionNames
     /// <summary>Catch-all for performance findings whose shape has no dedicated section (keeps the scan non-lossy).</summary>
     public const string PerformanceOther = "Performance: Other";
 
-    /// <summary>Section for curated exception-path resource lifecycle candidates.</summary>
-    public const string ResourceTriage = "Resource Triage";
+    /// <summary>
+    /// Escape/exception-safety section for the array-pool shape: an <c>ArrayPool&lt;T&gt;.Shared.Rent</c>
+    /// that is not returned on an exception path. Named for the specific resource because the
+    /// analysis is array-pool-specific today. Unprefixed: a prefix marks an exclusive family with
+    /// a matching category door, and this section has neither.
+    /// </summary>
+    public const string ArrayPoolEscapes = "Array Pool Escapes";
 
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
+
+    // ===== Library-scope sections (LibrarySections) =====
+    // Declared here rather than as descriptor-local literals so that category membership in
+    // LibrarySections.AddCategory references the same symbol the descriptor's Name returns. A
+    // rename then moves both together instead of silently dropping the section from its category.
+
+    /// <summary>Section for the assembly identity header.</summary>
+    public const string LibraryInfo = "Library Info";
+
+    /// <summary>Section for scans that failed, so a partial inspection never reads as a clean one.</summary>
+    public const string InspectionFailures = "Inspection Failures";
+
+    /// <summary>Section for debug symbol availability and provenance.</summary>
+    public const string Symbols = "Symbols";
+
+    /// <summary>Section summarizing high-value audit answers across the assembly.</summary>
+    public const string Signals = "Signals";
+
+    /// <summary>Section for AppContext feature switches.</summary>
+    public const string Switches = "Switches";
+
+    /// <summary>Section for direct assembly references.</summary>
+    public const string References = "References";
+
+    /// <summary>Section for transitive assembly dependencies.</summary>
+    public const string Dependencies = "Dependencies";
+
+    /// <summary>Section for P/Invoke declarations.</summary>
+    public const string PInvokeMethods = "P/Invoke Methods";
+
+    /// <summary>Section for async methods.</summary>
+    public const string AsyncMethods = "Async Methods";
+
+    /// <summary>Section for embedded resources.</summary>
+    public const string Resources = "Resources";
+
+    /// <summary>Section for union types.</summary>
+    public const string UnionTypes = "Union Types";
+
+    /// <summary>Section for type forwarders.</summary>
+    public const string TypeForwarders = "Type Forwarders";
+
+    /// <summary>Section for build paths that leak non-deterministic local or CI directories.</summary>
+    public const string NonNormalizedPaths = "Non-normalized Paths";
 
 }

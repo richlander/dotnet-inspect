@@ -115,14 +115,14 @@ public class CacheCommand
     {
         if (!IsSafeSessionName(sessionName))
         {
-            Console.Error.WriteLine("Error: Session name must not contain path separators or traversal.");
+            CommandError.Write("Session name must not contain path separators or traversal.");
             return 1;
         }
 
         var sessionPath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
         if (!IsUnderTempDirectory(sessionPath))
         {
-            Console.Error.WriteLine("Error: Refusing to clear session outside the temporary directory.");
+            CommandError.Write("Refusing to clear session outside the temporary directory.");
             return 1;
         }
 

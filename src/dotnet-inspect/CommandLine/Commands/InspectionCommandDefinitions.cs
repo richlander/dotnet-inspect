@@ -106,7 +106,7 @@ public static class InspectionCommandDefinitions
                 type = positional[positionalIndex++];
             if (positionalIndex < positional.Length)
             {
-                Console.Error.WriteLine("Error: too many positional arguments.");
+                CommandError.Write("too many positional arguments.");
                 return 1;
             }
 

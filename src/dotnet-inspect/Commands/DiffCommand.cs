@@ -72,7 +72,7 @@ public class DiffCommand
 
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
-            Console.Error.WriteLine("Error: --package, --platform, or --library with version range required.");
+            CommandError.Write("--package, --platform, or --library with version range required.");
             Console.Error.WriteLine("Examples:");
             Console.Error.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
             Console.Error.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
@@ -82,7 +82,7 @@ public class DiffCommand
 
         if ((hasPlatform ? 1 : 0) + (hasPackage ? 1 : 0) + (hasLibrary ? 1 : 0) > 1)
         {
-            Console.Error.WriteLine("Error: Cannot specify more than one of --package, --platform, and --library.");
+            CommandError.Write("Cannot specify more than one of --package, --platform, and --library.");
             return 1;
         }
 
@@ -100,7 +100,7 @@ public class DiffCommand
                 && options.TypeFilter.Count == 0
                 && options.MemberFilter.Count == 0)
             {
-                Console.Error.WriteLine("Error: Finding Transitions requires --type or a type-qualified --member target.");
+                CommandError.Write("Finding Transitions requires --type or a type-qualified --member target.");
                 return 1;
             }
             if (!TryResolveFindingDescriptor(options, out var findingDescriptor, out var findingError))
@@ -121,7 +121,7 @@ public class DiffCommand
             {
                 if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
                 {
-                    Console.Error.WriteLine("Error: --finding api.type requires --type and cannot be combined with --member.");
+                    CommandError.Write("--finding api.type requires --type and cannot be combined with --member.");
                     return 1;
                 }
             }
@@ -129,7 +129,7 @@ public class DiffCommand
             {
                 if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
                 {
-                    Console.Error.WriteLine("Error: --finding api.attribute requires --type and cannot be combined with --member.");
+                    CommandError.Write("--finding api.attribute requires --type and cannot be combined with --member.");
                     return 1;
                 }
             }
@@ -137,7 +137,7 @@ public class DiffCommand
                 && options.TypeFilter.Count == 0
                 && options.MemberFilter.Count == 0)
             {
-                Console.Error.WriteLine("Error: --finding api.member requires --type or --member.");
+                CommandError.Write("--finding api.member requires --type or --member.");
                 return 1;
             }
             if (options.Breaking || options.Additive || options.ChangedOnly

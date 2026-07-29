@@ -85,7 +85,7 @@ public static class TypeCommand
                     apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
+                    CommandError.Write("Could not extract API from library.");
                     return 1;
                 }
 
@@ -149,7 +149,7 @@ public static class TypeCommand
                     apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
+                    CommandError.Write("Could not extract API from library.");
                     return 1;
                 }
 
@@ -199,7 +199,7 @@ public static class TypeCommand
 
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
-                        Console.Error.WriteLine("Error: -v:q is not supported by the type shape renderer.");
+                        CommandError.Write("-v:q is not supported by the type shape renderer.");
                         Console.Error.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
                         return 1;
                     }

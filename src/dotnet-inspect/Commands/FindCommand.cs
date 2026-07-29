@@ -36,7 +36,7 @@ public class FindCommand
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
-                Console.Error.WriteLine("Error: No pattern specified.");
+                CommandError.Write("No pattern specified.");
                 return 1;
             }
 
@@ -98,7 +98,7 @@ public class FindCommand
 
         if (memberPatterns.Length == 0)
         {
-            Console.Error.WriteLine("Error: No member pattern specified.");
+            CommandError.Write("No member pattern specified.");
             return 1;
         }
 

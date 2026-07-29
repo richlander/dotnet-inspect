@@ -27,7 +27,7 @@ public static class PrintProjectionOutput
 
         if (documents.Count == 0)
         {
-            Console.Error.WriteLine("Error: selected section has no printable rows.");
+            CommandError.Write("selected section has no printable rows.");
             return 1;
         }
 

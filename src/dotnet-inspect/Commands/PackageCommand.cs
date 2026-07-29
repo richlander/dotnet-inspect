@@ -36,7 +36,7 @@ public class PackageCommand
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
-        // can never fan out to the unbounded SourceLink Integrity group.
+        // can never fan out to unbounded @Hidden members as a group.
         if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
             return 1;
 
@@ -73,7 +73,7 @@ public class PackageCommand
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
             if (shapeCount > 1)
             {
-                Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+                CommandError.Write("specify only one of --value, --urls, or --paths.");
                 return 1;
             }
 
@@ -96,13 +96,13 @@ public class PackageCommand
 
             if (options.JsonArray && shapeCount == 0 && !options.Print)
             {
-                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+                CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
                 return 1;
             }
 
             if (options.JsonArray && (options.JsonOutput || options.Jsonl))
             {
-                Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+                CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
                 return 1;
             }
 
@@ -131,7 +131,7 @@ public class PackageCommand
 
         if (packageArgs.Length < 1)
         {
-            Console.Error.WriteLine("Error: Package name or path required.");
+            CommandError.Write("Package name or path required.");
             Console.Error.WriteLine("Run 'dotnet-inspect package --help' for usage.");
             return 1;
         }
@@ -627,7 +627,7 @@ public class PackageCommand
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.JsonOutput && rowSection == null)
         {
-            Console.Error.WriteLine("Error: Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
+            CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
             Console.Error.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
             return 1;
         }
@@ -677,7 +677,7 @@ public class PackageCommand
 
         if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
         {
-            Console.Error.WriteLine("Error: Multiple package row output requires one concrete section; @All produces a multi-section document.");
+            CommandError.Write("Multiple package row output requires one concrete section; @All produces a multi-section document.");
             return false;
         }
 
@@ -823,26 +823,26 @@ public class PackageCommand
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
         if (options.Tree && options.Discover == null)
         {
-            Console.Error.WriteLine("Error: package --tree is discovery-tree output and requires -D/--discover.");
+            CommandError.Write("package --tree is discovery-tree output and requires -D/--discover.");
             Console.Error.WriteLine("Use --layout to show the package file tree.");
             return false;
         }
 
         if (options.FrontmatterRequested && options.BodyRequested)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");
+            CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
             return false;
         }
 
         if (options.ShowReadme && options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --readme cannot be combined with --content. Use --content --path @readme for separator or JSONL output.");
+            CommandError.Write("--readme cannot be combined with --content. Use --content --path @readme for separator or JSONL output.");
             return false;
         }
 
         if (options.Print && options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --print cannot be combined with --content.");
+            CommandError.Write("--print cannot be combined with --content.");
             return false;
         }
 
@@ -852,43 +852,43 @@ public class PackageCommand
             && !options.Urls
             && !options.Paths)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return false;
         }
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return false;
         }
 
         if (options.ShowContent && !HasPathFilter(options))
         {
-            Console.Error.WriteLine("Error: --content requires at least one --path selector.");
+            CommandError.Write("--content requires at least one --path selector.");
             return false;
         }
 
         if (scopedContent && !options.ShowReadme && !options.Print && !options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, or --content.");
+            CommandError.Write("--frontmatter/--yaml-header and --body require --readme, --print, or --content.");
             return false;
         }
 
         if (options.ShowContent && options.JsonOutput)
         {
-            Console.Error.WriteLine("Error: --content supports --jsonl for structured output, not --json.");
+            CommandError.Write("--content supports --jsonl for structured output, not --json.");
             return false;
         }
 
         if (options.ShowContent && options.Tabular && !options.Jsonl)
         {
-            Console.Error.WriteLine("Error: --content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
+            CommandError.Write("--content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
             return false;
         }
 
         if (options.ShowContent && options.Count)
         {
-            Console.Error.WriteLine("Error: --content cannot be combined with --count.");
+            CommandError.Write("--content cannot be combined with --count.");
             return false;
         }
 
@@ -919,7 +919,7 @@ public class PackageCommand
         if (sections is { Count: 1 } && sections.Contains(PackageSections.PackageReadme))
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -1022,7 +1022,7 @@ public class PackageCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Package Info requires --fields <name>.");
+            CommandError.Write("--value for Package Info requires --fields <name>.");
             return [];
         }
 
@@ -1617,7 +1617,7 @@ public class PackageCommand
     {
         if (options.IncludeSections is not { Count: 1 } include)
         {
-            Console.Error.WriteLine("Error: --bare requires exactly one -S section, --readme, or --content payload.");
+            CommandError.Write("--bare requires exactly one -S section, --readme, or --content payload.");
             return 1;
         }
 
@@ -2066,8 +2066,8 @@ public class PackageCommand
     {
         if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
-            Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
-            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
+            CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
             return false;
         }
 
@@ -2082,7 +2082,7 @@ public class PackageCommand
         if (table == null)
         {
             CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
-            Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
             return false;
         }
 
@@ -2121,26 +2121,7 @@ public class PackageCommand
                 libraryInfoRows);
         }
 
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = inspections
-                .SelectMany(inspection => LibraryIntegrationCatalog.All
-                    .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
-                    .Where(row => row.Signals.Count > 0)
-                    .Select(row => WithProvenance(
-                        packageName,
-                        version,
-                        row.Inspection,
-                        row.Descriptor.Name,
-                        row.Descriptor.CountRenderedRows(row.Signals).ToString())))
-                .ToArray();
-            return new(
-                ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
-                ["package", "version", "library", "tfm", "integration", "apis"],
-                integrationRows);
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2178,7 +2159,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return null;
 
@@ -2295,36 +2276,13 @@ public class PackageCommand
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
-        => section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase)
-           || section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase)
+        => section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase)
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
-           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
     private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
     {
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = LibraryIntegrationCatalog.All
-                .Select(descriptor =>
-                {
-                    var count = inspections.Sum(inspection =>
-                    {
-                        var signals = descriptor.GetSignals(inspection);
-                        return signals.Count > 0 ? descriptor.CountRenderedRows(signals) : 0;
-                    });
-                    return new { descriptor.Name, Count = count };
-                })
-                .Where(row => row.Count > 0)
-                .ToList();
-            if (integrationRows.Count == 0)
-                return;
-
-            AppendHeading(sb, section);
-            AppendTable(sb, ["Integration", "APIs"], integrationRows.Select(row => new[] { row.Name, row.Count.ToString() }));
-            return;
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2380,7 +2338,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return;
 
@@ -2721,7 +2679,7 @@ public class PackageCommand
         var result = ReadPackageFileContents(extractPath, packageName, version, readmeFile, options);
         if (result.Files is not { Count: > 0 })
         {
-            Console.Error.WriteLine("Error: This package does not contain a readme file.");
+            CommandError.Write("This package does not contain a readme file.");
             return 1;
         }
 
