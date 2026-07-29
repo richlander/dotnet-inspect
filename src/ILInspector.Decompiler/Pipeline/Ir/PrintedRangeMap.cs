@@ -24,9 +24,18 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// lookups, while the correlation seams enumerate to build line tables.
 /// </para>
 /// <para>
-/// Enumeration order is <em>post-order over the printed tree</em>: every node
-/// follows all of its descendants, and siblings follow one another in the order
-/// their characters appear in the text.
+/// Enumeration order is <em>post-order over the tree</em>: every node follows
+/// all of its descendants, and siblings follow one another in the order they
+/// appear among their parent's children.
+/// </para>
+/// <para>
+/// Sibling order is <em>not</em> promised to match the order the characters
+/// appear in the text, because a printer may emit an operand out of child
+/// order. <c>UnionSwitchExpression</c> is the case that makes this real: it
+/// stores the null arm after the type arms but prints <c>null =&gt; ...</c>
+/// first, so its recorded ranges enumerate 111 (at offset 48) before 222 (at
+/// offset 32). A consumer that needs textual order must sort by position and
+/// say so at its own call site.
 /// </para>
 /// <para>
 /// That is deliberately weaker than "the order the printer finished composing
@@ -36,8 +45,8 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// <c>new object()</c> first even though <c>sink</c> is printed to its left.
 /// Composition order is an artefact of which interpolation hole a printing
 /// method happens to fill first; it would flip under a refactor that changed
-/// nothing observable. Position is a property of the output itself, so it is
-/// what the contract names.
+/// nothing observable. Tree order is stable under that refactor, which is why
+/// it is what the contract names.
 /// </para>
 /// <para>
 /// Sorting the whole map by start position is still <em>not</em> promised —

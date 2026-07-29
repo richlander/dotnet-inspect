@@ -32,21 +32,47 @@ public class PrintedBodyMapTests
         var map = PrintedBodyMap.Create(ranges);
         Assert.NotEmpty(map.Nodes);
 
-        int expected = 0;
+        // Read the emitted spans, not recomputed coordinates. Checking only the
+        // count let a map of entirely bogus spans pass.
+        int emitted = 0;
         foreach (var printed in ranges)
         {
             int start = printed.Characters.Start.GetOffset(output.Length);
             int end = printed.Characters.End.GetOffset(output.Length);
-            if (!ranges.TryGetLineColumn(printed.Node, out int line, out int column, out int length))
+            if (!ranges.TryGetLineColumn(printed.Node, out _, out _, out _))
                 continue;
 
-            expected++;
+            var span = map.Nodes[emitted++];
             // The projection drops the trailing line break a statement's range
             // carries, so the expectation is the characters on the line.
-            Assert.Equal(output[start..end].TrimEnd('\r', '\n'), map.Lines[line].Substring(column, length));
+            Assert.Equal(output[start..end].TrimEnd('\r', '\n'), map.Lines[span.Line].Substring(span.Column, span.Length));
+            Assert.Equal(printed.Node.GetType().Name, span.Kind);
         }
 
-        Assert.Equal(expected, map.Nodes.Count);
+        Assert.Equal(emitted, map.Nodes.Count);
+    }
+
+    [Fact]
+    public void AFactOnARefusedNodeFallsBackToItsAncestorRatherThanVanishing()
+    {
+        // TwiceTheSame prints "return x + x;", so the LoadArgument spelling is
+        // ambiguous and the printer deliberately records no range for it. Facts
+        // are positive-only -- always shown somewhere -- so a fact keyed to that
+        // node must still be placed, via the nearest recorded ancestor.
+        var source = MetadataSource.Open(typeof(PrintedRangeExpressionFixture).Assembly.Location);
+        var fn = IrImporter.Import(source, typeof(PrintedRangeExpressionFixture).FullName!, nameof(PrintedRangeExpressionFixture.TwiceTheSame))!;
+        CSharpPrinter.PrintRaised(fn, out var ranges);
+
+        var refused = fn.Body.Descendants.OfType<LoadArgument>()
+            .FirstOrDefault(n => !ranges.TryGetRange(n, out _));
+        Assert.NotNull(refused);
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>> { [refused!] = [new Annotation(Alloc, 0, "kept")] });
+
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal("kept", fact.Detail);
     }
 
     [Fact]

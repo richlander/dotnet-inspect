@@ -69,7 +69,11 @@ internal readonly struct Frag
     {
         if (Text.Length == 0)
             return this;
-        var spans = Spans ?? [];
+        // Copy rather than append in place. Attribute returns a new Frag, which
+        // promises the original is unchanged; sharing the list would retroactively
+        // add this node to every fragment already built from it, attributing it to
+        // characters it never printed.
+        List<(IrNode Node, int Start, int Length)> spans = Spans is null ? [] : [.. Spans];
         spans.Add((node, 0, Text.Length));
         return new Frag(Text, spans);
     }

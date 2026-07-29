@@ -143,7 +143,11 @@ public sealed record PrintedBodyMap(
         {
             foreach (var (node, found) in annotations)
             {
-                if (!ranges.TryGetLine(node, out int line))
+                // A node can be refused a range (an ambiguous spelling), and an
+                // expression-keyed fact would then be dropped entirely. Facts are
+                // positive-only -- always shown somewhere -- so fall back to the
+                // nearest recorded ancestor rather than losing the observation.
+                if (!AnnotationAnchor.TryGetPrintedLine(node, ranges, out int line))
                     continue;
                 bool placed = ranges.TryGetLineColumn(node, out _, out int column, out int length);
                 string kind = node.GetType().Name;

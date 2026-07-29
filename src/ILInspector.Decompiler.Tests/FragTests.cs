@@ -74,6 +74,28 @@ public class FragTests
     }
 
     [Fact]
+    public void AttributeLeavesTheFragmentItWasCalledOnUnchanged()
+    {
+        // Attribute returns a new Frag, so the original must not change. Appending
+        // to a shared list would retroactively attribute the node to every
+        // fragment already built from that original -- characters it never
+        // printed, and a caret pointing at the wrong node.
+        var inner = Local(0);
+        var outer = Local(1);
+
+        Frag child = Printed(inner, "value");
+        Frag composed = Frag.Of($"[{child}]");
+        int before = child.Spans!.Count;
+
+        Frag attributed = child.Attribute(outer);
+
+        Assert.Equal(before, child.Spans!.Count);
+        Assert.Equal(before + 1, attributed.Spans!.Count);
+        Assert.DoesNotContain(composed.Spans!, s => ReferenceEquals(s.Node, outer));
+        Assert.False(ReferenceEquals(child.Spans, attributed.Spans));
+    }
+
+    [Fact]
     public void PlainTextCarriesNoPositions()
     {
         Frag fragment = new("literal");
