@@ -6004,23 +6004,30 @@ async function loadSelectedMemberFacts() {
   }
 }
 
-async function loadPackage(packageId, version, framework) {
+async function loadPackage(packageId, version, framework, options = {}) {
+  // Background restores load a tab's data into state.packages (for the tab bar and
+  // cross-package edges) WITHOUT stealing the main view: no focus switch, no selection
+  // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
+  // overlay up and focuses the real target once, so non-target tabs never flash into view.
+  const background = options.background === true;
   const prevPackage = state.package;
   const prevRequested = {
     package: state.requestedPackage,
     version: state.requestedVersion,
     framework: state.requestedFramework
   };
-  state.loading = true;
-  state.error = "";
-  state.home = false;
-  state.queryNotice = "";
-  state.requestedPackage = packageId;
-  state.requestedVersion = version;
-  state.requestedFramework = framework;
-  state.loadingSubtitle = "";
-  state.loadingMessage = `Querying ${packageId}@${version}…`;
-  render();
+  if (!background) {
+    state.loading = true;
+    state.error = "";
+    state.home = false;
+    state.queryNotice = "";
+    state.requestedPackage = packageId;
+    state.requestedVersion = version;
+    state.requestedFramework = framework;
+    state.loadingSubtitle = "";
+    state.loadingMessage = `Querying ${packageId}@${version}…`;
+    render();
+  }
 
   try {
     const result = await inspectPackage(packageId, version, framework);
@@ -6046,8 +6053,9 @@ async function loadPackage(packageId, version, framework) {
       && item.version.toLowerCase() === packageModel.version.toLowerCase());
     if (existing >= 0) state.packages[existing] = packageModel;
     else state.packages.push(packageModel);
-    state.package = packageModel;
     recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
+    if (background) return packageModel;
+    state.package = packageModel;
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
@@ -6069,6 +6077,9 @@ async function loadPackage(packageId, version, framework) {
     loadSelectionData();
     return packageModel;
   } catch (error) {
+    // A failed background restore of a non-target tab must not disrupt the workbench or the
+    // real target; drop it silently (the tab simply won't appear).
+    if (background) return null;
     state.loading = false;
     const friendly = friendlyLoadError(error, packageId, version);
     if (prevPackage) {
@@ -6341,11 +6352,14 @@ async function restoreWorkspaceFromLocation(loc, deep) {
 
   // Tab loads must not consume a stale deep link; the target's selection is applied below.
   pendingDeepLink = null;
+  // Load every tab's data so the tab bar and cross-package edges come back, but keep the
+  // main view under the loading overlay throughout: NuGet tabs load in the background (no
+  // focus steal) and loadRuntimePack already never steals focus. The real target is focused
+  // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
+  // flashes into view before the target resolves.
   for (const tab of tabs) {
-    // The runtime pack has no nupkg; rebuild it from its TFM so a refreshed/shared link that
-    // landed inside a platform member restores instead of 404-ing on a NuGet fetch.
     if (isRuntimePackId(tab.id)) await loadRuntimePack(tab.framework);
-    else await loadPackage(tab.id, tab.version, tab.framework);
+    else await loadPackage(tab.id, tab.version, tab.framework, { background: true });
   }
 
   const targetModel = state.packages.find(matchesTarget);
@@ -6357,10 +6371,18 @@ async function restoreWorkspaceFromLocation(loc, deep) {
       await applyPlatformLibraryScope(loc.library);
     }
     applyDeepLink(deep);
+    state.loading = false;
+    render();
+    loadSelectionData();
+  } else if (!isRuntimePackId(target.id)) {
+    // The focused NuGet target failed to load during the silent background pass; re-run it in
+    // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
+    pendingDeepLink = deep;
+    await loadPackage(target.id, target.version, target.framework);
+  } else {
+    state.loading = false;
+    render();
   }
-  state.loading = false;
-  render();
-  loadSelectionData();
 }
 
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible
