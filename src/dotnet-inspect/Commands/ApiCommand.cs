@@ -877,6 +877,16 @@ public class ApiCommand
 
         if (options.Count)
         {
+            // A graph section answers --count from the row lowering its projection declares,
+            // not from a scan of the rendered tree: the tree and the row list are two
+            // lowerings of one graph, and only the model knows which element is a row.
+            if (CountOutput.SelectedSectionIs(options.IncludeSections, SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             var sw = new StringWriter();
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);

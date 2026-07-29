@@ -1493,11 +1493,13 @@ public static class ApiOutputFormatter
                     projection,
                     FormatCallee,
                     GetRequestedCallGraphFields(options));
+                memberCode.CallGraphRowCount = projection.RowCount;
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph))
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
+                memberCode.CallGraphRowCount = projection.RowCount;
                 hasCode = true;
             }
         }

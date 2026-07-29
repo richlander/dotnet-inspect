@@ -50,6 +50,27 @@ public enum CallGraphNodeKind
 public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind, CallTreePerf? Perf = null);
 
 /// <summary>
+/// The element one row of a graph's row lowering denotes.
+/// </summary>
+/// <remarks>
+/// A graph renders as a tree, a row list, or a diagram, and the row projections
+/// (<c>--count</c>, <c>--row</c>, <c>--rows</c>, <c>--fields</c>) address the row lowering.
+/// Which element is a row is a property of the graph rather than a global truth: a call
+/// graph is read as "what calls what", so its rows are edges, while a dependency graph is
+/// read as "what does this depend on", so its rows are nodes. Declaring the unit on the
+/// projection settles the question once, in the model, instead of leaving each rendering
+/// path to infer it from output text.
+/// </remarks>
+public enum GraphRowUnit
+{
+    /// <summary>One row per node.</summary>
+    Nodes,
+
+    /// <summary>One row per directed edge.</summary>
+    Edges,
+}
+
+/// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
 /// (reverse) tree is inverted during projection rather than left for the host to interpret.
 /// </summary>
@@ -102,6 +123,33 @@ public sealed class CallGraphProjection
 
     /// <summary>Edges in deterministic first-seen order, always oriented caller → callee.</summary>
     public ImmutableArray<CallGraphEdge> Edges { get; }
+
+    /// <summary>
+    /// The element one row of this graph's row lowering denotes. A call graph answers
+    /// "what calls what", so a row is a call edge — matching the edge-list lowering the
+    /// table/TSV/JSONL outputs already render.
+    /// </summary>
+    public GraphRowUnit RowUnit => GraphRowUnit.Edges;
+
+    /// <summary>
+    /// The number of rows this graph lowers to, derived from <see cref="RowUnit"/> so the
+    /// declared unit and the count cannot disagree. This — not a scan of rendered output —
+    /// is what <c>--count</c> answers for a graph section.
+    /// </summary>
+    public int RowCount => RowUnit switch
+    {
+        GraphRowUnit.Nodes => Nodes.Length,
+        GraphRowUnit.Edges => Edges.Length,
+        _ => throw new NotSupportedException($"Unknown {nameof(GraphRowUnit)}: {RowUnit}."),
+    };
+
+    /// <summary>
+    /// The row numbers of this graph's lowering, in lowering order. Row numbers are 1-based
+    /// and assigned by the projection, so a row keeps its number under filtering instead of
+    /// being re-derived from a position — the property <see cref="RowCount"/> alone cannot
+    /// carry (see the row-addressing contract established in #3404).
+    /// </summary>
+    public IReadOnlyList<int> RowNumbers => Enumerable.Range(1, RowCount).ToArray();
 
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];

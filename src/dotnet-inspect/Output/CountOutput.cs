@@ -20,6 +20,13 @@ public static class CountOutput
     }
 
     /// <summary>
+    /// True when <c>-S</c> resolved to exactly the one named section, so a count can be
+    /// answered from that section's model instead of from rendered output.
+    /// </summary>
+    public static bool SelectedSectionIs(HashSet<string>? includeSections, string sectionName)
+        => includeSections is { Count: 1 } && includeSections.Contains(sectionName);
+
+    /// <summary>
     /// Validates that <c>--count</c> has selected at least one section. Unlike
     /// <see cref="ValidateSingleSection"/> this permits multi-section selection (e.g. a
     /// category such as <c>@Performance</c>), which renders a per-section count map.

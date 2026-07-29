@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -4317,6 +4318,39 @@ public class CommandExecutionTests
         Assert.Contains("## Call Graph", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_CallGraphCount_AnswersRowLoweringNotRenderedTree()
+    {
+        string[] baseArgs =
+        [
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q",
+        ];
+
+        var (tableExit, tableOutput, tableError) = await RunAppAsync([.. baseArgs, "--table"]);
+        Assert.Equal(0, tableExit);
+        Assert.Empty(tableError);
+
+        // The lowering itself supplies the expected number, so this follows the declared
+        // row unit rather than pinning a literal that a row-unit change would silently pass.
+        var loweredRows = tableOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .Count(line => !string.IsNullOrWhiteSpace(line));
+        Assert.True(loweredRows > 0, "fixture must produce a non-empty graph");
+
+        var (countExit, countOutput, countError) = await RunAppAsync([.. baseArgs, "--count"]);
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+        Assert.Equal(loweredRows, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+
+        // The count answers the graph's row lowering, so it does not change with the
+        // rendering the caller selected.
+        var (tableCountExit, tableCountOutput, _) = await RunAppAsync([.. baseArgs, "--table", "--count"]);
+        Assert.Equal(0, tableCountExit);
+        Assert.Equal(loweredRows, int.Parse(tableCountOutput.Trim(), CultureInfo.InvariantCulture));
     }
 
     [Fact]

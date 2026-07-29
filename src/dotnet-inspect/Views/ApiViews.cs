@@ -793,6 +793,15 @@ public class MemberCodeView
 
     [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = "No inbound callers or outbound calls found for this method.")]
     public Markout.Graph? CallGraph { get; set; }
+
+    /// <summary>
+    /// The row count the call graph's projection declares for its row lowering, carried from
+    /// the model so <c>--count</c> answers the lowering rather than a scan of rendered text.
+    /// Null when no graph was projected.
+    /// </summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public int? CallGraphRowCount { get; set; }
  
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
