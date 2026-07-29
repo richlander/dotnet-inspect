@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
+    <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <PackageReference Include="NuGetFetch" />
     <PackageReference Include="NuGet.Versioning" />
   </ItemGroup>

@@ -787,17 +787,39 @@ public class PdbContext : IDisposable
     /// Returns null if the type is defined in this assembly (not forwarded).
     /// Looks for the target assembly DLL in the same directory as this assembly.
     /// </summary>
+    /// <remarks>
+    /// The forwarder target is a name read from the inspected assembly's metadata, which is
+    /// untrusted, and it becomes a path component here. An unsafe name is refused rather than
+    /// resolved: returning null leaves the type unresolved, which callers already handle, whereas
+    /// resolving it would read a file outside the assembly's own directory. Refusing is also what
+    /// keeps this off the symbol-acquisition path, where a resolved path drives network fetches.
+    /// </remarks>
     public string? ResolveImplementationAssemblyPath(string typeName)
     {
         var targetAssemblyName = FindTypeForwarder(typeName);
         if (targetAssemblyName == null)
             return null;
 
-        var dir = Path.GetDirectoryName(_assemblyPath);
-        if (dir == null)
+        return ResolveForwardedAssemblyPath(Path.GetDirectoryName(_assemblyPath), targetAssemblyName);
+    }
+
+    /// <summary>
+    /// Resolves a forwarder target name against the forwarding assembly's directory, refusing a
+    /// name that is not safe as a single path component.
+    /// </summary>
+    /// <remarks>
+    /// Split out from <see cref="ResolveImplementationAssemblyPath"/> so the refusal is directly
+    /// observable: <c>PdbContextForwarderResolutionTests</c> plants a payload exactly where a
+    /// traversing name would land and asserts it is not read, with a legitimate sibling as the
+    /// positive control. The step from <see cref="FindTypeForwarder"/> into this method is a
+    /// direct call in the caller above, not something those tests cover.
+    /// </remarks>
+    internal static string? ResolveForwardedAssemblyPath(string? directory, string? targetAssemblyName)
+    {
+        if (directory == null || !HardenedPath.IsSafePathComponent(targetAssemblyName))
             return null;
 
-        var targetPath = Path.Combine(dir, targetAssemblyName + ".dll");
+        var targetPath = Path.Combine(directory, targetAssemblyName + ".dll");
         return File.Exists(targetPath) ? targetPath : null;
     }
 

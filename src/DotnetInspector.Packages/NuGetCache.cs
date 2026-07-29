@@ -1,3 +1,4 @@
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Core;
 using NuGet.Versioning;
 
@@ -47,25 +48,14 @@ public static class NuGetCache
         ?? throw new InvalidOperationException("NuGetCache.Initialize(appName) must be called before using app cache methods.");
 
     /// <summary>
-    /// Validates that a value is safe to use as a path component. Rejects empty
-    /// or whitespace values, traversal (<c>..</c>), separators, volume
-    /// qualifiers (<c>:</c>), null characters, and otherwise rooted values, so an
-    /// attacker-influenced package coordinate cannot escape or reset the cache
-    /// root (a legitimate package id or version contains none of these).
+    /// Validates that a value is safe to use as a path component, so an attacker-influenced
+    /// package coordinate cannot escape or reset the cache root. Delegates to
+    /// <see cref="HardenedPath.ValidatePathComponent"/>, which is the single owner of this rule;
+    /// this method's own copy of it had drifted (it accepted reserved device names, every control
+    /// character other than <c>\0</c>, and names the host rewrites before opening).
     /// </summary>
     internal static void ValidatePathComponent(string value, string name)
-    {
-        if (string.IsNullOrWhiteSpace(value)
-            || value.Contains("..")
-            || value.Contains('/')
-            || value.Contains('\\')
-            || value.Contains(':')
-            || value.Contains('\0')
-            || Path.IsPathRooted(value))
-        {
-            throw new ArgumentException($"Invalid {name}: '{value}'");
-        }
-    }
+        => HardenedPath.ValidatePathComponent(value, name);
 
     /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
