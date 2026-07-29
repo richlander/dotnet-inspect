@@ -2300,6 +2300,14 @@ public class SectionPipelineTests
     [InlineData("System.Text.Json.")]
     [InlineData(" System.Text.Json")]
     [InlineData(".")]
+    // Windows accepts the superscript digits as the digit in COMn/LPTn, so these open the same
+    // devices as COM1/COM2/COM3 and LPT1/LPT2/LPT3.
+    [InlineData("COM\u00b9")]
+    [InlineData("COM\u00b2.txt")]
+    [InlineData("COM\u00b3")]
+    [InlineData("LPT\u00b9")]
+    [InlineData("LPT\u00b2.dll")]
+    [InlineData("lpt\u00b3")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2321,6 +2329,11 @@ public class SectionPipelineTests
     // Interior spaces and dots are not canonicalized away, so these stay distinct and legitimate.
     [InlineData("My Assembly.Core")]
     [InlineData("CON Toso.Library")]
+    // COM4-COM9 take no superscript form, and a superscript outside a device stem is just a
+    // character. Folding the superscripts must not grow into rejecting these.
+    [InlineData("COM\u00b9Plus")]
+    [InlineData("Contoso.V\u00b2")]
+    [InlineData("COM\u00b94")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));

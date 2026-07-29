@@ -562,6 +562,19 @@ internal static class LibraryMetadataService
         if (dot >= 0)
             stem = stem[..dot];
 
+        // Windows accepts the superscript digits as the digit in COMn/LPTn, so "COM\u00b9" opens
+        // the same device as "COM1". Tools that only check the ASCII spelling have been bypassed
+        // this way before (the Wasmtime sandbox escape and the Node.js device-name fix are both
+        // this bug), so fold the three superscripts before comparing rather than listing every
+        // spelling of every device.
+        if (stem.Contains('\u00b9') || stem.Contains('\u00b2') || stem.Contains('\u00b3'))
+        {
+            stem = stem
+                .Replace('\u00b9', '1')
+                .Replace('\u00b2', '2')
+                .Replace('\u00b3', '3');
+        }
+
         foreach (var reserved in ReservedDeviceNames)
         {
             if (string.Equals(stem, reserved, StringComparison.OrdinalIgnoreCase))
