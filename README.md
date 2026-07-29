@@ -115,6 +115,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -335,6 +336,88 @@ dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
 dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 ```
+
+## Raw metadata
+
+`library -S @Metadata` exposes the assembly's ECMA-335 metadata tables directly:
+one section per projected table (`Metadata: TypeDef`, `Metadata: MethodDef`,
+`Metadata: MemberRef`, …) plus `Metadata: Image` for the image-level facts —
+metadata version, heap sizes, and which tables are present — that are not rows.
+
+Rows are decoded, not dumped. A handle column shows the row it points at
+(`TypeRef[16] (System.Object)`), a list column shows its range
+(`MethodDef[1..33)`), heap offsets show their value, and flag columns show
+decoded names (`Sealed, BeforeFieldInit`), so a row is readable without a
+second lookup. The `#` column is the real metadata row id, so
+`--rows 40000..40099` names rows by their table position rather than by their
+position in the rendered page.
+
+These sections are **opt-in only**. A table such as `MethodDef` grows without a
+meaningful bound, so no verbosity renders one — not even `-v:d`, and not
+`-S @All`. They are reachable by exact name (`-S "Metadata: TypeRef"`) or
+through the `@Metadata` category door, and they are catalog-hidden like the
+`@Performance` kinds: the top-level `-D` catalog lists `@Metadata` as their
+single entrypoint. Drill in with `-D @Metadata` to list the tables that
+actually carry rows in this image, or use `-S @Metadata --count` for a per-table
+row-count map before requesting a table. A table with no rows is omitted and
+named on stderr rather than rendered as an empty section.
+
+Because the lens composes into the normal section pipeline, section ordering,
+`--rows`, `--count`, `--columns`, `--tsv`, and `--jsonl` all behave as they do
+elsewhere. `-D "Metadata: TypeRef"` lists that table's columns, and `--columns`
+narrows to them. In tabular output each row carries a leading `table` column, so
+rows stay self-identifying once the Markdown headings are gone. The lens
+inspects one image, so selecting it for a package that resolves to several
+assemblies is an error rather than an ambiguous document.
+
+```bash
+dotnet-inspect library MyLib.dll -D @Metadata
+dotnet-inspect library MyLib.dll -S @Metadata --count
+dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --rows 20
+dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --columns Name --tsv
+dotnet-inspect library MyLib.dll -S "Metadata: MethodDef" --tsv --rows 100..199
+```
+
+A table can also be named by its ECMA-335 index, since this tool's own output
+prints hex tokens and a reader following a `0x02000015` reference already has
+the index in hand:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Metadata: 0x02"   # same as "Metadata: TypeDef"
+```
+
+The two spellings are one section, not two: the hex form is an input alias, so
+the heading, section order, `--count`, and `-D` all answer in the canonical
+name. Hex must carry its `0x` — a bare `02` is a table *name* position — and
+only projected tables resolve, so an index outside the projection is an error
+naming what is available rather than an empty section. A table index is one
+byte, so it is one or two hex digits; a full metadata token such as
+`0x02000015` or `0x00000001` addresses a row, not a table, and is rejected.
+
+### Heaps
+
+The four ECMA-335 heaps get sections of their own (`Metadata: #Strings`,
+`Metadata: #Blob`, `Metadata: #GUID`, `Metadata: #US`), and a single address is
+addressable with the `--heap` coordinate carrier:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Metadata: #Strings" --rows 20
+dotnet-inspect library MyLib.dll --heap "#Strings:0x1a4"
+```
+
+A heap name may be written with or without its `#`, and an address is decimal
+unless it carries an explicit `0x` — a bare `1a4` is rejected rather than
+guessed at.
+
+A heap is not a table, and the listings say so rather than implying a
+completeness they cannot deliver. `#Strings` and `#Blob` are length-prefixed
+byte soup with no index, so what a listing shows is the distinct values the
+projected table rows point at, address-ordered, with a `Refs` count. `#GUID` is
+listed completely, because its entries are fixed 16-byte records. `#US` lists
+nothing at all — no table column points into it, since its references are
+`ldstr` operands inside method bodies — but it keeps its section so its size
+stays visible and any address in it stays readable with `--heap`. Every listing
+renders its coverage as a caveat.
 
 ## Output and querying
 

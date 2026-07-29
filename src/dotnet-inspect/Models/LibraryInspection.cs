@@ -471,6 +471,42 @@ public class LibraryInspection
         }
     }
 
+    /// <summary>
+    /// Image-level metadata facts for the <c>@Metadata</c> lens: the metadata version, heap
+    /// sizes, and the per-table physical row counts.
+    ///
+    /// This is deliberately the *cheap* half of the lens. It is what the per-table sections'
+    /// <c>CanRender</c> consults, so a table with no rows never renders an empty section, and it
+    /// backs the <c>Metadata: Image</c> section. The expensive half — actually projecting rows —
+    /// happens at render time for the selected tables only, so selecting one table never pays to
+    /// project the other sixteen.
+    ///
+    /// Null when the metadata scanner did not run (no metadata section was requested) or when the
+    /// image carries no metadata at all. Those are different facts, and the lens distinguishes
+    /// them: an image with no metadata reports that rather than rendering success-shaped empty
+    /// sections.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataImageOverview? MetadataOverview { get; set; }
+
+    /// <summary>
+    /// The path the metadata lens re-opens to project rows at render time. Captured from the
+    /// scanner rather than recovered from <see cref="FileName"/>, which is a display name and
+    /// not always a resolvable path (extracted package assemblies resolve elsewhere).
+    /// </summary>
+    [JsonIgnore]
+    public string? MetadataAssemblyPath { get; set; }
+
+    /// <summary>
+    /// The heap value <c>--heap</c> named, or null when no heap coordinate was given.
+    ///
+    /// This is the carrier that makes the coordinate-scoped heap section exist: like
+    /// <see cref="ILOffset"/>, the section is applicable exactly when this is non-null, so a
+    /// section that has nothing to show is never listed or rendered.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataHeapLookup? MetadataHeap { get; set; }
+
     [JsonIgnore]
     public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection =>
         _assemblyAttributeInspection;
@@ -1193,3 +1229,20 @@ public record class AsyncMethodSummary
     /// <summary>"Runtime" for runtime async, "State machine" for classic compiler async.</summary>
     public string Kind { get; init; } = "";
 }
+
+/// <summary>
+/// One heap value read by coordinate: what was asked for, and what was found there.
+///
+/// The coordinate travels with the value because a heap value carries no identity of its own — a
+/// string is just a string — so rendering it without the heap and address it came from would give
+/// a reader nothing to check or follow up on.
+/// </summary>
+/// <param name="Heap">The heap the coordinate named.</param>
+/// <param name="Address">
+/// The address the coordinate named: a byte offset, or a 1-based index for the GUID heap.
+/// </param>
+/// <param name="Value">
+/// What was read there. A <see cref="MetadataValue.Malformed"/> when the address is out of range
+/// or the value did not decode; never silently replaced by an empty value.
+/// </param>
+public sealed record MetadataHeapLookup(HeapKind Heap, int Address, MetadataValue Value);

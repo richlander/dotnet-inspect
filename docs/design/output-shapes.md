@@ -56,10 +56,9 @@ of the ladder families contributes in one of three ways:
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
-exist to be selected. The IL coordinate is the family's one implemented
-currency; `--heap` (see
-[metadata-table-projection.md](metadata-table-projection.md)) is designed to be
-the second.
+exist to be selected. The family has two currencies: the IL coordinate, and the
+heap coordinate `--heap` carries (see
+[metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not flags, because one currency can have
 more than one spelling. The IL coordinate has two: `--il-offset` takes a single
@@ -620,10 +619,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
-  that has no other expression and gate the sections it makes meaningful. They
-  do not narrow a shape, and a flag qualifies for this family only if its input
-  is a new currency. Both spell the same currency, so they are one member;
-  `--heap` is the designed second.
+- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
+  an input that has no other expression and gate the sections it makes
+  meaningful. They do not narrow a shape, and a flag qualifies for this family
+  only if its input is a new currency. The first two spell the same currency, so
+  they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.

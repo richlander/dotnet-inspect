@@ -301,6 +301,7 @@ public static class InspectionCommandDefinitions
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
         var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
+        var heapOption = new Option<string?>("--heap") { Description = "Metadata heap coordinate for the coordinate-scoped heap section (e.g., #Strings:0x1a4)" };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
@@ -317,6 +318,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(ilOffsetsOption);
+        assemblyCommand.Options.Add(heapOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
@@ -428,6 +430,7 @@ public static class InspectionCommandDefinitions
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
+                HeapParameter = parseResult.GetValue(heapOption),
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

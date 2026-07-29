@@ -301,7 +301,11 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(53, pipeline.AllSectionNames.Length);
+        // The non-metadata sections stay pinned to a literal, so an accidental addition still
+        // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
+        // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
+        // otherwise adding a table to the projector would fail an unrelated test.
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -402,7 +406,17 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
+            ? registered
+                .Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
+                // Coordinate-gated like the Context: sections above: without --heap there is no
+                // value to show, so the section is legitimately not discoverable.
+                .Except([MetadataSectionNames.Heap], StringComparer.OrdinalIgnoreCase)
+                // @Metadata table and heap sections are data-gated: a table with no rows or a heap
+                // with no bytes in this image is legitimately not discoverable, and listing it
+                // would advertise an empty section. Derived from the fixture image rather than
+                // hard-coded, so one that gains or loses content moves the exclusion with it and
+                // every non-empty one stays required.
+                .Except(EmptyMetadataSectionsInFixtureImage(), StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -410,6 +424,30 @@ public class SectionPipelineTests
 
         Assert.True(missing.Length == 0,
             $"{command} -D missed selectable section(s): {string.Join(", ", missing)}");
+    }
+
+    /// <summary>
+    /// The <c>@Metadata</c> sections with no content in the image
+    /// <see cref="DiscoverablePipelineCases"/> seeds the library fixture from: tables with no rows
+    /// and heaps with no bytes. These are the only data-gated metadata sections allowed to be
+    /// absent from discovery.
+    /// </summary>
+    private static string[] EmptyMetadataSectionsInFixtureImage()
+    {
+        using var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location);
+        var overview = session.MetadataImage();
+        if (overview is null)
+            return [];
+
+        return
+        [
+            .. overview.Tables
+                .Where(table => table.RowCount == 0)
+                .Select(table => MetadataSectionNames.ForTable(table.Index)),
+            .. overview.Heaps
+                .Where(heap => heap.SizeInBytes == 0)
+                .Select(heap => MetadataSectionNames.ForHeap(heap.Heap)),
+        ];
     }
 
     [Fact]
@@ -1970,6 +2008,12 @@ public class SectionPipelineTests
                 extensionMembers,
                 FindingTestData.Subject),
             extensionMembers);
+        // The @Metadata lens gates on real per-table row counts rather than a Has* flag, so this
+        // fixture seeds them from an actual image. A hand-built overview would have to restate the
+        // projector's table list, which is exactly the drift MetadataSectionNames exists to
+        // prevent; reading a real assembly keeps the fixture correct as tables are added.
+        using (var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location))
+            library.MetadataOverview = session.MetadataImage();
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();
