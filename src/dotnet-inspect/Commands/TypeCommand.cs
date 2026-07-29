@@ -321,6 +321,22 @@ public static class TypeCommand
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
                 }
+                else if (options.EffectiveDiscovery)
+                {
+                    // Discovery is a schema query about the surface's sections; it is independent
+                    // of which (unmatched) type was requested. The main listing and platform-prefix
+                    // routes already dispatch it before rendering, so the glob and prefix-browse
+                    // fallbacks must too — otherwise `-D` falls through to WriteFullApiOutput, which
+                    // ignores it and (with --fields/--json) now rejects the request outright.
+                    ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
+                    var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+                    var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
+                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+                        verbosity: (int)options.Verbosity,
+                        sectionCostAnnotations: typePipeline.GetCostAnnotations(),
+                        sectionCategories: typePipeline.GetCategoryMap());
+                }
                 else if (TryWritePrefixBrowse(
                     api,
                     apiDllPath,

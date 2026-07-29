@@ -3675,6 +3675,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task GlobListing_Discovery_IsHonoredNotRejected()
+    {
+        // #3386 regression guard: the glob (and prefix-browse) fallback routes ignored -D
+        // discovery and fell through to WriteFullApiOutput. Once that path rejects --fields+--json,
+        // a discovery request there would have been rejected with a misleading column message.
+        // Discovery must be dispatched before the projection guard, matching the main listing path.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.*", "--library", TestAssemblyPath, "-D", "Classes", "--fields", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.Contains("\"kind\":\"column\"", output);
+    }
+
+    [Fact]
     public async Task Router_RewrittenCommand_IsAudited()
     {
         // The router captures projection flags as raw tokens, so the outer invocation records
