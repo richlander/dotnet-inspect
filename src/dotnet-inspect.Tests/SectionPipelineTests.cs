@@ -1416,6 +1416,46 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Pins the membership of both sets that govern the shared reference read.
+    /// </summary>
+    /// <remarks>
+    /// The other gates all check a key against something else in the code, so they cannot see an
+    /// addition that is internally consistent. A reviewer added <c>ScannerInfoCounts</c> -- a real,
+    /// registered, declared key -- to <see cref="LibraryMetadataService.ReferenceReadingScannerKeys"/>
+    /// and <see cref="LibraryMetadataService.KeysTheReadOnlyFeeds"/>, where it cancels in the
+    /// derived <see cref="LibraryMetadataService.SharedReadScannerKeys"/>. Every gate passed, the
+    /// full suite passed, and <c>-S "Library Info" --json</c> silently began emitting a
+    /// <c>references</c> array it had never emitted before.
+    /// <para>
+    /// No derived rule can catch that, because membership here <em>causes</em> the behavior it
+    /// would be checked against: add a key and the read starts serving it, so declaration and
+    /// reality agree again at the new, wrong value. Only a fixed expectation breaks that circle.
+    /// Adding a member is a real change to what every section declaring that key collects, so it
+    /// should require saying so here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TheSetsGoverningTheSharedRead_HaveExactlyTheseMembers()
+    {
+        Assert.Equal(
+            new[]
+            {
+                LibrarySections.ScannerAuditSignals,
+                LibrarySections.ScannerReferences,
+                LibrarySections.ScannerTransitiveRefs
+            },
+            LibraryMetadataService.ReferenceReadingScannerKeys.OrderBy(k => k, StringComparer.Ordinal));
+
+        Assert.Equal(
+            new[]
+            {
+                LibrarySections.ScannerAuditSignals,
+                LibrarySections.ScannerTransitiveRefs
+            },
+            LibraryMetadataService.KeysTheReadOnlyFeeds.OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    /// <summary>
     /// Proves every declared key the shared read does not satisfy has a registered scanner.
     /// </summary>
     /// <remarks>
@@ -1480,6 +1520,70 @@ public class SectionPipelineTests
                 "extracted no assembly references. Either wire it into the read or stop " +
                 "publishing it.");
         }
+    }
+
+    /// <summary>
+    /// The converse of <see cref="SharedReadScannerKeys_EachKeyActuallyDrivesTheRead"/>: a key the
+    /// declaration does NOT name must not drive the read either.
+    /// </summary>
+    /// <remarks>
+    /// Every other gate constrains the two SETS. None of them constrains the CODE that consults
+    /// them, so widening the condition itself -- <c>scanners is { Count: > 0 }</c> in place of
+    /// <c>scanners?.Any(ReferenceReadingScannerKeys.Contains)</c> -- left both sets untouched, the
+    /// literal pin passing, and every unrelated section quietly collecting and serializing
+    /// references. A reviewer measured the difference as 0 references to 49 on a single section.
+    /// <para>
+    /// Pinning the sets cannot catch that. Only asserting the biconditional can: references are
+    /// extracted if and only if the requested key is one the declaration names. This is the gate
+    /// that ties the declaration to the behavior rather than to more declaration.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task OnlyTheDeclaredKeys_DriveTheSharedRead()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var httpClient = new HttpClient();
+        var logger = new DotnetInspector.Output.VerboseLogger(false);
+        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys;
+
+        Assert.NotEmpty(declared);
+
+        var unexpected = new List<string>();
+        var missing = new List<string>();
+
+        foreach (var key in declared)
+        {
+            var inspection = await LibraryMetadataService.InspectAsync(
+                path,
+                new LibraryOptions(),
+                logger,
+                null,
+                null,
+                httpClient,
+                scanners: new HashSet<string>(StringComparer.Ordinal) { key },
+                scannerRegistry: LibrarySections.CreateScannerRegistry());
+
+            Assert.NotNull(inspection);
+
+            var readReferences = inspection!.AssemblyReferenceInspection.HasFindings();
+            var shouldRead = LibraryMetadataService.ReferenceReadingScannerKeys.Contains(key);
+
+            if (readReferences && !shouldRead)
+                unexpected.Add(key);
+            else if (!readReferences && shouldRead)
+                missing.Add(key);
+        }
+
+        Assert.True(
+            unexpected.Count == 0,
+            $"These keys are not declared as reference-reading, but requesting one alone extracted "
+                + $"assembly references anyway: {string.Join(", ", unexpected)}. The condition that "
+                + "consults ReferenceReadingScannerKeys has drifted wider than the declaration.");
+
+        Assert.True(
+            missing.Count == 0,
+            $"These keys are declared as reference-reading but extracted nothing: "
+                + $"{string.Join(", ", missing)}.");
     }
 
     // ===== Presence flag / CanRender discovery tests =====
@@ -2694,6 +2798,12 @@ public class SectionPipelineTests
     [InlineData("System.\u202eJson")]
     [InlineData("COM1\u200b")]
     [InlineData("\ufeffSystem.Text.Json")]
+    // Names made only of dots are host-special rather than ordinary components. "." and ".." are
+    // covered above; this is the case the narrowed rule must still refuse.
+    [InlineData("...")]
+    // Trailing dots stay refused, but by the trailing-dot rule that runs earlier -- the host
+    // strips them, so this would denote "TrailingDots". Narrowing the dot rule does not reach it.
+    [InlineData("TrailingDots..")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2728,9 +2838,55 @@ public class SectionPipelineTests
     [InlineData("COM\uff114")]
     // Interior non-ASCII whitespace is not padding and is not canonicalized.
     [InlineData("My\u00a0Assembly.Core")]
+    // Consecutive dots inside a name are not traversal: this becomes one path component, and a
+    // component with no separator cannot leave its directory. The C# compiler accepts and emits
+    // these, and refusing them cost the node its resolution, company and children.
+    [InlineData("Valid..Dependency")]
+    [InlineData("Foo..Bar..Baz")]
+    [InlineData("..LeadingDots")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));
+    }
+
+    /// <summary>
+    /// A platform assembly's own dependency is platform, not local. Recursion replaces the source
+    /// directory with the resolved parent's directory, so the "is it beside the source directory?"
+    /// probe answers a different question at depth 3 than at depth 0: inside the shared framework
+    /// it answers yes for every platform assembly. Before provenance was carried down, this
+    /// reported 101 assemblies in /usr/local/share/dotnet as "local" -- which reads as "shipped
+    /// beside the assembly you inspected" -- including System.Private.CoreLib.
+    /// </summary>
+    [Fact]
+    public void PlatformAssemblyDependencies_AreNotReportedAsLocal()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        var sourceDir = Path.GetDirectoryName(path)!;
+        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(path);
+
+        var nodes = LibraryMetadataService.BuildTransitiveReferences(
+            references,
+            sourceDir,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new DotnetInspector.Output.VerboseLogger(false),
+            deduplicate: true);
+
+        var mislabelled = nodes
+            .Where(n => n.ResolvedFrom == "local"
+                && n.Path is not null
+                && !string.Equals(Path.GetDirectoryName(Path.GetFullPath(n.Path)), sourceDir, StringComparison.Ordinal))
+            .Select(n => $"{n.Name} (depth {n.Depth}) -> {n.Path}")
+            .ToList();
+
+        Assert.True(
+            mislabelled.Count == 0,
+            "These are reported as resolved 'local' but do not live beside the inspected assembly: "
+                + string.Join("; ", mislabelled));
+
+        // Positive control: the walk actually resolved things, and it did label some of them
+        // platform. Without this, a walk that resolved nothing would pass the assertion above.
+        Assert.Contains(nodes, n => n.ResolvedFrom == "platform");
+        Assert.Contains(nodes, n => n.ResolvedFrom == "local");
     }
 
     // Artifact canary for the predicate above: exercises the real resolution walk rather than the
@@ -2753,10 +2909,16 @@ public class SectionPipelineTests
             // ...and a legitimately-named one inside it, as the positive control.
             File.Copy(realAssembly, Path.Combine(sourceDir, "Legit.Neighbor.dll"), overwrite: true);
 
+            // ...and one whose name embeds "..", which is a legal assembly simple name. This is the
+            // over-rejection control: it sits in the same directory as the guard's own assembly, so
+            // it must resolve. A rule that refuses embedded ".." leaves it unresolved instead.
+            File.Copy(realAssembly, Path.Combine(sourceDir, "Valid..Dependency.dll"), overwrite: true);
+
             var references = new List<AssemblyReference>
             {
                 new("../payload", "1.0.0.0", null, null),
-                new("Legit.Neighbor", "1.0.0.0", null, null)
+                new("Legit.Neighbor", "1.0.0.0", null, null),
+                new("Valid..Dependency", "1.0.0.0", null, null)
             };
 
             var nodes = LibraryMetadataService.BuildTransitiveReferences(
@@ -2775,6 +2937,10 @@ public class SectionPipelineTests
 
             // Positive control: a normal sibling in the same directory still resolves, so the guard
             // is refusing the traversal specifically and not simply disabling local resolution.
+            var doubleDot = Assert.Single(nodes, n => n.Name == "Valid..Dependency");
+            Assert.NotNull(doubleDot.Path);
+            Assert.Equal(sourceDir, Path.GetDirectoryName(doubleDot.Path));
+
             var legit = Assert.Single(nodes, n => n.Name == "Legit.Neighbor");
             Assert.Equal("local", legit.ResolvedFrom);
             Assert.NotNull(legit.Path);

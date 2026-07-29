@@ -45,7 +45,8 @@ internal static class LibraryMetadataService
     internal static readonly HashSet<string> ReferenceReadingScannerKeys =
     [
         LibrarySections.ScannerReferences,
-        LibrarySections.ScannerTransitiveRefs
+        LibrarySections.ScannerTransitiveRefs,
+        LibrarySections.ScannerAuditSignals
     ];
 
     /// <summary>
@@ -69,7 +70,8 @@ internal static class LibraryMetadataService
     internal static readonly IReadOnlySet<string> KeysTheReadOnlyFeeds =
         new HashSet<string>(StringComparer.Ordinal)
         {
-            LibrarySections.ScannerTransitiveRefs
+            LibrarySections.ScannerTransitiveRefs,
+            LibrarySections.ScannerAuditSignals
         };
 
     /// <summary>
@@ -129,9 +131,12 @@ internal static class LibraryMetadataService
             }
 
             var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
-            // The References and Dependencies sections both read assembly references, which are
-            // extracted during the metadata read below rather than by a registered scanner. Their
-            // scanner keys therefore have to be consulted here, before that read.
+            // The References, Dependencies and Audit sections all read assembly references, which
+            // are extracted during the metadata read below rather than by a registered scanner.
+            // Their scanner keys therefore have to be consulted here, before that read. Audit
+            // signals used to be tested by a separate condition beside this one, which made the
+            // claim that ReferenceReadingScannerKeys is the single source of truth for the read
+            // false; folding it in is what makes the claim true.
             var needsReferences = scanners?.Any(ReferenceReadingScannerKeys.Contains) == true;
 
             var inspection = new LibraryInspection
@@ -143,7 +148,7 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals || needsReferences);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsReferences);
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -578,16 +583,23 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Whether an assembly simple name read from untrusted metadata is safe to use as a single
     /// path component. Mirrors <c>NuGetCache.ValidatePathComponent</c>'s rejection list — empty or
-    /// whitespace, traversal (<c>..</c>), separators, volume qualifiers (<c>:</c>), null and other
-    /// control characters, and rooted values — plus reserved device names, names the host would
-    /// canonicalize to something else, and an upper length bound. A legitimate assembly simple
-    /// name contains none of these.
+    /// whitespace, separators, volume qualifiers (<c>:</c>), null and other control characters, and
+    /// rooted values — plus reserved device names, names the host would canonicalize to something
+    /// else, and an upper length bound. A legitimate assembly simple name contains none of these.
+    /// <para>
+    /// Traversal is stopped by the separator and rooting rejections, not by looking for <c>..</c>:
+    /// this name becomes one path component, and a component with no separator cannot leave its
+    /// directory whatever dots it contains. Refusing every embedded <c>..</c> refused
+    /// <c>Valid..Dependency</c>, a name the C# compiler accepts and emits, and the tree then showed
+    /// that node with no company and no children because it was never resolved. Names made only of
+    /// dots (<c>.</c>, <c>..</c>) are host-special and stay refused, but by the trailing-dot rule
+    /// below, which every all-dot name reaches; there is no separate check for them here.
+    /// </para>
     /// </summary>
     internal static bool IsSafeAssemblySimpleName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)
             || name.Length > 256
-            || name.Contains("..", StringComparison.Ordinal)
             || name.Contains('/')
             || name.Contains('\\')
             || name.Contains(':')
@@ -688,6 +700,14 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
+    /// <param name="sourceKind">
+    /// What resolving beside <paramref name="sourceDir"/> means for provenance. Recursion replaces
+    /// <paramref name="sourceDir"/> with the resolved parent's directory, so probing "beside the
+    /// parent" is not the same claim at depth 3 as at depth 0. Without carrying the parent's
+    /// provenance down, a platform assembly's own dependency -- found beside it, inside the shared
+    /// framework -- was reported as <c>local</c>, which reads as "shipped next to the assembly you
+    /// inspected". Children of a platform assembly are platform.
+    /// </param>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
         List<AssemblyReference> references,
         string? sourceDir,
@@ -695,7 +715,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
+        Dictionary<string, int>? globalSeen = null,
+        string sourceKind = "local")
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -754,7 +775,7 @@ internal static class LibraryMetadataService
                 if (File.Exists(localPath))
                 {
                     resolvedPath = localPath;
-                    resolvedFrom = "local";
+                    resolvedFrom = sourceKind;
                 }
             }
 
@@ -781,7 +802,15 @@ internal static class LibraryMetadataService
                     if (childRefs.Count > 0)
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
+                        var childNodes = BuildTransitiveReferences(
+                            childRefs,
+                            Path.GetDirectoryName(resolvedPath),
+                            branchVisited,
+                            logger,
+                            depth + 1,
+                            deduplicate,
+                            globalSeen,
+                            resolvedFrom ?? sourceKind);
                         nodes.AddRange(childNodes);
                     }
                 }
