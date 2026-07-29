@@ -930,6 +930,8 @@ public class ScanTokenTests
     {
         const string Alphabet = "#/*'\"@$\\{}a";
         int checked_ = 0;
+        HashSet<string>? singleSeen = null;
+        HashSet<(string First, string Second)>? pairSeen = null;
         HashSet<(string First, string Second)>? seedPairs = null;
 
         var kindsReached = new HashSet<ScanTokenKind>();
@@ -938,6 +940,12 @@ public class ScanTokenTests
 
         void Check(string[] content)
         {
+            if (singleSeen is not null && content.Length == 1)
+                singleSeen.Add(content[0]);
+
+            if (pairSeen is not null && content.Length == 2)
+                pairSeen.Add((content[0], content[1]));
+
             if (seedPairs is not null && content.Length == 2)
                 seedPairs.Add((content[0], content[1]));
 
@@ -983,18 +991,26 @@ public class ScanTokenTests
         }
 
         // One line reaches every path that opens a construct.
+        singleSeen = [];
         Walk(new char[4], 0, 4, line => Check([line]));
+        int checkedSingle = checked_;
 
         // Two lines reach the paths that continue one carried in from the line above, which no
         // single-line input can: a literal's later lines, and a block comment's.
         var seconds = new List<string>();
         Walk(new char[2], 0, 2, seconds.Add);
 
+        pairSeen = [];
+
         foreach (var first in seconds)
         {
             foreach (var second in seconds)
                 Check([first, second]);
         }
+
+        int checkedPairs = checked_ - checkedSingle;
+        var sweptPairs = pairSeen!;
+        pairSeen = null;
 
         // A construct carried across a line break can be opened by a delimiter longer than the
         // exhaustive arms reach. Seed each one, so that the first token on the second line is a
@@ -1026,12 +1042,22 @@ public class ScanTokenTests
         // distinct unterminated comments all carry, satisfy the count, the distinctness, and
         // the concatenation check, and leave the suite green -- while deleting every carried
         // *string* fragment the arm exists to reach. Measured, that swap lets a wrong depth
-        // survive at two emit sites that nothing else in the suite catches. So pin the kinds
-        // the seeds carry as, which is exactly what the swap destroys, and pin that some seed
-        // is longer than the exhaustive arms can spell, which is why the arm exists at all.
-        Assert.Equal(8, carriedKinds.Count(k => k is ScanTokenKind.StringLiteral));
+        // survive at two emit sites that nothing else in the suite catches. One seed must
+        // therefore still open a comment, and the rest must open strings; with nine seeds and
+        // the string-or-comment check above, pinning the comment pins both halves.
         Assert.Equal(1, carriedKinds.Count(k => k is ScanTokenKind.Comment));
-        Assert.Equal(5, openers.Count(o => o.Length > 2));
+
+        // Kind and length are still not the whole of why these forms: an opener list of nine
+        // distinct seeds, eight of them strings, five longer than two characters, can be spelled
+        // entirely without raw literals (`$$"`, `$$$"`, `$$$$"` for `"""`, `$"""`, `$$"""`), and
+        // measured, that erases the carried raw-literal path at BodySlicer.cs:1413 while every
+        // pin above and the suite stay green (adversarial review, GPT). Pin the raw family by
+        // the behaviour that makes it a separate path rather than by its spelling: a lone quote
+        // on the next line closes a quoted or verbatim literal, and does not close a raw one.
+        var rawSeeds = openers.Count(o =>
+            BodySlicer.ScanTokens([o, "\"a"]).Last().Kind is ScanTokenKind.StringLiteral);
+
+        Assert.Equal(4, rawSeeds);
 
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
@@ -1057,8 +1083,30 @@ public class ScanTokenTests
             }
         }
 
-        // The sweep is only as good as its size; pin it so a shrunken alphabet is visible.
+        // The sweep is only as good as its size; pin it so a shrunken alphabet is visible. One
+        // total across three arms is not that pin: a drop in one arm can be paid for with
+        // padding in another, or with padding inside the same arm, and both trades were
+        // measured to survive -- lowering the single-line limit to 3 and replacing the 14,641
+        // lost calls with repeats of `Check(["a"])`, and dropping the `/*` seed and padding the
+        // single-line arm by 1,584 (adversarial review, Gemini). Pin each arm's own count, and
+        // pin what each arm actually swept, so padding cannot stand in for reach.
+        int checkedSeeded = checked_ - checkedSingle - checkedPairs;
+
+        Assert.Equal(16_104, checkedSingle);
+        Assert.Equal(132 * 132, checkedPairs);
+        Assert.Equal(9 * 12 * 132, checkedSeeded);
         Assert.Equal(16_104 + (132 * 132) + (9 * 12 * 132), checked_);
+
+        // The single-line arm's own inputs, derived from the pinned alphabet rather than read
+        // back from the `Walk` that produced them, which pins its limit of 4 as well.
+        var alpha = Alphabet.Select(c => c.ToString()).ToArray();
+        var byLength = new List<string[]> { alpha };
+
+        for (int n = 1; n < 4; n++)
+            byLength.Add([.. byLength[n - 1].SelectMany(_ => alpha, (prefix, next) => prefix + next)]);
+
+        Assert.Equal(byLength.SelectMany(x => x).ToHashSet(), singleSeen);
+        Assert.Equal(seconds.SelectMany(_ => seconds, (first, second) => (first, second)).ToHashSet(), sweptPairs);
 
         // Size and seed quality are still not the same as reach: the arm only does its work if
         // each seeded line is scanned in the position that carries, and against every second
