@@ -2308,6 +2308,13 @@ public class SectionPipelineTests
     [InlineData("LPT\u00b9")]
     [InlineData("LPT\u00b2.dll")]
     [InlineData("lpt\u00b3")]
+    // Non-ASCII edge whitespace is not stripped by the host, but it renders identically to the
+    // unpadded name while denoting a different assembly.
+    [InlineData("System.Text.Json\u00a0")]
+    [InlineData("\u00a0System.Text.Json")]
+    [InlineData("System.Text.Json\u3000")]
+    [InlineData("\u3000System.Text.Json")]
+    [InlineData("CON\u00a0")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2334,6 +2341,13 @@ public class SectionPipelineTests
     [InlineData("COM\u00b9Plus")]
     [InlineData("Contoso.V\u00b2")]
     [InlineData("COM\u00b94")]
+    // Windows folds only the three superscripts, so a fullwidth or Arabic-Indic digit names an
+    // ordinary file, not a device. Rejecting these would drop a real dependency for a device it
+    // does not name -- this is the boundary that keeps the fold from becoming NFKC.
+    [InlineData("COM\uff11")]
+    [InlineData("COM\u0661")]
+    // Interior non-ASCII whitespace is not padding and is not canonicalized.
+    [InlineData("My\u00a0Assembly.Core")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));

@@ -548,9 +548,13 @@ internal static class LibraryMetadataService
         // name the same thing there and "Foo." opens "Foo". A name that the host would rewrite
         // is ambiguous: it denotes one assembly in metadata and another on disk. Reject it rather
         // than trim it, for the same reason the caller rejects instead of sanitizing -- a trimmed
-        // name silently designates a different assembly. Leading whitespace is not canonicalized
-        // away, but no legitimate assembly simple name carries it and it reads as padding.
-        if (name.Length != name.TrimEnd(' ', '.').Length || name.Length != name.TrimStart(' ').Length)
+        // name silently designates a different assembly.
+        //
+        // Only the ASCII space and dot are canonicalized away, so only those make a name ambiguous
+        // on disk. Edge whitespace is tested with char.IsWhiteSpace anyway: a name padded with
+        // U+00A0 or U+3000 renders indistinguishably from the unpadded one in the reference tree
+        // while denoting a different assembly, and no legitimate simple name carries it.
+        if (char.IsWhiteSpace(name[0]) || char.IsWhiteSpace(name[^1]) || name[^1] == '.')
         {
             return false;
         }
@@ -567,6 +571,11 @@ internal static class LibraryMetadataService
         // this way before (the Wasmtime sandbox escape and the Node.js device-name fix are both
         // this bug), so fold the three superscripts before comparing rather than listing every
         // spelling of every device.
+        //
+        // Only these three fold: Windows does not treat any other Unicode digit as the digit in
+        // COMn/LPTn, so "COM\uff11" (fullwidth) and "COM\u0661" (Arabic-Indic) are ordinary
+        // filenames and are deliberately accepted. Do not widen this to NFKC, which would reject
+        // them for naming a device they do not name.
         if (stem.Contains('\u00b9') || stem.Contains('\u00b2') || stem.Contains('\u00b3'))
         {
             stem = stem
