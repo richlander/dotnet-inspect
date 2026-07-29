@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -15,7 +16,7 @@ public static class DepsJsonParser
         try
         {
             string json = File.ReadAllText(depsPath);
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
 
             // Get runtime target
             if (doc.RootElement.TryGetProperty("runtimeTarget", out var runtimeTarget))

@@ -53,6 +53,7 @@ documentation.
 
 | Area | Read first |
 | --- | --- |
+| Layering and consumer boundaries | `docs/design/inspection-layers.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |

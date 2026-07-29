@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
+using DotnetInspector.CSharpBodySlicer;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -632,7 +633,7 @@ public class ApiCommand
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
-            var sourceCode = SourceLinkResolver.ExtractMethodBody(
+            var sourceCode = BodySlicer.ExtractMethodBody(
                 content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
                 isDestructor ? typeName : null);
 
