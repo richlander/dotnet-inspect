@@ -138,6 +138,37 @@ public static class OutputFormatter
     public static void WriteLimitedMarkdown(TextWriter output, string markdown, RowWindow? rows) =>
         output.WriteLine(ApplyRowLimit(markdown, rows));
 
+    /// <summary>
+    /// Writes version/feed rows in whichever format the caller selected.
+    /// </summary>
+    /// <remarks>
+    /// A version carried by two feeds appears twice, once per feed. That is the point of the
+    /// view: every other listing collapses feeds together, so this is where cross-feed
+    /// duplication becomes visible.
+    /// </remarks>
+    public static void WriteVersionFeedTable(
+        IEnumerable<(string Version, string Feed)> versionFeeds,
+        InspectionOptions options,
+        TextWriter output)
+    {
+        var rows = versionFeeds.Select(vf => new[] { vf.Version, vf.Feed }).ToArray();
+        string[] columns = ["Version", "Feed"];
+
+        if (options.JsonOutput)
+        {
+            var objects = rows.Select(row => new VersionFeedJson(row[0], row[1])).ToList();
+            output.WriteLine(JsonSerializer.Serialize(objects, JsonContext.Default.ListVersionFeedJson));
+            return;
+        }
+
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(options.Tsv, options.Jsonl));
+            markoutWriter.WriteTable(columns, columns, rows);
+            markoutWriter.Flush();
+        });
+    }
+
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {

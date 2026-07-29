@@ -153,6 +153,52 @@ dotnet-inspect System.CommandLine --versions
 head -2
 ```
 
+### 3b. Using `--versions-with-feed`
+
+`--versions` unions versions across every configured source and drops the
+provenance. `--versions-with-feed` keeps it, emitting one row per (version, feed)
+pair, so a version carried by two sources appears twice.
+
+```bash
+dotnet-inspect package System.CommandLine --versions-with-feed 3 --tsv
+```
+
+```expect
+version feed
+2.0.10 nuget.org
+2.0.9 nuget.org
+```
+
+```query
+head -3
+```
+
+The interesting case is more than one source. Here `Markout` is on nuget.org and
+on a private feed, and `0.32.0` is on both:
+
+```bash
+dotnet-inspect package Markout --versions-with-feed 4 \
+  --source https://api.nuget.org/v3/index.json \
+  --source https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
+```
+
+```text
+Version  Feed
+10.0.2   nuget.org
+0.32.99  pkgs.dev.azure.com
+0.32.0   nuget.org
+0.32.0   pkgs.dev.azure.com
+0.31.0   nuget.org
+```
+
+Two things to note. The limit counts **versions, not rows** — `4` asked for four
+versions and produced five rows, because `0.32.0` was served twice. And the feed
+label is the source's configured name when it has a meaningful one, otherwise the
+host; sources passed as bare `--source` URLs all carry the same internal name, so
+the host is what distinguishes them.
+
+`--json`, `--jsonl`, and `--tsv` all work; the default is a markdown table.
+
 ## 4. Handle a nonexistent version
 
 > Goal: Get a clear error when requesting a version that doesn't exist for a known package.

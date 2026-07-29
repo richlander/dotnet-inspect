@@ -1150,6 +1150,12 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
 
+/// <summary>
+/// One version of a package as carried by one feed. A version present on two feeds
+/// produces two of these.
+/// </summary>
+public sealed record VersionFeedJson(string Version, string Feed);
+
 public sealed record LibraryIntegrationSignalJson(
     string Kind,
     string Name,

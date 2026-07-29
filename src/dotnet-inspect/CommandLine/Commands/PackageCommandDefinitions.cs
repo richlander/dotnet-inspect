@@ -48,6 +48,8 @@ public static class PackageCommandDefinitions
         };
         var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
         versionsOption.DefaultValueFactory = _ => null;
+        var versionsWithFeedOption = new Option<int?>("--versions-with-feed") { Description = "List available versions with the feed each came from (optionally limit version count)", Arity = ArgumentArity.ZeroOrOne };
+        versionsWithFeedOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var readmeOption = new Option<bool>("--readme") { Description = "Show the best package README content (AGENTS.md, README.md, PACKAGE.md, then declared readme)" };
@@ -73,6 +75,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
+        packageCommand.Options.Add(versionsWithFeedOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(readmeOption);
         packageCommand.Options.Add(contentOption);
@@ -103,7 +106,7 @@ public static class PackageCommandDefinitions
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, readmeOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, readmeOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
 

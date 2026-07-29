@@ -263,6 +263,20 @@ public class PackageCommand
                 return 0;
             }
 
+            if (options.ListVersionsWithFeed)
+            {
+                var versionFeeds = await PackageExtractor.GetVersionsWithSourceAsync(
+                    context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
+                if (versionFeeds == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found.");
+                    return 1;
+                }
+
+                OutputFormatter.WriteVersionFeedTable(versionFeeds, options, Console.Out);
+                return 0;
+            }
+
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {

@@ -206,6 +206,29 @@ identity. See [cache concurrency and publication](cache-concurrency.md) for the
 single-flight boundary, dependency-overlap safety, filesystem rename semantics,
 failure model, and NuGet, Docker, and Git precedents.
 
+## Multiple sources
+
+Sources are consulted in configured order, and the two version operations combine
+them differently.
+
+| Operation | Combination | Order sensitive |
+| --- | --- | --- |
+| `--latest-version` | First source that carries the package answers; later sources are not consulted. | Yes |
+| `--versions` | Union across all sources, deduplicated. | No |
+| `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
+
+First-source-wins for `--latest-version` is deliberate: it is the same precedence
+rule restore uses, and it lets a private feed shadow a public one. The corollary
+is that `--add-source` cannot change `--latest-version` for a package that also
+exists on nuget.org, because the added source lands after the default. To
+override, pass `--source` explicitly and put the preferred feed first.
+
+Because `--versions` unions and `--latest-version` does not, the two can disagree.
+`--versions-with-feed` exists to make that disagreement legible: it shows which
+feed each version actually came from.
+
+These semantics are pinned by `SourcePrecedenceTests`.
+
 ## Design rationale
 
 The following Docker tag analogy concerns version selection. Docker daemon

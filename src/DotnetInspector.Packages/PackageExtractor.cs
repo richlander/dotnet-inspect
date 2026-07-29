@@ -950,6 +950,128 @@ public static class PackageExtractor
     /// <summary>
     /// Lists available versions of a package from NuGet, newest first.
     /// </summary>
+    /// <summary>
+    /// Lists versions together with the feed each one came from, newest version first.
+    /// </summary>
+    /// <remarks>
+    /// A version carried by more than one feed produces one row per feed, in source order, so
+    /// that duplication across feeds is visible rather than silently collapsed. This is the only
+    /// way to see that two feeds both publish a given version, which matters because the rest of
+    /// the tool identifies a package by name and version alone.
+    /// </remarks>
+    /// <param name="limit">Maximum number of distinct versions, not rows. A limit of 3 returns
+    /// the newest three versions along with every feed that carries them.</param>
+    public static async Task<List<(string Version, string Feed)>?> GetVersionsWithSourceAsync(
+        HttpClient client, string packageName, bool includePrerelease,
+        int? limit, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        var perSource = await FetchVersionsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (perSource == null)
+            return null;
+
+        // Feeds that carry each version, keeping source order and dropping duplicates within
+        // a single feed. Identity is the source URL, because an explicitly requested source that
+        // matches nothing in configuration is named "explicit" — two such feeds would otherwise
+        // collapse into one.
+        var labels = BuildFeedLabels(perSource.Select(p => p.Source).ToList());
+        var feedsByVersion = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (source, versions) in perSource)
+        {
+            string label = labels[source.Url];
+            foreach (string version in versions)
+            {
+                if (!includePrerelease && version.Contains('-'))
+                    continue;
+
+                if (!feedsByVersion.TryGetValue(version, out var feeds))
+                {
+                    feeds = [];
+                    feedsByVersion[version] = feeds;
+                }
+
+                if (!feeds.Contains(label, StringComparer.Ordinal))
+                    feeds.Add(label);
+            }
+        }
+
+        var parseable = new List<(NuGet.Versioning.NuGetVersion Parsed, string Original)>();
+        var unparseable = new List<string>();
+        foreach (string v in feedsByVersion.Keys)
+        {
+            if (NuGet.Versioning.NuGetVersion.TryParse(v, out var parsed))
+                parseable.Add((parsed, v));
+            else
+                unparseable.Add(v);
+        }
+
+        parseable.Sort((a, b) => b.Parsed.CompareTo(a.Parsed));
+
+        List<(string Version, string Feed)> rows = [];
+        int versionCount = 0;
+        foreach (string version in parseable.Select(p => p.Original).Concat(unparseable))
+        {
+            if (limit.HasValue && versionCount >= limit.Value)
+                break;
+
+            versionCount++;
+            foreach (string feed in feedsByVersion[version])
+                rows.Add((version, feed));
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Chooses a short, unambiguous label for each source.
+    /// </summary>
+    /// <remarks>
+    /// Configured sources have useful names, but a source named on the command line that matches
+    /// nothing in configuration is called "explicit", and every such source shares that name. A
+    /// label must distinguish feeds, so the name is used only when it is meaningful, the host is
+    /// used otherwise, and the full URL is used when even that would collide.
+    /// </remarks>
+    private static Dictionary<string, string> BuildFeedLabels(List<NuGetSource> sources)
+    {
+        static string Candidate(NuGetSource source)
+        {
+            if (!string.IsNullOrEmpty(source.Name)
+                && !string.Equals(source.Name, "explicit", StringComparison.Ordinal))
+            {
+                return source.Name;
+            }
+
+            if (source.IsNuGetOrg)
+                return "nuget.org";
+
+            return Uri.TryCreate(source.Url, UriKind.Absolute, out var uri) ? uri.Host : source.Url;
+        }
+
+        var byUrl = new Dictionary<string, string>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var source in sources)
+        {
+            if (byUrl.ContainsKey(source.Url))
+                continue;
+
+            string candidate = Candidate(source);
+            byUrl[source.Url] = candidate;
+            counts[candidate] = counts.GetValueOrDefault(candidate) + 1;
+        }
+
+        foreach (var source in sources)
+        {
+            if (byUrl.TryGetValue(source.Url, out var candidate) && counts[candidate] > 1)
+                byUrl[source.Url] = source.Url;
+        }
+
+        return byUrl;
+    }
+
     public static async Task<List<string>?> GetVersionsAsync(
         HttpClient client, string packageName, bool includePrerelease,
         int? limit, Action<string>? log,
@@ -978,7 +1100,7 @@ public static class PackageExtractor
         return result;
     }
 
-    private static async Task<List<string>?> GetAllVersionsWithCacheAsync(
+    private static async Task<List<(NuGetSource Source, List<string> Versions)>?> FetchVersionsPerSourceAsync(
         HttpClient client,
         string normalizedName,
         List<NuGetSource> sources,
@@ -988,8 +1110,7 @@ public static class PackageExtractor
         // sources must always be queried so a pattern can resolve to a version that exists
         // only on a secondary feed.
         bool canCacheNuGetOrg = sources.Any(s => s.IsNuGetOrg);
-        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool anyFound = false;
+        var perSource = new List<(NuGetSource Source, List<string> Versions)>();
 
         foreach (var source in sources)
         {
@@ -1009,8 +1130,7 @@ public static class PackageExtractor
             if (versions == null)
                 continue;
 
-            anyFound = true;
-            merged.UnionWith(versions);
+            perSource.Add((source, versions));
 
             // Persist nuget.org's list (not the merged set) so private-feed versions don't
             // pollute the shared, name-keyed cache.
@@ -1018,8 +1138,22 @@ public static class PackageExtractor
                 CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', versions), extension: "txt");
         }
 
-        if (!anyFound)
+        return perSource.Count == 0 ? null : perSource;
+    }
+
+    private static async Task<List<string>?> GetAllVersionsWithCacheAsync(
+        HttpClient client,
+        string normalizedName,
+        List<NuGetSource> sources,
+        Action<string>? log)
+    {
+        var perSource = await FetchVersionsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (perSource == null)
             return null;
+
+        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, versions) in perSource)
+            merged.UnionWith(versions);
 
         // Sort ascending by SemVer (newest last) so callers that assume ordered input
         // (e.g. GetVersionsAsync) stay correct across merged feeds; unparseable entries sort last.

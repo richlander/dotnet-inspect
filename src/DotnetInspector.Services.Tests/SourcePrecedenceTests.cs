@@ -127,6 +127,86 @@ public class SourcePrecedenceTests : IDisposable
         Assert.Equal(["0.32.99", "0.32.0", "0.31.0"], versions);
     }
 
+    [Fact]
+    public async Task GetVersionsWithSource_EmitsOneRowPerFeedCarryingAVersion()
+    {
+        // 0.32.0 is on both feeds, so it appears twice; 0.32.99 is private to feed B.
+        var handler = CreateHandler(feedAVersions: ["0.31.0", "0.32.0"], feedBVersions: ["0.32.0", "0.32.99"]);
+        using var client = new HttpClient(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
+            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+
+        Assert.NotNull(rows);
+        Assert.Equal(
+            [
+                ("0.32.99", "feed-b.example.test"),
+                ("0.32.0", "feed-a.example.test"),
+                ("0.32.0", "feed-b.example.test"),
+                ("0.31.0", "feed-a.example.test"),
+            ],
+            rows);
+    }
+
+    [Fact]
+    public async Task GetVersionsWithSource_DistinguishesFeedsThatShareTheExplicitName()
+    {
+        // Sources named on the command line that match nothing in configuration are all called
+        // "explicit". Labels must still tell them apart, or a version on two feeds collapses.
+        var handler = CreateHandler(feedAVersions: ["1.0.0"], feedBVersions: ["1.0.0"]);
+        using var client = new HttpClient(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
+            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+
+        Assert.NotNull(rows);
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(2, rows.Select(r => r.Feed).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task GetVersionsWithSource_LimitCountsVersionsNotRows()
+    {
+        // A limit of 1 keeps the newest version only, but still lists every feed carrying it.
+        var handler = CreateHandler(feedAVersions: ["0.32.0"], feedBVersions: ["0.32.0"]);
+        using var client = new HttpClient(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
+            client, "Markout", includePrerelease: false, limit: 1, log: null, sourceOptions: sourceOptions);
+
+        Assert.NotNull(rows);
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal("0.32.0", r.Version));
+    }
+
+    [Fact]
+    public async Task GetVersionsWithSource_ReturnsNullWhenNoSourceHasPackage()
+    {
+        var handler = CreateHandler(feedAVersions: null, feedBVersions: null);
+        using var client = new HttpClient(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
+            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+
+        Assert.Null(rows);
+    }
+
     private static NuGetSource FeedA() => new("feed-a", $"https://{FeedAIndex}");
 
     private static NuGetSource FeedB() => new("feed-b", $"https://{FeedBIndex}");
