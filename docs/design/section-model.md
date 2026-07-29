@@ -188,6 +188,17 @@ them under `-D` is network-free.
 - Because the family's effectiveness depends on cached-PDB presence, the
   effective-section cache key folds a network-free SourceLink-availability token
   (`#sl0`/`#sl1`) so warming or clearing a cached PDB busts a stale `-D` catalog.
+- The rest of that key is the resolved path plus a **content hash** of the
+  assembly. A cached catalog is only valid for the bytes it was derived from,
+  and neither file size nor write time identifies content: a rebuild in place
+  routinely produces a same-sized file, and a write time survives a copy, an
+  archive restore, or two writes inside one filesystem timestamp tick. Hashing
+  removes the collision by construction instead of narrowing it. Gates:
+  `LibraryCommand_DiscoverEffective_SameSizeReplacement_InvalidatesCache` and
+  `LibraryCommand_DiscoverEffective_PreservedWriteTimeReplacement_InvalidatesCache`
+  fail if the key stops being content-derived. When the bytes cannot be read,
+  the key is `null` and the cache is bypassed rather than keyed on a weaker
+  identity.
 - Hyper-subscribe applies: with no resolvable SourceLink, the `@SourceLink` door
   and its members disappear from `-D` entirely.
 - `-D` discovery is network-free at **every** verbosity. The discovery

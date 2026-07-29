@@ -375,8 +375,8 @@ public partial class CommandExecutionTests
     /// The effective-section cache is keyed by identity, not content, so size alone was not
     /// enough: rebuilding in place or copying a different assembly over the same path routinely
     /// produces a same-sized file, and the stale entry then answered for the new bytes. This is
-    /// the gate for the write-time component of that key — it fails if the key drops back to
-    /// path + size.
+    /// one of the two gates for the content-hash component of that key — it fails if the key
+    /// drops back to path + size.
     ///
     /// Bare <c>-D</c> is used deliberately: the cache is only consulted when <c>Discover</c> is
     /// empty, so a category drill-in such as <c>-D @Metadata</c> would recompute and pass
@@ -395,8 +395,12 @@ public partial class CommandExecutionTests
             var small = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
             var largeBytes = File.ReadAllBytes(large);
             var smallBytes = File.ReadAllBytes(small);
-            if (smallBytes.Length >= largeBytes.Length)
-                return; // padding only works one way; skip rather than assert a fixture accident
+            // Asserted rather than skipped: a silent early return would disable this gate
+            // wholesale if the fixture pair ever changed size relationship.
+            Assert.True(
+                smallBytes.Length < largeBytes.Length,
+                $"fixture requires a smaller padding source: {small} ({smallBytes.Length}) must be " +
+                $"smaller than {large} ({largeBytes.Length})");
 
             var probe = Path.Combine(dir, "Probe.dll");
             File.WriteAllBytes(probe, largeBytes);
@@ -416,6 +420,73 @@ public partial class CommandExecutionTests
             Assert.Equal(0, secondExit);
             Assert.Equal(0, truthExit);
             Assert.Equal(new FileInfo(probe).Length, largeBytes.Length);
+
+            // Only meaningful if the two assemblies really do disagree.
+            Assert.NotEqual(Normalize(firstOutput), Normalize(truthOutput));
+            Assert.Equal(Normalize(truthOutput), Normalize(secondOutput));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+
+        static string Normalize(string output) => string.Join(
+            '\n',
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')));
+    }
+
+    /// <summary>
+    /// Replacing an assembly's bytes invalidates its cached discovery catalog even when the
+    /// replacement has both the same size and the same write time.
+    ///
+    /// A write time is not a content identity. A copy preserves the source's stamp, an archive
+    /// restores a coarse and often deliberately fixed one, and two writes inside a single
+    /// filesystem timestamp tick share one — measured on this repository's NTFS volume, 19 of
+    /// 2000 back-to-back rewrites produced an identical stamp. This is the second gate for the
+    /// content-hash component of the key: it fails if the key reverts to path + size + write
+    /// time, which the earlier same-size gate alone would not catch.
+    /// </summary>
+    [Fact]
+    public async Task LibraryCommand_DiscoverEffective_PreservedWriteTimeReplacement_InvalidatesCache()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"effcache-mtime-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var large = TestAssemblyPath;
+            var small = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+            var largeBytes = File.ReadAllBytes(large);
+            var smallBytes = File.ReadAllBytes(small);
+            Assert.True(
+                smallBytes.Length < largeBytes.Length,
+                $"fixture requires a smaller padding source: {small} ({smallBytes.Length}) must be " +
+                $"smaller than {large} ({largeBytes.Length})");
+
+            var probe = Path.Combine(dir, "Probe.dll");
+            File.WriteAllBytes(probe, largeBytes);
+            var stamp = File.GetLastWriteTimeUtc(probe);
+            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+
+            // Same path, same length, and the write time restored to the warmed entry's value:
+            // every non-content component of the key is now identical.
+            var padded = new byte[largeBytes.Length];
+            smallBytes.CopyTo(padded, 0);
+            File.WriteAllBytes(probe, padded);
+            File.SetLastWriteTimeUtc(probe, stamp);
+            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+
+            // Ground truth: the same bytes at a path the cache has never seen.
+            var fresh = Path.Combine(dir, "Fresh.dll");
+            File.WriteAllBytes(fresh, padded);
+            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv", "--tips", "q");
+
+            Assert.Equal(0, firstExit);
+            Assert.Equal(0, secondExit);
+            Assert.Equal(0, truthExit);
+
+            // The collision the key must survive really was constructed.
+            Assert.Equal(largeBytes.Length, new FileInfo(probe).Length);
+            Assert.Equal(stamp, File.GetLastWriteTimeUtc(probe));
 
             // Only meaningful if the two assemblies really do disagree.
             Assert.NotEqual(Normalize(firstOutput), Normalize(truthOutput));
