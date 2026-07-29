@@ -41,7 +41,9 @@ public class PrintedBodyMapTests
                 continue;
 
             expected++;
-            Assert.Equal(output[start..end], map.Lines[line].Substring(column, length));
+            // The projection drops the trailing line break a statement's range
+            // carries, so the expectation is the characters on the line.
+            Assert.Equal(output[start..end].TrimEnd('\r', '\n'), map.Lines[line].Substring(column, length));
         }
 
         Assert.Equal(expected, map.Nodes.Count);
@@ -134,6 +136,7 @@ public class PrintedBodyMapTests
         var b = map.Annotations[1];
 
         Assert.Equal("alloc.new", a.Descriptor);
+        Assert.Equal("Allocation", a.Category);
         Assert.Equal("List<int>", a.Detail);
         Assert.Equal(12, a.SourceOffset);
         Assert.Equal("efgh", map.Lines[a.Line].Substring(a.Column, a.Length));
@@ -149,11 +152,12 @@ public class PrintedBodyMapTests
         // comparison that stops short of a total order makes the serialised
         // payload differ between runs over identical input. Each pair below
         // differs in exactly one field.
-        var baseline = new PrintedAnnotationSpan("alloc.new", "NewObject", 3, 7, 12, "List<int>", 40);
+        var baseline = new PrintedAnnotationSpan("alloc.new", "Allocation", "NewObject", 3, 7, 12, "List<int>", 40);
 
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Line = 4 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Column = 8 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Descriptor = "alloc.box" }));
+        Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Category = "Unsafety" }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { SourceOffset = 41 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Length = 13 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Kind = "Box" }));
@@ -205,6 +209,38 @@ public class PrintedBodyMapTests
         var fact = Assert.Single(map.Annotations);
         Assert.Equal(0, fact.Line);
         Assert.Equal(-1, fact.Length);
+    }
+
+    [Fact]
+    public void ARangeEndingWithItsLineBreakIsPlacedRatherThanRefused()
+    {
+        // A statement's range runs to the end of the line it printed, newline
+        // included. Treating that as crossing a line break would refuse every
+        // statement in the body, and every statement-anchored fact with it.
+        var node = new LoadLocal(0, TypeRef.CoreLib("System", "Int32"));
+        var ranges = new PrintedRangeMap();
+        ranges.Record(node, 3, 10);
+        ranges.Complete("ab\ncdefgh\nij");
+
+        Assert.True(ranges.TryGetLineColumn(node, out int line, out int column, out int length));
+        Assert.Equal(1, line);
+        Assert.Equal(0, column);
+        Assert.Equal(6, length);
+
+        var map = PrintedBodyMap.Create(ranges);
+        var span = Assert.Single(map.Nodes);
+        Assert.Equal("cdefgh", map.Lines[span.Line].Substring(span.Column, span.Length));
+    }
+
+    [Fact]
+    public void ARangeOfNothingButALineBreakIsRefused()
+    {
+        var node = new LoadLocal(0, TypeRef.CoreLib("System", "Int32"));
+        var ranges = new PrintedRangeMap();
+        ranges.Record(node, 2, 3);
+        ranges.Complete("ab\ncdefgh\nij");
+
+        Assert.False(ranges.TryGetLineColumn(node, out _, out _, out _));
     }
 
     [Fact]

@@ -227,6 +227,16 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
 
         int start = range.Start.GetOffset(Output.Length);
         int end = range.End.GetOffset(Output.Length);
+
+        // A statement's range runs to the end of the line it printed, newline
+        // included, so without this every statement would look like it crossed a
+        // line break and no statement-anchored fact could ever be positioned. The
+        // trailing break is not part of what the node printed on the line.
+        while (end > start && (Output[end - 1] == '\n' || Output[end - 1] == '\r'))
+            end--;
+        if (end == start)
+            return false;
+
         int startLine = LineAt(start);
         if (LineAt(end) != startLine)
             return false;

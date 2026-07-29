@@ -16,6 +16,7 @@ public readonly record struct PrintedNodeSpan(string Kind, int Line, int Column,
 /// One fact, positioned at the characters it is about.
 /// </summary>
 /// <param name="Descriptor">The fact family's id, e.g. <c>alloc.new</c>.</param>
+/// <param name="Category">The fact family's category, e.g. <c>Allocation</c>. Carried because a gesture selector chooses on category as well as id, and a consumer holding only this payload must be able to make that choice.</param>
 /// <param name="Kind">The node kind the fact was found on.</param>
 /// <param name="Line">0-based line within the printed body.</param>
 /// <param name="Column">0-based column within <paramref name="Line"/>.</param>
@@ -24,6 +25,7 @@ public readonly record struct PrintedNodeSpan(string Kind, int Line, int Column,
 /// <param name="SourceOffset">IL offset of the originating instruction, or <c>-1</c> when unknown.</param>
 public readonly record struct PrintedAnnotationSpan(
     string Descriptor,
+    string Category,
     string Kind,
     int Line,
     int Column,
@@ -93,6 +95,8 @@ public sealed record PrintedBodyMap(
         if (c != 0) return c;
         c = a.Length.CompareTo(b.Length);
         if (c != 0) return c;
+        c = string.CompareOrdinal(a.Category, b.Category);
+        if (c != 0) return c;
         c = string.CompareOrdinal(a.Kind, b.Kind);
         if (c != 0) return c;
         return string.CompareOrdinal(a.Detail, b.Detail);
@@ -147,6 +151,7 @@ public sealed record PrintedBodyMap(
                 {
                     facts.Add(new PrintedAnnotationSpan(
                         annotation.Descriptor.Id,
+                        annotation.Descriptor.Category.ToString(),
                         kind,
                         line,
                         placed ? column : 0,
