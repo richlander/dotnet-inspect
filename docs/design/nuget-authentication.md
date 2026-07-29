@@ -191,12 +191,15 @@ and broker paths throw `DllNotFoundException` regardless. Supplying
 The official client is 401-driven: it "will make an unauthenticated request, and if the server
 responds with an HTTP 401 response, NuGet will search for credentials".
 
-This tool now works both ways, and the split is deliberate:
+This tool now works both ways, and the split follows from what is known at the time:
 
-- A credential **parsed from `nuget.config`** is attached preemptively, as before. It is already
-  in hand, and withholding it would only add a round trip.
-- A credential from a **plugin** is acquired only after a 401, because acquiring it costs a
-  process launch. A public feed must not pay that.
+- A credential **parsed from `nuget.config`** is attached preemptively, as before. The user has
+  already declared that this credential belongs to this source, so there is nothing to discover
+  and no reason to wait to be asked.
+- A credential from a **plugin** is acquired only after a 401. Nothing about a source URL says
+  whether it is public or private; the 401 is the signal. Asking a provider to produce a token
+  for a feed that never requested one would mint credentials that are not needed and widen the
+  set of hosts they exist for.
 
 The 401 loop lives in
 [`PluginAuthenticationHandler`](../../src/NuGetFetch/Plugins/PluginAuthenticationHandler.cs), a
