@@ -856,6 +856,29 @@ kbd {
 .metadata-warning strong { display: block; color: #d97757; font-size: 13px; margin-bottom: 6px; }
 .metadata-warning ul { margin: 0; padding-left: 18px; }
 .metadata-warning li { font-size: 12px; color: var(--dim); }
+
+/* Metadata lens: the image-level "container" view (heaps, tables, headers). */
+.meta-assembly + .meta-assembly { margin-top: 4px; }
+.meta-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 14px; }
+.meta-fact { display: flex; flex-direction: column; gap: 2px; }
+.meta-fact-k { font: 9px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.meta-fact-v { font: 11px var(--mono); color: var(--text); }
+.meta-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; }
+.meta-col-title { margin: 0 0 8px; font-size: 11px; color: var(--muted); display: flex; align-items: baseline; gap: 8px; }
+.meta-col-note { font: 9px var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+.meta-heaps { display: flex; flex-direction: column; gap: 5px; }
+.meta-heap { display: grid; grid-template-columns: 64px auto 1fr; align-items: baseline; gap: 10px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.meta-heap-name { font: 11px var(--mono); color: var(--accent); }
+.meta-heap-size { font: 11px var(--mono); color: var(--text); }
+.meta-heap-addr { font: 10px var(--mono); color: var(--dim); text-align: right; }
+.meta-tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
+.meta-table-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.meta-table-name { font: 11px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-table-count { font: 11px var(--mono); color: var(--muted); }
+.meta-table-unprojected { border-style: dashed; opacity: 0.75; }
+.meta-table-unprojected .meta-table-name { color: var(--dim); }
+.meta-empty { font: 11px var(--mono); color: var(--dim); padding: 6px 2px; }
+@media (max-width: 720px) { .meta-grid { grid-template-columns: 1fr; } }
 .fact-group,
 .performance-facts { margin-top: 12px; }
 .fact-table {

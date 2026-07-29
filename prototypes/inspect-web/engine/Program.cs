@@ -12,6 +12,7 @@ using System.Xml.Linq;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
+using DotnetInspector.CSharpBodySlicer;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 using Research = ILInspector.Research;
@@ -324,6 +325,49 @@ public sealed record BrowserPerfMember(
     string[] Shapes,
     string Confidence);
 
+// The metadata "container" view: image-level facts a metadata browser shows, one entry per
+// assembly. Distinct from the API surface — it reports the physical shape of the metadata
+// (format version, heap sizes, table row counts, PE/CLI headers), not the types within.
+public sealed record BrowserPackageMetadata(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserAssemblyMetadata[] Assemblies,
+    string? InspectionError);
+
+public sealed record BrowserAssemblyMetadata(
+    string Assembly,
+    string Provenance,
+    string MetadataVersion,
+    string Kind,
+    bool IsAssembly,
+    int MetadataSize,
+    BrowserMetadataHeap[] Heaps,
+    BrowserMetadataTable[] Tables,
+    int TableTotal,
+    int ProjectedTableTotal,
+    BrowserMetadataHeaders Headers);
+
+public sealed record BrowserMetadataHeap(
+    string Name,
+    int SizeInBytes,
+    string Addressing,
+    int MaxAddress);
+
+public sealed record BrowserMetadataTable(
+    string Name,
+    int RowCount,
+    bool IsProjected);
+
+public sealed record BrowserMetadataHeaders(
+    string Machine,
+    string Subsystem,
+    bool IsPE32Plus,
+    string? CorFlags,
+    int? MajorRuntimeVersion,
+    int? MinorRuntimeVersion,
+    int? EntryPointToken);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
@@ -336,6 +380,7 @@ public sealed record BrowserPerfMember(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserPackageMetadata))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -1604,6 +1649,162 @@ public static partial class BrowserInspectionEngine
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackagePerformance);
     }
 
+    // The metadata "container" view for a NuGet package: one image-level description per
+    // active-framework assembly (metadata format version, heap sizes, table row counts,
+    // PE/CLI headers). This reads the metadata root — not the API surface — so it needs only
+    // the PE bytes and no temp files; each lib/{tfm}/ assembly is described in memory.
+    [JSExport]
+    public static async Task<string> QueryPackageMetadata(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var assemblies = new List<BrowserAssemblyMetadata>();
+        var failures = new List<string>();
+
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var prefix = $"lib/{targetFramework}/";
+            var entries = archive.Entries
+                .Where(entry =>
+                    entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var entry in entries)
+            {
+                try
+                {
+                    using var assemblyStream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    await assemblyStream.CopyToAsync(buffer);
+                    var image = buffer.ToArray();
+                    var described = DescribeAssemblyMetadata(entry.Name, entry.FullName, image);
+                    if (described is not null)
+                        assemblies.Add(described);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{entry.Name}: {exception.Message}");
+                }
+            }
+        }
+
+        var result = new BrowserPackageMetadata(
+            packageId,
+            version,
+            targetFramework,
+            assemblies.ToArray(),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageMetadata);
+    }
+
+    // The metadata "container" view for a single .NET platform library. The runtime pseudo-
+    // package has no nupkg, so this acquires just the one runtime-pack assembly (session-cached)
+    // and describes it — mirroring QueryPlatformIntegrations/Performance.
+    [JSExport]
+    public static async Task<string> QueryPlatformMetadata(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var assemblies = new List<BrowserAssemblyMetadata>();
+        var failures = new List<string>();
+        try
+        {
+            var described = DescribeAssemblyMetadata(fileName, $"{packId}/{version}/{fileName}", bytes);
+            if (described is not null)
+                assemblies.Add(described);
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageMetadata(
+            Path.GetFileNameWithoutExtension(fileName),
+            version,
+            tfm,
+            assemblies.ToArray(),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageMetadata);
+    }
+
+    // Projects one assembly's MetadataImageOverview onto the browser record. Returns null for
+    // an image with no metadata (a native or resource-only DLL) so the caller can skip it
+    // rather than surface an empty row. Shared by the NuGet-package and platform scans.
+    static BrowserAssemblyMetadata? DescribeAssemblyMetadata(string assemblyName, string provenance, byte[] image)
+    {
+        using var buffer = new MemoryStream(image, writable: false);
+        var reference = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(assemblyName, null, null, null),
+            Path: null,
+            OpenRead: () => new MemoryStream(image, writable: false),
+            Provenance: provenance);
+        using var inspection = AssemblyInspectionSession.Open(reference);
+        if (!inspection.HasMetadata)
+            return null;
+
+        var overview = inspection.MetadataImage();
+        if (overview is null)
+            return null;
+
+        var heaps = overview.Heaps
+            .Select(heap => new BrowserMetadataHeap(
+                heap.Heap.ToString(),
+                heap.SizeInBytes,
+                heap.Addressing.ToString(),
+                heap.MaxAddress))
+            .ToArray();
+
+        // Only tables that carry rows are interesting to a browser; an image models ~40+
+        // ECMA-335 tables and most are empty. Keep them in physical table order.
+        var tables = overview.Tables
+            .Where(table => table.RowCount > 0)
+            .Select(table => new BrowserMetadataTable(table.Name, table.RowCount, table.IsProjected))
+            .ToArray();
+
+        var cor = overview.Headers.Cor;
+        var headers = new BrowserMetadataHeaders(
+            overview.Headers.Machine.ToString(),
+            overview.Headers.Subsystem.ToString(),
+            overview.Headers.IsPE32Plus,
+            cor?.Flags.ToString(),
+            cor is null ? null : cor.MajorRuntimeVersion,
+            cor is null ? null : cor.MinorRuntimeVersion,
+            cor?.EntryPointToken);
+
+        return new BrowserAssemblyMetadata(
+            assemblyName,
+            provenance,
+            overview.MetadataVersion,
+            overview.Kind.ToString(),
+            overview.IsAssembly,
+            overview.MetadataSize,
+            heaps,
+            tables,
+            overview.Tables.Length,
+            overview.Tables.Count(table => table.IsProjected && table.RowCount > 0),
+            headers);
+    }
+
     private static int RankConfidence(string confidence) => confidence?.ToLowerInvariant() switch
     {
         "high" => 3,
@@ -2142,11 +2343,13 @@ public static partial class BrowserInspectionEngine
             if (!ChecksumMatches(mapping.ChecksumAlgorithm, mapping.Checksum, bytes))
                 return null;
 
-            var text = SourceLinkResolver.ExtractMethodBody(
+            var text = BodySlicer.ExtractMethodBody(
                 Encoding.UTF8.GetString(bytes),
                 mapping.StartLine,
                 mapping.EndLine,
                 member.Name);
+            if (text is null)
+                return null;
             return new BrowserMemberSource(
                 "original",
                 text,

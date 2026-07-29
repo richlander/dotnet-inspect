@@ -9,7 +9,8 @@ export const packageLenses = [
   ["dependencies", "Dependencies"],
   ["integrations", "Integrations"],
   ["opportunities", "Opportunities"],
-  ["analysis", "Analysis"]
+  ["analysis", "Analysis"],
+  ["metadata", "Metadata"]
 ];
 
 export const rootCommands = [

@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -105,6 +105,10 @@ const state = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageMetadata: null,
+  packageMetadataLoading: false,
+  packageMetadataError: "",
+  packageMetadataKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -741,7 +745,7 @@ function scope() {
 function packageLensesFor(pkg) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
-    id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis");
+    id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis" || id === "metadata");
 }
 
 // The single platform library the Integrations/Opportunities/Analysis lenses scan: whatever
@@ -1180,6 +1184,7 @@ function render() {
   maybeAutoLoadPackageIntegrations();
   maybeAutoLoadPackageOpportunities();
   maybeAutoLoadPackagePerformance();
+  maybeAutoLoadPackageMetadata();
 }
 
 function maybeAutoLoadTypeSource() {
@@ -1360,6 +1365,7 @@ function renderPackageView() {
   if (state.packageLens === "integrations") return `${packageHeading()}${renderPackageIntegrations()}`;
   if (state.packageLens === "opportunities") return `${packageHeading()}${renderPackageOpportunities()}`;
   if (state.packageLens === "analysis") return `${packageHeading()}${renderPackagePerformance()}`;
+  if (state.packageLens === "metadata") return `${packageHeading()}${renderPackageMetadata()}`;
   return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
 }
 
@@ -1929,6 +1935,138 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   loadPackagePerformance();
+}
+
+// The Metadata lens: the image-level "container" view of each assembly — metadata format
+// version, heap sizes, ECMA-335 table row counts, and PE/CLI header facts. This is the shape
+// of the metadata itself, distinct from the API surface (the types within). For the platform
+// it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
+// NuGet package it describes every active-framework lib/ assembly.
+function renderPackageMetadata() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  const picker = isPlatform ? platformLensPicker("data-platform-metadata-library") : "";
+  if (isPlatform && !scopedLib) {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`;
+  }
+  const scanScope = isPlatform ? `${escapeHtml(scopedLib)} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
+  const current = packageScopeSignature();
+  const fresh = state.packageMetadataKey === current;
+  if (state.packageMetadataLoading && fresh) {
+    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`;
+  }
+  if (fresh && state.packageMetadataError) {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(state.packageMetadataError)}</p></section>`;
+  }
+  const data = fresh ? state.packageMetadata : null;
+  if (!data) {
+    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const assemblies = data.assemblies || [];
+  const warning = data.inspectionError
+    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    : "";
+
+  if (!assemblies.length) {
+    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
+  }
+
+  const blocks = assemblies.map(renderAssemblyMetadataBlock).join("");
+  const summary = `
+    <section class="document-section">
+      <div class="section-title"><h2>Metadata image</h2><span>${assemblies.length} assembl${assemblies.length === 1 ? "y" : "ies"} · ${scanScope}</span></div>
+      <p class="lens-note">The physical shape of each assembly's metadata — format stamp, heap sizes, populated ECMA-335 tables, and PE/CLI headers. This describes the container, not the API surface.</p>
+    </section>`;
+
+  return `${picker}${warning}${summary}${blocks}`;
+}
+
+function renderAssemblyMetadataBlock(asm) {
+  const heapRows = (asm.heaps || [])
+    .filter(heap => heap.sizeInBytes > 0)
+    .map(heap => `
+      <div class="meta-heap">
+        <span class="meta-heap-name">#${escapeHtml(heap.name)}</span>
+        <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
+        <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
+      </div>`).join("");
+
+  const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
+  const tableRows = tables.map(table => `
+    <div class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" title="${table.isProjected ? "" : "Present in the image but not modeled by the projection"}">
+      <span class="meta-table-name">${escapeHtml(table.name)}</span>
+      <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
+    </div>`).join("");
+
+  const h = asm.headers || {};
+  const corLine = h.corFlags
+    ? `<span class="meta-fact"><span class="meta-fact-k">CLI</span><span class="meta-fact-v">v${h.majorRuntimeVersion}.${h.minorRuntimeVersion} · ${escapeHtml(h.corFlags)}${h.entryPointToken ? ` · entry 0x${(h.entryPointToken >>> 0).toString(16)}` : ""}</span></span>`
+    : "";
+
+  return `
+    <section class="document-section meta-assembly">
+      <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
+      <div class="meta-facts">
+        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
+        ${corLine}
+      </div>
+      <div class="meta-grid">
+        <div class="meta-col">
+          <h3 class="meta-col-title">Heaps</h3>
+          <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
+        </div>
+        <div class="meta-col">
+          <h3 class="meta-col-title">Tables <span class="meta-col-note">by row count</span></h3>
+          <div class="meta-tables">${tableRows || '<div class="meta-empty">No populated tables</div>'}</div>
+        </div>
+      </div>
+    </section>`;
+}
+
+async function loadPackageMetadata() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  if (isPlatform && !scopedLib) return;
+  const signature = packageScopeSignature();
+  if (state.packageMetadataKey === signature && (state.packageMetadata || state.packageMetadataError)) {
+    render();
+    return;
+  }
+  state.packageMetadataKey = signature;
+  state.packageMetadata = null;
+  state.packageMetadataError = "";
+  state.packageMetadataLoading = true;
+  render();
+  try {
+    const result = isPlatform
+      ? await inspectPlatformMetadata({
+          targetFramework: state.package.activeFramework,
+          assemblyFileName: `${scopedLib}.dll`,
+          pack: platformPackForAssembly(scopedLib)
+        })
+      : await inspectPackageMetadata({
+          packageId: state.package.id,
+          version: state.package.version,
+          framework: state.package.activeFramework
+        });
+    if (state.packageMetadataKey === signature) state.packageMetadata = result;
+  } catch (error) {
+    if (state.packageMetadataKey === signature) state.packageMetadataError = String(error?.message || error);
+  } finally {
+    if (state.packageMetadataKey === signature) state.packageMetadataLoading = false;
+    render();
+  }
+}
+
+function maybeAutoLoadPackageMetadata() {
+  if (!state.atPackageRoot || state.packageLens !== "metadata") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageMetadataKey === packageScopeSignature()) return;
+  loadPackageMetadata();
 }
 
 // Drills from a perf-triage row to the member's Facts lens by metadata token: the token
@@ -2814,6 +2952,7 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
+  bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
