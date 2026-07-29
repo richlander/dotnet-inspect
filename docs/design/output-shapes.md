@@ -176,23 +176,31 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
-`-n N` / `--head N` and `--tail N` are rendered-line windows applied after
+`-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
 
 ```text
---print --head 1
+--print -n 1
   multi-row selection -> error; does not choose the first row
 
---print --row 2 --head 20
+--print --row 2 -n 20
   select row 2 -> fetch one payload -> render its first 20 lines
 ```
 
-`--rows` changes head/tail from rendered-line windows into per-table data-row
-windows:
+`--rows <spec>` switches to per-table data-row windows and carries its own
+count, so three concerns stay on three flags: `--rows` sets the unit,
+its value sets the count or the rows, and `--head`/`--tail` set the direction.
 
-- `--rows --head N` keeps the first N data rows;
-- `--rows --tail N` keeps the last N data rows.
+- `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
+- `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
+- `--rows 2+10` keeps ten rows starting at row 2.
+- `--rows 10..` keeps row 10 through the last row.
+
+A count and a range are different kinds, not two spellings of one: a count
+anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
+rather than silently resolved. Bare `--rows` is an error — it once meant
+"interpret `-n` as rows", which put the count on a different flag than the unit.
 
 Both row-window forms are incompatible with `--print`;
 `--row N|first|last` is the explicit row selector. The CLI implements
@@ -247,10 +255,11 @@ resolved by discarding one.
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
-| `--tail N` | keep the last N rendered output lines unless `--rows` is active |
-| `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
-| `--rows --tail N` | keep the last N **data rows per table**, across Markdown, TSV, and JSONL |
+| `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
+| `-n N --tail` | keep the last N rendered output lines |
+| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
+| `--rows N --tail` | keep the last N **data rows per table** |
+| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -450,10 +459,11 @@ The stable vocabulary is:
 - `--print` is an exactly-one row-payload projection: it never chooses the first
   of multiple rows implicitly, does not make rows without a payload printable,
   and does not evaluate new addresses.
-- `--head` / `--tail` are post-projection line windows: they do not select rows
+- `--head` / `--tail` name a direction, not a count. Outside `--rows` they
+  choose which end of the rendered lines `-n N` keeps; they do not select rows
   or constrain payload acquisition.
-- `--rows` promotes head/tail to first/last data-row windows, but those windows
-  remain presentation limits rather than row selectors.
+- `--rows` makes the window a first/last or absolute data-row window, but those
+  windows remain presentation limits rather than row selectors.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
