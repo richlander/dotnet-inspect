@@ -32,7 +32,11 @@ authenticates a service principal to Entra ID, Entra returns a token, and the fe
 sees Basic. See
 [`PackageSource.GetAuthHeader`](../../src/NuGetFetch/PackageRecords.cs).
 
-## The one supported credential source
+## The credential sources
+
+Two, described in full below: a `nuget.config` entry, and a credential provider.
+
+### `nuget.config`
 
 A [`packageSourceCredentials`](https://learn.microsoft.com/nuget/reference/nuget-config-file#packagesourcecredentials)
 entry in a `nuget.config`, carrying **both** `Username` and `ClearTextPassword`:
@@ -62,16 +66,15 @@ tool honors is the clearest statement of the gap:
 
 | NuGet's rank | Mechanism | Supported here |
 | --- | --- | --- |
-| 1, "highly recommended" | Credential provider | **No** — no plugin is invoked, and no `ARTIFACTS_CREDENTIALPROVIDER_*` or `VSS_NUGET_*` variable is read. |
+| 1, "highly recommended" | Credential provider | **Yes** — see [Credential providers](#credential-providers). |
 | 2 | Encrypted `<Password>` in `nuget.config` | **No** — only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
 | 3 | `%VAR%` macros in `nuget.config` | **No** — values are taken verbatim, so the placeholder is sent as the password. |
 | 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
-| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes — the only one.** |
+| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
 
-The tool therefore supports exactly the mechanism the documentation ranks last and attaches a
-leak warning to, and ignores all four that are preferred. The top rank is the costly one: a
-credential provider is what a correctly configured CI pipeline uses, so such a pipeline still
-reaches a private feed unauthenticated.
+The two supported mechanisms are the ranking's top and bottom, which is less odd than it looks:
+rank 1 is the most secure where it exists, and rank 5 is the only one that exists everywhere.
+Ranks 2 through 4 remain unsupported, and are still dropped in silence.
 
 ### Rank 5 is the floor, not a mistake
 
@@ -95,33 +98,127 @@ So the mechanism NuGet ranks last is the only one that works everywhere, and for
 it is not merely the easiest path but the *only* path — GitHub's own documentation instructs
 users to store the token in clear text.
 
-The defect is therefore not that rank 5 is supported. It is that rank 5 is supported *exclusively*
-while the four preferred mechanisms are dropped in silence, and that a dropped credential cannot
-be told apart from a missing package. Supporting a credential provider is a real improvement for
-Azure Artifacts and AWS; it does nothing for GitHub Packages, where only better diagnosis helps.
+The defect is therefore not that rank 5 is supported. It is that rank 5 was supported
+*exclusively*, and that a dropped credential cannot be told apart from a missing package.
+Credential provider support closes the first half for Azure Artifacts and AWS CodeArtifact; it
+does nothing for GitHub Packages, where only better diagnosis helps.
 
 Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
 and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
 though Azure DevOps ignores the username), and userinfo in the source URL
 (`https://user:pass@host/...`, which is never turned into a header).
 
-Every one of these is dropped without a diagnostic. Because an unauthenticated feed currently
-reports as *package not found* rather than as an authentication failure (issue #3417, bug 1),
-each is indistinguishable from a typo in the package name. That is what makes the silence
-expensive, and it is the argument for fixing the diagnosis before adding mechanisms.
+Every one of these is dropped without a diagnostic. Because an unauthenticated feed reports as
+*package not found* rather than as an authentication failure (issue #3417, bug 1), each is
+indistinguishable from a typo in the package name. That is what makes the silence expensive, and
+it is why the diagnosis is worth fixing independently of which mechanisms are supported.
+
+## Credential providers
+
+A [NuGet credential provider](https://learn.microsoft.com/nuget/reference/extensibility/nuget-cross-platform-plugins)
+is a separate executable that answers credential questions over a JSON protocol on stdin/stdout.
+It is how a private feed is read with no secret stored anywhere on disk, and it is the mechanism
+NuGet ranks first.
+
+### Discovery: there is no registration step
+
+Credential providers are **never registered in `nuget.config`**. The Azure Artifacts provider has
+no install or register verb and writes to no configuration file. Discovery is entirely by
+convention, over three routes tried in strict precedence order:
+
+| Route | Where | Notes |
+| --- | --- | --- |
+| 1 | `NUGET_NETCORE_PLUGIN_PATHS` | Explicit list of entry-point files. |
+| 2 | `NUGET_PLUGIN_PATHS` | Same, consulted only if route 1 is unset. Entries may be files or directories. |
+| 3 | `~/.nuget/plugins/netcore/<Name>/<Name>.dll` and executables named `nuget-plugin-*` on `PATH` | The convention directory is what the classic install script populates; the `PATH` scan finds global dotnet tools. |
+
+Either environment variable **replaces** route 3 rather than adding to it.
+
+The `PATH` scan is the one most easily missed, because it looks like an ordinary tool install.
+`dotnet tool install --global Microsoft.Artifacts.CredentialProvider.NuGet.Tool` creates no
+convention directory at all — it only puts `nuget-plugin-microsoft-artifacts-credential-provider`
+on `PATH`. An implementation that scans `~/.nuget/plugins` alone finds nothing on such a machine
+while `dotnet restore` authenticates happily.
+
+Implementation: [`PluginDiscovery`](../../src/NuGetFetch/Plugins/PluginDiscovery.cs), mirroring
+`PluginDiscoverer.cs` and `PluginDiscoveryUtility.cs` in
+[NuGet.Client](https://github.com/NuGet/NuGet.Client/tree/dev/src/NuGet.Core/NuGet.Protocol/Plugins).
+
+### The conversation
+
+The plugin is launched as `<plugin> -Plugin` (or `dotnet <plugin.dll> -Plugin`), and both sides
+exchange one compact JSON object per line, UTF-8 without a BOM. The sequence is handshake,
+`MonitorNuGetProcessExit`, `Initialize`, `GetOperationClaims`, `SetLogLevel`, and then
+`GetAuthenticationCredentials`.
+
+Two details are easy to get wrong and are pinned by tests:
+
+- **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
+  as the host sends one. A host that only waits for a reply, without answering, deadlocks.
+- **`Progress` messages restart the request timer.** They are the plugin saying "still working"
+  during a slow sign-in. A host that ignores them times out a request that is progressing fine.
+
+Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
+[`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
+
+Plugins are started lazily and kept for the process lifetime, because a launch costs a process
+start plus five round trips. A plugin that fails to start, or that does not claim the
+`Authentication` operation, is remembered as unusable rather than retried.
+
+### Unattended by default
+
+Credentials are requested with `IsNonInteractive` set and `CanShowDialog` clear, matching
+`dotnet restore` without `--interactive`. A tool that may run in CI must not block on a sign-in
+prompt. Cached credentials and tokens supplied through the environment still work; only
+interactive sign-in is withheld.
+
+On Linux the v2.0.2 Azure Artifacts tool package ships no `msalruntime.so`, so its interactive
+and broker paths throw `DllNotFoundException` regardless. Supplying
+`ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN` avoids those paths entirely.
 
 ## Preemptive credentials versus 401-driven credentials
 
 The official client is 401-driven: it "will make an unauthenticated request, and if the server
-responds with an HTTP 401 response, NuGet will search for credentials" — env var, then
-`nuget.config`, then credential provider. This tool instead attaches whatever credential it
-parsed up front and treats a 401 as terminal. It never re-requests, and never widens its search
-after a challenge.
+responds with an HTTP 401 response, NuGet will search for credentials".
 
-That difference is why adding a mechanism is not simply a parser change: the credential provider
-contract expects a caller that can detect a 401 and re-invoke with `-IsRetry`, which is
-[documented as required](https://github.com/microsoft/artifacts-credprovider) to avoid reusing
-invalid cached credentials. Bug 1 is a prerequisite for doing this properly.
+This tool now works both ways, and the split is deliberate:
+
+- A credential **parsed from `nuget.config`** is attached preemptively, as before. It is already
+  in hand, and withholding it would only add a round trip.
+- A credential from a **plugin** is acquired only after a 401, because acquiring it costs a
+  process launch. A public feed must not pay that.
+
+The 401 loop lives in
+[`PluginAuthenticationHandler`](../../src/NuGetFetch/Plugins/PluginAuthenticationHandler.cs), a
+`DelegatingHandler` installed into the shared client. This copies NuGet's own structure —
+[`HttpSourceAuthenticationHandler`](https://github.com/NuGet/NuGet.Client/blob/dev/src/NuGet.Core/NuGet.Protocol/HttpSource/HttpSourceAuthenticationHandler.cs)
+is also a `DelegatingHandler` — and the reason to copy it is that the loop needs the
+`HttpResponseMessage` in hand. Doing it in the pipeline rather than at call sites means every
+request is covered, including any whose call site forgot to pass a credential.
+
+Behaviour follows NuGet's:
+
+| Aspect | Behaviour |
+| --- | --- |
+| Trigger | 401 always; 403 only when explicitly enabled, since 403 usually means "authenticated but not permitted" |
+| Retry bound | 4 attempts per request, matching `AmbientAuthenticationState.MaxAuthRetries` |
+| `IsRetry` | Clear on the first ask, set afterwards, so a plugin replaces a cached token the feed has already rejected |
+| Scope | Credentials are cached per scheme, host and port, so one feed's token is never offered to another |
+| Concurrency | Concurrent requests to one source acquire credentials once |
+| Precedence | A credential already on the request is never overwritten |
+
+The `-IsRetry` flag matters more than it looks. The provider's own help says that without it
+"INVALID CREDENTIALS MAY BE RETURNED. The caller is required to validate returned credentials
+themselves, and if invalid, should call the credential provider again with -IsRetry set."
+
+Credentials from a plugin are **not** written to any configuration file. They live in memory for
+the process lifetime and are re-acquired on the next run.
+
+Bug 1 (issue #3417) — an authentication failure reported as *package not found* — is not a
+prerequisite for any of this, because the handler never needs the status code to reach a caller.
+It remains worth fixing so that a feed which refuses every available credential says so. NuGet's
+wording is a good target: `NU1301: Unable to load the service index for source ... 401
+(Unauthorized)`.
 
 ## Service index discovery
 
@@ -139,15 +236,31 @@ The CLI does not hit this, because its package path does not go through `NuGetCl
 service-index reader that passes `source.GetAuthHeader()` on the discovery request. The gap is
 confined to the `NuGetFetch` library.
 
+Where a credential provider is available the handler covers this case anyway, since it sits in
+the HTTP pipeline and so sees the anonymous service index request 401 like any other. That is a
+second reason NuGet put the loop in a handler: no call site can forget to participate. It is not
+a fix for the `nuget.config` path, which still depends on the caller threading a credential
+through.
+
 ## Tests
 
 Two tiers, in `src/NuGetFetch.Tests`:
 
-- **Hermetic**, in-memory transport, runs in PR CI. `CredentialMechanismTests` pins every row of
-  the table above. `ServiceIndexAuthenticationTests` pins which of the two requests carries the
-  credential, and that a 401 stays distinguishable from a 404.
-- **Live**, `AzureDevOpsFeedTests`, tagged `[Trait("Network", "Live")]` and skipped unless a feed
-  and token are supplied. Only a real Azure DevOps feed exercises an authenticated service index.
+- **Hermetic**, no network and no real plugin binary, runs in PR CI:
+  - `CredentialMechanismTests` pins every row of the ranking table above.
+  - `ServiceIndexAuthenticationTests` pins which of the two requests carries the credential, and
+    that a 401 stays distinguishable from a 404.
+  - `PluginDiscoveryTests` pins all three discovery routes and their precedence, over a temporary
+    directory tree and `PATH`.
+  - `PluginAuthenticationHandlerTests` pins the 401 loop: retry bound, `IsRetry` progression,
+    per-authority scoping, 403 opt-in, and that an existing credential is not overwritten.
+  - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
+    the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
+    and shutdown are exercised end to end rather than mocked.
+- **Live**, tagged `[Trait("Network", "Live")]` and skipped unless a feed and token are supplied.
+  `AzureDevOpsFeedTests` covers the config path; `AzureDevOpsCredentialProviderTests` covers the
+  provider path against a genuinely installed provider. Only a real Azure DevOps feed exercises
+  an authenticated service index.
 
 CI runs the offline tier only:
 
@@ -167,3 +280,16 @@ dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.
+
+`AzureDevOpsCredentialProviderTests` additionally needs a provider on the machine and a token it
+will hand out:
+
+```bash
+dotnet tool install --global Microsoft.Artifacts.CredentialProvider.NuGet.Tool
+export ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN=$(az account get-access-token \
+  --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+export ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES=https://pkgs.dev.azure.com/ORG/
+```
+
+Those tests skip, rather than fail, when no provider is discoverable — so they are quiet on a
+machine that has never installed one.

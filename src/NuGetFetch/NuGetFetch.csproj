@@ -15,6 +15,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NuGetFetch.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
