@@ -940,6 +940,15 @@ public class ScanTokenTests
 
         void Check(string[] content)
         {
+            var bare = BodySlicer.ScanTokens(content);
+
+            // Record after the scan, not before. The derivation pins below are only worth
+            // anything if they observe what the invariant actually ran on: recording first
+            // lets the scanned content be substituted afterwards while every pin still sees
+            // the canonical inputs, and measured, a carried-verbatim depth defect then
+            // survives (adversarial review, GPT). Recording here means a substitution before
+            // the scan is recorded too and fails the sequence pins, and one after the scan
+            // fails them without weakening the scan.
             if (singleSeen is not null && content.Length == 1)
                 singleSeen.Add(content[0]);
 
@@ -948,8 +957,6 @@ public class ScanTokenTests
 
             if (seedPairs is not null && content.Length == 2)
                 seedPairs.Add((content[0], content[1]));
-
-            var bare = BodySlicer.ScanTokens(content);
 
             foreach (var token in bare)
             {
