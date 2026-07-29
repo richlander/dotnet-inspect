@@ -125,9 +125,9 @@ The library command currently has 16 registered sections:
 | Symbols | Normal | `Symbols` |
 | Type Forwarders | Normal | `TypeForwarders` |
 | Unsafe Methods | Normal | `ClassifiedMethods` |
-| SourceLink Availability | Explicit | — |
-| SourceLink Integrity | Explicit | — |
-| SourceLink Missing Files | Explicit | — |
+| SourceLink: Availability | Explicit | — |
+| SourceLink: Integrity | Explicit | — |
+| SourceLink: Missing Files | Explicit | — |
 
 ## Fallback Path
 

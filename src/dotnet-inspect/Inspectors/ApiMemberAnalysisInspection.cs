@@ -28,6 +28,7 @@ internal sealed class ApiMemberAnalysisInspection
     bool _targetAssemblyNameResolved;
     IReadOnlyList<string>? _selectedScopePaths;
     bool _ruledOutScopeIsOpenable;
+    readonly Dictionary<Analysis.TypeRef, List<MethodBodyInspectionSession>> _directCallerScopes = [];
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -70,7 +71,7 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     internal ImmutableArray<CallerEdge> CallerEdges(int methodToken)
-        => Session.CallerEdges(methodToken, CallerScopes(includeAllocations: false));
+        => Session.CallerEdges(methodToken, DirectCallerScopes(methodToken));
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken)
         => BodyIndex.BuildCallTree(methodToken);
@@ -170,6 +171,85 @@ internal sealed class ApiMemberAnalysisInspection
 
         cached = opened;
         return cached;
+    }
+
+    /// <summary>
+    /// The caller-scope sessions for the <c>Callers</c> table, narrowed to the assemblies that
+    /// could contain a <em>direct</em> caller of a member declared by <paramref name="methodToken"/>'s
+    /// type. Returns <see langword="null"/> when no cross-assembly scope was requested at all,
+    /// matching <see cref="CallerScopes"/>.
+    ///
+    /// The two consumers of a caller scope walk it differently and therefore need different
+    /// selections. <c>Call Graph</c> is transitive, so it needs the reverse-reference closure that
+    /// <see cref="CallerScopes"/> computes: an assembly naming nothing relevant still belongs in
+    /// the graph if it calls something that does. <see cref="MethodBodyInspectionSession.CallerEdges"/>
+    /// is strictly single-hop — it scans each scope for call sites whose callee matches the target
+    /// and never asks what calls those — so the closure is pure cost for it.
+    ///
+    /// On a framework-shaped scope that cost dominates. Reference closure selects nearly every
+    /// candidate, because everything reaches the core library in one hop and transitivity does the
+    /// rest, while direct type reference selects a handful. Every candidate ruled out here is a
+    /// full method-body decode not paid.
+    ///
+    /// Narrowing is deliberately <em>not</em> folded into <see cref="CallerScopes"/>. Its two lenses
+    /// share a cache when allocations are not requested, so narrowing there would silently narrow
+    /// the transitive graph as well and truncate it — the defect this filter's sibling was written
+    /// to avoid.
+    ///
+    /// When the graph lens has already opened its wider scope, that set is reused as-is. Narrowing
+    /// only avoids <em>opening</em> assemblies; re-deciding sessions whose body decode is already
+    /// paid for would cost a metadata read to save nothing. The extra edges this could admit are
+    /// not a behavior difference: an assembly that cannot name the declaring type produces no
+    /// match, which is exactly why it was safe to rule out.
+    /// </summary>
+    internal IReadOnlyList<MethodBodyInspectionSession>? DirectCallerScopes(int methodToken)
+    {
+        if (_callerScopeAssemblies is not { Count: > 0 })
+            return null;
+
+        if (_graphScopesResolved && _graphScopes is not null)
+            return _graphScopes;
+        if (_callerScopesResolved && _callerScopes is not null)
+            return _callerScopes;
+
+        var declaringType = Session.BodyIndex.Methods
+            .FirstOrDefault(m => m.MetadataToken == methodToken)?.DeclaringType;
+
+        // Without a typed declaring identity there is nothing to narrow on, and the matcher falls
+        // back to comparing display names, which are not assembly-qualified — an assembly-qualified
+        // filter would then be stricter than the matcher and drop real callers.
+        if (declaringType is null)
+            return CallerScopes(includeAllocations: false);
+
+        var openDeclaringType = Analysis.GenericMemberIdentity.OpenDeclaringType(declaringType);
+        if (_directCallerScopes.TryGetValue(openDeclaringType, out var cached))
+            return cached;
+
+        var opened = new List<MethodBodyInspectionSession>();
+        foreach (string scopePath in SelectedScopePaths())
+        {
+            if (Analysis.CallerScopeTypeFilter.Classify(scopePath, openDeclaringType)
+                is Analysis.CallerScopeTypeFilter.TypeReferenceState.DoesNotName)
+            {
+                continue;
+            }
+
+            try
+            {
+                opened.Add(MethodBodyInspectionSession.Open(
+                    scopePath,
+                    ApiAnalysisInspection.CreateReferenceResolver(scopePath, _options),
+                    includeAllocations: false,
+                    includeOpportunities: false));
+            }
+            catch
+            {
+                // Caller scope is best-effort; unreadable assemblies do not contribute edges.
+            }
+        }
+
+        _directCallerScopes[openDeclaringType] = opened;
+        return opened;
     }
 
     /// <summary>

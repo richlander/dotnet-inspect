@@ -35,7 +35,7 @@ public class PackageCommand
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
-        // can never fan out to the unbounded SourceLink Integrity group.
+        // can never fan out to unbounded @Hidden members as a group.
         if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
             return 1;
 
@@ -2116,8 +2116,8 @@ public class PackageCommand
     {
         if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
-            Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
-            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
+            Console.Error.WriteLine($"Error: --all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
             return false;
         }
 
@@ -2132,7 +2132,7 @@ public class PackageCommand
         if (table == null)
         {
             Console.Error.WriteLine($"Error: --all-libraries row output does not support section: {sections[0]}.");
-            Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
             return false;
         }
 
@@ -2171,26 +2171,7 @@ public class PackageCommand
                 libraryInfoRows);
         }
 
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = inspections
-                .SelectMany(inspection => LibraryIntegrationCatalog.All
-                    .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
-                    .Where(row => row.Signals.Count > 0)
-                    .Select(row => WithProvenance(
-                        packageName,
-                        version,
-                        row.Inspection,
-                        row.Descriptor.Name,
-                        row.Descriptor.CountRenderedRows(row.Signals).ToString())))
-                .ToArray();
-            return new(
-                ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
-                ["package", "version", "library", "tfm", "integration", "apis"],
-                integrationRows);
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2228,7 +2209,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return null;
 
@@ -2345,36 +2326,13 @@ public class PackageCommand
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
-        => section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase)
-           || section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase)
+        => section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase)
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
-           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
     private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
     {
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = LibraryIntegrationCatalog.All
-                .Select(descriptor =>
-                {
-                    var count = inspections.Sum(inspection =>
-                    {
-                        var signals = descriptor.GetSignals(inspection);
-                        return signals.Count > 0 ? descriptor.CountRenderedRows(signals) : 0;
-                    });
-                    return new { descriptor.Name, Count = count };
-                })
-                .Where(row => row.Count > 0)
-                .ToList();
-            if (integrationRows.Count == 0)
-                return;
-
-            AppendHeading(sb, section);
-            AppendTable(sb, ["Integration", "APIs"], integrationRows.Select(row => new[] { row.Name, row.Count.ToString() }));
-            return;
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2430,7 +2388,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return;
 

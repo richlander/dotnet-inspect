@@ -139,7 +139,7 @@ at the command boundary.
 | `OriginalSource` | fetched source slice | Metadata / SourceLink |
 
 The important rule: a facet has one canonical owner. CLI sections such as
-`Allocation Facts`, `Allocation Context`, `Facts`, or `Annotated Source` may
+`Allocation Facts`, `Context: Allocation`, `Facts`, or `Annotated Source` may
 render different projections, but they should not compute the underlying facts
 independently.
 
