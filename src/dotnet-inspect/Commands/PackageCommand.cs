@@ -1657,21 +1657,22 @@ public class PackageCommand
     /// </summary>
     private static bool IsMarkdownDocument(string path, bool isReadme)
         => MarkdownContent.IsMarkdown(path)
-            || (isReadme && !NamesASuffix(path));
+            || (isReadme && !NamesAKind(path));
 
     /// <summary>
-    /// Whether a file name states a suffix. <see cref="Path.HasExtension(string)"/> is the wrong
-    /// question here: it reads a whole dotfile name as an extension, so <c>.README</c> would be
-    /// said to name one. A leading dot marks a hidden basename rather than a suffix, and a
-    /// trailing dot names an empty one, so the suffix is the part after a dot that has a name on
-    /// both sides of it.
+    /// Whether a file name says anything about the document's kind. Any dot in the name is taken
+    /// as saying something: <c>logo.png</c> names a suffix outright, <c>logo.png.</c> names one
+    /// with a stray dot after it, and <c>.png</c> spells one as a hidden basename. Telling a
+    /// hidden suffix apart from a hidden word like <c>.README</c> needs a list of known suffixes,
+    /// which would go stale and still guess wrong at the edges.
+    ///
+    /// The two mistakes are not equally bad, so the tie goes to the conservative reading. Refusing
+    /// a Markdown scope on <c>.README</c> is loud, names the file, and leaves the document
+    /// readable; handing a declared PNG to the link rewriter returns a corrupted file and exit 0,
+    /// which is the outcome this command exists to prevent.
     /// </summary>
-    private static bool NamesASuffix(string path)
-    {
-        var name = Path.GetFileName(path.AsSpan());
-        var dot = name.LastIndexOf('.');
-        return dot > 0 && dot < name.Length - 1;
-    }
+    private static bool NamesAKind(string path)
+        => Path.GetFileName(path.AsSpan()).Contains('.');
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,

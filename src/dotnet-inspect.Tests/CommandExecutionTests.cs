@@ -11358,13 +11358,11 @@ public class CommandExecutionTests
     }
 
     [Theory]
-    // A bare name states no suffix. A leading dot marks a hidden basename rather than a suffix,
-    // so it states none either -- Path.HasExtension disagrees, which is why it is not the question
-    // this asks. A trailing dot names an empty suffix and so states none.
+    // A name with no dot in it says nothing about the document's kind, so the role answers. The
+    // directory a nested readme sits in may carry dots without that being a claim about the file.
     [InlineData("README")]
-    [InlineData(".README")]
-    [InlineData("README.")]
     [InlineData("docs/GUIDE")]
+    [InlineData("docs/v1.0/GUIDE")]
     public async Task Package_ExtensionlessReadme_IsStillTreatedAsMarkdown(string readmePath)
     {
         // The readme's kind comes from its role, not its extension: the manifest declared this
@@ -11477,19 +11475,28 @@ public class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown()
+    [Theory]
+    // A stated suffix, obviously.
+    [InlineData("images/logo.png")]
+    // A stray trailing dot does not unstate it.
+    [InlineData("images/logo.png.")]
+    // A suffix spelled as a hidden basename. Telling this apart from a hidden word like .README
+    // needs a list of known suffixes that would go stale, so a dot is read conservatively: the
+    // cost of guessing wrong here is a corrupted file at exit 0, and there it is a loud refusal.
+    [InlineData(".png")]
+    [InlineData(".README")]
+    public async Task Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown(string readmePath)
     {
         // A manifest can declare anything as the readme, including a file that names itself
-        // something else. The role answers a document's kind only where the extension is silent;
-        // letting a declaration override a stated extension would run the link rewriter over a
-        // PNG and hand back a corrupted file, which is the outcome this command prevents.
+        // something else. The role answers a document's kind only where the name is silent;
+        // letting a declaration override a stated kind would run the link rewriter over a PNG
+        // and hand back a corrupted file, which is the outcome this command prevents.
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        Directory.CreateDirectory(Path.Combine(packageRoot, "images"));
-        var logo = Path.Combine(packageRoot, "images", "logo.png");
-        File.WriteAllText(logo, "PNGish see https://github.com/owner/repo/blob/main/x.md here\n");
-        File.WriteAllText(Path.Combine(packageRoot, "Test.BinaryReadme.nuspec"), """
+        var declared = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(declared)!);
+        File.WriteAllText(declared, "PNGish see https://github.com/owner/repo/blob/main/x.md here\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.BinaryReadme.nuspec"), $"""
             <?xml version="1.0" encoding="utf-8"?>
             <package>
               <metadata>
@@ -11497,7 +11504,7 @@ public class CommandExecutionTests
                 <version>1.0.0</version>
                 <authors>tests</authors>
                 <description>test package</description>
-                <readme>images/logo.png</readme>
+                <readme>{readmePath}</readme>
               </metadata>
             </package>
             """);
@@ -11507,15 +11514,15 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", "images/logo.png", "--bare");
+                "package", packagePath, "--content", "--path", readmePath, "--bare");
 
             Assert.Equal(0, exit);
-            Assert.Equal(File.ReadAllText(logo), output);
+            Assert.Equal(File.ReadAllText(declared), output);
             Assert.Contains("github.com/owner/repo/blob/main", output, StringComparison.Ordinal);
 
             // And a Markdown scope over it is refused rather than answered from the whole file.
             var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", "images/logo.png", "--frontmatter", "--bare");
+                "package", packagePath, "--content", "--path", readmePath, "--frontmatter", "--bare");
 
             Assert.Equal(1, scopeExit);
             Assert.Empty(scopeOutput);
