@@ -84,7 +84,7 @@ emits two spellings:
 | `RenderCanonical()` | `:50` | Structural, name- and presentation-insensitive | `System.ValueTuple<int, string>`, `object`, `string` |
 
 **`TypeNode` is `internal`**, visible only to `dotnet-inspect.Tests` and
-`ILInspector.Metadata.Tests` (`ILInspector.Metadata.csproj:17-18`). This is the
+`ILInspector.Metadata.Tests` (`src/ILInspector.Metadata/ILInspector.Metadata.csproj:17-18`). This is the
 structural reason every other layer receives strings from Metadata rather than a
 type: the fact owner is not in their vocabulary. It is a deliberate encapsulation
 boundary, not an oversight — but it does mean "just pass the `TypeNode`" is not
@@ -97,10 +97,10 @@ types, in different assemblies, with **two distinct `public enum TypeRefKind`**:
 
 | | `ILInspector.Analysis` | `ILInspector.Decompiler.Pipeline` |
 | --- | --- | --- |
-| Class | `TypeRef.cs:26` | `Pipeline/TypeRef.cs:63` |
-| Kind enum | `TypeRef.cs:8` | `Pipeline/TypeRef.cs:6` |
+| Class | `src/ILInspector.Analysis/TypeRef.cs:26` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:63` |
+| Kind enum | `src/ILInspector.Analysis/TypeRef.cs:8` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:6` |
 | Contract | "Semantic type identity for IL analysis. Display names are for humans; equality is structural." (`:23`) | "Symbolic type identity for the pipeline… Equality is semantic — structural over the shape, never textual." |
-| `FunctionPointer` kind | **absent** | **present** (`Pipeline/TypeRef.cs:24`) |
+| `FunctionPointer` kind | **absent** | **present** (`src/ILInspector.Decompiler/Pipeline/TypeRef.cs:24`) |
 | Provenance excluded from equality | `TrustedFrameworkAssembly`, `TrustedProtobufAssembly` | `ValueTypeHint` |
 | Corelib canonicalization | `CoreLibrary = "corelib"` | `CoreLibrary = "corelib"` |
 
@@ -109,11 +109,14 @@ the same order, and the same *discipline* — both deliberately exclude advisory
 provenance from structural equality, each documenting the reasoning
 independently. They differ in exactly the capability that decides which
 consumers may use which: Analysis's decoder resolves function pointers and
-custom modifiers to `Unsupported`, while the Decompiler's carries
+custom modifiers to `Unsupported` —
+`src/ILInspector.Analysis/TypeRefDecoder.cs:232` returns
+`TypeRef.Unsupported("function pointer")` and `:233-234` returns
+`TypeRef.Unsupported($"custom modifier (…)")` — while the Decompiler's carries
 `FunctionPointer` as a first-class kind and a `TypeRefCustomModifier`.
 
-That difference is not cosmetic. `type-spelling-identity-display.md` records it
-as a blocking round-2 review finding:
+That difference is not cosmetic. `docs/design/type-spelling-identity-display.md`
+records it as a blocking round-2 review finding:
 
 > `TypeRef` cannot simply move below Metadata. It carries Analysis-specific trust
 > bits and its decoder *rejects* function pointers and custom modifiers
@@ -130,8 +133,8 @@ A third, unrelated `sealed record TypeRef(string FullName, string Namespace,
 string SimpleName)` is private to
 `src/ILInspector.CSharp/CSharpDeclarationWriter.cs:1783`.
 
-**The duplication is a committed decision, not drift.** `architecture.md:691`
-records it as principle 9, and `metadata-primitives.md` ("Decision (2026-06):
+**The duplication is a committed decision, not drift.** `docs/architecture.md:691`
+records it as principle 9, and `docs/metadata-primitives.md` ("Decision (2026-06):
 stop after step 3") records the evidence:
 
 > **TypeRef unification is decisively wrong.** The detector's pointer-signature
@@ -142,7 +145,7 @@ stop after step 3") records the evidence:
 
 Counting `Metadata`'s string-producing `SignatureDecoder` as the third, there are
 **three** signature-decoding models answering three different questions — display
-string, evidence matching, and codegen IR (`metadata-primitives.md:10-11`) — and
+string, evidence matching, and codegen IR (`docs/metadata-primitives.md:14-15`) — and
 `Non-goals` lists "A unified `TypeRef`" outright. `ILInspector.Analysis` keeps
 **zero project references** so it can ship as a standalone memory-safety
 deliverable; that independence, not inattention, is what the duplication buys.
@@ -164,8 +167,8 @@ collision, not a design defect.
 | --- | --- | --- |
 | Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
 | Value | `MemberAnchor` | `MethodIdentity` |
-| Type identity | `string TypeFullName` (`MemberAnchor.cs:18`) | `TypeRef DeclaringType` (`MemberIdentity.cs:65`) |
-| Nested types | `Outer.Inner` (`MetadataReaderExtensions.cs:33`) | `Outer+Inner` (`LibraryBodyIndex.cs:3201`) |
+| Type identity | `string TypeFullName` (`src/ILInspector.MetadataPrimitives/MemberAnchor.cs:18`) | `TypeRef DeclaringType` (`src/ILInspector.Analysis/MemberIdentity.cs:65`) |
+| Nested types | `Outer.Inner` (`src/ILInspector.Metadata/MetadataReaderExtensions.cs:33`) | `Outer+Inner` (`src/ILInspector.Analysis/LibraryBodyIndex.cs:3201`) |
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
 deliberately has a different type-name vocabulary from API identity because it
@@ -177,15 +180,15 @@ nested ones. A predicate written as `type => type == typeof(Outer.Inner).FullNam
 produces `Outer+Inner`, matches nothing against the API vocabulary, and — absent a
 zero-match guard — passes vacuously.
 
-The split is enforced, not merely observed. `implementation-diff.md:107-110`
+The split is enforced, not merely observed. `docs/design/implementation-diff.md:113-116`
 records that the body substrate *could* embed a `MemberAnchor` and
 **deliberately does not**; the two carriers stay separate (`MemberAnchor` /
 `StableMemberKey` for API rows, `ResearchSubjectKey` for body rows), and
-`implementation-diff.md:115` notes that reconstructing member identity from
-display text "would duplicate identity the wrapper already owns."
+`docs/design/implementation-diff.md:119` notes that reconstructing member
+identity from display text "would duplicate identity the wrapper already owns."
 
 **An anchor is not self-sufficient.** Per
-`csharp-member-recompilation.md:310`, "`ModuleIdentity` includes module name and
+`docs/design/csharp-member-recompilation.md:313`, "`ModuleIdentity` includes module name and
 MVID so a member anchor is never interpreted without its physical metadata scope.
 Display text is not identity." A member identity is a *pair*: the anchor plus the
 module scope it was resolved in.
@@ -259,7 +262,7 @@ would be bad"; each failed for its own reason.
 
 ### `TypeAnchor`
 
-It was proposed, in `member-body-substrate.md:209`:
+It was proposed, in `docs/design/member-body-substrate.md:213`:
 
 > The substrate formalizes it: open a scope per type (a `TypeAnchor`), resolve
 > each selected `MemberAnchor` to a handle within it, and import bodies through
