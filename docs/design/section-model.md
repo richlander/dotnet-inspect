@@ -258,7 +258,7 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (SourceLink: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
 | Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name, or a door that roots it) | `@Audit` / — / `@SourceLink` |
-| Recursive expansion (Dependencies) | `Verbose` | `Unbounded` | never (exact name) | — |
+| Recursive expansion (Dependencies) | `Verbose` | `Unbounded` | never (exact name, or the door that roots it) | `@Dependencies` |
 
 Dependencies is the transitive expansion of References over the same assembly
 references, so it renders the facts References already shows plus their closure.

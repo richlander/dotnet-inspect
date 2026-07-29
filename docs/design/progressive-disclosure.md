@@ -108,12 +108,16 @@ These sections do not run from normal verbosity or broad default output. Select 
 
 `-S @All` means "select every section that is broadly safe to render at once." It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
 
-`@All` is not literally every section. A section is a member when it is selectable and `!IsExpensive && (!ExplicitOnly || Noisy)` (`SectionPipeline.IsAllMember`), so two kinds of section are deliberately outside it:
+`@All` is not literally every section — but what it excludes depends on the command. `SectionPipeline.UseCuratedCatalog()` opts a pipeline into the curated taxonomy, and today only the `library` pipeline opts in. The distinction is transitional and disappears when every command migrates.
+
+**Curated pipelines (`library`).** A section is an `@All` member when it is selectable and `!IsExpensive && (!ExplicitOnly || Noisy)` (`SectionPipeline.IsAllMember`), which is also the predicate behind the top-level `-D` catalog. Two kinds of section are therefore outside it:
 
 - **Expensive** sections, which would let one convenience flag authorize costly or network-bound work.
-- **`ExplicitOnly`** sections that are not merely noisy — output whose size has no meaningful bound, such as `Unsafe Members`, `Top Leverage`, and `Dependencies` (a transitive closure).
+- **`ExplicitOnly`** sections that are not `Noisy`. These are reached by exact name or through a category door. Some are unbounded output — `Unsafe Members`, `Top Leverage`, `SourceLink: Files`, `SourceLink: Integrity`, and `Dependencies` (a transitive closure). Others are coordinate-addressed lenses that only make sense with an argument, such as the IL-offset and member/instruction/exception/callsite context sections.
 
-Reach those by name, or through the topical category that roots them. `-S @Dependencies` selects `Dependencies` and `References` together; `-D` lists the categories alongside the sections. That is the intended door: a category makes an unbounded section discoverable and selectable without putting it in the path of a user who asked for "everything" and expected it to terminate.
+**Legacy pipelines (`package`, `api`, and the rest).** `@All` is still every renderable section, including `ExplicitOnly` ones — `package … -S @All` renders `Files`, for example. Do not assume the curated exclusions apply outside `library`.
+
+Reach an excluded section by name, or through the topical category that roots it. `-S @Dependencies` selects `Dependencies` and `References` together; `-D` lists the categories alongside the sections. That is the intended door: a category makes an unbounded section discoverable and selectable without putting it in the path of a user who asked for "everything" and expected it to terminate.
 
 Prefer:
 
