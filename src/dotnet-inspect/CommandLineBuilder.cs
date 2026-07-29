@@ -27,10 +27,10 @@ public static class CommandLineBuilder
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
     /// <summary>
-    /// Delegates to <see cref="ArgumentPreprocessor.FindValuedDirectionFlag"/>.
+    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleDirectionFlagError"/>.
     /// </summary>
-    public static (string Flag, string Count)? FindValuedDirectionFlag(string[] args)
-        => ArgumentPreprocessor.FindValuedDirectionFlag(args);
+    public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+        => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
 
     /// <summary>
     /// Known commands for implicit package command detection.

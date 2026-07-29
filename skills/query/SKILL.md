@@ -52,8 +52,8 @@ work best with one concrete section, not a category.
 Prefer built-in limits to shell pipes:
 
 - `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
-- `--tail N` shows the end, like `tail`.
-- `--rows` makes `-n` cap Markdown table data rows instead of output lines.
+- `--tail` takes the same count from the end, like `tail`.
+- `--rows N` caps Markdown table data rows instead of output lines; `--rows 2..10` names the rows to keep.
 - With `--print`, `--value`, `--urls`, or `--paths`, `--row N` chooses the projected row; `-n N` still limits output lines.
 - `--count` counts rows in one selected table.
 

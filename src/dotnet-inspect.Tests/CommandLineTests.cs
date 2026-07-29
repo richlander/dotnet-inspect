@@ -104,7 +104,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "5"]);
 
         var error = Assert.Single(result.Errors);
         Assert.Equal("--rows is not supported by the 'cache' command.", error.Message);
@@ -113,7 +113,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithTailLineLimit_Parses()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "-n", "5", "--tail"]);
 
         Assert.Empty(result.Errors);
     }

@@ -36,8 +36,8 @@ Agents should prefer built-in query and limiter options over shell pipes:
 - `--columns` and `--fields` project table columns/fields.
 - `--count` counts rows in one selected section.
 - `-n N` and numeric shorthand like `-6` work like `head`.
-- `--tail N` works like `tail`.
-- `--rows -n N` limits data rows per rendered Markdown table while preserving headings and table headers.
+- `--tail` takes the same count from the end, like `tail`.
+- `--rows N` limits data rows per rendered Markdown table while preserving headings and table headers; `--rows N..M` selects the rows those numbers name.
 
 ## Efficient API workflows
 

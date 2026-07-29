@@ -1,0 +1,26 @@
+Fix bare --rows exit-0 trap, move the migration guard into the product, migrate docs
+
+Three follow-ups to the wiring commit.
+
+Bare `--rows` printed an unhandled exception stack trace *and* exited 0 -- a
+failure invisible to any caller that checks the exit code. The command
+validator called `GetValue(Rows)` on a required-argument option that had no
+value, which throws from inside the validator before System.CommandLine gets to
+report the missing argument. The validator now reads raw tokens via
+`GetResult(Rows)` and returns when there are none, letting SCL report it.
+
+`--rows --tsv` was blamed on `--tsv`: SCL hands a required-argument option
+the next token even when it is plainly another option, so the row spec arrived
+as the literal string `--tsv`. A leading-dash check now reports the missing
+selection instead of the wrong flag.
+
+The stale `--tail 20` migration error lived only in `Program.cs`, which
+`CommandExecutionTests.RunAppAsync` does not execute -- product behavior
+stranded in the entry point where no test could reach it. It moves to
+`ArgumentPreprocessor.TryGetStaleDirectionFlagError` and both `Program.cs`
+and the harness call that one product method, per the harness boundary rule.
+
+Docs, skills, and README move off `--rows -n N` / `--head N` / `--tail N`
+onto `--rows <spec>` with bool `--head`/`--tail`.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

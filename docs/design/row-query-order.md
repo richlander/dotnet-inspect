@@ -38,7 +38,7 @@ adding more command-specific flags.
 - Do not add a general expression language in the first version.
 - Do not make row predicates span multiple sections.
 - Do not change section selection or scanner backpressure.
-- Do not make `--top` a renderer cap; `--rows -n N` already owns that role.
+- Do not make `--top` a renderer cap; `--rows N` already owns that role.
 - Do not require every section to be sortable or filterable.
 
 ## Proposed command model
@@ -90,7 +90,7 @@ select section -> collect rows -> apply --where -> compute --count -> apply orde
 -> apply --top -> project --columns/--fields -> render
 ```
 
-`--rows -n N` remains a renderer/display cap. It is applied after projection and
+`--rows N` remains a renderer/display cap. It is applied after projection and
 rendering decisions, and should preserve headings and table headers.
 
 ## Predicate grammar
@@ -287,7 +287,7 @@ Error: Field 'RootReach' supports numeric comparisons: =, !=, >=, <=.
 Unsortable sections should reject `--order-by` clearly:
 
 ```text
-Error: Section 'Facts' does not declare sortable fields. Use --rows -n N to cap
+Error: Section 'Facts' does not declare sortable fields. Use --rows N to cap
 rendered rows.
 ```
 

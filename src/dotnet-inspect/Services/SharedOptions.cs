@@ -200,6 +200,17 @@ public class SharedOptions
                 return;
 
             var token = rowsResult.Tokens[^1].Value;
+
+            // System.CommandLine will hand a required-argument option the next token
+            // even when it is plainly another option, so `--rows --tsv` arrives here as
+            // a row selection of "--tsv". Blaming the spelling of --tsv would send a
+            // reader to fix the wrong thing; the actual mistake is the missing value.
+            if (token.StartsWith('-'))
+            {
+                result.AddError($"--rows requires a row selection, but '{token}' is another option. Give --rows a count (6), a range (2..10), a start plus count (2+10), or an open range (10..).");
+                return;
+            }
+
             if (!RowSpec.TryParse(token, out var spec, out var error))
             {
                 result.AddError($"--rows {error}");

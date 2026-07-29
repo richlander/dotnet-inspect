@@ -20,22 +20,36 @@ public static class ArgumentPreprocessor
     public static int? TailLines { get; private set; }
 
     /// <summary>
-    /// Detects the pre-#3364 spelling <c>--head N</c>/<c>--tail N</c>, where the count
+    /// Reports the pre-#3364 spelling <c>--head N</c>/<c>--tail N</c>, where the count
     /// rode on the direction flag. Those flags now name only a direction, so the count
     /// would bind as a positional instead: <c>--tail 20</c> would go looking for a
     /// package named "20" and report that it does not exist. Reporting the stale
     /// spelling directly keeps an old command line from failing at an unrelated task,
     /// or worse, succeeding at one.
+    ///
+    /// This is a raw-token question -- by the time the parser has bound the count to a
+    /// positional there is nothing left to recognize -- so it runs before parsing
+    /// rather than as a validator. It lives here, not in the entry point, so that every
+    /// host that preprocesses args gets the same answer.
     /// </summary>
-    public static (string Flag, string Count)? FindValuedDirectionFlag(string[] args)
+    public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
     {
+        error = null;
         for (var i = 0; i < args.Length - 1; i++)
         {
-            if ((args[i] == "--head" || args[i] == "--tail") && int.TryParse(args[i + 1], out _))
-                return (args[i], args[i + 1]);
+            if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
+                continue;
+
+            var flag = args[i];
+            var count = args[i + 1];
+            var rowMode = args.Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+            var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+            error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
+                + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
+            return true;
         }
 
-        return null;
+        return false;
     }
 
     /// <summary>

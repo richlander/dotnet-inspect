@@ -128,10 +128,9 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // which is why no --rows gate remains here.
 var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
 
-if (CommandLineBuilder.FindValuedDirectionFlag(args) is (string flag, string count))
+if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
 {
-    var replacement = rowLimitMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
-    Console.Error.WriteLine($"Error: '{flag} {count}' is no longer valid. {flag} now names only the direction; the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.");
+    Console.Error.WriteLine($"Error: {staleDirectionError}");
     return 1;
 }
 
