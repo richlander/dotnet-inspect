@@ -488,8 +488,11 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   source of the run JSON that an append starts from.
 
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
-  records the exact version and TFM of every swept package, and the sweep refuses
-  to run against a package it cannot acquire as pinned (#3353). Nine of the top
+  records the exact version, TFM, and SHA-256 of every swept package, and the
+  sweep refuses to run against a package it cannot acquire as pinned (#3353). The
+  hash is what makes the pin describe the bytes measured rather than the request
+  made: a local NuGet cache entry whose contents were replaced still answers at
+  the pinned version and TFM. Nine of the top
   hundred ship no primary library and are pinned as `no-library`; those are
   acquired too, and the absence is confirmed rather than believed, so the status
   cannot be used to drop a package out of the pool. A fresh sweep therefore

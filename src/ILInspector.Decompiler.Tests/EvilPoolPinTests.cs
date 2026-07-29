@@ -104,6 +104,47 @@ public class EvilPoolPinTests
     }
 
     /// <summary>
+    /// Every <c>pinned</c> entry names the bytes of the assembly it stands for.
+    ///
+    /// <para>A version and a TFM describe the request the sweep makes; only the hash
+    /// describes the file it measures. A local NuGet cache entry whose contents were
+    /// replaced -- by a partial extraction, a manual edit, or a tool writing into it --
+    /// still answers that request with the pinned version and TFM, so without the hash
+    /// the sweep would happily pool a different assembly and report success.</para>
+    ///
+    /// <para>Required rather than optional, and checked here as well as by the sweep:
+    /// an entry allowed to omit the hash is an entry that can opt out of the check by
+    /// omitting it, which is exactly how a null TFM became a wildcard earlier in this
+    /// change. <c>no-library</c> entries have no assembly, so they must carry no hash --
+    /// a hash there would describe a file that does not exist.</para>
+    ///
+    /// <para>This test gates the file. That the sweep <em>verifies</em> the hash is
+    /// evidenced by real runs on the PR, for the reason given in the class summary.</para>
+    /// </summary>
+    [Fact]
+    public void EveryPinnedPackageNamesTheBytesOfItsAssembly()
+    {
+        var pins = ReadPins();
+
+        Assert.NotEmpty(pins);
+        foreach (var pin in pins)
+        {
+            if (pin.Status == "pinned")
+            {
+                Assert.True(
+                    pin.Sha256 is { Length: 64 } sha && sha.All(char.IsAsciiHexDigitLower),
+                    $"'{pin.Package}' is pinned but states no sha256 of its assembly");
+            }
+            else
+            {
+                Assert.True(
+                    pin.Sha256 is null,
+                    $"'{pin.Package}' is pinned as {pin.Status} but states an assembly hash");
+            }
+        }
+    }
+
+    /// <summary>
     /// Every pinned package is one the sweep would actually select.
     ///
     /// <para>An orphan pin is a package that left the ranked list -- harmless on its own,
@@ -160,7 +201,8 @@ public class EvilPoolPinTests
                 element.GetProperty("package").GetString() ?? "",
                 element.TryGetProperty("version", out var version) ? version.GetString() : null,
                 element.TryGetProperty("tfm", out var tfm) ? tfm.GetString() : null,
-                element.TryGetProperty("status", out var status) ? status.GetString() ?? "" : "pinned"))
+                element.TryGetProperty("status", out var status) ? status.GetString() ?? "" : "pinned",
+                element.TryGetProperty("sha256", out var sha) ? sha.GetString() : null))
             .ToArray();
     }
 
@@ -230,5 +272,6 @@ public class EvilPoolPinTests
             .ToArray();
     }
 
-    sealed record PinnedPackage(string Package, string? Version, string? Tfm, string Status);
+    sealed record PinnedPackage(
+        string Package, string? Version, string? Tfm, string Status, string? Sha256);
 }

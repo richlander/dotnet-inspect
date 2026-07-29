@@ -2,6 +2,7 @@
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Core;
@@ -202,21 +203,7 @@ if (pinFile is not null)
 {
     // Reported, like every other refusal in this file. A malformed pin is a stated
     // refusal, and a caller cannot tell exit 134 from a crash.
-    string? malformed =
-        pinFile.Packages is null
-            ? "states no packages"
-            : pinFile.Packages.Any(pin => pin is null)
-                ? "contains a null entry"
-                : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
-                    ? "contains an entry without a package name"
-                    : pinFile.Packages.Any(pin => !IsBarePackageId(pin.Package))
-                        ? "names a package that is not a bare NuGet id"
-                        : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Version))
-                            ? "pins a package without a version"
-                            : pinFile.Packages.Select(pin => pin.Package)
-                                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
-                                ? "pins the same package twice"
-                                : null;
+    string? malformed = Malformed(pinFile);
     if (malformed is not null)
     {
         Console.Error.WriteLine($"Pin file '{pinPath}' {malformed}.");
@@ -336,12 +323,27 @@ foreach (var entry in selected)
         // claimed it was sampling what ships today, and would leave --refresh-pin
         // unable to ever bump a version it had already recorded.
         bool honorPin = pin is not null && !resolveLatest;
-        var outcome = await PackageExtractor.ExtractPackageAsync(
-            HttpClientFactory.Shared,
-            entry.Package,
-            tempDirPrefix: "decompiler-package-sweep",
-            version: honorPin ? pin!.Version : null,
-            forceLatest: !honorPin);
+        PackageExtractionOutcome outcome;
+        try
+        {
+            outcome = await PackageExtractor.ExtractPackageAsync(
+                HttpClientFactory.Shared,
+                entry.Package,
+                tempDirPrefix: "decompiler-package-sweep",
+                version: honorPin ? pin!.Version : null,
+                forceLatest: !honorPin);
+        }
+        catch (ArgumentException ex)
+        {
+            // A backstop behind the version-shape check above: the extractor validates
+            // its own path components and throws, and a throw here exits 134 --
+            // indistinguishable from a crash, over an input the pin file supplied.
+            results.Add(Failed(entry, "acquisition-failed", ex.Message));
+            Console.Error.WriteLine(
+                $"rank {entry.Rank}: {entry.Package}: acquisition failed: {ex.Message}");
+            continue;
+        }
+
         if (!outcome.IsSuccess)
         {
             results.Add(Failed(entry, "acquisition-failed", outcome.ErrorMessage));
@@ -383,8 +385,14 @@ foreach (var entry in selected)
             // meta-packages or have an ambiguous primary library; this is what makes
             // "contributes nothing" a checked outcome instead of a way to remove a
             // package from the pool by editing one word in a file.
+            // The recorded detail is compared too: a wiped or truncated cache entry
+            // makes a package that ships libraries look like one that ships none, and
+            // "NoAssemblies" is exactly what an emptied extraction reports. The detail
+            // names the candidates the pin was recorded over, so a package that has
+            // lost them no longer confirms.
             if (honorPin && pin!.Status == "no-library"
-                && string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(detail, pin.Detail, StringComparison.Ordinal))
             {
                 results.Add(Failed(
                     entry, "no-library-confirmed", detail, resolvedPackage, package.Version,
@@ -434,6 +442,12 @@ foreach (var entry in selected)
         // selected TFM can move when TfmSelector changes even though the package did
         // not -- both change the assemblies measured, which is what the pool identity
         // is for.
+        string source = selection.Paths[0];
+        // The identity the pool is actually measured over. A version and a TFM describe
+        // the request; only the hash describes the file, and a NuGet cache entry whose
+        // contents were replaced satisfies both of the other two.
+        string assemblySha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(source)));
+
         if (honorPin && pin is not null)
         {
             string? mismatch =
@@ -445,7 +459,9 @@ foreach (var entry in selected)
                     // genuinely select no TFM, and null matches null.
                     : !string.Equals(selection.Tfm, pin.Tfm, StringComparison.OrdinalIgnoreCase)
                         ? $"pinned TFM {pin.Tfm ?? "none"}, got {selection.Tfm ?? "none"}"
-                        : null;
+                        : !string.Equals(assemblySha, pin.Sha256, StringComparison.Ordinal)
+                            ? $"pinned sha256 {pin.Sha256}, got {assemblySha}"
+                            : null;
             if (mismatch is not null)
             {
                 results.Add(Failed(
@@ -456,7 +472,6 @@ foreach (var entry in selected)
             }
         }
 
-        string source = selection.Paths[0];
         string destinationDirectory = Path.Combine(
             packageDirectory,
             $"{entry.Rank:D3}-{SafePathSegment(entry.Package)}",
@@ -479,7 +494,8 @@ foreach (var entry in selected)
             package.Version,
             selection.Tfm,
             Path.GetRelativePath(outputDirectory, destination),
-            package.FromCache));
+            package.FromCache,
+            Sha256: assemblySha));
         Console.WriteLine(
             $"rank {entry.Rank}: {entry.Package}@{package.Version}: "
             + $"{selection.Tfm ?? "unknown TFM"} -> {Path.GetFileName(destination)}");
@@ -586,8 +602,13 @@ if (refreshPin)
     {
         PackagePin? recordedPin = result.Status switch
         {
-            "selected" when result.ResolvedVersion is not null =>
-                new PackagePin(result.RequestedPackage, result.ResolvedVersion, result.Tfm),
+            // The hash is recorded, not optional: the pin is refused later without one,
+            // so a "selected" result that somehow carries none records nothing rather
+            // than writing a pin file this tool would then reject.
+            "selected" when result.ResolvedVersion is not null && result.Sha256 is not null =>
+                new PackagePin(
+                    result.RequestedPackage, result.ResolvedVersion, result.Tfm,
+                    Sha256: result.Sha256),
             // A package that reproducibly yields no library is pinned as such, so the
             // EVIL sweep neither acquires it nor fails over it. Nine of the top hundred
             // are meta-packages or have an ambiguous primary library; without this they
@@ -706,6 +727,40 @@ static SweepPackageResult Failed(
         AssemblyPath: null,
         fromCache);
 
+static string? Malformed(PackagePinFile pinFile)
+{
+    if (pinFile.Packages is null)
+        return "states no packages";
+    if (pinFile.Packages.Any(pin => pin is null))
+        return "contains a null entry";
+    if (pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package)))
+        return "contains an entry without a package name";
+    if (pinFile.Packages.Any(pin => !IsBarePackageId(pin.Package)))
+        return "names a package that is not a bare NuGet id";
+    if (pinFile.Packages.Any(pin => !IsBareVersion(pin.Version)))
+        return "pins a package without a usable version";
+    // Required, not optional. An entry that may omit the hash is an entry that can
+    // opt out of the check by omitting it, which is what a null TFM did before it was
+    // made to match null.
+    if (pinFile.Packages.Any(pin => pin.Status == "pinned" && !IsSha256(pin.Sha256)))
+        return "pins a package without the sha256 of its assembly";
+    if (pinFile.Packages.Select(pin => pin.Package)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count)
+        return "pins the same package twice";
+
+    return null;
+}
+
+// A version reaches the extractor, which validates it as a path component and throws.
+// '../bad' exited 134 that way. NuGet versions are digits, dots, and the pre-release
+// and build separators.
+static bool IsBareVersion(string? version) =>
+    !string.IsNullOrWhiteSpace(version)
+    && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+');
+
+static bool IsSha256(string? value) =>
+    value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
+
 // NuGet ids are letters, digits, and the separators '.', '_' and '-'. Anything else --
 // '@' most of all -- is a reference, a path, or a typo.
 static bool IsBarePackageId(string? id) =>
@@ -775,7 +830,8 @@ sealed record PackagePin(
     [property: JsonPropertyName("version")] string? Version,
     [property: JsonPropertyName("tfm")] string? Tfm,
     [property: JsonPropertyName("status")] string Status = "pinned",
-    [property: JsonPropertyName("detail")] string? Detail = null);
+    [property: JsonPropertyName("detail")] string? Detail = null,
+    [property: JsonPropertyName("sha256")] string? Sha256 = null);
 
 sealed record PackageSweepManifest(
     int SchemaVersion,
@@ -798,7 +854,8 @@ sealed record SweepPackageResult(
     string? AssemblyPath,
     bool? FromCache,
     string? CleanupStatus = null,
-    string? CleanupDetail = null);
+    string? CleanupDetail = null,
+    string? Sha256 = null);
 
 [JsonSerializable(typeof(List<PackageListEntry>))]
 [JsonSerializable(typeof(PackagePinFile))]

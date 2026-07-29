@@ -6,700 +6,800 @@
       "version": "1.6.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "511714744b2c2f7bf708e33623c03f8b8fdec71fc0e34a76d93200cdc786a8f1"
     },
     {
       "package": "autofac",
       "version": "9.3.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "86c2e93f89f6790b705c95d064e57586ad12864bf4169d8ffc2aceacbc17c569"
     },
     {
       "package": "automapper",
       "version": "16.2.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "883a21e8728c6953878d60f290c92295f8b30814d1beb3b34644da6e6de3ce2e"
     },
     {
       "package": "awssdk.bedrockruntime",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "9293ddacc8eec0bdc7977738ff68fe8bcfeffd8e6cbd8c4d08ec8138372be346"
     },
     {
       "package": "awssdk.core",
       "version": "4.0.100.9",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "87c7217918bfa4b87934d13c14ced4edf8eb111500e970fb27386bedb5d2fed2"
     },
     {
       "package": "awssdk.dynamodbv2",
       "version": "4.0.102.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "2c5e4037f31f3a7b18dd8e5c2a7f870df004ce62cc10dde1ca11bfbf37c90270"
     },
     {
       "package": "awssdk.polly",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "03fcadf7508f21654379b4b6937e53627d8b7a4dae513ed4c47d7a422c341a5b"
     },
     {
       "package": "awssdk.s3",
       "version": "4.0.101.5",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "13b142df9cd518b1b7b413a5f67c74610be16405a380d3a6338170ba8eea5be1"
     },
     {
       "package": "awssdk.secretsmanager",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "215a09d4498f9187797c44951b04bb96e5632e6db5f9bc4a0dfab4da86dd5766"
     },
     {
       "package": "awssdk.securitytoken",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "df3f5b919d1c36e1f48dd215892d6a58cbb3d4e2c256c766eb315a3c00acd02c"
     },
     {
       "package": "awssdk.simplesystemsmanagement",
       "version": "4.0.103.2",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "ca87c19dce7078d2e9ff21943c77af8593589e0e86edcc8703e4fb1ba8858dbc"
     },
     {
       "package": "awssdk.sqs",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "142418f28eb5c489a980690abffbcc2dc525abc9eee3b9fe3261d42928773a2f"
     },
     {
       "package": "awssdk.textract",
       "version": "4.0.100.7",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "67f24dcf81bdd0eef2c75b117a05f2a38c70c8c88c230587e1a7755871ecd9a8"
     },
     {
       "package": "bogus",
       "version": "35.6.5",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "b33d3fdd878cb26ca208ea95576f0b6e0a261f21ab72f00c212674f0a66231e0"
     },
     {
       "package": "bouncycastle.cryptography",
       "version": "2.6.2",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e5eeaf6d263c493619982fd3638e6135077311d08c961e1fe128f9107d29ebc6"
     },
     {
       "package": "castle.core",
       "version": "5.2.1",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "7bc5dcd9bc87a516bfb98bd24b3d51e594d051de520d608b12f9daa73c85431b"
     },
     {
       "package": "coverlet.collector",
       "version": "10.0.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e0c4d1b78a79eb48601424ea6acc01a55e1c9d81c72d6768912fe34ca81a5194"
     },
     {
       "package": "csvhelper",
       "version": "33.1.0",
       "tfm": "net9.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "189a0d69f35a7e3827bfc35111d5d6e29d08bae60780cc48b215a06b18b6a852"
     },
     {
       "package": "dapper",
       "version": "2.1.79",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "de7f5e5a2be661651246a0eb456fcea482b7375093bfd73dd396a89fee982428"
     },
     {
       "package": "dnsclient",
       "version": "1.8.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "fcf2d07f01bb34f6e8ea61da6d281d1979b5d3c1485bcc5b2b350ec8c59cc2f0"
     },
     {
       "package": "documentformat.openxml",
       "version": "3.5.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "ee2a31ff79db570e2eb98ec7513b222f2b8c6bfcb638d66c2cec8255b0bbe499"
     },
     {
       "package": "ecng.collections",
       "version": "1.0.298",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "972803bf0331b201a0849978c95cda31ea2cfa3fc000c0b3d1ebc236d5769ee3"
     },
     {
       "package": "eo.webbrowser",
       "version": "26.2.42",
       "tfm": null,
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "be74581746731b5ef5f8e9244145a7d331a1757b80049d0ec274172918be083d"
     },
     {
       "package": "fluentassertions",
       "version": "8.10.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "583c4db73ad0997cbd0c3ad93f265558c28d3bf462fb9d04166b5cb569875cc7"
     },
     {
       "package": "fluentvalidation",
       "version": "12.1.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "7881b51287f9bdfd6ec8b069df0ebd29d55fc9d307195e8d029ad53ba39b21b2"
     },
     {
       "package": "fluentvalidation.dependencyinjectionextensions",
       "version": "12.1.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "f2ce9dc02baed79fc6396da495e91b69e65c1b25b59ac379cde84c7d60a3bd09"
     },
     {
       "package": "google.apis",
       "version": "1.75.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "97d7c28f1144759783c817bf68c370a4bda9c0d9180eb226dae9680929e643f1"
     },
     {
       "package": "google.apis.auth",
       "version": "1.75.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "d0bbe58d9e1cd15d7e9d8e2b2d6ab22c9421e908204da24b04849bdbeae55e3e"
     },
     {
       "package": "google.apis.core",
       "version": "1.75.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "5efc645daf96d84a809e418aa0548febf96878c2739b2396909f773c6bc6dab1"
     },
     {
       "package": "google.protobuf",
       "version": "3.35.1",
       "tfm": "net5.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e0deb31c17ad585eaf844fdca5b19a774594813401cace58d30d5996ba094da2"
     },
     {
       "package": "grpc.core.api",
       "version": "2.80.0",
       "tfm": "netstandard2.1",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "5674c1203706b5a261e8bbd3499147d94fc80b5f077bf45f9934ca28a9c8574b"
     },
     {
       "package": "grpc.net.client",
       "version": "2.80.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "f884d8444feb888656cbb7de87ee8f53a50811329bb32c6e7a7a81cb1de008ef"
     },
     {
       "package": "grpc.net.clientfactory",
       "version": "2.80.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "3702c5ba264d5d3066f92b9473588608a408458b824771d015ad3c3cb7df4bdd"
     },
     {
       "package": "grpc.net.common",
       "version": "2.80.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "fdff383bbd8e5015f3c4aaaa7508b769228f33c92ba14fec4e59d35c5d78e6ae"
     },
     {
       "package": "grpc.tools",
       "version": "2.83.0",
       "tfm": null,
       "status": "no-library",
-      "detail": "Ambiguous: Protobuf.MSBuild.dll, Protobuf.MSBuild.dll"
+      "detail": "Ambiguous: Protobuf.MSBuild.dll, Protobuf.MSBuild.dll",
+      "sha256": null
     },
     {
       "package": "hangfire.core",
       "version": "1.8.24",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a595792144b0a6110dd771b9d44554962afa2e3e634d66aa6176feff1b01ebd4"
     },
     {
       "package": "humanizer.core",
       "version": "3.0.10",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "2769ed8265b691a5482c72506ed274dc52446fa1641997a8c12c66f5b9263d39"
     },
     {
       "package": "identitymodel",
       "version": "7.0.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a95f499ab24d0f9037523e6cb3305e64d501b2ddd2d91311f5fb7b88ba6177e0"
     },
     {
       "package": "jetbrains.annotations",
       "version": "2026.2.0",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "0295966b8d44522eec6a3c560fbe4efcfa878d3e16ff1ab0fb3478ab17001381"
     },
     {
       "package": "mediatr",
       "version": "14.2.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "856b8a06d82033415ffef0edcac5f38256f1ef0336dbc372609f75b82a333d97"
     },
     {
       "package": "microsoft.net.workloads.10.0.100",
       "version": "10.110.0",
       "tfm": null,
       "status": "no-library",
-      "detail": "NoAssemblies"
+      "detail": "NoAssemblies",
+      "sha256": null
     },
     {
       "package": "mongodb.bson",
       "version": "3.10.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "41078c1016fcb2f974675431a53159bcb0a0976852f28c7c74ae5484a18c4432"
     },
     {
       "package": "mono.texttemplating",
       "version": "3.0.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e9f742d672c8f567471974fcb7163f955d1e1f01060bb15d067ac220361d23cb"
     },
     {
       "package": "moq",
       "version": "4.20.72",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "8d56b9cbec93f401f7e4a4031c1691c3c849411ff09cef6f777109c0701dc30b"
     },
     {
       "package": "mysqlconnector",
       "version": "2.6.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a3104353e86cc96123d8015fc5a3bf4ab88b127b9180caaa4db9a006c49f467b"
     },
     {
       "package": "newrelic.agent",
       "version": "10.53.0",
       "tfm": null,
       "status": "no-library",
-      "detail": "Ambiguous: NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AspNetCore6Plus.dll, NewRelic.Providers.Wrapper.AwsLambda.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Api.Agent.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll"
+      "detail": "Ambiguous: NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Storage.CallContext.dll, NewRelic.Providers.Storage.HttpContext.dll, NewRelic.Providers.Storage.HybridHttpContext.dll, NewRelic.Providers.Storage.OperationContext.dll, NewRelic.Providers.Wrapper.AspNet.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.HttpWebRequest.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.Msmq.dll, NewRelic.Providers.Wrapper.Mvc3.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenRasta.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.Owin.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.RestSharp.dll, NewRelic.Providers.Wrapper.ScriptHandlerFactory.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.ServiceStackRedis.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Providers.Wrapper.Wcf3.dll, NewRelic.Providers.Wrapper.WebApi1.dll, NewRelic.Providers.Wrapper.WebApi2.dll, NewRelic.Providers.Wrapper.WebOptimization.dll, NewRelic.Providers.Wrapper.WebServices.dll, grpc_csharp_ext.x64.dll, grpc_csharp_ext.x86.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll, NewRelic.Providers.Storage.AsyncLocal.dll, NewRelic.Providers.Wrapper.AspNetCore.dll, NewRelic.Providers.Wrapper.AspNetCore6Plus.dll, NewRelic.Providers.Wrapper.AwsLambda.dll, NewRelic.Providers.Wrapper.AwsSdk.dll, NewRelic.Providers.Wrapper.AzureFunction.dll, NewRelic.Providers.Wrapper.AzureServiceBus.dll, NewRelic.Providers.Wrapper.Bedrock.dll, NewRelic.Providers.Wrapper.CosmosDb.dll, NewRelic.Providers.Wrapper.Couchbase3.dll, NewRelic.Providers.Wrapper.Elasticsearch.dll, NewRelic.Providers.Wrapper.Hangfire.dll, NewRelic.Providers.Wrapper.HttpClient.dll, NewRelic.Providers.Wrapper.Kafka.dll, NewRelic.Providers.Wrapper.Log4NetLogging.dll, NewRelic.Providers.Wrapper.MassTransit.dll, NewRelic.Providers.Wrapper.MassTransitLegacy.dll, NewRelic.Providers.Wrapper.Memcached.dll, NewRelic.Providers.Wrapper.MicrosoftExtensionsLogging.dll, NewRelic.Providers.Wrapper.MongoDb26.dll, NewRelic.Providers.Wrapper.NLogLogging.dll, NewRelic.Providers.Wrapper.NServiceBus.dll, NewRelic.Providers.Wrapper.OpenAI.dll, NewRelic.Providers.Wrapper.OpenSearch.dll, NewRelic.Providers.Wrapper.RabbitMq.dll, NewRelic.Providers.Wrapper.SerilogLogging.dll, NewRelic.Providers.Wrapper.Sql.dll, NewRelic.Providers.Wrapper.StackExchangeRedis.dll, NewRelic.Providers.Wrapper.StackExchangeRedis2Plus.dll, NewRelic.Agent.Core.dll, NewRelic.Agent.Extensions.dll, NewRelic.Api.Agent.dll, NewRelic.Profiler.dll, NewRelic.Profiler.dll",
+      "sha256": null
     },
     {
       "package": "newrelic.agent.api",
       "version": "10.53.0",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "f94f1d8ced8c239655c08e57838891479d8528dbd21eef3536ae54bd981486db"
     },
     {
       "package": "newtonsoft.json",
       "version": "13.0.4",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a28c251dfe36d881e9e2462e171441b8b0ec156fe3f452602c9149b1b9efe05b"
     },
     {
       "package": "newtonsoft.json.bson",
       "version": "1.0.3",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a91f43908a4da92f97a357ecfa685a9632a649880a4d3e70875ef3d4579f1f4b"
     },
     {
       "package": "njsonschema",
       "version": "11.6.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "87e4a486478b156a450dcfd0895579ff84637147896456f10430b4c41367bf0b"
     },
     {
       "package": "nlog",
       "version": "6.1.4",
       "tfm": "netstandard2.1",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "9a706ace1a30cf5a9e169ceddf39d69df30ad99da5c4775d86413ac766cbb825"
     },
     {
       "package": "nodatime",
       "version": "3.3.3",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "cafa84a12852e81a8dd848f3b652747bb7b7895d0f6a7fe6bb7fc275929b7363"
     },
     {
       "package": "npgsql",
       "version": "10.0.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e2bcafe1660fe4543fe9dfcabed972ec8d32259e5ea8009462ce1de23c7034c2"
     },
     {
       "package": "npgsql.entityframeworkcore.postgresql",
       "version": "10.0.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "94fcf66e8e953fdb02c40c72ca89821dd5eed5324d4c0f12a7219ea8cd3d5a5e"
     },
     {
       "package": "nunit",
       "version": "4.6.1",
       "tfm": "net8.0",
       "status": "no-library",
-      "detail": "Ambiguous: nunit.framework.dll, nunit.framework.legacy.dll"
+      "detail": "Ambiguous: nunit.framework.dll, nunit.framework.legacy.dll",
+      "sha256": null
     },
     {
       "package": "nunit3testadapter",
       "version": "6.2.0",
       "tfm": null,
       "status": "no-library",
-      "detail": "Ambiguous: nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll, nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll"
+      "detail": "Ambiguous: nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll, nunit.engine.api.dll, nunit.engine.core.dll, nunit.engine.dll, NUnit3.TestAdapter.dll, testcentric.engine.metadata.dll",
+      "sha256": null
     },
     {
       "package": "opentelemetry",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a19a8b4d39a00dca043919473c0d5b46a174a4363d611c8dd237b8f2b3f8a5b8"
     },
     {
       "package": "opentelemetry.api",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "9c636063c335902c73f916c133de22fe8af476c68189080176443b0b82d4d399"
     },
     {
       "package": "opentelemetry.api.providerbuilderextensions",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "fcd57330a4a3252773a0c71b9a497ee7834f415210fa405151275f97575ed164"
     },
     {
       "package": "opentelemetry.exporter.opentelemetryprotocol",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "3297002036e73a2ea7385d9521464dee725bbbd6491e20c559498cbe81598a3c"
     },
     {
       "package": "opentelemetry.extensions.hosting",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "97e52b88bfbad51767829ba834a3a35a63692170109c21a7103f5170c389d6f9"
     },
     {
       "package": "opentelemetry.instrumentation.aspnetcore",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "02e68b7d7d6ec2fad20828bf4684652536694592b9a35e8dfd5d12e01808af60"
     },
     {
       "package": "opentelemetry.instrumentation.http",
       "version": "1.17.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "59f3101a607628c97b36dad84c0a0f2db5b3d9275ed3a8b78d4f177d68e4e1ea"
     },
     {
       "package": "pipelines.sockets.unofficial",
       "version": "2.2.16",
       "tfm": "net9.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "bf471ab897e997519b09b57e206f9d82dd4f3a9421fac014db8b2aebde9e206a"
     },
     {
       "package": "polly",
       "version": "8.7.0",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "cecb78ee944fd7cd1889c21602cc905df8f72af06a3798fb0fd75d96d436891e"
     },
     {
       "package": "polly.core",
       "version": "8.7.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "f7f50017ca9f457b854498358ae595c2a8ab69c1fd8b915139d22bed8f7e4f2a"
     },
     {
       "package": "polly.extensions.http",
       "version": "3.0.0",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "d85928ecbae1a7ba8ef218bcbc38e731daa531456b5d18e160f49a5e3844025c"
     },
     {
       "package": "rabbitmq.client",
       "version": "7.2.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "716cc2608ca92e9d286c23826d4033ba69ecc3889c10fd084de7ffd6a8d8066b"
     },
     {
       "package": "restsharp",
       "version": "114.0.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "6772e4c688e86384eded01c045c984d44cd2781155392ffaa521dfce8a40bc00"
     },
     {
       "package": "serilog",
       "version": "4.4.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "3ee17790b1bf00eabca2176288de6c058977bc5b07e6d9839cf6a88433d72311"
     },
     {
       "package": "serilog.aspnetcore",
       "version": "10.0.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "a550c57df7a04edbed00da036fc14be12acd0d425b7401855975fb628e3dbada"
     },
     {
       "package": "serilog.extensions.hosting",
       "version": "10.0.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "3e6d0284179ee0e1c197568fd79b58f869d15298fff8ecb8447322fe87d44f47"
     },
     {
       "package": "serilog.extensions.logging",
       "version": "10.0.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "80d3edbe3e3ac0b4c5bc764474220e7da11df8d285e0098f3dc1b65a734c8507"
     },
     {
       "package": "serilog.formatting.compact",
       "version": "3.0.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "319fbcefc2161dd50ccdd8d60b30edee48a09f794aedb28421a23f35ddd670d9"
     },
     {
       "package": "serilog.settings.configuration",
       "version": "10.0.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "de6fb7b6ee3229e0b0b9356ecdbbd05767d6490aaf0c34e9e49dbd7fe1e974a0"
     },
     {
       "package": "serilog.sinks.console",
       "version": "6.1.1",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "dc88002ddd9f5fd0ffec9a6568ef89954671f60f2c9161593ee78932538c1e3e"
     },
     {
       "package": "serilog.sinks.debug",
       "version": "3.0.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "df543d3df8bd00d72e5eb2b9b2a15e67a6e4d10c13834de4cedbf500b8793e01"
     },
     {
       "package": "serilog.sinks.eventlog",
       "version": "4.0.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "b36309a6bdcc2bd93b9c16afec8890edc65c0fc6a70fae38c1313078c0229681"
     },
     {
       "package": "serilog.sinks.file",
       "version": "7.0.0",
       "tfm": "net9.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "4f4282671c2ac68284b4dc99f7a76eac9cbd4e659978cef642cff9e6c01b676d"
     },
     {
       "package": "sfa.core.servicemodel",
       "version": "4.0.2",
       "tfm": "net461",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "21e257646e162b8c44dd90cb99161948c8644453c5846b72771fd582fb97c655"
     },
     {
       "package": "sharpcompress",
       "version": "0.50.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "9daca210e1a72461037af83308341f0625f7df780f5b5454c6bdf7d79187660e"
     },
     {
       "package": "sharpziplib",
       "version": "1.4.2",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "32ea2d0ce3512e74f1c7ad82591fe67e6b8939d76a8a4ff9c93ead030131e71c"
     },
     {
       "package": "sixlabors.fonts",
       "version": "3.0.0",
       "tfm": "net8.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "13b8c3667f30f32f5c21e168df186d22e9aae42bb3c6dbe5834cb961fb8a8a73"
     },
     {
       "package": "stackexchange.redis",
       "version": "3.0.17",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "55da652c4f40bb36624f74ac9309afa7e56e6df689a6d0aae50e09117748665b"
     },
     {
       "package": "swashbuckle.aspnetcore",
       "version": "10.2.3",
       "tfm": null,
       "status": "no-library",
-      "detail": "NoAssemblies"
+      "detail": "NoAssemblies",
+      "sha256": null
     },
     {
       "package": "swashbuckle.aspnetcore.annotations",
       "version": "10.2.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "9cbf357f75535753e8aeafa93811f5786dc90d9b58d1ea539da60d168101a89a"
     },
     {
       "package": "swashbuckle.aspnetcore.swagger",
       "version": "10.2.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "846276be474e07728eee6c60f586959c4d13f40df730c3645107d3ff115c622b"
     },
     {
       "package": "swashbuckle.aspnetcore.swaggergen",
       "version": "10.2.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "5c28c464b321683a220364e1aafc9d07d38dcc3ff4e361e0e41c5176ccee23d9"
     },
     {
       "package": "swashbuckle.aspnetcore.swaggerui",
       "version": "10.2.3",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "2b986a27c1ce3bf2508eb100e4971380833bd52319f6b7b769016efe8e138e73"
     },
     {
       "package": "system.linq.async",
       "version": "7.0.1",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "0a67cfa89b9bc881c8c1dd58b482a8545a67f778da7d058b4d539c45604b728e"
     },
     {
       "package": "system.reactive",
       "version": "7.0.0",
       "tfm": "net8.0-windows10.0.19041",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "151549f49969b9d925b905b5d29cfcda77fb1acd7fdaa85b8c326d68ba6fb520"
     },
     {
       "package": "xunit",
       "version": "2.9.3",
       "tfm": null,
       "status": "no-library",
-      "detail": "NoAssemblies"
+      "detail": "NoAssemblies",
+      "sha256": null
     },
     {
       "package": "xunit.abstractions",
       "version": "2.0.3",
       "tfm": "netstandard2.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "3166dc70323fb30ccf1cedb0fe86f2ad122c46d254542342d90386efc4c9285c"
     },
     {
       "package": "xunit.analyzers",
       "version": "1.27.0",
       "tfm": null,
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "594a2c95c3e3b2a0e77000cb812f083bc05a4905a11fe16ac95cda1b580124e0"
     },
     {
       "package": "xunit.assert",
       "version": "2.9.3",
       "tfm": "net6.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "bcd9711b22d227ac8cd4c1568e72433a0f576d2ec8aae64ac508081892015b1d"
     },
     {
       "package": "xunit.core",
       "version": "2.9.3",
       "tfm": null,
       "status": "no-library",
-      "detail": "NoAssemblies"
+      "detail": "NoAssemblies",
+      "sha256": null
     },
     {
       "package": "xunit.extensibility.core",
       "version": "2.9.3",
       "tfm": "netstandard1.1",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "2f7feeec8c6dec7df684c25fb80aadb292b963d09723460f03d53c5ad2088acc"
     },
     {
       "package": "xunit.extensibility.execution",
       "version": "2.9.3",
       "tfm": "netstandard1.1",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "e70febe547c15f8155db3e2d95c3ba4445a59cbc21a3e7541ab22ed49d3dcf7b"
     },
     {
       "package": "xunit.runner.visualstudio",
       "version": "3.1.5",
       "tfm": null,
       "status": "no-library",
-      "detail": "Ambiguous: xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll, xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll"
+      "detail": "Ambiguous: xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll, xunit.abstractions.dll, xunit.runner.visualstudio.testadapter.dll",
+      "sha256": null
     },
     {
       "package": "yamldotnet",
       "version": "18.1.0",
       "tfm": "net10.0",
       "status": "pinned",
-      "detail": null
+      "detail": null,
+      "sha256": "d618138109a40e4a7250e49e2abad8c450e3636bee18d7499ab231e37fa9150a"
     }
   ]
 }
