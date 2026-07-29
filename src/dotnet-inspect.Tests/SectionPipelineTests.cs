@@ -1410,6 +1410,36 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ExpandRequired_ThrowsOnPrerequisiteCycle()
+    {
+        // Regression: ExpandRequired used to short-circuit on an already-added key, so a cycle
+        // terminated quietly and returned a plausible closure. That made the acyclicity half of
+        // LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic vacuous.
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "b")
+            .Add("b", _ => { }, "a");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired(["a"]));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ExpandRequired_AllowsDiamondPrerequisites()
+    {
+        // A shared prerequisite reached by two paths is not a cycle. Guards against a cycle check
+        // that keys off "already seen" rather than "currently being visited".
+        var registry = new ScannerRegistry()
+            .Add("d", _ => { })
+            .Add("b", _ => { }, "d")
+            .Add("c", _ => { }, "d")
+            .Add("a", _ => { }, "b", "c");
+
+        Assert.Equal(
+            ["a", "b", "c", "d"],
+            registry.ExpandRequired(["a"]).OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()
     {
         // Derived from the registry rather than restated, so a new prerequisite naming a key that
@@ -1424,7 +1454,9 @@ public class SectionPipelineTests
                 Assert.Contains(required, registered);
         }
 
-        // ExpandRequired recurses; a cycle would stack-overflow rather than return.
+        // ExpandRequired throws on a cycle, so this both closes the graph and proves it acyclic.
+        // It used to short-circuit instead, which made the acyclicity claim vacuous; see
+        // ExpandRequired_ThrowsOnPrerequisiteCycle.
         Assert.Equal(registered, registry.ExpandRequired(registered));
     }
 

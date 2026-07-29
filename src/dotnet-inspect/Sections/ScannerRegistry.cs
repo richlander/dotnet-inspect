@@ -120,22 +120,37 @@ public sealed class ScannerRegistry
     /// Expands <paramref name="requested"/> to include every transitively required scanner.
     /// Callers that reason about the work a run will do — notably the body-analysis feature
     /// selection, which must see a prerequisite that opens the body index — must expand first, or
-    /// they will under-count the run.
+    /// they will under-count the run. Throws on a prerequisite cycle, matching
+    /// <see cref="RunScanners"/>: expansion runs first in
+    /// <c>LibraryMetadataService.InspectAsync</c>, so if only the run threw, a cycle would be
+    /// reported from the later of the two places that can see it.
+    /// Gate: <c>SectionPipelineTests.ExpandRequired_ThrowsOnPrerequisiteCycle</c>.
     /// </summary>
     public HashSet<string> ExpandRequired(IEnumerable<string> requested)
     {
         HashSet<string> closure = new(StringComparer.Ordinal);
+        HashSet<string> visiting = new(StringComparer.Ordinal);
         foreach (var key in requested)
-            AddWithRequirements(key, closure);
+            AddWithRequirements(key, closure, visiting);
         return closure;
     }
 
-    private void AddWithRequirements(string key, HashSet<string> closure)
+    private void AddWithRequirements(string key, HashSet<string> closure, HashSet<string> visiting)
     {
-        if (!closure.Add(key))
-            return;
-        foreach (var required in RequirementsOf(key))
-            AddWithRequirements(required, closure);
+        // Check the visiting stack before the closure: a key already in the closure is merely
+        // shared (a diamond), but a key still being visited is a cycle. Testing the closure first
+        // would return early and let the cycle through.
+        if (!visiting.Add(key))
+            throw new InvalidOperationException(
+                $"Scanner prerequisite cycle detected at '{key}'.");
+
+        if (closure.Add(key))
+        {
+            foreach (var required in RequirementsOf(key))
+                AddWithRequirements(required, closure, visiting);
+        }
+
+        visiting.Remove(key);
     }
 
     /// <summary>
