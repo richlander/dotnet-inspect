@@ -35,9 +35,14 @@ public static class Hints
             // A tip echoes type and member names that came from untrusted
             // metadata. Containing at this single choke point covers every
             // command's tips, so a new tip cannot reopen the hole (issue #3319).
+            // Both fields, not just the one that carries untrusted text today.
+            // Every dynamic value currently reaches CommandText and every
+            // comment is a literal, but that is a fact about the seven current
+            // tips rather than a property of the type, and containing a literal
+            // costs nothing.
             Commands = visible.Select(t => new TipRow(
                 CSharpIdentifier.ContainRenderedText(t.CommandText),
-                t.Comment)).ToList()
+                CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()
         };
 
         Console.Out.Flush();
@@ -49,7 +54,12 @@ public static class Hints
     {
         if (entries.Length == 0) return;
 
-        var view = new LegendView { Entries = [.. entries] };
+        var view = new LegendView
+        {
+            Entries = [.. entries.Select(e => new LegendEntry(
+                CSharpIdentifier.ContainRenderedText(e.Symbol),
+                CSharpIdentifier.ContainRenderedText(e.Description)))],
+        };
 
         Console.Out.Flush();
         CommandError.WriteBlankLine();
