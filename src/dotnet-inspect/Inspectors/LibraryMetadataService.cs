@@ -24,16 +24,28 @@ namespace DotnetInspector.Inspectors;
 internal static class LibraryMetadataService
 {
     /// <summary>
-    /// Scanner keys whose data the shared metadata read produces, rather than a registered
-    /// scanner. <see cref="SharedReadScannerKeys"/> is the subset a section may declare.
+    /// The scanner keys the shared metadata read responds to. Requesting any of them makes the
+    /// read extract assembly references (see the <c>needsReferences</c> use in
+    /// <see cref="InspectAsync"/>), which is the only data this read produces on a section's
+    /// behalf.
     /// </summary>
     /// <remarks>
-    /// <c>ScannerTransitiveRefs</c> appears here because the transitive scan needs the reference
-    /// list the read extracts, not because the read satisfies it; a registered scanner still does
-    /// that work. Keeping the two sets distinct is what lets
-    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c> assert
-    /// equality rather than containment: a key that no scanner registers and no read satisfies
-    /// still fails, which is the silence #3453 found.
+    /// <para>
+    /// This set is also what <see cref="SharedReadScannerKeys"/> publishes to
+    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>, so a key
+    /// counts as honored by the read exactly when the read consults it. That identity is the
+    /// point, not an optimization: an earlier revision maintained a second literal listing the
+    /// keys the read "satisfies", and a key added to that literal and to a section — but not
+    /// here — passed the gate while nothing collected it. That is the silence #3453 found and
+    /// this PR exists to remove, reintroduced one level up. Do not split these apart again; the
+    /// union the gate computes is identical either way, because
+    /// <c>ScannerTransitiveRefs</c> is a registered scanner and is already in the registry's
+    /// keys, so the second literal bought nothing and cost a ghost state.
+    /// </para>
+    /// <para>
+    /// <c>ScannerTransitiveRefs</c> is listed because the transitive scan consumes the reference
+    /// list this read extracts; a registered scanner still performs the transitive walk itself.
+    /// </para>
     /// </remarks>
     private static readonly HashSet<string> ReferenceReadingScannerKeys =
     [
@@ -42,11 +54,11 @@ internal static class LibraryMetadataService
     ];
 
     /// <summary>
-    /// The keys the shared metadata read alone satisfies. Unioned with the registry's registered
-    /// keys to form the set a section is allowed to declare.
+    /// The keys the shared metadata read honors, unioned with the registry's registered keys to
+    /// form the set a section is allowed to declare. This is <see cref="ReferenceReadingScannerKeys"/>
+    /// itself — the set the read actually consults — so it cannot claim a key the read ignores.
     /// </summary>
-    internal static IReadOnlySet<string> SharedReadScannerKeys { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { LibrarySections.ScannerReferences };
+    internal static IReadOnlySet<string> SharedReadScannerKeys => ReferenceReadingScannerKeys;
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.

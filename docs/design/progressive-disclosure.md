@@ -102,16 +102,23 @@ dotnet-inspect library System.Text.Json -S "SourceLink: Availability"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 ```
 
-These sections do not run from normal verbosity or broad default output. Select them explicitly, or use `-S @All` when you intentionally want every selectable section, including opt-in sections.
+These sections do not run from normal verbosity or broad default output. Select them explicitly, by name or through a topical category such as `-S @Dependencies`. `-S @All` reaches most but not all of them — see below.
 
 ## `-S @All`
 
-`-S @All` means "select every section the command exposes," including opt-in sections. It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
+`-S @All` means "select every section that is broadly safe to render at once." It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
+
+`@All` is not literally every section. A section is a member when it is selectable and `!IsExpensive && (!ExplicitOnly || Noisy)` (`SectionPipeline.IsAllMember`), so two kinds of section are deliberately outside it:
+
+- **Expensive** sections, which would let one convenience flag authorize costly or network-bound work.
+- **`ExplicitOnly`** sections that are not merely noisy — output whose size has no meaningful bound, such as `Unsafe Members`, `Top Leverage`, and `Dependencies` (a transitive closure).
+
+Reach those by name, or through the topical category that roots them. `-S @Dependencies` selects `Dependencies` and `References` together; `-D` lists the categories alongside the sections. That is the intended door: a category makes an unbounded section discoverable and selectable without putting it in the path of a user who asked for "everything" and expected it to terminate.
 
 Prefer:
 
 1. Start with a targeted section such as `Signals`, `Package Info`, `Library Files`, or `Async*`.
-2. Use `-D` to discover more sections.
+2. Use `-D` to discover more sections and categories.
 3. Use `-S @All` only when the task truly requires exhaustive output.
 
 ## Agent guidance

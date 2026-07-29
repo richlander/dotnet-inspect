@@ -1146,6 +1146,50 @@ public class SectionPipelineTests
             honored.OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// Proves every key <see cref="LibraryMetadataService.SharedReadScannerKeys"/> publishes is
+    /// one the shared metadata read actually acts on, by requesting each key alone and checking
+    /// that references were extracted.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate that stops <c>LibraryScannerRegistry_RegistrationMatchesDeclaration</c>
+    /// from being satisfiable by assertion. That test asks whether a declared key is *claimed* to
+    /// be honored; adding a key to the published set and to a section would satisfy it while
+    /// nothing collected the data — the same silence #3453 found, one level up. This test asks
+    /// whether the read *does* honor it, so a key can only join the set by changing behavior.
+    /// Iterating the published set rather than naming keys means a new member is covered the
+    /// moment it is added.
+    /// </remarks>
+    [Fact]
+    public async Task SharedReadScannerKeys_EachKeyActuallyDrivesTheRead()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var httpClient = new HttpClient();
+        var logger = new DotnetInspector.Output.VerboseLogger(false);
+
+        Assert.NotEmpty(LibraryMetadataService.SharedReadScannerKeys);
+
+        foreach (var key in LibraryMetadataService.SharedReadScannerKeys)
+        {
+            var inspection = await LibraryMetadataService.InspectAsync(
+                path,
+                new LibraryOptions(),
+                logger,
+                null,
+                null,
+                httpClient,
+                scanners: new HashSet<string>(StringComparer.Ordinal) { key },
+                scannerRegistry: LibrarySections.CreateScannerRegistry());
+
+            Assert.NotNull(inspection);
+            Assert.True(
+                inspection!.AssemblyReferenceInspection.HasFindings(),
+                $"'{key}' is published as honored by the shared read, but requesting it alone " +
+                "extracted no assembly references. Either wire it into the read or stop " +
+                "publishing it.");
+        }
+    }
+
     // ===== Presence flag / CanRender discovery tests =====
 
     [Fact]
