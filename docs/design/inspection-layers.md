@@ -113,7 +113,7 @@ is the misnomer, and it is what made the layer look ambiguous.
 established, unrelated meanings: the output ladder defined in
 [output-shapes.md](output-shapes.md) ("Markout defines the shapes and produces
 them"), and the metadata domain concept in `TypeShape`/`TypeShapeKind`/
-`ArrayShape`. A third meaning would make the word useless.
+`ArrayShape`.
 
 **Section is not too narrow to cover trees and tables.**
 [output-shapes.md](output-shapes.md) already settles this: a section may be a
