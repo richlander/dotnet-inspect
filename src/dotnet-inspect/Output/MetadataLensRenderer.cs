@@ -33,6 +33,13 @@ internal static class MetadataLensRenderer
     internal const int MaxRowsPerTable = 1_000_000;
 
     /// <summary>
+    /// The per-heap entry ceiling the lens lists with. Raised far above
+    /// <see cref="MetadataProjectionOptions.DefaultMaxHeapEntries"/> for the same reason
+    /// <see cref="MaxRowsPerTable"/> is, and finite for the same reason.
+    /// </summary>
+    internal const int MaxHeapEntries = 1_000_000;
+
+    /// <summary>
     /// Maps the command's tabular flags onto the projection renderer's format. JSONL wins over TSV
     /// because it is the more specific request; with neither set the caller is on the pretty-table
     /// path, whose rows the Markdown pipe form already carries.
@@ -85,6 +92,31 @@ internal static class MetadataLensRenderer
             MetadataProjectionRenderer.RenderImageFacts(overview, output, columns);
             WriteCaveats(output, MetadataProjectionRenderer.Caveats(overview));
             first = false;
+        }
+
+        if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
+            && inspection.MetadataHeap is { } lookup)
+        {
+            if (!first)
+                output.WriteLine();
+            first = false;
+
+            output.WriteLine($"## {MetadataSectionNames.Heap}");
+            output.WriteLine();
+            MetadataProjectionRenderer.RenderHeapValue(
+                lookup.Value, lookup.Heap, lookup.Address, output, columns);
+        }
+
+        foreach (var entries in ListSelectedHeaps(inspection, selected, caveats))
+        {
+            if (!first)
+                output.WriteLine();
+            first = false;
+
+            output.WriteLine($"## {MetadataSectionNames.ForHeap(entries.Heap)}");
+            output.WriteLine();
+            MetadataProjectionRenderer.RenderHeapEntries(entries, output, columns);
+            WriteCaveats(output, MetadataProjectionRenderer.Caveats(entries));
         }
 
         foreach (var table in ProjectSelected(inspection, selected, caveats, columns))
@@ -158,6 +190,20 @@ internal static class MetadataLensRenderer
                 caveats.WriteLine(caveat);
         }
 
+        if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
+            && inspection.MetadataHeap is { } lookup)
+        {
+            MetadataProjectionRenderer.RenderHeapValue(
+                lookup.Value, lookup.Heap, lookup.Address, output, columns, format);
+        }
+
+        foreach (var entries in ListSelectedHeaps(inspection, selected, caveats))
+        {
+            MetadataProjectionRenderer.RenderHeapEntries(entries, output, columns, format);
+            foreach (string caveat in MetadataProjectionRenderer.Caveats(entries))
+                caveats.WriteLine(caveat);
+        }
+
         var views = ProjectSelected(inspection, selected, caveats, columns);
         if (views.Length > 0)
         {
@@ -169,6 +215,64 @@ internal static class MetadataLensRenderer
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Lists exactly the heaps the selection names — never the rest.
+    ///
+    /// Each listing costs a projection of every table (an entry is referenced by the image, not by
+    /// a subset of it), so this is the lens's other expensive half and is restricted to the
+    /// selection for the same reason <see cref="ProjectSelected"/> is.
+    ///
+    /// The entry ceiling is raised far above the projection default for the same reason
+    /// <see cref="MaxRowsPerTable"/> is: entry *selection* is <c>--rows</c>'s job and it windows
+    /// the rendered table, so a low ceiling would put entries beyond it out of reach of any
+    /// <c>--rows</c> range. It stays finite so a hostile image cannot drive unbounded allocation,
+    /// and crossing it surfaces as a caveat rather than as a silently short list.
+    /// </summary>
+    static ImmutableArray<MetadataHeapEntrySet> ListSelectedHeaps(
+        LibraryInspection inspection,
+        IReadOnlyCollection<string> sections,
+        TextWriter caveats)
+    {
+        var heaps = MetadataSectionNames.HeapsFor(sections);
+        if (heaps.IsEmpty)
+            return [];
+
+        if (inspection.MetadataAssemblyPath is not { } path)
+        {
+            caveats.WriteLine(
+                "Metadata heaps were selected but the assembly path is unavailable, so no heap could be listed.");
+            return [];
+        }
+
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(path);
+            var options = new MetadataProjectionOptions
+            {
+                MaxRowsPerTable = MaxRowsPerTable,
+                MaxHeapEntries = MaxHeapEntries,
+            };
+
+            var builder = ImmutableArray.CreateBuilder<MetadataHeapEntrySet>(heaps.Length);
+            foreach (var heap in heaps)
+            {
+                if (session.MetadataHeapEntries(heap, options) is { } entries)
+                    builder.Add(entries);
+                else
+                    caveats.WriteLine($"{path} carries no metadata, so its {MetadataHeapCoordinate.StreamName(heap)} heap could not be listed.");
+            }
+
+            return builder.ToImmutable();
+        }
+        catch (Exception ex)
+        {
+            // Surfaced rather than swallowed: an unreadable image must not render as a set of
+            // legitimately empty heaps.
+            caveats.WriteLine($"Metadata heaps could not be listed from {path}: {ex.Message}");
+            return [];
+        }
     }
 
     /// <summary>

@@ -237,8 +237,8 @@ public class MetadataImageOverviewRendererTests
 
         string markdown = RenderHeap(value, HeapKind.String, 42, MetadataTableFormat.Markdown);
 
-        Assert.Contains("## String heap at 42", markdown);
-        Assert.Contains("| String | 42 | 5 | no | hello |", markdown);
+        Assert.Contains("## #Strings heap at 42", markdown);
+        Assert.Contains("| #Strings | 42 | 5 | no | hello |", markdown);
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public class MetadataImageOverviewRendererTests
 
         string markdown = RenderHeap(value, HeapKind.Blob, 7, MetadataTableFormat.Markdown);
 
-        Assert.Contains("| Blob | 7 | 64 | yes |", markdown);
+        Assert.Contains("| #Blob | 7 | 64 | yes |", markdown);
         Assert.Contains("0011\u2026", markdown);
     }
 
@@ -268,7 +268,7 @@ public class MetadataImageOverviewRendererTests
         string tsv = RenderHeap(new MetadataValue.Nil(), HeapKind.String, 0, MetadataTableFormat.Tsv);
 
         Assert.Contains("nil", tsv);
-        Assert.Contains("String\t0\t\tno\tnil", tsv);
+        Assert.Contains("#Strings\t0\t\tno\tnil", tsv);
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class MetadataImageOverviewRendererTests
 
         string jsonl = RenderHeap(value, HeapKind.UserString, 1, MetadataTableFormat.Jsonl);
 
-        Assert.Contains("\"heap\":\"UserString\"", jsonl);
+        Assert.Contains("\"heap\":\"#US\"", jsonl);
         Assert.Contains("\"address\":\"1\"", jsonl);
         Assert.Contains("\"value\":\"abc\"", jsonl);
     }
@@ -357,7 +357,7 @@ public class MetadataImageOverviewRendererTests
             SelfPath, HeapKind.Guid, 1, new MetadataProjectionOptions(), MetadataTableFormat.Markdown, output, error);
 
         Assert.Equal(0, code);
-        Assert.Contains("## Guid heap at 1", output.ToString());
+        Assert.Contains("## #GUID heap at 1", output.ToString());
         Assert.DoesNotContain("malformed", output.ToString());
     }
 
@@ -394,9 +394,17 @@ public class MetadataImageOverviewRendererTests
     [InlineData("guid:1", HeapKind.Guid, 1)]
     [InlineData(" UserString : 0 ", HeapKind.UserString, 0)]
     [InlineData("Blob:0", HeapKind.Blob, 0)]
+    [InlineData("#Strings:1234", HeapKind.String, 1234)]
+    [InlineData("#GUID:1", HeapKind.Guid, 1)]
+    [InlineData("#US:0", HeapKind.UserString, 0)]
+    [InlineData("#Blob:0", HeapKind.Blob, 0)]
+    [InlineData("#Strings:0x1a4", HeapKind.String, 0x1a4)]
+    [InlineData("#Strings:0X1A4", HeapKind.String, 0x1a4)]
+    [InlineData("Strings:10", HeapKind.String, 10)]
+    [InlineData("us:5", HeapKind.UserString, 5)]
     public void TryParseHeapLocation_AcceptsAHeapAndAddress(string spec, HeapKind heap, int address)
     {
-        Assert.True(MdiCommand.TryParseHeapLocation(spec, out var parsedHeap, out int parsedAddress, out string? error));
+        Assert.True(MetadataHeapCoordinate.TryParse(spec, out var parsedHeap, out int parsedAddress, out string? error));
         Assert.Equal(heap, parsedHeap);
         Assert.Equal(address, parsedAddress);
         Assert.Null(error);
@@ -405,11 +413,17 @@ public class MetadataImageOverviewRendererTests
     [Theory]
     [InlineData("String", "not a heap reference")]
     [InlineData("Nope:1", "unknown heap")]
+    [InlineData("#Str:1", "unknown heap")]
     [InlineData("String:abc", "not a heap address")]
     [InlineData("String:-1", "not a heap address")]
+    [InlineData("String:0x", "not a heap address")]
+    [InlineData("String:", "not a heap address")]
+    // Hex is opt-in, never inferred: a bare "1a4" would otherwise silently address a different
+    // entry than the "0x1a4" a metadata dump printed.
+    [InlineData("String:1a4", "not a heap address")]
     public void TryParseHeapLocation_NamesTheHalfThatIsWrong(string spec, string expected)
     {
-        Assert.False(MdiCommand.TryParseHeapLocation(spec, out _, out _, out string? error));
+        Assert.False(MetadataHeapCoordinate.TryParse(spec, out _, out _, out string? error));
         Assert.NotNull(error);
         Assert.Contains(expected, error);
     }

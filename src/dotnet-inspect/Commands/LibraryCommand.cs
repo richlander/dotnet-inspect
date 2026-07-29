@@ -1,4 +1,5 @@
 using DotnetInspector.Core;
+using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -13,6 +14,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -93,6 +95,14 @@ public class LibraryCommand
         }
         options = normalized.Options;
 
+        var heapNormalized = NormalizeHeapSelection(options);
+        if (heapNormalized.Error is not null)
+        {
+            Console.Error.WriteLine(heapNormalized.Error);
+            return 1;
+        }
+        options = heapNormalized.Options;
+
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
         // unbounded @Hidden members as a group.
@@ -119,7 +129,33 @@ public class LibraryCommand
                 }
             }
 
+            if (selectResult.Sections.Contains(MetadataSectionNames.Heap)
+                && string.IsNullOrWhiteSpace(options.HeapParameter))
+            {
+                // Same discipline as the IL coordinate sections above: reached through the
+                // @Metadata door the section is simply dropped, because a category selection is a
+                // request for whatever applies; named exactly it is an error, because the caller
+                // asked for a specific section that cannot exist without its coordinate.
+                if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
+                {
+                    selectResult.Sections.Remove(MetadataSectionNames.Heap);
+                }
+                else if (options.Discover == null)
+                {
+                    Console.Error.WriteLine($"Error: \"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    return 1;
+                }
+            }
+
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.HeapParameter)
+            && options.IncludeSections is { Count: > 0 }
+            && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
+        {
+            Console.Error.WriteLine($"Error: --heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            return 1;
         }
 
         if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
@@ -319,8 +355,9 @@ public class LibraryCommand
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -399,8 +436,9 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                PopulateMetadataHeapIfRequested(inspections[0], options, logger);
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print)
@@ -466,8 +504,9 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -839,6 +878,91 @@ public class LibraryCommand
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
+
+    /// <summary>
+    /// True when a heap coordinate was supplied. Like an IL coordinate, it changes which sections
+    /// exist, so a discovery catalog computed with one must not be served to a run without one.
+    /// </summary>
+    private static bool HasHeapCoordinate(LibraryOptions options)
+        => !string.IsNullOrWhiteSpace(options.HeapParameter);
+
+    /// <summary>
+    /// True when <paramref name="select"/> names <paramref name="section"/> exactly, as opposed to
+    /// reaching it through an <c>@Category</c>. The distinction decides whether a coordinate
+    /// section with no coordinate is an error or is simply dropped.
+    /// </summary>
+    private static bool HasExactSelection(string[]? select, string section)
+    {
+        if (select is not { Length: > 0 })
+            return false;
+
+        foreach (var value in select)
+        {
+            if (value.StartsWith('@'))
+                continue;
+            if (value.Trim().Equals(section, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Validates the <c>--heap</c> coordinate and, when no selection was given, selects the
+    /// section it feeds.
+    ///
+    /// The coordinate is parsed here — before any assembly is opened — so a malformed one fails
+    /// immediately with a diagnostic naming the wrong half, rather than after the cost of an
+    /// inspection.
+    /// </summary>
+    private static (LibraryOptions Options, string? Error) NormalizeHeapSelection(LibraryOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.HeapParameter))
+            return (options, null);
+
+        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
+            return (options, $"Error: invalid --heap value '{options.HeapParameter}': {error}");
+
+        if (options.Discover != null || options.Select is { Length: > 0 })
+            return (options, null);
+
+        return (options with { Select = [MetadataSectionNames.Heap] }, null);
+    }
+
+    /// <summary>
+    /// Reads the heap value <c>--heap</c> named onto the model, which is what makes the
+    /// coordinate-scoped section applicable.
+    ///
+    /// A read failure becomes a malformed value on the model rather than a null: the section was
+    /// asked for by an explicit coordinate, so it must render and say what went wrong instead of
+    /// vanishing as though no coordinate had been given.
+    /// </summary>
+    private static void PopulateMetadataHeapIfRequested(
+        LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(options.HeapParameter)
+            || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
+            return;
+
+        if (inspection.MetadataAssemblyPath is not { } path)
+            return;
+
+        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out var heap, out int address, out _))
+            throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
+
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(path);
+            if (session.MetadataHeapValue(heap, address) is { } value)
+                inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error reading {MetadataHeapCoordinate.StreamName(heap)} heap at {address} in {path}: {ex.Message}");
+            inspection.MetadataHeap = new MetadataHeapLookup(
+                heap, address, new MetadataValue.Malformed($"{MetadataHeapCoordinate.StreamName(heap)} heap read failed: {ex.Message}"));
+        }
+    }
 
     private static bool HasExactILCoordinateSelection(string[]? select)
     {

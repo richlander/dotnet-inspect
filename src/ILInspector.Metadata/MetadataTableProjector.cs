@@ -504,12 +504,162 @@ public static class MetadataTableProjector
     }
 
     /// <summary>
+    /// The listable entries of one heap, with the limits of that listing attached. Null when the
+    /// image carries no metadata.
+    ///
+    /// A heap is not a table, and this method does not pretend otherwise. ECMA-335 stores the
+    /// string, blob, and user-string heaps as sequences of length-prefixed items with no index,
+    /// and <c>System.Reflection.Metadata</c> exposes no walker over them; the only way to produce
+    /// a full listing would be to re-parse the heap bytes ourselves, which would fork a second
+    /// metadata decoder and hand back items SRM never validated. So each heap is listed by the
+    /// strongest honest means available, and the result says which was used:
+    ///
+    /// <list type="bullet">
+    /// <item><b>GUID</b> — <see cref="MetadataHeapCoverage.Complete"/>. Its entries are 16-byte
+    /// records at consecutive 1-based indices, so the entry count follows from the heap size by
+    /// arithmetic and every entry is read through SRM by index.</item>
+    /// <item><b>String, Blob</b> — <see cref="MetadataHeapCoverage.ReferencedOnly"/>. The distinct
+    /// values the projected table rows point at, in address order. Entries no row references are
+    /// absent and stay readable only by address.</item>
+    /// <item><b>UserString</b> — <see cref="MetadataHeapCoverage.NotEnumerable"/>, with no
+    /// entries. No table column points into it: its references are <c>ldstr</c> operands in method
+    /// bodies, which this projection does not read. An empty list here is a blind spot the
+    /// coverage names, not an empty heap — <see cref="MetadataHeapEntrySet.SizeInBytes"/> still
+    /// reports the real size.</item>
+    /// </list>
+    ///
+    /// The reference scan covers every projected table, not the caller's
+    /// <see cref="MetadataProjectionOptions.Tables"/> selection: an entry is referenced by the
+    /// image, not by a subset of it, so honoring a table filter here would silently drop entries
+    /// and undercount references. The row window is honored, and a table whose window fell short
+    /// sets <see cref="MetadataHeapEntrySet.RowsTruncated"/>.
+    /// </summary>
+    public static MetadataHeapEntrySet? ReadHeapEntries(
+        PEReader peReader,
+        HeapKind heap,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        options ??= new MetadataProjectionOptions();
+
+        if (!peReader.HasMetadata)
+            return null;
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        int size = reader.GetHeapSize(MetadataImageInspector.ToHeapIndex(heap));
+        int budget = Math.Max(1, options.MaxHeapEntries);
+
+        if (heap == HeapKind.UserString)
+            return new MetadataHeapEntrySet(heap, size, MetadataHeapCoverage.NotEnumerable, []);
+
+        var references = ScanHeapReferences(peReader, heap, options, out bool rowsTruncated);
+
+        return heap == HeapKind.Guid
+            ? EnumerateGuidHeap(reader, size, references, budget, rowsTruncated)
+            : ReferencedHeapEntries(heap, size, references, budget, rowsTruncated);
+    }
+
+    /// <summary>
+    /// Every projected cell that points into <paramref name="heap"/>, keyed by heap address: the
+    /// first value seen at that address plus how many cells referenced it. Values are compared by
+    /// address rather than by content, so two cells naming the same address are one entry and two
+    /// equal strings stored twice remain two entries — which is what the heap actually holds.
+    /// </summary>
+    static Dictionary<int, (MetadataValue Value, int Count)> ScanHeapReferences(
+        PEReader peReader,
+        HeapKind heap,
+        MetadataProjectionOptions options,
+        out bool rowsTruncated)
+    {
+        var found = new Dictionary<int, (MetadataValue Value, int Count)>();
+        rowsTruncated = false;
+
+        var projection = Project(peReader, options with { Tables = default });
+        foreach (var table in projection.Tables)
+        {
+            if (table.Truncation is not null)
+                rowsTruncated = true;
+
+            foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    if (cell is not MetadataValue.HeapReference reference || reference.Heap != heap)
+                        continue;
+
+                    found[reference.Offset] = found.TryGetValue(reference.Offset, out var existing)
+                        ? (existing.Value, existing.Count + 1)
+                        : (reference, 1);
+                }
+            }
+        }
+
+        return found;
+    }
+
+    static MetadataHeapEntrySet EnumerateGuidHeap(
+        MetadataReader reader,
+        int size,
+        Dictionary<int, (MetadataValue Value, int Count)> references,
+        int budget,
+        bool rowsTruncated)
+    {
+        int count = size / MetadataHeapAddressingSizes.GuidSize;
+        var entries = ImmutableArray.CreateBuilder<MetadataHeapEntry>(Math.Min(count, budget));
+
+        // 1-based: index 0 is the nil GUID in every image, not a stored record.
+        for (int index = 1; index <= count && entries.Count < budget; index++)
+        {
+            MetadataValue value;
+            try
+            {
+                value = GuidCell(reader, MetadataTokens.GuidHandle(index));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+            {
+                value = new MetadataValue.Malformed($"Guid heap read failed at index {index}: {ex.Message}");
+            }
+
+            entries.Add(new MetadataHeapEntry(
+                index, value, references.TryGetValue(index, out var hit) ? hit.Count : 0));
+        }
+
+        return new MetadataHeapEntrySet(
+            HeapKind.Guid,
+            size,
+            MetadataHeapCoverage.Complete,
+            entries.ToImmutable(),
+            EntriesTruncated: entries.Count < count,
+            RowsTruncated: rowsTruncated);
+    }
+
+    static MetadataHeapEntrySet ReferencedHeapEntries(
+        HeapKind heap,
+        int size,
+        Dictionary<int, (MetadataValue Value, int Count)> references,
+        int budget,
+        bool rowsTruncated)
+    {
+        var ordered = references
+            .OrderBy(static entry => entry.Key)
+            .Take(budget)
+            .Select(static entry => new MetadataHeapEntry(entry.Key, entry.Value.Value, entry.Value.Count));
+
+        return new MetadataHeapEntrySet(
+            heap,
+            size,
+            MetadataHeapCoverage.ReferencedOnly,
+            [.. ordered],
+            EntriesTruncated: references.Count > budget,
+            RowsTruncated: rowsTruncated);
+    }
+
+    /// <summary>
     /// Whether <paramref name="value"/> is an edge onto the target row. A handle
     /// names one row; a list column covers the half-open run
     /// <c>[StartRowId, EndRowId)</c>, so membership — not equality — decides.
     /// </summary>
-    static bool PointsAt(MetadataValue value, TableIndex table, int rowId, out MetadataRowReferenceKind kind)
-    {
+    static bool PointsAt(MetadataValue value, TableIndex table, int rowId, out MetadataRowReferenceKind kind)    {
         switch (value)
         {
             case MetadataValue.Handle handle
