@@ -29,7 +29,9 @@ documentation.
 - Before starting a change, run `git fetch origin main` from the primary
   checkout, then create a descriptive branch and linked worktree with
   `git worktree add -b <branch> <path> origin/main`. Make all edits, builds,
-  tests, and commits in the worktree, not the primary checkout.
+  tests, and commits in the worktree, not the primary checkout. A slice in a
+  stack branches from its parent slice's branch instead — see
+  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
@@ -411,7 +413,9 @@ until every required fixed-head review is clean.
 ## PR and CI discipline
 
 - Prefer fewer coherent PRs over many small PRs that each pay fixed CI cost and
-  increase merge contention.
+  increase merge contention. That is an argument against splitting one coherent
+  change, not against sequencing a genuinely multi-slice one — see
+  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Treat CI as confirmation, not discovery: run relevant local checks first.
 - Do not broaden CI without a measured need. The PR `test` job validates the
@@ -420,6 +424,39 @@ until every required fixed-head review is clean.
 - Keep PR summaries conclusion-first. Include the behavioral claim, evidence,
   compatibility or non-action boundary, and exact validation appropriate to
   the change.
+
+### Stacked PRs for multi-slice issues
+
+When an issue is too large for one coherent PR, prefer a **stack** — a sequence
+of PRs, each targeting its predecessor's branch — over a single PR that grows
+until it is unreviewable, and over parallel PRs that race in the same files. The
+alternative to a stack is not a smaller change; it is the same change reviewed
+worse.
+
+- **Every slice lands on its own.** A slice carries one behavioral claim, its
+  own evidence, and no dependency on a later slice to be correct or safe. If a
+  slice is only defensible once the next one lands, it is not a slice — fold it
+  into the next.
+- **Name the stack in every PR.** State the slice's position, its parent PR, and
+  what remains. Say what it deliberately defers, so a reviewer reports a
+  declared residual as scope rather than as a defect. Each slice's residual is
+  the next slice's opening move; keep it enumerated.
+- **One branch and one worktree per slice**, as for any PR. Branch slice N+1
+  from slice N's branch rather than `origin/main`:
+  `git worktree add -b <branch> <path> <parent-branch>`.
+- **Target the parent branch** so the PR diff shows only its own slice:
+  `gh pr create --base <parent-branch>`.
+- **Merge bottom-up, one at a time.** After each merge, confirm the next PR
+  retargeted to `main` and that its diff is still only its own slice.
+- **Propagate updates down the stack by merging**, parent branch into child.
+  Never rebase or force-push a pushed slice: the no-rewrite rule applies to
+  every branch in a stack, and rewriting a parent invalidates every review
+  beneath it.
+- **Review depth is per-slice, by that slice's own risk**, not the stack's total
+  size. A long stack does not make a trivial slice risky, and a small slice in a
+  risky area still earns the two-model tier.
+- **Stop stacking when a slice would exist only to continue the stack.** CI cost
+  is per PR; three coherent slices beat ten mechanical ones.
 
 ## Markdown
 
