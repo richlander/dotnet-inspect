@@ -120,13 +120,23 @@ var pinFile = File.Exists(pinPath)
     : null;
 if (pinFile is not null)
 {
-    if (pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package)))
-        throw new InvalidDataException($"Pin file '{pinPath}' contains an entry without a package name.");
-    if (pinFile.Packages.Any(pin => pin.Status == "pinned" && string.IsNullOrWhiteSpace(pin.Version)))
-        throw new InvalidDataException($"Pin file '{pinPath}' pins a package without a version.");
-    if (pinFile.Packages.Select(pin => pin.Package).Distinct(StringComparer.OrdinalIgnoreCase).Count()
-        != pinFile.Packages.Count)
-        throw new InvalidDataException($"Pin file '{pinPath}' pins the same package twice.");
+    // Reported, like every other refusal in this file. A malformed pin is a stated
+    // refusal, and a caller cannot tell exit 134 from a crash.
+    string? malformed =
+        pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
+            ? "contains an entry without a package name"
+            : pinFile.Packages.Any(pin => pin.Status == "pinned" && string.IsNullOrWhiteSpace(pin.Version))
+                ? "pins a package without a version"
+                : pinFile.Packages.Select(pin => pin.Package)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
+                    ? "pins the same package twice"
+                    : null;
+    if (malformed is not null)
+    {
+        Console.Error.WriteLine($"Pin file '{pinPath}' {malformed}.");
+        Environment.ExitCode = 2;
+        return;
+    }
 }
 else if (!resolveLatest)
 {
@@ -151,7 +161,43 @@ var selected = packageList
     .Take(packageCount)
     .ToArray();
 if (selected.Length == 0)
-    throw new InvalidOperationException($"No packages were selected at or after rank {startRank}.");
+{
+    Console.Error.WriteLine(
+        $"No packages were selected at or after rank {startRank}; "
+        + $"the list ranks {packageList.Count}.");
+    Environment.ExitCode = 2;
+    return;
+}
+
+// The pool's completeness is checked at the end by asking the pin what it owes, and
+// that question only has an answer if every selected package has a pin the sweep
+// understands. A package with no pin, or with a status this does not recognise, owes
+// an unknown number of assemblies -- so its absence from the pool cancels against its
+// absence from the total and the run reports success over a pool one package short.
+// Refusing up front, before any acquisition, is what keeps "owed" well defined.
+if (!resolveLatest)
+{
+    var uncovered = selected
+        .Select(entry => (entry, pin: pins.GetValueOrDefault(entry.Package)))
+        .Where(pair => pair.pin is null || pair.pin.Status is not ("pinned" or "no-library"))
+        .ToArray();
+    if (uncovered.Length > 0)
+    {
+        foreach (var (entry, pin) in uncovered)
+        {
+            Console.Error.WriteLine(pin is null
+                ? $"rank {entry.Rank}: {entry.Package}: not pinned in {Path.GetFileName(pinPath)}; "
+                    + "run with --refresh-pin to record a version."
+                : $"rank {entry.Rank}: {entry.Package}: unknown pin status '{pin.Status}'.");
+        }
+
+        Console.Error.WriteLine(
+            $"{uncovered.Length} of {selected.Length} selected packages are not covered by the pin; "
+            + "the pool cannot be reproduced.");
+        Environment.ExitCode = 1;
+        return;
+    }
+}
 
 Directory.CreateDirectory(outputDirectory);
 string packageDirectory = Path.Combine(outputDirectory, "packages");
@@ -178,17 +224,6 @@ foreach (var entry in selected)
             // for.
             results.Add(Failed(
                 entry, "no-library-by-pin", pin.Detail, entry.Package, pin.Version, pin.Tfm));
-            continue;
-        }
-
-        if (pin is null && !resolveLatest)
-        {
-            // A selected package the pin does not cover is a hole in the pool's
-            // identity, not a missing nicety: the run would measure whatever shipped
-            // today. Recorded and failed rather than skipped.
-            results.Add(Failed(entry, "unpinned", $"'{entry.Package}' is not in {Path.GetFileName(pinPath)}."));
-            Console.Error.WriteLine(
-                $"rank {entry.Rank}: {entry.Package}: not pinned; run with --refresh-pin to record a version.");
             continue;
         }
 
