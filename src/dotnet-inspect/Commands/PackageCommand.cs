@@ -1913,6 +1913,10 @@ public class PackageCommand
             return 0;
         }
 
+        // Same contract as the single-library path: a tree-shaped section has no rows to project,
+        // so say so rather than emitting an empty table or a zero count.
+        LibraryCommand.WarnSectionsWithoutRowProjection(libraryOptions, pipeline);
+
         if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))

@@ -6898,6 +6898,7 @@ public class CommandExecutionTests
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
+    [InlineData("--count")]
     public async Task LibraryCommand_TreeSectionInRowMode_SaysItCannotBeProjected(string mode)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -9281,6 +9282,26 @@ public class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_TreeSectionCountSaysItCannotBeProjected()
+    {
+        // The all-libraries render path counts the same row projection as the direct library
+        // command, so a tree-shaped section must explain its zero there too rather than looking
+        // like a successful empty count.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.3", "--all-libraries", "-S", "Dependencies",
+            "--count", "--tips", "q");
+
+        if (exit != 0)
+        {
+            Assert.Skip($"Newtonsoft.Json@13.0.3 not available offline: {error}");
+            return;
+        }
+
+        Assert.Contains("cannot be projected to rows", error);
+        Assert.DoesNotContain("cannot be projected to rows", output);
     }
 
     [Fact]

@@ -1501,13 +1501,14 @@ public class LibraryCommand
 
     /// <summary>
     /// Keeps a tree-shaped section's emptiness visible in the row-oriented output modes. Such a
-    /// section has data but no row projection, so it renders nothing; without this note that is
-    /// indistinguishable from a successful empty result.
+    /// section has data but no row projection, so it renders nothing and counts zero; without this
+    /// note that is indistinguishable from a successful empty result.
     /// </summary>
-    private static void WarnSectionsWithoutRowProjection(LibraryOptions options,
+    internal static void WarnSectionsWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        if (!options.Tabular && !options.Tsv && !options.Jsonl)
+        // --count consumes the same row projection, so it belongs here: a tree counts zero rows.
+        if (!options.Tabular && !options.Tsv && !options.Jsonl && !options.Count)
             return;
 
         if (options.IncludeSections is not { Count: > 0 })
