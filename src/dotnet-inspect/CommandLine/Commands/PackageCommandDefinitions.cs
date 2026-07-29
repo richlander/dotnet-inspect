@@ -170,6 +170,7 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
+        searchCommand.Options.Add(opts.Count);
         opts.AddNuGetOptionsTo(searchCommand);
 
         searchCommand.SetAction(async (parseResult, ct) =>
@@ -196,6 +197,7 @@ public static class PackageCommandDefinitions
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
+                Count = parseResult.GetValue(opts.Count),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 

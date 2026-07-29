@@ -37,6 +37,18 @@ public class PackageSearchCommand
                 Console.Error.WriteLine($"Warning: could not search {failure}");
             }
 
+            // A genuine zero-result search succeeded; an incomplete one did not.
+            var exitCode = outcome.Failures.Count > 0 ? 1 : 0;
+
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
+            {
+                CountOutput.WriteCount(results.Count);
+                return exitCode;
+            }
+
             if (options.JsonOutput)
             {
                 foreach (var result in results)
@@ -44,15 +56,13 @@ public class PackageSearchCommand
                     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                         result, PackageSearchJsonlContext.Default.NuGetSearchResult));
                 }
-                return outcome.Failures.Count > 0 ? 1 : 0;
+                return exitCode;
             }
 
             if (results.Count == 0)
             {
                 Console.Error.WriteLine($"No packages found for \"{options.Query}\".");
-
-                // A genuine zero-result search succeeded; an incomplete one did not.
-                return outcome.Failures.Count > 0 ? 1 : 0;
+                return exitCode;
             }
 
             var view = new PackageSearchResultView
@@ -63,11 +73,10 @@ public class PackageSearchCommand
                     r.Version,
                     PackageSearchOutputFormatter.FormatDownloads(r.TotalDownloads),
                     PackageSearchOutputFormatter.TruncateDescription(r.Description, 60)
-                )).ToList(),
-                Description = $"{results.Count} package(s) found"
+                )).ToList()
             };
-            MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), PackageSearchResultContext.Default);
-            return outcome.Failures.Count > 0 ? 1 : 0;
+            MarkoutSerializer.Serialize(view, Console.Out, new MarkdownFormatter(), PackageSearchResultContext.Default);
+            return exitCode;
         }
         catch (Exception ex)
         {
@@ -99,6 +108,9 @@ public record PackageSearchOptions
 
     /// <summary>Show verbose progress messages.</summary>
     public bool Verbose { get; init; }
+
+    /// <summary>Reduce the result table to a single row count.</summary>
+    public bool Count { get; init; }
 
     /// <summary>NuGet sources to search. Defaults to nuget.org when unset.</summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

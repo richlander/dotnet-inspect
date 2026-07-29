@@ -5,13 +5,10 @@ namespace DotnetInspector.Views;
 /// <summary>
 /// View model for NuGet package search results.
 /// </summary>
-[MarkoutSerializable(
-    TitleProperty = nameof(Title),
-    DescriptionProperty = nameof(Description))]
+[MarkoutSerializable(TitleProperty = nameof(Title))]
 public class PackageSearchResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
-    [MarkoutIgnore] public string? Description { get; set; }
 
     [MarkoutIgnoreInTable]
     public List<PackageSearchRow>? Results { get; set; }
