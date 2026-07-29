@@ -443,11 +443,23 @@ public class ScanTokenTests
     /// and it is an oracle rather than a re-implementation.
     ///
     /// What it deliberately does not reach, so that no one mistakes it for a general gate:
-    /// it is single-line, so the line half of the coalescing rule and all carried state are out
-    /// of scope; six characters cannot open a <c>$$</c> raw interpolation hole, which needs
-    /// seven, nor produce the eight-character shape that makes the backslash rules observable;
-    /// and coverage cannot see a wrong token *kind* as long as the spans stay complete. Each of
-    /// those is gated by a named test above instead.
+    ///
+    /// It is single-line, so the line half of the coalescing rule and all carried state are out
+    /// of scope.
+    ///
+    /// Six characters cannot open a <c>$$</c> raw interpolation hole, which needs seven, and
+    /// cannot close a raw literal at all: an opener and a closer would have to be adjacent, and
+    /// adjacent quotes merge into one run, so <c>""""""</c> is a six-quote opener rather than two
+    /// three-quote delimiters. Raw closure therefore also needs seven, and the raw backslash shape
+    /// needs eight.
+    ///
+    /// The oracle is blind to token *kind* while the spans stay complete, which is a separate
+    /// limit from length and the more important one. The verbatim backslash shape is reachable
+    /// here at six characters — <c>@"{\"a</c> — and the gate still does not catch the mutation
+    /// that drops <c>!frame.Verbatim</c>, because that only turns the trailing <c>a</c> from a
+    /// word into literal content and every character remains covered exactly once.
+    ///
+    /// Each of those is gated by a named test above instead.
     /// </summary>
     [Fact]
     public void EveryStringOverTheDelimiterAlphabet_IsFullyCovered()
