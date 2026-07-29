@@ -8,6 +8,8 @@ let queryTypeProjection;
 let queryPackageDependencies;
 let queryPackageIntegrations;
 let queryPlatformIntegrations;
+let queryPlatformOpportunities;
+let queryPlatformPerformance;
 let queryPackageOpportunities;
 let queryPackagePerformance;
 let queryTypeMemberSource;
@@ -35,6 +37,8 @@ export async function initializeEngine(onStatus = () => {}) {
   queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
   queryPackageIntegrations = exports.BrowserInspectionEngine.QueryPackageIntegrations;
   queryPlatformIntegrations = exports.BrowserInspectionEngine.QueryPlatformIntegrations;
+  queryPlatformOpportunities = exports.BrowserInspectionEngine.QueryPlatformOpportunities;
+  queryPlatformPerformance = exports.BrowserInspectionEngine.QueryPlatformPerformance;
   queryPackageOpportunities = exports.BrowserInspectionEngine.QueryPackageOpportunities;
   queryPackagePerformance = exports.BrowserInspectionEngine.QueryPackagePerformance;
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
@@ -138,6 +142,24 @@ export async function inspectPackageIntegrations(request) {
 export async function inspectPlatformIntegrations(request) {
   if (!queryPlatformIntegrations) throw new Error("The browser inspection engine is not initialized.");
   const json = await queryPlatformIntegrations(
+    request.targetFramework,
+    request.assemblyFileName,
+    request.pack);
+  return JSON.parse(json);
+}
+
+export async function inspectPlatformOpportunities(request) {
+  if (!queryPlatformOpportunities) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPlatformOpportunities(
+    request.targetFramework,
+    request.assemblyFileName,
+    request.pack);
+  return JSON.parse(json);
+}
+
+export async function inspectPlatformPerformance(request) {
+  if (!queryPlatformPerformance) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPlatformPerformance(
     request.targetFramework,
     request.assemblyFileName,
     request.pack);

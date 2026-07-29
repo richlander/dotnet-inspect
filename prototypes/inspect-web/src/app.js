@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -738,12 +738,13 @@ function scope() {
 // QueryPlatformIntegrations). Dependencies/Opportunities/Analysis stay package-only.
 function packageLensesFor(pkg) {
   if (!pkg?.isRuntimePack) return packageLenses;
-  return packageLenses.filter(([id]) => id === "overview" || id === "integrations");
+  return packageLenses.filter(([id]) =>
+    id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis");
 }
 
-// The single platform library the Integrations lens scans: whatever is currently scoped
-// (one library), else none — the lens then prompts the user to pick one. Identity is the
-// bare assembly key (no .dll), matching libraryScope and the platform roster.
+// The single platform library the Integrations/Opportunities/Analysis lenses scan: whatever
+// is currently scoped (one library), else none — the lens then prompts the user to pick one.
+// Identity is the bare assembly key (no .dll), matching libraryScope and the platform roster.
 function scopedPlatformLibrary() {
   if (!state.package?.isRuntimePack) return null;
   if (state.libraryScope && state.libraryScope.size === 1) return [...state.libraryScope][0];
@@ -1670,21 +1671,37 @@ function maybeAutoLoadPackageIntegrations() {
 
 function packageScopeSignature() {
   const pkg = state.package;
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+  const lib = scopedPlatformLibrary();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
+}
+
+// The Opportunities and Analysis lenses run over one platform library at a time, so on the
+// Platform they render the same inline library picker as Integrations and prompt for a choice
+// when nothing is scoped. This mirrors renderPackageIntegrations' platform handling.
+function platformLensPicker(dataAttr) {
+  const scopedLib = scopedPlatformLibrary();
+  return `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr, selected: scopedLib || "" })}</div></section>`;
 }
 
 function renderPackageOpportunities() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  const picker = isPlatform ? platformLensPicker("data-platform-opportunities-library") : "";
+  if (isPlatform && !scopedLib) {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
+  }
+  const scanScope = isPlatform ? `${escapeHtml(scopedLib)} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
   const current = packageScopeSignature();
   const fresh = state.packageOpportunitiesKey === current;
   if (state.packageOpportunitiesLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
+    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
   }
   if (fresh && state.packageOpportunitiesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(state.packageOpportunitiesError)}</p></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(state.packageOpportunitiesError)}</p></section>`;
   }
   const data = fresh ? state.packageOpportunities : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
 
   const categories = data.categories || [];
@@ -1693,13 +1710,13 @@ function renderPackageOpportunities() {
     : "";
 
   if (!categories.length) {
-    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No integration opportunities</h2><p>The public surface of ${escapeHtml(state.package.activeFramework)} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
+    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No integration opportunities</h2><p>The public surface of ${scanScope} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
   }
 
   const summary = `
     <section class="document-section">
-      <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${data.totalOpportunities} suggestion${data.totalOpportunities === 1 ? "" : "s"} · ${escapeHtml(state.package.activeFramework)}</span></div>
-      <p class="lens-note">Ecosystem areas this package's surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
+      <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${data.totalOpportunities} suggestion${data.totalOpportunities === 1 ? "" : "s"} · ${scanScope}</span></div>
+      <p class="lens-note">Ecosystem areas this ${isPlatform ? "library" : "package"}'s surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
       <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.items.length}</span></span>`).join("")}</div>
     </section>`;
 
@@ -1712,7 +1729,7 @@ function renderPackageOpportunities() {
     </section>`;
   }).join("");
 
-  return `${warning}${summary}${blocks}`;
+  return `${picker}${warning}${summary}${blocks}`;
 }
 
 // Renders a single integration-opportunity as a signal-style row with live chips: the API
@@ -1762,6 +1779,9 @@ function renderLookForChips(lookFor) {
 }
 
 async function loadPackageOpportunities() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  if (isPlatform && !scopedLib) return;
   const signature = packageScopeSignature();
   if (state.packageOpportunitiesKey === signature && (state.packageOpportunities || state.packageOpportunitiesError)) {
     render();
@@ -1773,11 +1793,17 @@ async function loadPackageOpportunities() {
   state.packageOpportunitiesLoading = true;
   render();
   try {
-    const result = await inspectPackageOpportunities({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework
-    });
+    const result = isPlatform
+      ? await inspectPlatformOpportunities({
+          targetFramework: state.package.activeFramework,
+          assemblyFileName: `${scopedLib}.dll`,
+          pack: platformPackForAssembly(scopedLib)
+        })
+      : await inspectPackageOpportunities({
+          packageId: state.package.id,
+          version: state.package.version,
+          framework: state.package.activeFramework
+        });
     if (state.packageOpportunitiesKey === signature) state.packageOpportunities = result;
   } catch (error) {
     if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesError = String(error?.message || error);
@@ -1789,22 +1815,30 @@ async function loadPackageOpportunities() {
 
 function maybeAutoLoadPackageOpportunities() {
   if (!state.atPackageRoot || state.packageLens !== "opportunities") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageOpportunitiesKey === packageScopeSignature()) return;
   loadPackageOpportunities();
 }
 
 function renderPackagePerformance() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  const picker = isPlatform ? platformLensPicker("data-platform-analysis-library") : "";
+  if (isPlatform && !scopedLib) {
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to analyze</h2><p>Choose a .NET platform library above to classify allocation and performance opportunities across its method bodies.</p></section>`;
+  }
+  const scanScope = isPlatform ? `${escapeHtml(scopedLib)} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
   const current = packageScopeSignature();
   const fresh = state.packagePerformanceKey === current;
   if (state.packagePerformanceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
+    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
   }
   if (fresh && state.packagePerformanceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(state.packagePerformanceError)}</p></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(state.packagePerformanceError)}</p></section>`;
   }
   const data = fresh ? state.packagePerformance : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
 
   const members = data.members || [];
@@ -1816,7 +1850,7 @@ function renderPackagePerformance() {
     : "";
 
   if (!members.length) {
-    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${escapeHtml(state.package.activeFramework)}${nonPublicNote}. Open a member's Facts lens to inspect its body directly.</p></section>`;
+    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${scanScope}${nonPublicNote}. Open a member's Facts lens to inspect its body directly.</p></section>`;
   }
 
   const rows = members.map(member => {
@@ -1833,14 +1867,17 @@ function renderPackagePerformance() {
 
   const summary = `
     <section class="document-section">
-      <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${escapeHtml(state.package.activeFramework)}</span></div>
+      <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${scanScope}</span></div>
       <p class="lens-note">Ranked by in-loop opportunities, then count. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
     </section>`;
 
-  return `${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
+  return `${picker}${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
 }
 
 async function loadPackagePerformance() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  if (isPlatform && !scopedLib) return;
   const signature = packageScopeSignature();
   if (state.packagePerformanceKey === signature && (state.packagePerformance || state.packagePerformanceError)) {
     render();
@@ -1852,11 +1889,17 @@ async function loadPackagePerformance() {
   state.packagePerformanceLoading = true;
   render();
   try {
-    const result = await inspectPackagePerformance({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework
-    });
+    const result = isPlatform
+      ? await inspectPlatformPerformance({
+          targetFramework: state.package.activeFramework,
+          assemblyFileName: `${scopedLib}.dll`,
+          pack: platformPackForAssembly(scopedLib)
+        })
+      : await inspectPackagePerformance({
+          packageId: state.package.id,
+          version: state.package.version,
+          framework: state.package.activeFramework
+        });
     if (state.packagePerformanceKey === signature) state.packagePerformance = result;
   } catch (error) {
     if (state.packagePerformanceKey === signature) state.packagePerformanceError = String(error?.message || error);
@@ -1868,6 +1911,7 @@ async function loadPackagePerformance() {
 
 function maybeAutoLoadPackagePerformance() {
   if (!state.atPackageRoot || state.packageLens !== "analysis") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   loadPackagePerformance();
 }
@@ -2733,22 +2777,28 @@ function bindEvents() {
     const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
     openPlatformLibrary(name, pack);
   }));
-  // The Integrations-lens library picker scopes the scan without leaving the lens: unlike the
-  // main platform selector it keeps package (platform) root + the Integrations lens, then
-  // rescans. Types are loaded too so switching to Types/Overview afterward isn't empty.
-  document.querySelectorAll("[data-platform-integrations-library]").forEach(select => select.addEventListener("change", async () => {
-    const name = select.value;
-    if (!name) return;
-    const key = name.replace(/\.dll$/i, "");
-    const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
-    const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
-    if (!resident) await loadRuntimePackAssembly(platformScopeTfm(), `${key}.dll`, pack);
-    state.libraryScope = new Set([key]);
-    recordPlatformRecent(key, pack);
-    state.atPackageRoot = true;
-    state.packageLens = "integrations";
-    loadPackageIntegrations();
-  }));
+  // The lens-scoped library pickers (Integrations, Opportunities, Analysis) scope the scan
+  // without leaving the lens: unlike the main platform selector they keep package (platform)
+  // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
+  // afterward isn't empty.
+  const bindPlatformLensPicker = (dataAttr, lens, loader) => {
+    document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", async () => {
+      const name = select.value;
+      if (!name) return;
+      const key = name.replace(/\.dll$/i, "");
+      const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
+      const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
+      if (!resident) await loadRuntimePackAssembly(platformScopeTfm(), `${key}.dll`, pack);
+      state.libraryScope = new Set([key]);
+      recordPlatformRecent(key, pack);
+      state.atPackageRoot = true;
+      state.packageLens = lens;
+      loader();
+    }));
+  };
+  bindPlatformLensPicker("data-platform-integrations-library", "integrations", loadPackageIntegrations);
+  bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
+  bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {

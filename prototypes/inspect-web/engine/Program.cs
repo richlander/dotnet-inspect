@@ -1187,6 +1187,15 @@ public static partial class BrowserInspectionEngine
             })
             .ToArray();
 
+    static string NormalizeRuntimeAssemblyFileName(string assemblyFileName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        return assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyFileName
+            : assemblyFileName + ".dll";
+    }
+
     // Integrations for a single .NET platform library. The runtime pseudo-package has no
     // nupkg, so this acquires just the one runtime-pack assembly (session-cached, like the
     // per-library type load in LoadRuntimePackAssembly) and scans it, rather than reading a
@@ -1200,9 +1209,7 @@ public static partial class BrowserInspectionEngine
     {
         if (string.IsNullOrWhiteSpace(assemblyFileName))
             throw new InvalidOperationException("An assembly file name is required.");
-        var fileName = assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? assemblyFileName
-            : assemblyFileName + ".dll";
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
 
         var packId = RuntimePackIdForToken(pack);
         var major = ParseTfmMajor(targetFramework);
@@ -1277,40 +1284,70 @@ public static partial class BrowserInspectionEngine
                 }
             }
 
-            var existing = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var bytes in assemblyBytes)
-            {
-                try
-                {
-                    using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
-                    foreach (var signal in EcosystemIntegrationScanner.Scan(peReader))
-                        existing.Add(signal.Integration);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception.Message);
-                }
-            }
+            foreach (var pair in ScanOpportunities(assemblyBytes, failures))
+                opportunities.TryAdd(pair.Key, pair.Value);
+        }
 
-            foreach (var bytes in assemblyBytes)
+        var categories = BuildOpportunityCategories(opportunities.Values);
+
+        var result = new BrowserPackageOpportunities(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Items.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    // Two-pass opportunity scan over a set of assembly images: first the union of ecosystem
+    // integrations they already ship (so an area a package already covers is not flagged),
+    // then the complement — surface types that suggest an area the set does not integrate with.
+    // Shared by the NuGet-package scan (nupkg lib/) and the single platform-library scan.
+    static Dictionary<string, IntegrationOpportunityInfo> ScanOpportunities(
+        IReadOnlyList<byte[]> assemblyBytes,
+        List<string> failures)
+    {
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var bytes in assemblyBytes)
+        {
+            try
             {
-                try
-                {
-                    using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
-                    foreach (var opportunity in IntegrationOpportunityScanner.Scan(peReader, existing))
-                    {
-                        var key = $"{opportunity.Integration}|{opportunity.Api}|{opportunity.IntegrationType}";
-                        opportunities.TryAdd(key, opportunity);
-                    }
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception.Message);
-                }
+                using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                foreach (var signal in EcosystemIntegrationScanner.Scan(peReader))
+                    existing.Add(signal.Integration);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception.Message);
             }
         }
 
-        var categories = opportunities.Values
+        var opportunities = new Dictionary<string, IntegrationOpportunityInfo>(StringComparer.Ordinal);
+        foreach (var bytes in assemblyBytes)
+        {
+            try
+            {
+                using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                foreach (var opportunity in IntegrationOpportunityScanner.Scan(peReader, existing))
+                {
+                    var key = $"{opportunity.Integration}|{opportunity.Api}|{opportunity.IntegrationType}";
+                    opportunities.TryAdd(key, opportunity);
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception.Message);
+            }
+        }
+
+        return opportunities;
+    }
+
+    static BrowserOpportunityCategory[] BuildOpportunityCategories(
+        IEnumerable<IntegrationOpportunityInfo> opportunities) =>
+        opportunities
             .GroupBy(opportunity => opportunity.Integration, StringComparer.Ordinal)
             .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new BrowserOpportunityCategory(
@@ -1322,10 +1359,31 @@ public static partial class BrowserInspectionEngine
                     .ToArray()))
             .ToArray();
 
+    // Integration opportunities for a single .NET platform library (see QueryPlatformIntegrations
+    // for the acquisition rationale). Scanning one assembly means the "already ships" set is that
+    // library's own integrations, so opportunities read as "this library exposes X but not Y".
+    [JSExport]
+    public static async Task<string> QueryPlatformOpportunities(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var failures = new List<string>();
+        var opportunities = ScanOpportunities(new[] { bytes }, failures);
+        var categories = BuildOpportunityCategories(opportunities.Values);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
         var result = new BrowserPackageOpportunities(
-            packageId,
+            Path.GetFileNameWithoutExtension(fileName),
             version,
-            targetFramework,
+            tfm,
             categories,
             categories.Sum(category => category.Items.Length),
             failures.Count > 0 ? string.Join("; ", failures) : null);
@@ -1376,58 +1434,13 @@ public static partial class BrowserInspectionEngine
                 var assemblyPath = Path.Combine(tempRoot, assemblyName);
                 try
                 {
-                    var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
-                    using (var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
-                        new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                    AnalyzeAssemblyPerformance(
+                        assemblyName,
                         assemblyPath,
-                        () => File.OpenRead(assemblyPath),
-                        Provenance: $"lib/{targetFramework}/{assemblyName}")))
-                    {
-                        foreach (var type in inspection.ApiSurface(includeAll: true).Types)
-                        {
-                            foreach (var member in type.Members)
-                            {
-                                if (member.MetadataToken is int memberToken)
-                                    tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
-                            }
-                        }
-                    }
-
-                    var index = Analysis.LibraryBodyIndex.Open(
-                        assemblyPath,
-                        Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-
-                    foreach (var group in index.OptimizationOpportunities.GroupBy(opportunity => opportunity.Method.MetadataToken))
-                    {
-                        var count = group.Count();
-                        totalOpportunities += count;
-                        if (!tokenMap.TryGetValue(group.Key, out var target))
-                        {
-                            nonPublicOpportunities += count;
-                            continue;
-                        }
-
-                        var shapes = group
-                            .Select(opportunity => opportunity.Shape)
-                            .Distinct(StringComparer.Ordinal)
-                            .OrderBy(shape => shape, StringComparer.Ordinal)
-                            .ToArray();
-                        var confidence = group
-                            .Select(opportunity => opportunity.Confidence)
-                            .OrderByDescending(RankConfidence)
-                            .FirstOrDefault() ?? "";
-
-                        members.Add(new BrowserPerfMember(
-                            assemblyName,
-                            target.TypeId,
-                            target.Name,
-                            target.Signature,
-                            group.Key,
-                            count,
-                            group.Count(opportunity => opportunity.InLoop),
-                            shapes,
-                            confidence));
-                    }
+                        $"lib/{targetFramework}/{assemblyName}",
+                        members,
+                        ref totalOpportunities,
+                        ref nonPublicOpportunities);
                 }
                 catch (Exception exception)
                 {
@@ -1441,7 +1454,88 @@ public static partial class BrowserInspectionEngine
             catch { /* Best-effort scratch cleanup. */ }
         }
 
-        var ranked = members
+        var ranked = RankPerfMembers(members);
+
+        var result = new BrowserPackagePerformance(
+            packageId,
+            version,
+            targetFramework,
+            ranked,
+            totalOpportunities,
+            nonPublicOpportunities,
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    // Perf-triage for one assembly on disk: maps optimization opportunities from the IL body
+    // index back to public members by metadata token (non-public hits are counted only), so the
+    // caller can rank the public members with the most opportunities. Shared by the NuGet-package
+    // scan (loops lib/ assemblies) and the single platform-library scan (one call).
+    static void AnalyzeAssemblyPerformance(
+        string assemblyName,
+        string assemblyPath,
+        string provenance,
+        List<BrowserPerfMember> members,
+        ref int totalOpportunities,
+        ref int nonPublicOpportunities)
+    {
+        var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
+        using (var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(assemblyName, null, null, null),
+            assemblyPath,
+            () => File.OpenRead(assemblyPath),
+            Provenance: provenance)))
+        {
+            foreach (var type in inspection.ApiSurface(includeAll: true).Types)
+            {
+                foreach (var member in type.Members)
+                {
+                    if (member.MetadataToken is int memberToken)
+                        tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
+                }
+            }
+        }
+
+        var index = Analysis.LibraryBodyIndex.Open(
+            assemblyPath,
+            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        foreach (var group in index.OptimizationOpportunities.GroupBy(opportunity => opportunity.Method.MetadataToken))
+        {
+            var count = group.Count();
+            totalOpportunities += count;
+            if (!tokenMap.TryGetValue(group.Key, out var target))
+            {
+                nonPublicOpportunities += count;
+                continue;
+            }
+
+            var shapes = group
+                .Select(opportunity => opportunity.Shape)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(shape => shape, StringComparer.Ordinal)
+                .ToArray();
+            var confidence = group
+                .Select(opportunity => opportunity.Confidence)
+                .OrderByDescending(RankConfidence)
+                .FirstOrDefault() ?? "";
+
+            members.Add(new BrowserPerfMember(
+                assemblyName,
+                target.TypeId,
+                target.Name,
+                target.Signature,
+                group.Key,
+                count,
+                group.Count(opportunity => opportunity.InLoop),
+                shapes,
+                confidence));
+        }
+    }
+
+    static BrowserPerfMember[] RankPerfMembers(IEnumerable<BrowserPerfMember> members) =>
+        members
             .OrderByDescending(member => member.InLoopCount)
             .ThenByDescending(member => member.OpportunityCount)
             .ThenBy(member => member.TypeId, StringComparer.Ordinal)
@@ -1449,10 +1543,59 @@ public static partial class BrowserInspectionEngine
             .Take(200)
             .ToArray();
 
+    // Perf-triage for a single .NET platform library (see QueryPlatformIntegrations for the
+    // acquisition rationale). LibraryBodyIndex/AssemblyInspectionSession need a path, so the
+    // acquired bytes are written to a temp file and deleted after the scan.
+    [JSExport]
+    public static async Task<string> QueryPlatformPerformance(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-perf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var assemblyPath = Path.Combine(tempRoot, fileName);
+
+        var members = new List<BrowserPerfMember>();
+        var failures = new List<string>();
+        var totalOpportunities = 0;
+        var nonPublicOpportunities = 0;
+
+        try
+        {
+            await File.WriteAllBytesAsync(assemblyPath, bytes);
+            AnalyzeAssemblyPerformance(
+                fileName,
+                assemblyPath,
+                $"{packId}/{version}/{fileName}",
+                members,
+                ref totalOpportunities,
+                ref nonPublicOpportunities);
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { /* Best-effort scratch cleanup. */ }
+        }
+
+        var ranked = RankPerfMembers(members);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
         var result = new BrowserPackagePerformance(
-            packageId,
+            Path.GetFileNameWithoutExtension(fileName),
             version,
-            targetFramework,
+            tfm,
             ranked,
             totalOpportunities,
             nonPublicOpportunities,
