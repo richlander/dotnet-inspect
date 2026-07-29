@@ -1006,4 +1006,4 @@ Resolved:
   one. See [Heaps are not tables](#heaps-are-not-tables).
 - **Table selection grammar.** Both, since output already prints hex tokens and
   users will paste them: `TypeDef` and `0x02` address the same table. See
-  [Hex table selection](#hex-table-selection).
+  [Hex table selection](#implemented-hex-table-selection).
