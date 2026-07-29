@@ -912,13 +912,16 @@ public class ScanTokenTests
     /// below the brace that opened its block -- so "}" keeps the shift exact and is included.
     /// </para>
     /// <para>
-    /// Two literal-content emission sites survive this gate, and are inert rather than
-    /// unreachable: both always follow literal content, so coalescing fuses their fragment into
-    /// the preceding StringLiteral, which keeps the *first* fragment's depth. A wrong depth
-    /// there cannot reach an observer. Both carry a comment saying so. This is the same
-    /// inertness class as the hole-closer's Math.Min. The hole closer at the brace that *ends*
-    /// a hole is not in that class -- it begins a literal token, because the token before it is
-    /// code -- and is gated by
+    /// The exhaustive arms are bounded by length, so on their own they cannot spell an opener
+    /// longer than the bound: a raw literal needs three characters and a multi-dollar raw
+    /// opener five. That gap is not cosmetic. It decides whether the first token on a carried
+    /// line can be a raw-literal fragment, and two emission paths are reachable only that way.
+    /// Measuring inertness over the bounded arms alone concluded, wrongly, that those two
+    /// paths could not be observed (adversarial review, GPT). A third arm therefore seeds each
+    /// literal and comment opener explicitly rather than waiting for the sweep to spell one.
+    /// </para>
+    /// <para>
+    /// The one site this gate does not reach is the hole closer, which is gated by
     /// <see cref="BraceClosingAHole_ReportsTheDepthOutsideIt"/>.
     /// </para>
     /// </summary>
@@ -976,8 +979,28 @@ public class ScanTokenTests
                 Check([first, second]);
         }
 
+        // A construct carried across a line break can be opened by a delimiter longer than the
+        // exhaustive arms reach. Seed each one, so that the first token on the second line is a
+        // fragment of every literal and comment form rather than only the short ones.
+        string[] openers =
+        [
+            "\"", "@\"", "$\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "$$$\"\"\"\"", "/*",
+        ];
+
+        var tails = new List<string> { "" };
+        Walk(new char[1], 0, 1, tails.Add);
+
+        foreach (var opener in openers)
+        {
+            foreach (var tail in tails)
+            {
+                foreach (var second in seconds)
+                    Check([opener + tail, second]);
+            }
+        }
+
         // The sweep is only as good as its size; pin it so a shrunken alphabet is visible.
-        Assert.Equal(16_104 + (132 * 132), checked_);
+        Assert.Equal(16_104 + (132 * 132) + (9 * 12 * 132), checked_);
     }
 
 

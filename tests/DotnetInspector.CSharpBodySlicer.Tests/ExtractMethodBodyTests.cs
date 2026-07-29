@@ -1202,4 +1202,27 @@ public class ExtractMethodBodyTests
         Assert.Null(thrown);
     }
 
+    /// <summary>
+    /// A body whose braces never close runs the forward brace-recovery scan to the end of the
+    /// file. The scan's limit is clamped to the file length rather than to the scan budget,
+    /// because a member that begins within the budget of the last line makes the unclamped
+    /// limit larger than the file. Without the clamp the loop reads past the last line and
+    /// throws, which no other test reaches: every unbalanced fixture elsewhere either closes
+    /// its braces or sits far enough from EOF (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void UnbalancedBodyAtEndOfFile_StopsAtTheLastLineRatherThanReadingPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    void M()",
+            "    {",
+            "        if (x)",
+            "        {") + "\n";
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 6, "M");
+
+        Assert.Equal("void M()\n{\n    if (x)\n    {", body);
+    }
 }
