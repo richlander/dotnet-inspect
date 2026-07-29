@@ -329,10 +329,10 @@ references: it walks the identities References lists and reports their closure.
 The two are different views rather than one containing the other — References
 carries the public key token of each direct reference, while Dependencies
 renders each node's name, version, and, where the node resolved, its company.
-Resolution facts (the resolved path and whether it came from the package or the
-platform) are on the model but are not rendered by the tree, and a node that did
-not resolve carries no company either, because company is read out of the
-resolved file.
+Resolution facts (the resolved path and whether it came from the directory
+beside the inspected assembly or from the platform) are on the model but are not
+rendered by the tree, and a node that did not resolve carries no company either,
+because company is read out of the resolved file.
 That closure is built by resolving and reading every referenced assembly
 recursively, which is both unbounded and duplicative of References, so it is
 declared `Verbose`/`Unbounded`, and `ExplicitOnly` besides: never auto-run by a
