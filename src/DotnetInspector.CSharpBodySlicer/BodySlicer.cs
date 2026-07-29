@@ -1586,6 +1586,15 @@ public static class BodySlicer
                         frame.HoleDepth = 0;
                         state.Replace(frame);
                         int closerAt = i;
+
+                        // Min because a longer run closes the hole with DollarRun braces and
+                        // leaves the rest as literal text. This cannot be gated through the token
+                        // stream: the leftover braces are re-consumed by the literal branch on the
+                        // next step and coalesce back into this token, so consuming one brace here
+                        // produces a byte-identical stream. Verified inert over every string up to
+                        // length 7 on the `$ " { } \ a` alphabet (335,922 inputs, 0 divergences).
+                        // It is kept because it is what the language says, and a consumer that
+                        // wants un-coalesced fragments would be able to tell.
                         i += frame.DollarRun > 1 ? Math.Min(run, frame.DollarRun) : 1;
                         EmitAt(depthBefore, bracketBefore, ScanTokenKind.StringLiteral, closerAt, i - closerAt);
                         continue;

@@ -377,6 +377,104 @@ public class ScanTokenTests
     }
 
     /// <summary>
+    /// Gates the rule that a raw literal has no escape sequences — a backslash in one is ordinary
+    /// content, and in particular cannot consume the quote that closes the literal.
+    ///
+    /// The backslash has to sit at the start of a scan step for the escape branch to be consulted
+    /// at all: the plain-content run stops only at <c>{</c>, <c>}</c>, <c>"</c>, and (outside a
+    /// raw or verbatim literal) a backslash, so a backslash following ordinary text is swallowed
+    /// by the run before the branch is reached. Putting it directly after a brace is what makes
+    /// the rule observable. Without that placement the mutation that drops <c>!frame.Raw</c>
+    /// changes nothing, which is why the corpus and every other test miss it; with it, the
+    /// literal swallows its own closing delimiter and the entire rest of the line.
+    /// </summary>
+    [Fact]
+    public void RawLiteral_TreatsABackslashAsContent_NotAnEscape()
+    {
+        Assert.Equal(
+            """"W:var W:s P:= S:"""{\""" P:; W:int W:after P:= W:1 P:;"""",
+            Render(""""var s = """{\"""; int after = 1;""""));
+
+        Assert.Equal(
+            """"W:var W:s P:= S:$"""{ W:b S:}\""" P:;"""",
+            Render(""""var s = $"""{b}\""";""""));
+    }
+
+    /// <summary>
+    /// Gates the column half of the adjacency rule. Two literal fragments can sit on one line
+    /// with a gap between them when a hole's code is separated from its braces by whitespace:
+    /// <c>$"{  "x"}"</c> emits <c>$"{</c>, then two skipped spaces, then <c>"x"}"</c>. Fusing
+    /// those would produce a token whose length spans the gap but stops short of where the
+    /// second fragment actually ends, leaving that fragment's last characters covered by nothing.
+    ///
+    /// This is the shape the sibling cross-line test cannot reach, because there the two
+    /// fragments are on different lines. Both guards need their own gate.
+    /// </summary>
+    [Fact]
+    public void LiteralFragments_DoNotCoalesceAcrossAGapOnTheSameLine()
+    {
+        var lines = new[] { "var s = $\"{  \"x\"}\";" };
+
+        var literals = BodySlicer.ScanTokens(lines)
+            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
+            .Select(t => (t.Column, t.Length))
+            .ToList();
+
+        Assert.Equal([(8, 3), (13, 5)], literals);
+    }
+
+    /// <summary>
+    /// Runs the coverage invariant over every string up to six characters long drawn from the
+    /// alphabet that actually drives the literal state machine — <c>$ " { } \</c>, a space, and
+    /// one ordinary character. The authored corpus is large but it is well-formed C#; it contains
+    /// almost none of the delimiter soup that distinguishes the raw, verbatim, and interpolated
+    /// rules from one another. This covers that space exhaustively rather than by example.
+    ///
+    /// The space is load-bearing, not filler: it is what lets two tokens on one line be separated
+    /// by a gap, which is the only situation in which the column half of the coalescing rule
+    /// decides anything.
+    ///
+    /// The claim is the coverage invariant, not a token shape: whatever the scan decides these
+    /// strings mean, every non-whitespace character is inside exactly one token and no token runs
+    /// off its line. That is weaker than pinning output, but it holds for inputs no one wrote down,
+    /// and it is an oracle rather than a re-implementation.
+    /// </summary>
+    [Fact]
+    public void EveryStringOverTheDelimiterAlphabet_IsFullyCovered()
+    {
+        char[] alphabet = ['$', '"', '{', '}', '\\', ' ', 'a'];
+        var buffer = new char[6];
+        int checkedCount = 0;
+
+        void Walk(int at, int length)
+        {
+            if (at == length)
+            {
+                var lines = new[] { new string(buffer, 0, length) };
+                string? gap = FindCoverageGap(lines, BodySlicer.ScanTokens(lines));
+                checkedCount++;
+
+                if (gap is not null)
+                    Assert.Fail($"input \"{lines[0]}\": {gap}");
+
+                return;
+            }
+
+            foreach (char c in alphabet)
+            {
+                buffer[at] = c;
+                Walk(at + 1, length);
+            }
+        }
+
+        for (int length = 1; length <= buffer.Length; length++)
+            Walk(0, length);
+
+        // Pins the size of the space so a later edit cannot quietly shrink it to nothing.
+        Assert.Equal(137_256, checkedCount);
+    }
+
+    /// <summary>
     /// Gates both guards on the rule that coalesces literal fragments. Fragments fuse when they
     /// touch, and "touch" has to mean same line and touching columns: a literal token carries a
     /// single <see cref="ScanToken.Line"/>, so fusing across a line break would produce one token

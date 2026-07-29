@@ -83,12 +83,6 @@ internal readonly record struct ScanToken(
     /// <summary>The index one past the token's last character, within its own line.</summary>
     public int End => Column + Length;
 
-    /// <summary>
-    /// True when the token is C# the compiler acts on, rather than commented-out text, quoted
-    /// text, or a preprocessor line. Predicates that look for declarations want only these.
-    /// </summary>
-    public bool IsCode => Kind is ScanTokenKind.Word or ScanTokenKind.Punctuator;
-
     /// <summary>The token's text, given the line it was found on.</summary>
     public ReadOnlySpan<char> TextIn(string line) => line.AsSpan(Column, Length);
 }
