@@ -280,7 +280,7 @@ foreach (var entry in selected)
         // selected TFM can move when TfmSelector changes even though the package did
         // not -- both change the assemblies measured, which is what the pool identity
         // is for.
-        if (honorPin)
+        if (honorPin && pin is not null)
         {
             string? mismatch =
                 !string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase)
@@ -461,8 +461,16 @@ if (refreshPin)
 Console.WriteLine(
     $"Selected {assemblies.Count} of {selected.Length} requested packages; "
     + $"manifest: {Path.Combine(outputDirectory, "manifest.json")}");
-if (assemblies.Count == 0)
+// Only when there is no pin to ask. An empty pool is the sole signal available to a
+// deliberately unpinned run, but under a pin it is the pin that says how many
+// assemblies a window owes -- and a window of nothing but "no-library" entries owes
+// none, so failing it would refuse a window the pin describes perfectly.
+if (resolveLatest && assemblies.Count == 0)
+{
+    Console.Error.WriteLine("No assemblies were selected.");
     Environment.ExitCode = 1;
+}
+
 if (!resolveLatest)
 {
     // The pin already declares what the pool should hold, so the gate asks the pin
