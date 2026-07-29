@@ -127,4 +127,98 @@ public class SpilledReceiverCoalesceInliningTests
         var conditional = function.Descendants.OfType<Conditional>().Single();
         Assert.IsType<LoadStackSlot>(conditional.WhenTrue);
     }
+
+    // A `??=` exposes its guarded fallback as Children[0], so IsFirstEvaluatedLeaf
+    // misreports the fallback as first-evaluated and the firstLeaf path would move
+    // a non-pure spill into the conditionally-evaluated right side. The unconditional
+    // guard now runs for every non-pure inline (not just the precedingPure path) and
+    // ChildIsUnconditional classifies the `??=` fallback as conditional, so the store
+    // survives (#3500 adversarial review, GPT).
+    [Fact]
+    public void NonPureSpill_InNullCoalescingAssignmentFallback_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Guarded");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); V_0 ??= S_0;
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new NullCoalescingAssignment(0, intType, new LoadStackSlot(0, intType)));
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("Guard", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var nca = function.Descendants.OfType<NullCoalescingAssignment>().Single();
+        Assert.IsType<LoadStackSlot>(nca.Value);
+    }
+
+    // NullCoalescingFieldAssignmentExpression (`obj.F ??= fallback`) is an IrExpression
+    // — the generic non-expression guard does not catch it — whose Value is
+    // conditionally evaluated. ChildIsUnconditional must classify its fallback as
+    // conditional so a non-pure spill stays out (#3500 adversarial review, Gemini).
+    [Fact]
+    public void NonPureSpill_InNullCoalescingFieldAssignmentExpressionFallback_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Guarded");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objType = TypeRef.CoreLib("System", "Object");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+        var field = new FieldRef(holder, "F", intType);
+
+        // S_0 = SideEffect(); return obj.F ??= S_0;
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new NullCoalescingFieldAssignmentExpression(
+            field, new LoadArgument(0, "obj", objType), new LoadStackSlot(0, intType))));
+        var signature = new MethodSignature(intType,
+            [new Parameter("obj", objType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("Guard", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var ncfae = function.Descendants.OfType<NullCoalescingFieldAssignmentExpression>().Single();
+        Assert.IsType<LoadStackSlot>(ncfae.Value);
+    }
+
+    // Guard-rail against over-restriction: C# tuple `==`/`!=` evaluates every element
+    // of both operand tuples before any element comparison (verified by compiled
+    // canary), so its components are UNCONDITIONAL. The guard must NOT reject folding
+    // a spilled value into a tuple-equality component (#3500).
+    [Fact]
+    public void NonPureSpill_InTupleEqualityComponent_StillInlines()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Guarded");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var tupleType = TypeRef.CoreLib("System", "ValueTuple");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return (0, S_0) == (1, 1);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new TupleBinaryExpression(true, tupleType,
+            new TupleExpression(tupleType, [new Constant(0, intType), new LoadStackSlot(0, intType)]),
+            new TupleExpression(tupleType, [new Constant(1, intType), new Constant(1, intType)]))));
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("Guard", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        var tupleBinary = function.Descendants.OfType<TupleBinaryExpression>().Single();
+        var leftTuple = Assert.IsType<TupleExpression>(tupleBinary.Left);
+        Assert.IsType<Call>(leftTuple.Elements[1]);
+    }
 }
