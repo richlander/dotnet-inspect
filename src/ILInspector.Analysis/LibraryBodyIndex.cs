@@ -2129,18 +2129,52 @@ public sealed class LibraryBodyIndex
             string ns,
             string name)
         {
-            var metadata = ResolveReferencedAssembly(assemblyReference);
-            if (metadata is null)
-                return null;
+            var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
+            var scope = ScopeForReference(assemblyReference);
+            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
 
-            foreach (var candidateHandle in metadata.Reader.TypeDefinitions)
+            // A TypeRef names the assembly the compiler bound against, which is routinely
+            // a facade that type-forwards to the definer -- every framework reference in a
+            // reference-assembly or facade-only shared-framework layout resolves this way.
+            // Opening only the named assembly finds no TypeDef there and reports the type
+            // as unresolvable, so follow ExportedType forwarders to the defining assembly.
+            //
+            // Decoding a forwarder is TypeForwardResolver's mechanism and is reused here.
+            // The traversal itself runs in the builder because the defining MetadataReader
+            // must outlive this call under _referencedAssemblyCache's ownership, whereas
+            // TypeForwardResolver.LocateType disposes every assembly it opens.
+            HashSet<AssemblyReferenceIdentity>? visited = null;
+            for (int hop = 0; hop <= TypeForwardResolver.DefaultMaxHops; hop++)
             {
-                var candidate = metadata.Reader.GetTypeDefinition(candidateHandle);
+                var metadata = ResolveReferencedAssembly(identity, scope);
+                if (metadata is null)
+                    return null;
+
+                if (FindTopLevelTypeDefinition(metadata.Reader, ns, name) is { } definition)
+                    return (metadata.Reader, definition);
+
+                if (TypeForwardResolver.ForwardTargetAssemblyIdentity(metadata.Reader, fullTypeName) is not { } forwarded)
+                    return null;
+
+                visited ??= new HashSet<AssemblyReferenceIdentity> { identity };
+                if (!visited.Add(forwarded))
+                    return null;
+                identity = forwarded;
+            }
+
+            return null;
+        }
+
+        static TypeDefinitionHandle? FindTopLevelTypeDefinition(MetadataReader reader, string ns, string name)
+        {
+            foreach (var candidateHandle in reader.TypeDefinitions)
+            {
+                var candidate = reader.GetTypeDefinition(candidateHandle);
                 if (candidate.IsNested)
                     continue;
-                if (metadata.Reader.StringComparer.Equals(candidate.Namespace, ns)
-                    && metadata.Reader.StringComparer.Equals(candidate.Name, name))
-                    return (metadata.Reader, candidateHandle);
+                if (reader.StringComparer.Equals(candidate.Namespace, ns)
+                    && reader.StringComparer.Equals(candidate.Name, name))
+                    return candidateHandle;
             }
 
             return null;
@@ -2168,9 +2202,8 @@ public sealed class LibraryBodyIndex
             return null;
         }
 
-        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceHandle handle)
+        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
-            var identity = AssemblyReferenceIdentity.From(_reader, handle);
             // Guarded because parallel full builds resolve referenced assemblies concurrently
             // from many method-analysis threads. Resolution is per unique referenced assembly
             // (bounded and cached), so lock contention is negligible; the lock is reentrant on
@@ -2181,7 +2214,7 @@ public sealed class LibraryBodyIndex
                 if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
                     return cached;
 
-                var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
+                var resolved = OpenReferencedAssembly(identity, scope);
                 _referencedAssemblyCache[identity] = resolved;
                 return resolved;
             }

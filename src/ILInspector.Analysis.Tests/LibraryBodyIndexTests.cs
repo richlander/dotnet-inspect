@@ -135,6 +135,87 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly()
+    {
+        // A framework TypeRef names the assembly the compiler bound against, which is a
+        // facade that defines nothing and forwards to the definer. This resolver hands back
+        // exactly the assembly a TypeRef names -- no implementation-preference redirect --
+        // so the definition is reachable only by following the facade's ExportedType
+        // forwarder. Dropping that hop makes this return null, which was the #3400 bug.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new FrameworkDirectoryResolver(frameworkDir));
+
+        bool exercisedForwarder = false;
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+
+            string referencedName = reader.GetString(
+                reader.GetAssemblyReference((AssemblyReferenceHandle)typeReference.ResolutionScope).Name);
+            string ns = reader.GetString(typeReference.Namespace);
+            string name = reader.GetString(typeReference.Name);
+            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
+            string namedPath = Path.Combine(frameworkDir, referencedName + ".dll");
+
+            // Only a TypeRef whose named assembly forwards rather than defines exercises the hop.
+            if (!File.Exists(namedPath) || !TypeForwardResolver.ForwardsType(namedPath, fullTypeName))
+                continue;
+
+            var definition = builder.TryResolveExternalTypeDefinition(handle);
+            Assert.True(
+                definition is not null,
+                $"{fullTypeName} is forwarded by {referencedName} and must resolve through that forwarder");
+
+            var definingReader = definition!.Value.DefiningReader;
+            string definingName = definingReader.GetString(definingReader.GetAssemblyDefinition().Name);
+            Assert.NotEqual(referencedName, definingName);
+            Assert.True(
+                TypeForwardResolver.DefinesType(Path.Combine(frameworkDir, definingName + ".dll"), fullTypeName),
+                $"{definingName} should define {fullTypeName}");
+            Assert.Equal(name, definingReader.GetString(
+                definingReader.GetTypeDefinition(definition.Value.Definition).Name));
+
+            exercisedForwarder = true;
+            break;
+        }
+
+        Assert.True(exercisedForwarder, "expected a framework TypeRef whose named assembly forwards the type");
+    }
+
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ForwarderCycleTerminatesWithoutResolving()
+    {
+        // Answering every identity with the same facade turns the forwarder chain into a
+        // cycle. Resolution must terminate and report nothing rather than spin or invent
+        // a definition.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string facade = Path.Combine(frameworkDir, "netstandard.dll");
+        Assert.True(File.Exists(facade));
+        Assert.True(TypeForwardResolver.ForwardsType(facade, "System.Object"));
+
+        string targetPath = typeof(Console).Assembly.Location;
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new ConstantResolver(facade));
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is null);
+    }
+
+    [Fact]
     public void CrossAssemblyMetadataResolver_NullResolverFailsHonest()
     {
         string targetPath = typeof(Console).Assembly.Location;
@@ -180,6 +261,40 @@ public class LibraryBodyIndexTests
         }
 
         throw new InvalidOperationException("Expected at least one external TypeRef.");
+    }
+
+    static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)
+    {
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+            if (reader.StringComparer.Equals(typeReference.Namespace, ns)
+                && reader.StringComparer.Equals(typeReference.Name, name))
+                return handle;
+        }
+
+        return default;
+    }
+
+    /// <summary>Resolves an identity to the same-named assembly in a directory, with no redirect.</summary>
+    sealed class FrameworkDirectoryResolver(string directory) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            string candidate = Path.Combine(directory, identity.Name + ".dll");
+            return File.Exists(candidate)
+                ? new ResolvedAssemblyReference(identity, candidate, () => File.OpenRead(candidate), "test")
+                : null;
+        }
+    }
+
+    /// <summary>Answers every identity with one assembly, so any forwarder chain cycles.</summary>
+    sealed class ConstantResolver(string path) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => new(identity, path, () => File.OpenRead(path), "test");
     }
 
     sealed class CountingResolver : IAssemblyReferenceResolver
