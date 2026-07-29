@@ -148,7 +148,14 @@ public static class MetadataSectionNames
             return true;
 
         string digits = suffix[2..];
-        if (digits.Length != 0
+
+        // Width is checked textually, not just numerically. A table index is one byte, so it is at
+        // most two hex digits; `byte.TryParse` alone enforces the numeric range but not the width,
+        // which accepts an eight-digit metadata token whose value happens to fit — `0x00000001` is
+        // a Module *row* token and would otherwise resolve as table 0x01, TypeRef. Adversarial
+        // review of #3510 found this: the original close-negative case, 0x02000015, was rejected
+        // only because it overflowed, not because it was recognized as a token.
+        if (digits.Length is 1 or 2
             && byte.TryParse(digits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out byte index)
             && HexAliases.TryGetValue((TableIndex)index, out string? resolved))
         {

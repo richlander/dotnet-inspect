@@ -390,8 +390,9 @@ The two spellings are one section, not two: the hex form is an input alias, so
 the heading, section order, `--count`, and `-D` all answer in the canonical
 name. Hex must carry its `0x` — a bare `02` is a table *name* position — and
 only projected tables resolve, so an index outside the projection is an error
-naming what is available rather than an empty section. A full metadata token
-such as `0x02000015` addresses a row, not a table, and is rejected as one.
+naming what is available rather than an empty section. A table index is one
+byte, so it is one or two hex digits; a full metadata token such as
+`0x02000015` or `0x00000001` addresses a row, not a table, and is rejected.
 
 ### Heaps
 

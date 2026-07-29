@@ -940,8 +940,10 @@ Three rules follow from treating the hex form as an address rather than a name:
   by its index. The rejection names the projected tables in both spellings,
   because a caller who pasted an index is thinking in hex.
 - **A metadata token is not a table.** `0x02000015` addresses a *row*; its high
-  byte is the table. The byte-width parse rejects it rather than silently
-  reading the high byte and returning `TypeDef`.
+  byte is the table. Width is checked **textually** — a table index is one byte,
+  hence one or two hex digits — because a numeric range check alone accepts an
+  eight-digit token whose value happens to fit, so `0x00000001` (a Module row
+  token) would resolve as table `0x01`, TypeRef.
 
 A bad index fails the run even beside a selector that does match — a deliberate
 divergence from the unknown-*name* rule, which tolerates a miss when something

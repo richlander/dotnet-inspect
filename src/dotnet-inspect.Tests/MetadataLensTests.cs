@@ -886,12 +886,23 @@ public partial class CommandExecutionTests
     ///
     /// <c>0x02000015</c> is the close negative: it is a well-formed metadata <em>token</em>, whose
     /// high byte is the table this test's sibling accepts. A token addresses a row, not a table,
-    /// so it must not resolve — the byte-width parse is what rejects it.
+    /// so it must not resolve.
+    ///
+    /// The cases whose value <em>fits</em> in a byte are the ones that matter. Adversarial review
+    /// of #3510 found that a numeric-range check alone accepted <c>0x00000001</c> — a Module row
+    /// token — as table <c>0x01</c>, TypeRef, because 1 fits in a byte. <c>0x02000015</c> was
+    /// being rejected for overflowing, not for being a token, so it never covered the rule it was
+    /// written for. Width is now checked textually: a table index is one byte, hence one or two
+    /// hex digits, so <c>0x0002</c> is not a table index either.
     /// </summary>
     [Theory]
     [InlineData("Metadata: 0x99")]
     [InlineData("Metadata: 0x03")]
     [InlineData("Metadata: 0x02000015")]
+    [InlineData("Metadata: 0x00000001")]
+    [InlineData("Metadata: 0x02000002")]
+    [InlineData("Metadata: 0x80000002")]
+    [InlineData("Metadata: 0x0002")]
     [InlineData("Metadata: 0x")]
     [InlineData("Metadata: 0xzz")]
     public async Task MetadataLens_UnprojectedHexTable_IsRejected(string selector)
@@ -917,6 +928,45 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-S", "Metadata: 02", "--tips", "q");
 
         Assert.NotEqual(0, exit);
+    }
+
+    /// <summary>
+    /// The alias must be resolved before <em>every</em> reader of a selector, including the static
+    /// <c>-D --schema</c> path that returns early without loading the assembly at all.
+    ///
+    /// Reported by adversarial review of #3510: the normalizer originally sat below that early
+    /// return, so <c>-D "Metadata: 0x02" --schema</c> answered "not found" while the
+    /// effective-discovery path — which runs later — resolved the same selector. The gate above
+    /// missed it precisely because it supplied an input source and so took the later path.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_StaticSchemaDiscovery_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--schema", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--schema", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
+    /// <summary>
+    /// The same early return is also taken when no input source is given at all, so the alias has
+    /// to hold on a selector that is never matched against a real image.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_DiscoveryWithoutAnAssembly_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
     }
 
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>

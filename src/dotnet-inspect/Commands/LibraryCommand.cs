@@ -40,6 +40,19 @@ public class LibraryCommand
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
 
+        // Hex table aliases are resolved before anything reads a selector — including the static
+        // discovery return below — so every consumer of Select/Discover sees canonical names. That
+        // placement is the invariant the alias rests on, not an optimization: adversarial review of
+        // #3510 found the normalizer sitting below this branch, where `-D "Metadata: 0x02"
+        // --schema` returned "not found" while the effective-discovery path resolved it.
+        var aliasNormalized = NormalizeMetadataTableAliases(options);
+        if (aliasNormalized.Error is not null)
+        {
+            Console.Error.WriteLine(aliasNormalized.Error);
+            return 1;
+        }
+        options = aliasNormalized.Options;
+
         // Static discovery mode: -D --schema lists schema without resolving/loading the library.
         if (options.Discover != null)
         {
@@ -102,14 +115,6 @@ public class LibraryCommand
             return 1;
         }
         options = heapNormalized.Options;
-
-        var aliasNormalized = NormalizeMetadataTableAliases(options);
-        if (aliasNormalized.Error is not null)
-        {
-            Console.Error.WriteLine(aliasNormalized.Error);
-            return 1;
-        }
-        options = aliasNormalized.Options;
 
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
