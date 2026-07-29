@@ -62,17 +62,27 @@ public static class HardenedPath
     /// </summary>
     /// <remarks>
     /// Rejects, in order: empty or whitespace; anything over 255 characters, which is the common
-    /// filesystem component limit; traversal (<c>..</c>); directory separators; volume qualifiers
-    /// (<c>:</c>); rooted values; control characters; invisible format characters; leading or
-    /// trailing whitespace and trailing dots, which the host strips; and reserved device names.
-    /// A legitimate package id, version, assembly simple name or type-forwarder target contains
-    /// none of these.
+    /// filesystem component limit; directory separators; volume qualifiers (<c>:</c>); rooted
+    /// values; control characters; invisible format characters; leading or trailing whitespace and
+    /// trailing dots, which the host strips; and reserved device names. A legitimate package id,
+    /// version, assembly simple name or type-forwarder target contains none of these.
+    /// <para>
+    /// There is deliberately no check for an embedded <c>..</c>. A single component with no
+    /// separator cannot leave its directory whatever dots it holds — <c>Valid..Dependency</c>
+    /// combines and fully-resolves inside the trusted root — so traversal is stopped by the
+    /// separator and rooting rejections, and refusing the substring only cost real assembly names
+    /// the C# compiler accepts and emits. The components that <em>are</em> host-special, <c>.</c>
+    /// and <c>..</c>, are refused by the trailing-dot rule below, since every all-dot name ends in
+    /// a dot. <see cref="IsSafeRelativePath"/> relies on exactly that: it splits on separators and
+    /// a <c>..</c> segment is refused here as a component. Weakening the trailing-dot rule would
+    /// therefore reopen relative-path traversal, which
+    /// <c>TraversalSegment_IsRefusedByTheComponentRule</c> exists to catch.
+    /// </para>
     /// </remarks>
     public static bool IsSafePathComponent(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)
             || value.Length > 255
-            || value.Contains("..", StringComparison.Ordinal)
             || value.Contains('/')
             || value.Contains('\\')
             || value.Contains(':')

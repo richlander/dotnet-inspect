@@ -132,6 +132,12 @@ public class HardenedPathTests
     [InlineData("\uff2c\uff29\uff22.Assembly")]
     [InlineData("\u30c6\u30b9\u30c8.Library")]
     [InlineData("Contoso.\uff26\uff4f\uff4f")]
+    // Consecutive dots inside a component are not traversal: with no separator the combined path
+    // fully-resolves inside the trusted root. These are real names the C# compiler emits, and
+    // refusing them left the reference unresolved with no company and no children.
+    [InlineData("Valid..Dependency")]
+    [InlineData("Foo..Bar..Baz")]
+    [InlineData("..LeadingDots")]
     public void LegitimateComponent_IsAccepted(string value)
     {
         Assert.True(HardenedPath.IsSafePathComponent(value));
@@ -229,6 +235,24 @@ public class HardenedPathTests
     public void HostileRelativePath_IsRejected(string value)
     {
         Assert.False(HardenedPath.IsSafeRelativePath(value));
+    }
+
+    /// <summary>
+    /// Names the gate that <see cref="HardenedPath.IsSafeRelativePath"/>'s traversal refusal rests
+    /// on. There is no <c>..</c> substring check: the split hands <c>..</c> to the component rule,
+    /// which refuses it as an all-dot name via the trailing-dot rule. This test fails if that rule
+    /// is weakened, which would otherwise reopen traversal silently.
+    /// </summary>
+    [Fact]
+    public void TraversalSegment_IsRefusedByTheComponentRule()
+    {
+        Assert.False(HardenedPath.IsSafePathComponent(".."));
+        Assert.False(HardenedPath.IsSafePathComponent("."));
+        Assert.False(HardenedPath.IsSafeRelativePath("lib/../payload.dll"));
+
+        // ...while a component that merely contains dots is not traversal and must resolve.
+        Assert.True(HardenedPath.IsSafePathComponent("Valid..Dependency"));
+        Assert.True(HardenedPath.IsSafeRelativePath("lib/net8.0/Valid..Dependency.dll"));
     }
 
     [Fact]
