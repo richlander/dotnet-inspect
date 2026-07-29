@@ -1239,7 +1239,6 @@ public static class BodySlicer
         int i = start;
         bool opened = false;
         bool bracketOpened = false;
-        int entryCount = tokens?.Count ?? 0;
 
         void Emit(int atDepth, ScanTokenKind kind, int column, int length) =>
             EmitAt(atDepth, state.BracketDepth, kind, column, length);
@@ -1252,7 +1251,10 @@ public static class BodySlicer
             // Literal text arrives in fragments — an escape, a quote run, a stretch of plain
             // characters — because the scan decides what each one means separately. They are one
             // token to a caller, so adjacent fragments coalesce instead of surfacing that.
-            if (kind == ScanTokenKind.StringLiteral && tokens.Count > entryCount)
+            // Adjacency is same line and touching columns: a literal that spans lines emits one
+            // token per line, so an empty line inside a verbatim literal must not fuse the
+            // fragments on either side of it.
+            if (kind == ScanTokenKind.StringLiteral && tokens.Count > 0)
             {
                 var previous = tokens[^1];
 

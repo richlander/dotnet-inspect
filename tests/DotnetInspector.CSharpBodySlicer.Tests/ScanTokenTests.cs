@@ -376,6 +376,36 @@ public class ScanTokenTests
         Assert.NotNull(FindCoverageGap(lines, damaged));
     }
 
+    /// <summary>
+    /// Gates both guards on the rule that coalesces literal fragments. Fragments fuse when they
+    /// touch, and "touch" has to mean same line and touching columns: a literal token carries a
+    /// single <see cref="ScanToken.Line"/>, so fusing across a line break would produce one token
+    /// claiming a span that runs off the end of the earlier line.
+    ///
+    /// The columns here are aligned deliberately — the second line's literal opens at exactly the
+    /// column where the first line's literal ended. That is the only shape in which the column
+    /// test alone would say yes, so it is the only shape that can tell whether the line test is
+    /// doing anything. The first line opens with the literal so that the stream's very first
+    /// token is one, which is the only shape that reaches the emptiness guard before it. The
+    /// corpus contains neither; without this test both guards are unverified, and removing either
+    /// one leaves every other test passing.
+    /// </summary>
+    [Fact]
+    public void LiteralFragments_DoNotCoalesceAcrossALineBreak()
+    {
+        //                  columns 0..11 ─┐
+        var lines = new[] { "\"xyzzyxyzzy\"", "            \"ab\"" };
+        //                    column 12 ────┘  (== the first literal's end column)
+
+        var literals = BodySlicer.ScanTokens(lines)
+            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
+            .ToList();
+
+        Assert.Equal(
+            [(0, 0, 12), (1, 12, 4)],
+            literals.Select(t => (t.Line, t.Column, t.Length)));
+    }
+
     [Theory]
     [InlineData("int x; // c")]
     [InlineData("var s = $\"a{b}c\";")]

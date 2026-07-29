@@ -1070,4 +1070,36 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("public int Target() => 0;\n// trailing note", body);
     }
+
+    /// <summary>
+    /// Gates the scanner rule that the <c>}</c> closing an interpolation hole is part of the
+    /// enclosing literal and therefore must not become the line's last significant character.
+    /// <see cref="BodySlicer.ExtractMethodBody(string, int, int, string?)"/> asks
+    /// <c>EndsDeclaration</c> whether the range already terminates; a hole closer that counted
+    /// as a terminator would answer yes here and stop the slice on line 3, dropping the raw
+    /// literal's closing delimiter and the method's own <c>}</c>.
+    ///
+    /// The range must be a single line for this to be observable: over a multi-line range
+    /// <c>EndsDeclaration</c> and <c>IndexPastClosingBrace</c> compute brace depth over the
+    /// same span, so whenever the misclassification would flip the former to <c>true</c> the
+    /// latter would have declined to extend anyway. This is the gate for that rule — the
+    /// corpus contains no interpolation hole closing on the last significant column of a
+    /// single-line member, so removing this test leaves the rule unverified.
+    /// </summary>
+    [Fact]
+    public void HoleClosingBraceOnASingleLineRange_DoesNotTerminateTheDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    void Target() { Log($\"\"\"x{y}",           // 3  <- StartLine, EndLine
+            "        \"\"\"); }",                            // 4
+            "",                                             // 5
+            "    void Other() { }",                          // 6
+            "}");                                           // 7
+
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("void Target() { Log($\"\"\"x{y}\n    \"\"\"); }", body);
+    }
 }
