@@ -1,5 +1,9 @@
 # Member target resolution
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 Member target resolution is the typed seam between user selectors, API surface
 members, durable member anchors, and physical body evidence.
 
