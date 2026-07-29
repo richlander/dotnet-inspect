@@ -4,10 +4,11 @@ internal static class MarkdownTableRowLimiter
 {
     public static string Apply(string markdown, RowWindow? window)
     {
-        if (window is not { Count: >= 0 } limit)
+        if (window is not { IsUnlimited: false } limit)
             return markdown;
 
         var normalized = markdown.ReplaceLineEndings("\n");
+        var newline = MarkdownScan.DetectNewline(markdown);
         var lines = normalized.Split('\n');
         List<string> output = new(lines.Length);
         var inCodeFence = false;
@@ -39,8 +40,7 @@ internal static class MarkdownTableRowLimiter
                 body.Add(lines[++i]);
 
             var dataCount = body.Count(static l => !MarkdownScan.IsSeparatorLine(l));
-            var keepStart = limit.FromEnd ? Math.Max(0, dataCount - limit.Count) : 0;
-            var keepEnd = limit.FromEnd ? dataCount : Math.Min(dataCount, limit.Count);
+            var (keepStart, keepEnd) = limit.Resolve(dataCount);
             var dataIndex = 0;
             foreach (var bodyLine in body)
             {
@@ -56,6 +56,6 @@ internal static class MarkdownTableRowLimiter
             }
         }
 
-        return string.Join('\n', output);
+        return string.Join(newline, output);
     }
 }

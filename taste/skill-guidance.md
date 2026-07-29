@@ -19,7 +19,7 @@ Why it works:
 - It avoids sending agents through lower-level source/IL workflows unnecessarily.
 
 ```md
-`-n N` and numeric shorthand like `-6` work like `head`; `--tail N` works like `tail`; add `--rows` to make head counts cap Markdown table data rows instead of output lines.
+`-n N` and numeric shorthand like `-6` work like `head`; `--tail` takes the same count from the end, like `tail`; `--rows N` caps Markdown table data rows instead of output lines, and `--rows 2..10` names the rows to keep.
 ```
 
 Why it works:

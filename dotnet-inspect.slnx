@@ -62,6 +62,7 @@
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
+    <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
   </Folder>
   <Folder Name="/src/runfaster.Tests/Fixtures/">
     <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />

@@ -218,7 +218,7 @@ package payloads. Once selected, the normal output-shape rules apply:
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
 | `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
-| `--head N` / `--tail N` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
+| `-n N` / `--tail` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
 
 Shape reducers do not revise operation arity. In particular:
 
@@ -231,10 +231,10 @@ Shape reducers do not revise operation arity. In particular:
   directly, multiple printable rows require `--row N|first|last`, and zero
   printable rows reject. There is no fan-out gesture, so a single `--print`
   authorizes at most one declared payload fetch;
-- `--head N` and `--tail N` run after print selection and fetching, so
-  `--print --head 1` does not select the first printable row;
-- `--rows --head N` and the symmetric `--rows --tail N` are first/last
-  table-row rendering windows and remain incompatible with `--print`;
+- `-n N` and `--tail` run after print selection and fetching, so
+  `--print -n 1` does not select the first printable row;
+- `--rows N`, `--rows N --tail`, and `--rows N..M` are table-row rendering
+  windows and remain incompatible with `--print`;
   `--row N|first|last` selects exactly one printable row;
 - a plain version string has no printable document. `--print`
   must report that the selected shape is not printable rather than silently

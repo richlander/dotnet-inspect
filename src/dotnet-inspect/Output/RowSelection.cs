@@ -1,13 +1,116 @@
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// A per-table data-row window applied by <c>--rows</c>: keep the first
-/// (<see cref="FromEnd"/> false, from <c>--head N</c>) or last
-/// (<see cref="FromEnd"/> true, from <c>--tail N</c>) <see cref="Count"/> data
-/// rows of each rendered table, preserving headings and table headers. A
-/// negative <see cref="Count"/> is treated as "no limit" by the row limiters.
+/// A per-table data-row window applied by <c>--rows</c>, preserving headings and
+/// table headers. A window is either <em>relative</em> — the first
+/// (<see cref="Head"/>) or last (<see cref="Tail"/>) N rows, where which rows
+/// those are depends on how many the table has — or <em>absolute</em>
+/// (<see cref="Range"/>), naming the row numbers to keep regardless of the
+/// table's size.
+///
+/// The two are not interchangeable, which is why this type is constructed
+/// through named factories rather than a positional constructor: a bare pair of
+/// numbers cannot say whether it means "two rows" or "row two", and #3364 was
+/// caused by exactly that ambiguity being resolved silently in the wrong
+/// direction.
+///
+/// <see cref="Resolve"/> is the single place these semantics are interpreted.
+/// Both row limiters call it rather than branching on the window's shape, so a
+/// change to what a window means cannot land in one renderer and miss another.
 /// </summary>
-public readonly record struct RowWindow(int Count, bool FromEnd);
+public readonly record struct RowWindow
+{
+    private readonly int _count;
+    private readonly int _start;
+    private readonly int? _end;
+
+    private RowWindow(RowWindowKind kind, int count, int start, int? end)
+    {
+        Kind = kind;
+        _count = count;
+        _start = start;
+        _end = end;
+    }
+
+    public RowWindowKind Kind { get; }
+
+    /// <summary>
+    /// True when this window keeps every row, so a renderer can skip windowing
+    /// entirely. Only a relative window can be unlimited (via a negative count);
+    /// an absolute range always names a bounded start, even when open-ended.
+    /// </summary>
+    public bool IsUnlimited => Kind != RowWindowKind.Range && _count < 0;
+
+    /// <summary>
+    /// Keep the first <paramref name="count"/> data rows. A negative count means
+    /// "no limit", which the row limiters rely on to render a table untouched.
+    /// </summary>
+    public static RowWindow Head(int count) => new(RowWindowKind.Head, count, 0, null);
+
+    /// <summary>Keep the last <paramref name="count"/> data rows.</summary>
+    public static RowWindow Tail(int count) => new(RowWindowKind.Tail, count, 0, null);
+
+    /// <summary>
+    /// Keep the rows numbered <paramref name="start"/> through
+    /// <paramref name="end"/> inclusive, or through the last row when
+    /// <paramref name="end"/> is null. Row numbers are 1-based and are the
+    /// numbers a reader counts in the rendered table.
+    /// </summary>
+    public static RowWindow Range(int start, int? end)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(start, 1);
+        if (end is int e)
+            ArgumentOutOfRangeException.ThrowIfLessThan(e, start);
+        return new(RowWindowKind.Range, 0, start, end);
+    }
+
+    /// <summary>
+    /// Resolves this window against a table that rendered
+    /// <paramref name="dataCount"/> data rows, returning the half-open range of
+    /// 0-based data-row positions to keep.
+    ///
+    /// The result is always a valid range (<c>0 &lt;= keepStart &lt;= keepEnd
+    /// &lt;= dataCount</c>), so a caller can use it without re-clamping. An
+    /// absolute range that starts past the end of the table resolves to an empty
+    /// window rather than an error: the rows it names simply are not there.
+    ///
+    /// For a Range the ordering half of that invariant holds by construction, not
+    /// by clamping here: <see cref="Range"/> rejects <c>end &lt; start</c>, so
+    /// <c>_end &gt;= _start</c>, and <see cref="Math.Min(int,int)"/> is monotonic.
+    /// <c>RowWindowResolutionTests.Range_RefusesAnEndBeforeItsStart</c> is the gate.
+    /// </summary>
+    public (int KeepStart, int KeepEnd) Resolve(int dataCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(dataCount);
+
+        switch (Kind)
+        {
+            case RowWindowKind.Head:
+                // A negative count is "no limit"; clamping it to dataCount keeps
+                // the whole table rather than emptying it.
+                return (0, _count < 0 ? dataCount : Math.Min(_count, dataCount));
+            case RowWindowKind.Tail:
+                return (_count < 0 ? 0 : Math.Max(0, dataCount - _count), dataCount);
+            default:
+                var start = Math.Min(_start - 1, dataCount);
+                var end = _end is int e ? Math.Min(e, dataCount) : dataCount;
+                return (start, end);
+        }
+    }
+}
+
+/// <summary>Whether a <see cref="RowWindow"/> counts rows or names them.</summary>
+public enum RowWindowKind
+{
+    /// <summary>The first N rows.</summary>
+    Head,
+
+    /// <summary>The last N rows.</summary>
+    Tail,
+
+    /// <summary>An absolute, 1-based, inclusive span of row numbers.</summary>
+    Range,
+}
 
 /// <summary>
 /// Thrown when <c>--rows</c> is combined with an invalid head/tail window
