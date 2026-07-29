@@ -2,6 +2,9 @@ namespace DotnetInspector.Output;
 
 /// <summary>
 /// Reorders rendered Markdown H2 sections while preserving the document preamble.
+/// Reordering selects the order sections appear in; like row limiting, it is not
+/// licensed to rewrite the document's line endings, so it rejoins on the ending the
+/// text already used (see <see cref="MarkdownScan.DetectNewline"/>).
 /// </summary>
 internal static class MarkdownSectionOrderer
 {
@@ -10,7 +13,8 @@ internal static class MarkdownSectionOrderer
         if (string.IsNullOrEmpty(markdown) || sectionOrder.Count == 0)
             return markdown;
 
-        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        var newline = MarkdownScan.DetectNewline(markdown);
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
         var sectionStarts = new List<int>();
         var inFence = false;
         for (var i = 0; i < lines.Length; i++)
@@ -53,6 +57,6 @@ internal static class MarkdownSectionOrderer
             output.AddRange(section.Lines);
         }
 
-        return string.Join('\n', output);
+        return string.Join(newline, output);
     }
 }
