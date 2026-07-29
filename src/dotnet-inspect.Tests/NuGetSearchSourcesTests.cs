@@ -304,6 +304,12 @@ public class NuGetSearchSourcesTests
     [InlineData("https://feed.example/v3/", "https://feed.example/v3", true)]
     [InlineData("https://feed.example:443/v3/index.json", "https://feed.example/v3/index.json", true)]
     [InlineData("https://bücher.example/v3/index.json", "https://xn--bcher-kva.example/v3/index.json", true)]
+    // Percent-escape hex digits are case-insensitive per RFC 3986, and Uri preserves whichever
+    // spelling the caller wrote, so comparing raw would withhold credentials from the user's feed.
+    [InlineData("https://feed.example/a%2fb/index.json", "https://feed.example/a%2Fb/index.json", true)]
+    [InlineData("https://feed.example/v3/index.json?k=a%2fb", "https://feed.example/v3/index.json?k=a%2Fb", true)]
+    // The escape still denotes a different character than the literal it encodes.
+    [InlineData("https://feed.example/a%2fb/index.json", "https://feed.example/a/b/index.json", false)]
     // Different endpoints. Paths and queries are case-sensitive over HTTP, so folding them would
     // hand one feed's credentials to another feed on the same host.
     [InlineData("https://feed.example/FeedA/index.json", "https://feed.example/feeda/index.json", false)]
@@ -382,6 +388,34 @@ public class NuGetSearchSourcesTests
 
             // The fallback still belongs to ResolveSources, which discovered configs rely on.
             Assert.Equal("nuget.org", Assert.Single(NuGetFetch.SourceResolver.ResolveSources(configPath: path)).Name);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DescribeConfigProblem_UnreadableConfig_ReportsRatherThanThrows()
+    {
+        // The caller is a parse-time validator, which runs outside every handler in Program.cs.
+        // A throw here is not a reportable error, it is a process crash with a raw stack trace.
+        string path = Path.Combine(Path.GetTempPath(), $"locked-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, $"""
+            <configuration><packageSources><add key="a" value="{IndexUrl}" /></packageSources></configuration>
+            """);
+        try
+        {
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                string? problem = NuGetSourceResolver.DescribeConfigProblem(path);
+
+                Assert.NotNull(problem);
+                Assert.Contains("could not be read", problem, StringComparison.Ordinal);
+            }
+
+            // Same file, once the lock is gone, is usable.
+            Assert.Null(NuGetSourceResolver.DescribeConfigProblem(path));
         }
         finally
         {

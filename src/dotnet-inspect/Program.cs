@@ -154,6 +154,10 @@ try
 {
     exitCode = await CommandLineBuilder.InvokeAsync(result);
 }
+// Each handler below sets exitCode rather than returning, so a failed run still reaches the
+// shared post-invocation work (tail flush, --info metrics, request trace, cache maintenance).
+// Returning early skipped all of it, which the framework's own handler had never done: it
+// converted an exception to an exit code and let execution continue.
 catch (RowWindowValidationException ex)
 {
     // Defensive: the --rows head/tail window is rejected at parse time by the
@@ -161,18 +165,18 @@ catch (RowWindowValidationException ex)
     // primary path. It converts any escaped validation throw into the clean CLI
     // error contract instead of an unhandled-exception stack trace.
     Console.Error.WriteLine($"Error: {ex.Message}");
-    return 1;
+    exitCode = 1;
 }
 catch (DotnetInspector.CommandLine.PrefixResolutionException ex)
 {
     // --package-prefix expansion needs the network, so unlike the row window it cannot be
     // settled at parse time. This is its primary path, not a defensive one.
     Console.Error.WriteLine($"Error: {ex.Message}");
-    return 1;
+    exitCode = 1;
 }
 catch (OperationCanceledException)
 {
-    return 1;
+    exitCode = 1;
 }
 catch (Exception ex)
 {
@@ -181,7 +185,7 @@ catch (Exception ex)
     // instead of stack traces. An exception reaching here is a bug, not a reportable
     // condition, so it keeps the full trace.
     Console.Error.WriteLine($"Unhandled exception: {ex}");
-    return 1;
+    exitCode = 1;
 }
 
 // Flush tail writer to emit only the last N lines

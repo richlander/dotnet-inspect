@@ -21,15 +21,6 @@ namespace DotnetInspector.Tests;
 /// names by blindly replacing '+' with '.', which dropped rows for a
 /// <em>non-nested</em> type whose metadata name literally contains '+'.
 /// </summary>
-/// <remarks>
-/// In the <c>Console</c> collection only for test isolation, not because these tests capture
-/// console output. <see cref="ConsoleCapture"/> redirects the process-global
-/// <see cref="Console.Out"/>, and its semaphore serializes only other capturing tests. The
-/// <c>Assert.Skip</c> below emits runner output, so when this class ran in parallel with the
-/// collection it landed in a capturing test's buffer and failed it. Sharing the collection
-/// serializes the two.
-/// </remarks>
-[Collection("Console")]
 public class ApiOutputFormatterTests
 {
     const string Asm = "PlusType";

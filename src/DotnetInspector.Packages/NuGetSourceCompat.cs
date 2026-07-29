@@ -56,6 +56,13 @@ public static class NuGetSourceResolver
     /// time rather than letting it surface as an exception from whichever service resolves
     /// sources first.
     /// </summary>
+    /// <remarks>
+    /// This method reports problems; it does not raise them. Its caller is a parse-time option
+    /// validator, and an exception thrown there escapes before any command runs — outside every
+    /// handler in Program.cs, which wrap invocation rather than parsing — and terminates the
+    /// process with a raw stack trace. Every reason a config cannot be read is therefore a
+    /// returned string, including the ones that arrive as exceptions.
+    /// </remarks>
     public static string? DescribeConfigProblem(string configFile)
     {
         if (!File.Exists(configFile))
@@ -70,6 +77,12 @@ public static class NuGetSourceResolver
         catch (XmlException ex)
         {
             return $"NuGet config file '{configFile}' is not valid XML: {ex.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Exists but cannot be opened: locked by another process, denied by ACL, or not a
+            // regular file. Unusable for the same reason a missing file is unusable.
+            return $"NuGet config file '{configFile}' could not be read: {ex.Message}";
         }
 
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake

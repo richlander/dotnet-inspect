@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Net.Http.Headers;
+using System.Text;
 using NuGetSource = NuGetFetch.PackageSource;
 
 namespace DotnetInspector.Packages;
@@ -54,8 +55,20 @@ public static class NuGetCredentialScope
     /// Origin is compared with <see cref="IsSameOrigin"/>, which folds case because scheme and
     /// host are case-insensitive by definition. Path and query are compared ordinally: HTTP paths
     /// are case-sensitive, so <c>/FeedA</c> and <c>/feeda</c> may be different feeds, and treating
-    /// them as one would let a caller adopt the wrong feed's credentials. A trailing slash is
-    /// ignored because no feed distinguishes on it.
+    /// them as one would let a caller adopt the wrong feed's credentials.
+    ///
+    /// Two normalizations are applied, both for equivalences the URI grammar itself defines:
+    /// percent-escape hex digits are case-insensitive per RFC 3986 (<c>%2f</c> and <c>%2F</c> are
+    /// the same octet), and .NET's <see cref="Uri"/> preserves whichever the caller wrote, so
+    /// comparing raw would withhold credentials from a feed the user did configure. A trailing
+    /// slash is likewise ignored: it is the commonest way a hand-typed source URL differs from
+    /// its configured spelling, and the alternative failure — authentication silently not
+    /// working — is the one this whole change exists to prevent.
+    ///
+    /// Trailing-slash tolerance grants no exposure that the origin gate does not already grant.
+    /// <see cref="AuthFor"/> scopes credentials to the configured source's *origin*, so a
+    /// credentialed source may already reach any path on that host; being stricter here would
+    /// only decide which configured source is consulted, not where credentials may travel.
     /// </remarks>
     public static bool IsSameEndpoint(string? a, string? b)
     {
@@ -67,8 +80,44 @@ public static class NuGetCredentialScope
 
         return IsSameOrigin(a, b)
             && string.Equals(
-                x.AbsolutePath.TrimEnd('/'), y.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal)
-            && string.Equals(x.Query, y.Query, StringComparison.Ordinal);
+                NormalizeEscapes(x.AbsolutePath.TrimEnd('/')),
+                NormalizeEscapes(y.AbsolutePath.TrimEnd('/')),
+                StringComparison.Ordinal)
+            && string.Equals(
+                NormalizeEscapes(x.Query), NormalizeEscapes(y.Query), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Upper-cases the hex digits of percent-escapes, which RFC 3986 defines as case-insensitive,
+    /// leaving every other character byte-for-byte intact.
+    /// </summary>
+    private static string NormalizeEscapes(string value)
+    {
+        if (!value.Contains('%', StringComparison.Ordinal))
+        {
+            return value;
+        }
+
+        var builder = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '%'
+                && i + 2 < value.Length
+                && Uri.IsHexDigit(value[i + 1])
+                && Uri.IsHexDigit(value[i + 2]))
+            {
+                builder.Append('%')
+                    .Append(char.ToUpperInvariant(value[i + 1]))
+                    .Append(char.ToUpperInvariant(value[i + 2]));
+                i += 2;
+            }
+            else
+            {
+                builder.Append(value[i]);
+            }
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
