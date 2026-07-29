@@ -73,6 +73,33 @@ leak warning to, and ignores all four that are preferred. The top rank is the co
 credential provider is what a correctly configured CI pipeline uses, so such a pipeline still
 reaches a private feed unauthenticated.
 
+### Rank 5 is the floor, not a mistake
+
+That table reads like an argument for dropping `ClearTextPassword` support and requiring a
+credential provider. It is not, and the reason is worth recording so the conclusion is not
+re-litigated: NuGet's ranking is *security* guidance, not *availability* guidance.
+
+NuGet's [list of credential providers](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#list-of-credential-providers)
+names three in the entire ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of
+which is Visual Studio-only and therefore irrelevant to a CLI. Everything else authenticates by
+putting a token in `nuget.config`:
+
+| Feed | If rank 5 were dropped |
+| --- | --- |
+| Azure Artifacts | Fine — cross-platform provider exists. |
+| AWS CodeArtifact | Split. Fine with the provider; broken with `aws codeartifact login`, which writes a plaintext token into the *user-level* `nuget.config` and is documented to do exactly that on Linux and macOS. |
+| GitHub Packages | **Broken.** PAT-only, no provider, and the documented setup command is `dotnet nuget add source --username U --password T --store-password-in-clear-text`. |
+| GitLab, Artifactory, Nexus, ProGet, Cloudsmith, Artifact Registry | **Broken.** No NuGet credential providers exist. |
+
+So the mechanism NuGet ranks last is the only one that works everywhere, and for GitHub Packages
+it is not merely the easiest path but the *only* path — GitHub's own documentation instructs
+users to store the token in clear text.
+
+The defect is therefore not that rank 5 is supported. It is that rank 5 is supported *exclusively*
+while the four preferred mechanisms are dropped in silence, and that a dropped credential cannot
+be told apart from a missing package. Supporting a credential provider is a real improvement for
+Azure Artifacts and AWS; it does nothing for GitHub Packages, where only better diagnosis helps.
+
 Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
 and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
 though Azure DevOps ignores the username), and userinfo in the source URL
