@@ -1069,6 +1069,33 @@ public class ScanTokenTests
         // the fifth was unpinned.
         Assert.Equal(5, openers.Count(o => o.Length > 2));
 
+        // Length is not reach either. `$@"` can be exchanged for `"bbb` -- nine distinct seeds,
+        // eight strings, one comment, four raw, five longer than two characters, value pin
+        // updated in step -- and the only seed that opens a literal which is *both* verbatim
+        // and interpolated is gone. Measured, a wrong depth on that frame's fragment
+        // (BodySlicer.cs:1431, guarded on `frame.Verbatim && frame.DollarRun > 0`) then
+        // survives (adversarial review, GPT). Pin that family the same behavioural way: on the
+        // next line a backslash does not escape in a verbatim literal, so the quote after it
+        // closes and what follows is code; and a brace opens a hole only in an interpolated
+        // one. A seed that does both is verbatim *and* interpolated, whatever it is spelled.
+        bool CodeOnSecondLine(string opener, string second) =>
+            BodySlicer.ScanTokens([opener, second]).Any(t => t.Line == 1 && t.Kind is ScanTokenKind.Word);
+
+        Assert.Equal(1, openers.Count(o => CodeOnSecondLine(o, "\\\"a") && CodeOnSecondLine(o, "{a}")));
+
+        // Four raw seeds can be four *non-interpolated* raw seeds, which would erase the
+        // dollar-run ladder: the scanner tracks how many braces open a hole (`frame.DollarRun`),
+        // and only `$"""`, `$$"""` and `$$$""""` exercise runs of one, two and three. Pin the
+        // ladder by the run each seed actually needs, so the three cannot collapse onto one run
+        // or drop out of the seeds entirely.
+        int MinBraceRun(string opener) =>
+            CodeOnSecondLine(opener, "{a}") ? 1
+            : CodeOnSecondLine(opener, "{{a}}") ? 2
+            : CodeOnSecondLine(opener, "{{{a}}}") ? 3
+            : 0;
+
+        Assert.Equal([0, 0, 0, 0, 1, 1, 1, 2, 3], openers.Select(MinBraceRun).Order());
+
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
         // disturbing any of them, which drops one interpolation-order path and keeps the suite
