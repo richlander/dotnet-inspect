@@ -1191,6 +1191,34 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("void @event.@class()", declaration);
     }
 
+    [Theory]
+    // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
+    // '(' mistakes a tuple-typed return for a parameter list and escapes each element's
+    // trailing token. Unnamed elements end in the type keyword, so `(int, string)`
+    // became `(@int, @string)` — an identifier that does not bind (CS0246). Named
+    // elements hid the bug, because their trailing token is the element name.
+    [InlineData("(int, string) Pair(int a)", "public (int, string) Pair(int a)")]
+    [InlineData("(int Sum, int Product) Pair(int a)", "public (int Sum, int Product) Pair(int a)")]
+    [InlineData(
+        "(int, int, int, int, int, int, int, int) Rest(int a)",
+        "public (int, int, int, int, int, int, int, int) Rest(int a)")]
+    [InlineData("((int, int), int) Nested(int a)", "public ((int, int), int) Nested(int a)")]
+    [InlineData(
+        "T Echo<T>(T a) where T : System.IComparable<(int, int)>",
+        "public T Echo<T>(T a) where T : System.IComparable<(int, int)>")]
+    // Parameter escaping itself must keep working, including when the keyword-named
+    // parameter is itself tuple-typed and when the member is an operator.
+    [InlineData("void M(int event)", "public void M(int @event)")]
+    [InlineData("void M((int, int) event)", "public void M((int, int) @event)")]
+    [InlineData("Samples.Op operator +(Samples.Op class, Samples.Op b)", "public Samples.Op operator +(Samples.Op @class, Samples.Op b)")]
+    public void MemberDeclaration_EscapesParameterNamesWithoutManglingTupleTypes(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
     [Fact]
     public void TypeDeclaration_EscapesKeywordTypeParametersInInterfaces()
     {

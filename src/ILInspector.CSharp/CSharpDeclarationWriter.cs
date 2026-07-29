@@ -1325,6 +1325,23 @@ internal static class CSharpDeclarationWriter
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Escapes keyword-named parameters inside a member signature's parameter lists.
+    /// </summary>
+    /// <remarks>
+    /// Only a parenthesis run that actually opens a parameter list is rewritten. C#
+    /// tuple types are parenthesized too, so a naive "first paren wins" scan treats a
+    /// tuple-typed return (or a tuple nested in a constraint) as a parameter list and
+    /// escapes each element's trailing token — turning the predefined-type keyword in
+    /// <c>(int, string) Pair(int a)</c> into the identifier <c>(@int, @string)</c>,
+    /// which no longer binds (CS0246). A named element hid the bug, because there the
+    /// trailing token is the element name rather than the type keyword.
+    ///
+    /// A parameter list's <c>(</c> directly follows the member name, a generic-argument
+    /// <c>&gt;</c>, an operator token, or a preceding close paren. A tuple type's
+    /// <c>(</c> instead starts the string or follows whitespace or one of
+    /// <c>&lt; ( , [</c>, so those positions are skipped and only scanned past.
+    /// </remarks>
     static string EscapeParameterLists(string signature)
     {
         var sb = new StringBuilder(signature.Length);
@@ -1336,6 +1353,12 @@ internal static class CSharpDeclarationWriter
             {
                 sb.Append(signature, start, signature.Length - start);
                 return sb.ToString();
+            }
+            if (!OpensParameterList(signature, open))
+            {
+                sb.Append(signature, start, open - start + 1);
+                start = open + 1;
+                continue;
             }
             int close = Matching(signature, open, '(', ')');
             if (close < 0)
@@ -1350,6 +1373,11 @@ internal static class CSharpDeclarationWriter
             start = close + 1;
         }
     }
+
+    static bool OpensParameterList(string signature, int open)
+        => open > 0
+            && !char.IsWhiteSpace(signature[open - 1])
+            && signature[open - 1] is not ('<' or '(' or ',' or '[');
 
     static string EscapeParameterName(string parameter)
     {
