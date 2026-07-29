@@ -51,9 +51,10 @@ Two orthogonal facts round out a section's placement:
 - **Target flag** (`Info`) — the command's identity section (library: `Library
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
-- **Topical category membership** — which visible doors (`@Surface`,
-  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`) surface
-  the section. `@All`/`@Hidden` remain internal computed poles (below); they are
+- **Topical category membership** — which visible doors (library: `@Surface`,
+  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`; package: `@Files`,
+  `@SourceLink`)
+  surface the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
 
 A category earns its keep only at two or more members: a door with a single
@@ -63,15 +64,55 @@ the family under alphabetical render order. This is why the array-pool escape
 section is a flat `Array Pool Escapes` rather than a prefixed member of a
 single-member `@Escape` door.
 
-**A prefix and a category door are two halves of one claim.** A `Group: Leaf`
-prefix advertises membership in a family, so every prefixed section must be
-reachable through that family's door, and a prefix is only appropriate when the
-family is *exclusively* owned by one door. `P/Invoke Methods` belongs to both
-`@Audit` and `@Surface`, so no prefix can describe it — cross-cutting lenses
-stay unprefixed, and only exclusive families (`Performance:`, `Integration:`,
-`SourceLink:`) carry a prefix. The `SourceLink` family's half of this is
-enforced by a test that pins the door's membership to the set of
-`SourceLink:`-prefixed sections.
+The rule is about *permanent* single-member doors, and it is scoped per command
+rather than globally. A family that one command owns fully may reach another
+command as a single member first: `package` exposes only `SourceLink: Files` of
+the four-section `SourceLink:` family that `library` exposes. There the door is
+still correct, because the prefix already advertises it and because the name has
+to agree across commands for identical data. Cross-command agreement, not member
+count, is what earns the door in that case.
+
+**A name that advertises a family and a category door are two halves of one
+claim.** Whatever the name does to signal membership, every section that signals
+it must be reachable through that family's door, and the signal is only
+appropriate when the family is *exclusively* owned by one door. `P/Invoke
+Methods` belongs to both `@Audit` and `@Surface`, so nothing in its name can
+claim a family — cross-cutting lenses stay plain.
+
+There are two ways to carry the signal, and the choice is a readability call
+rather than a mechanism change:
+
+- A `Group: Leaf` **prefix**, used by `Performance:`, `Integration:`, and
+  `SourceLink:`. This suits families whose leaf names are only meaningful under
+  the group.
+- A shared **noun-phrase suffix**, used by the package file family:
+  `Package skill files`, `Package nuspec file`, and `Package README file`. These read as English rather than as a namespace, and
+  their singular/plural form carries real information — a singular name means
+  the section yields at most one row.
+
+  The family covers *kinds of document*, not layout roots. There is no
+  `Package library files` section: `lib/`, `ref/`, and `runtimes/` are slices of
+  one listing rather than different things, so `--path "lib/**"` scopes
+  `Package files` and `Package Info`'s `Content` field names the roots a package
+  ships. A section per root would have multiplied the catalog without answering
+  a question the path scope could not.
+
+Both are enforced the same way: a test pins the door's membership to the set of
+sections the naming rule selects, so a new section that adopts the naming but
+skips the door — or a member that loses the naming — fails rather than quietly
+opening a discoverability hole. The two signals do not compete: the package
+file rule matches on `Package … file(s)` and explicitly excludes any name
+carrying a `Group: Leaf` prefix, because a prefix claims the section for that
+group's door instead. That is why `SourceLink: Files` ends in "Files" without
+being a package file section.
+
+The converse also holds: a section that does not carry the signal stays out of
+the door. The package command's plain `Package files` is the unfiltered
+full-depth listing, a superset of every slice, so it is deliberately not a
+member of `@Files`. Admitting it would make `-S @Files` render each `lib/` path
+twice. This is the one place where a name reads like a family root without being
+one: `Package files` answers "what is in this package", while the family answers
+"what is in this package *of a given kind*".
 
 **A section lists in `-D` only when >0 rows can be established cheaply.** If
 applicability is a *capability* predicate (the scan could run) rather than a
@@ -81,7 +122,10 @@ exact name, through `@All`/`--schema`, and through any category door that roots
 it — a door drops zero-row members from render but still reports them under
 `--count`. `Array Pool Escapes` and the kind-scoped `Performance:` sections both
 follow this rule; listing them unconditionally would advertise sections that
-then render nothing.
+then render nothing. The package `Files:` family sits on the other side of the
+same rule: each member's content predicate is a cheap `Any(...)` test over an
+already-materialized file list, so all five stay normally listed and simply drop
+out of `-D` for a package that ships no such assets.
 
 `Effective` is not a declared axis — it is the existing `CanRender` filter: an
 auto-selected section that would produce zero rows is suppressed. `Unbounded`
@@ -258,10 +302,17 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (SourceLink: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
 | Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name, or a door that roots it) | `@Audit` / — / `@SourceLink` |
-| Recursive expansion (Dependencies) | `Verbose` | `Unbounded` | never (exact name) | — |
+| Recursive expansion (Dependencies) | `Verbose` | `Unbounded` | never (exact name, or the door that roots it) | `@Dependencies` |
 
 Dependencies is the transitive expansion of References over the same assembly
-references, so it renders the facts References already shows plus their closure.
+references: it walks the identities References lists and reports their closure.
+The two are different views rather than one containing the other — References
+carries the public key token of each direct reference, while Dependencies
+renders each node's name, version, and, where the node resolved, its company.
+Resolution facts (the resolved path and whether it came from the package or the
+platform) are on the model but are not rendered by the tree, and a node that did
+not resolve carries no company either, because company is read out of the
+resolved file.
 That closure is built by resolving and reading every referenced assembly
 recursively, which is both unbounded and duplicative of References, so it is
 declared `Verbose`/`Unbounded`, and `ExplicitOnly` besides: never auto-run by a
@@ -289,17 +340,38 @@ The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-co
 `-D` is the discovery path. Bare `-S` renders a small, curated high-density section bundle for commands that define one.
 
 ```bash=
-$ dotnet run --project src/dotnet-inspect -- System.CommandLine -D
-Dependencies             section
-Files                    section
-Library Files            section
-Manifest                 section
-Package Info             section
-Runtime Dependencies     section
-Statistics               section
-Target Frameworks        section
-Vulnerabilities          section
+$ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
+| Name | Kind |
+| ---- | ---- |
+| @Files | category |
+| @SourceLink | category |
+| Dependencies | section |
+| Manifest | section |
+| Package files | section |
+| Package Info | section |
+| Package nuspec file | section |
+| Package README file | section |
+| Signals | section |
+| Signature | section |
+| Statistics | section |
+| Target Frameworks | section |
 ```
+
+Curated catalogs lead with the topical doors, then list sections alphabetically.
+The `package` command goes further and drops the computed `@All` and `@Default`
+poles entirely (`WithoutComputedPoles`), so they are unresolvable rather than
+merely unlisted: its sections are reachable by name, by door, and by verbosity,
+and a pole that renders a superset nobody asked for is a surface no discovery
+output describes. `@Default` survives only as the internal encoding of bare
+`-S`, which is short-circuited before selector resolution. `SourceLink: Files` is absent from the
+section rows for the same reason a `Performance:` leaf is on the library
+command: the door above it is the entry point.
+
+Discovery is data-aware, so this listing is a property of the target and not a
+static catalog. `System.CommandLine` ships no `skills/**/SKILL.md`, so
+`Package skill files` does not list for it; it appears for a package such as
+`Markout` that does. This is the same rule that keeps `Vulnerabilities` and
+`Runtime Dependencies` out of the listing when they would be empty.
 
 The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
 

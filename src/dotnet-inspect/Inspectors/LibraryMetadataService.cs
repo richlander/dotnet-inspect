@@ -24,29 +24,63 @@ namespace DotnetInspector.Inspectors;
 internal static class LibraryMetadataService
 {
     /// <summary>
-    /// Scanner keys whose data the shared metadata read produces, rather than a registered
-    /// scanner. <see cref="SharedReadScannerKeys"/> is the subset a section may declare.
+    /// The scanner keys the shared metadata read responds to. Requesting any of them makes the
+    /// read extract assembly references (see the <c>needsReferences</c> use in
+    /// <see cref="InspectAsync"/>), which is the only data this read produces on a section's
+    /// behalf.
     /// </summary>
     /// <remarks>
-    /// <c>ScannerTransitiveRefs</c> appears here because the transitive scan needs the reference
-    /// list the read extracts, not because the read satisfies it; a registered scanner still does
-    /// that work. Keeping the two sets distinct is what lets
-    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c> assert
-    /// equality rather than containment: a key that no scanner registers and no read satisfies
-    /// still fails, which is the silence #3453 found.
+    /// <para>
+    /// This set is the single source of truth for what the read consults. An earlier revision
+    /// maintained a second, free-standing literal listing the keys the read "satisfies", and a key
+    /// added to that literal and to a section — but not here — passed the gate while nothing
+    /// collected it. That is the silence #3453 found, reintroduced one level up. Anything the gate
+    /// needs is therefore <em>derived</em> from this set rather than restated alongside it.
+    /// </para>
+    /// <para>
+    /// <c>ScannerTransitiveRefs</c> is listed because the transitive scan consumes the reference
+    /// list this read extracts; a registered scanner still performs the transitive walk itself.
+    /// </para>
     /// </remarks>
-    private static readonly HashSet<string> ReferenceReadingScannerKeys =
+    internal static readonly HashSet<string> ReferenceReadingScannerKeys =
     [
         LibrarySections.ScannerReferences,
         LibrarySections.ScannerTransitiveRefs
     ];
 
     /// <summary>
-    /// The keys the shared metadata read alone satisfies. Unioned with the registry's registered
-    /// keys to form the set a section is allowed to declare.
+    /// The keys in <see cref="ReferenceReadingScannerKeys"/> that the read only <em>feeds</em>:
+    /// it extracts their input, but a registered scanner still does the work the key names.
+    /// </summary>
+    /// <remarks>
+    /// These are excluded from <see cref="SharedReadScannerKeys"/> because a section declaring one
+    /// is not satisfied by the read alone. Counting them as satisfied made the registration gate
+    /// blind in one direction: <c>ScannerTransitiveRefs</c> reached the gate's union from both the
+    /// registry and the read, so <em>deleting</em> its registration left the union unchanged and
+    /// the gate still passed while <c>Dependencies</c> silently stopped producing its tree. An
+    /// earlier revision argued the two sets were interchangeable "because the union is identical
+    /// either way" — that identity was the defect, not the justification.
+    /// <see cref="SectionPipelineTests"/> pins the property that makes the exclusion safe: every
+    /// declared key the read does not satisfy must have a registered scanner, and this set names
+    /// only keys the read actually reads — a member outside
+    /// <see cref="ReferenceReadingScannerKeys"/> would be a silent no-op, since the exclusion
+    /// filters that set.
+    /// </remarks>
+    internal static readonly IReadOnlySet<string> KeysTheReadOnlyFeeds =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            LibrarySections.ScannerTransitiveRefs
+        };
+
+    /// <summary>
+    /// The keys the shared metadata read fully honors, unioned with the registry's registered keys
+    /// to form the set a section is allowed to declare. Derived from
+    /// <see cref="ReferenceReadingScannerKeys"/> so it cannot claim a key the read ignores.
     /// </summary>
     internal static IReadOnlySet<string> SharedReadScannerKeys { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { LibrarySections.ScannerReferences };
+        ReferenceReadingScannerKeys
+            .Where(k => !KeysTheReadOnlyFeeds.Contains(k))
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.
