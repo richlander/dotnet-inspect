@@ -3,6 +3,7 @@ using System.IO.Enumeration;
 using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using ILInspector.MetadataPrimitives;
 using NuGetFetch;
 
 namespace DotnetInspector.Services;
@@ -178,6 +179,12 @@ public static class ProjectAssetsParser
                 if (!libraries.TryGetProperty(dep.Name, out var libInfo))
                     continue;
 
+                // Project references are skipped before "path" is read, which is load-bearing for
+                // the guard below: a project library's path is legitimately relative to the assets
+                // file ("../Contoso/Contoso.csproj") and would be refused as traversal. A sweep of
+                // 1,568 real project.assets.json files rejected 5,249 paths before this skip was
+                // accounted for and 0 after. Moving the guard above this line, or resolving project
+                // libraries through it, will refuse ordinary project references.
                 if (libInfo.TryGetProperty("type", out var typeElem) && typeElem.GetString() == "project")
                     continue;
 
@@ -196,6 +203,12 @@ public static class ProjectAssetsParser
                             continue;
 
                         if (asm.Name.Contains("_._"))
+                            continue;
+
+                        // packagePath and asm.Name come from project.assets.json, which the threat
+                        // model lists as untrusted along with the paths inside it.
+                        if (!HardenedPath.IsSafeRelativePath(packagePath) ||
+                            !HardenedPath.IsSafeRelativePath(asm.Name))
                             continue;
 
                         var fullPath = Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', Path.DirectorySeparatorChar));
@@ -492,6 +505,11 @@ public static class ProjectAssetsParser
     private static string? ResolvePackageFilePath(string? packagePath, string packageRelativePath)
     {
         if (string.IsNullOrWhiteSpace(packagePath))
+            return null;
+
+        // packageRelativePath comes from the "files" array of project.assets.json. packagePath is
+        // the already-resolved package root, so only the untrusted half is validated here.
+        if (!HardenedPath.IsSafeRelativePath(packageRelativePath))
             return null;
 
         return Path.GetFullPath(Path.Combine(

@@ -655,6 +655,126 @@ public class ProjectAssetsParserTests
         }
     }
 
+    /// <summary>
+    /// A crafted <c>project.assets.json</c> whose library <c>path</c> traverses out of the NuGet
+    /// cache must not resolve, even when a readable file is planted exactly where the unguarded
+    /// combine would land.
+    /// </summary>
+    /// <remarks>
+    /// The traversal is computed with <see cref="Path.GetRelativePath(string, string)"/> from the
+    /// real cache root to a temp directory, so the payload is genuinely reachable and the test
+    /// fails if the guard is removed. The threat model lists <c>project.assets.json</c> and the
+    /// paths inside it as untrusted, with unintended file reads as the risk.
+    /// </remarks>
+    [Fact]
+    public void Parse_WithTraversingLibraryPath_DoesNotEscapeTheNuGetCache()
+    {
+        var payloadRoot = Path.Combine(Path.GetTempPath(), $"assets-traversal-{Guid.NewGuid():N}");
+        var payloadDirectory = Path.Combine(payloadRoot, "lib", "net8.0");
+        Directory.CreateDirectory(payloadDirectory);
+        var payload = Path.Combine(payloadDirectory, "payload.dll");
+        File.WriteAllText(payload, "payload");
+
+        var cacheRoot = DotnetInspector.Packages.NuGetCache.GetNuGetCachePath();
+        var traversal = Path.GetRelativePath(cacheRoot, payloadRoot).Replace(Path.DirectorySeparatorChar, '/');
+
+        // The traversal has to actually reach the payload, or the test would pass without the guard.
+        Assert.Contains("..", traversal, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(cacheRoot, traversal.Replace('/', Path.DirectorySeparatorChar), "lib", "net8.0", "payload.dll")));
+
+        var assetsPath = CreateTempAssetsFile(new Dictionary<string, object>
+        {
+            ["version"] = 3,
+            ["targets"] = new Dictionary<string, object>
+            {
+                ["net8.0"] = new Dictionary<string, object>
+                {
+                    ["Evil.Package/1.0.0"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "package",
+                        ["compile"] = new Dictionary<string, object>
+                        {
+                            ["lib/net8.0/payload.dll"] = new Dictionary<string, object>()
+                        }
+                    }
+                }
+            },
+            ["libraries"] = new Dictionary<string, object>
+            {
+                ["Evil.Package/1.0.0"] = new Dictionary<string, object>
+                {
+                    ["type"] = "package",
+                    ["path"] = traversal
+                }
+            }
+        });
+
+        try
+        {
+            var results = ProjectAssetsParser.Parse(assetsPath, null, null);
+
+            Assert.DoesNotContain(results, r => r.Path.Contains("payload.dll", StringComparison.OrdinalIgnoreCase));
+            Assert.Empty(results);
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(payloadRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The positive control: an ordinary package coordinate still resolves, so the guard above is
+    /// refusing traversal rather than refusing everything.
+    /// </summary>
+    [Fact]
+    public void Parse_WithOrdinaryLibraryPath_StillResolves()
+    {
+        var cacheRoot = DotnetInspector.Packages.NuGetCache.GetNuGetCachePath();
+        var packageRelative = $"legit.package/{Guid.NewGuid():N}";
+        var packageDirectory = Path.Combine(cacheRoot, packageRelative.Replace('/', Path.DirectorySeparatorChar), "lib", "net8.0");
+        Directory.CreateDirectory(packageDirectory);
+        File.WriteAllText(Path.Combine(packageDirectory, "Legit.dll"), "legit");
+
+        var assetsPath = CreateTempAssetsFile(new Dictionary<string, object>
+        {
+            ["version"] = 3,
+            ["targets"] = new Dictionary<string, object>
+            {
+                ["net8.0"] = new Dictionary<string, object>
+                {
+                    ["Legit.Package/1.0.0"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "package",
+                        ["compile"] = new Dictionary<string, object>
+                        {
+                            ["lib/net8.0/Legit.dll"] = new Dictionary<string, object>()
+                        }
+                    }
+                }
+            },
+            ["libraries"] = new Dictionary<string, object>
+            {
+                ["Legit.Package/1.0.0"] = new Dictionary<string, object>
+                {
+                    ["type"] = "package",
+                    ["path"] = packageRelative
+                }
+            }
+        });
+
+        try
+        {
+            var results = ProjectAssetsParser.Parse(assetsPath, null, null);
+            Assert.Contains(results, r => r.Path.EndsWith("Legit.dll", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(assetsPath);
+            Directory.Delete(Path.Combine(cacheRoot, packageRelative.Split('/')[0], packageRelative.Split('/')[1]), recursive: true);
+        }
+    }
+
     private static string CreateTempAssetsFile(object content)
     {
         var json = JsonSerializer.Serialize(content);

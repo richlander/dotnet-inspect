@@ -121,6 +121,42 @@ public static class HardenedPath
     }
 
     /// <summary>
+    /// Whether <paramref name="value"/> is safe to combine with a trusted root as a multi-segment
+    /// relative path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Restored project inputs carry paths, not bare names: a <c>.deps.json</c> asset key or a
+    /// <c>project.assets.json</c> compile entry is spelled <c>lib/net8.0/Foo.dll</c>. The threat
+    /// model lists those files and "paths within those files" as untrusted, with path confusion
+    /// and unintended file reads as the risk, so they need the component rule applied to every
+    /// segment rather than to the whole string — which would reject every legitimate value for
+    /// containing a separator.
+    /// </para>
+    /// <para>
+    /// Both separators are treated as separators regardless of host, because the inspected
+    /// artifact is frequently not from the host that will consume the report: a
+    /// <c>..\</c> segment is inert on Unix but traverses on Windows, and refusing it everywhere
+    /// keeps the verdict platform-independent. Empty segments are rejected rather than skipped, so
+    /// <c>lib//Foo.dll</c> and <c>lib/./Foo.dll</c> do not normalize their way past the rule, and a
+    /// rooted value is rejected outright because combining it discards the trusted root.
+    /// </para>
+    /// </remarks>
+    public static bool IsSafeRelativePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || Path.IsPathRooted(value))
+            return false;
+
+        foreach (var segment in value.Split(['/', '\\']))
+        {
+            if (!IsSafePathComponent(segment))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Whether the value's stem names a reserved device. A device is reserved with or without an
     /// extension, so <c>CON.txt</c> is <c>CON</c>.
     /// </summary>

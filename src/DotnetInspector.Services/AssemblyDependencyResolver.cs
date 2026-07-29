@@ -726,10 +726,13 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             if (asset.Value.ValueKind == JsonValueKind.Object &&
                 asset.Value.TryGetProperty("localPath", out var localPathElement) &&
                 localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath)
+                localPathElement.GetString() is { Length: > 0 } localPath &&
+                HardenedPath.IsSafeRelativePath(localPath))
                 addReference(Path.Combine(targetDirectory, NativePath(localPath)));
 
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath) &&
+                HardenedPath.IsSafeRelativePath(packagePath) &&
+                HardenedPath.IsSafeRelativePath(asset.Name))
                 addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
         }
     }

@@ -163,4 +163,74 @@ public class HardenedPathTests
         Assert.Contains("package name", ex.Message, StringComparison.Ordinal);
         Assert.Contains("../payload", ex.Message, StringComparison.Ordinal);
     }
+
+    // ===== IsSafeRelativePath: restored project inputs carry paths, not bare names =====
+
+    [Theory]
+    // The shapes a .deps.json asset key and a project.assets.json compile entry actually take.
+    [InlineData("lib/net8.0/Contoso.dll")]
+    [InlineData("lib/netstandard2.0/Contoso.Core.dll")]
+    [InlineData("runtimes/win-x64/native/contoso.native.dll")]
+    [InlineData("runtimes/linux-musl-arm64/lib/net9.0/Contoso.dll")]
+    [InlineData("contoso.package/1.2.3")]
+    [InlineData("contoso.package/1.2.3-preview.4.25060.1")]
+    [InlineData("build/Contoso.props")]
+    [InlineData("contoso.package.nuspec")]
+    [InlineData(".signature.p7s")]
+    [InlineData("ref/net8.0/Contoso.dll")]
+    // A backslash-spelled variant of a legitimate path is still legitimate.
+    [InlineData("lib\\net8.0\\Contoso.dll")]
+    public void LegitimateRelativePath_IsAccepted(string value)
+    {
+        Assert.True(HardenedPath.IsSafeRelativePath(value));
+    }
+
+    [Theory]
+    // Traversal, in either spelling, on every host.
+    [InlineData("../payload.dll")]
+    [InlineData("..\\payload.dll")]
+    [InlineData("lib/../../payload.dll")]
+    [InlineData("lib/net8.0/../../../payload.dll")]
+    [InlineData("lib\\..\\..\\payload.dll")]
+    // A device name in any segment, including the last.
+    [InlineData("lib/net8.0/CON")]
+    [InlineData("lib/CON/Contoso.dll")]
+    [InlineData("lib/net8.0/COM1.dll")]
+    [InlineData("lib/net8.0/CONIN$")]
+    // Rooted values discard the trusted root when combined.
+    [InlineData("/etc/passwd")]
+    [InlineData("/usr/lib/payload.dll")]
+    // Empty segments must not normalize their way past the rule.
+    [InlineData("lib//Contoso.dll")]
+    [InlineData("lib/./Contoso.dll")]
+    [InlineData("/")]
+    // Whitespace and trailing dots the host strips.
+    [InlineData("lib/net8.0 /Contoso.dll")]
+    [InlineData("lib/net8.0./Contoso.dll")]
+    // Invisible characters.
+    [InlineData("lib/net8.0/Contoso\u200b.dll")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void HostileRelativePath_IsRejected(string value)
+    {
+        Assert.False(HardenedPath.IsSafeRelativePath(value));
+    }
+
+    [Fact]
+    public void NullRelativePath_IsRejected()
+    {
+        Assert.False(HardenedPath.IsSafeRelativePath(null));
+    }
+
+    /// <summary>
+    /// A Windows-rooted path is rejected on every host, not only where
+    /// <see cref="Path.IsPathRooted(string)"/> agrees. On Unix <c>C:\payload.dll</c> is not rooted,
+    /// so the refusal has to come from the component rule rejecting the volume qualifier.
+    /// </summary>
+    [Fact]
+    public void WindowsRootedPath_IsRejectedOnEveryHost()
+    {
+        Assert.False(HardenedPath.IsSafeRelativePath("C:\\payload.dll"));
+        Assert.False(HardenedPath.IsSafeRelativePath("C:/payload.dll"));
+    }
 }
