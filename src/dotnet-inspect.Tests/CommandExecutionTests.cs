@@ -3560,15 +3560,18 @@ public class CommandExecutionTests
     [InlineData("--print")]
     public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
     {
-        // The whole-surface type listing renders sections but has no projection dispatch, so
-        // before the audit it answered a projection request with the full unprojected listing
-        // and exit 0. The audit turns that silent drop into a reported failure. When this route
-        // gains real column projection, this expectation changes to a projected payload.
-        var (exit, _, error) = await RunAppAsync(
+        // The whole-surface type listing is a name table that exposes no printable payload, so a
+        // payload projection cannot be honored. It used to render the full unprojected listing and
+        // then trip the audit (#3390); it now (#3386) rejects the projection up front with a
+        // targeted message, before rendering, so the audit never has to fire a second line.
+        var (exit, output, error) = await RunAppAsync(
             "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
 
         Assert.Equal(1, exit);
-        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+        Assert.Empty(output);
+        Assert.Contains("not supported when listing types", error);
+        Assert.Contains(projectionFlag, error);
+        Assert.DoesNotContain("produced unprojected output", error);
     }
 
     [Fact]
@@ -3603,6 +3606,88 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("produced unprojected output", error);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task TypeListing_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: --columns/--fields select table columns; document --json has no column-slicing
+        // facility. The combination used to silently drop the column filter and emit the whole
+        // typed document; it now fails closed instead.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task TypeListing_PayloadProjection_IsRejected()
+    {
+        // #3386: the type-listing surface exposes no printable payload, so a payload projection
+        // used to dump the whole ~20 MB surface and then trip the projection audit. It now fails
+        // closed before rendering, and the audit must not add a second, misleading line.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Classes", "--value", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not supported when listing types", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task SingleType_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: the same rejection applies on the single-type path.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Member_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: the member path shares the single-type writer, so it inherits the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task ColumnProjectionWithValue_UnderJson_StillComposes()
+    {
+        // #3386 boundary: a scalar payload projection composes with --json (--fields picks which
+        // column feeds --value), so this must remain honored rather than swept into the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--fields", "Assembly Version", "--value", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"value\"", output);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task GlobListing_Discovery_IsHonoredNotRejected()
+    {
+        // #3386 regression guard: the glob (and prefix-browse) fallback routes ignored -D
+        // discovery and fell through to WriteFullApiOutput. Once that path rejects --fields+--json,
+        // a discovery request there would have been rejected with a misleading column message.
+        // Discovery must be dispatched before the projection guard, matching the main listing path.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.*", "--library", TestAssemblyPath, "-D", "Classes", "--fields", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.Contains("\"kind\":\"column\"", output);
     }
 
     [Fact]
