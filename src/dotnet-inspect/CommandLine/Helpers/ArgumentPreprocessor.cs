@@ -61,6 +61,54 @@ public static class ArgumentPreprocessor
     }
 
     /// <summary>
+    /// Answers raw-token questions that must be resolved before parsing: spellings the product
+    /// used to accept and no longer does. The parser can only say "Unrecognized option", which
+    /// is true but leaves the caller to find the replacement themselves.
+    /// </summary>
+    public static bool TryGetStaleArgumentError(string[] args, out string? error)
+        => TryGetStaleDirectionFlagError(args, out error)
+            || TryGetRemovedPackageReadmeError(args, out error);
+
+    /// <summary>
+    /// <c>package --readme</c> was removed: printing a document is a projection over a selected
+    /// section rather than a lens of its own, so a flag naming one document competed with the
+    /// section selection for the same question. Scoped to the package command because
+    /// <c>project --readme &lt;package-id&gt;</c> is a different option that still exists.
+    /// </summary>
+    private static bool TryGetRemovedPackageReadmeError(string[] args, out string? error)
+    {
+        error = null;
+        var end = Array.IndexOf(args, "--");
+        if (end < 0)
+            end = args.Length;
+
+        if (end == 0)
+            return false;
+
+        // A local .nupkg preprocesses to "package"; a bare name preprocesses to "router", whose
+        // package fallback is the only place --readme ever worked. Both spellings meant the
+        // package readme, so both get the replacement rather than a bare parser complaint.
+        if (!args[0].Equals("package", StringComparison.OrdinalIgnoreCase)
+            && !args[0].Equals("router", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < end; i++)
+        {
+            if (!args[i].Equals("--readme", StringComparison.Ordinal))
+                continue;
+
+            error = "'--readme' is no longer valid. Printing a document is a projection over a "
+                + "selected section: use '-S \"Package README file\" --print' for one package, "
+                + "or '--content --path @readme' to survey several.";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Known/reserved commands for implicit package command detection.
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)

@@ -128,9 +128,9 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // which is why no --rows gate remains here.
 var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
 
-if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
+if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
 {
-    Console.Error.WriteLine($"Error: {staleDirectionError}");
+    Console.Error.WriteLine($"Error: {staleArgumentError}");
     return 1;
 }
 

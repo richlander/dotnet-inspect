@@ -563,9 +563,9 @@ public class CommandExecutionTests
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
             // reimplement the check here.
-            if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
+            if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
             {
-                Console.Error.WriteLine($"Error: {staleDirectionError}");
+                Console.Error.WriteLine($"Error: {staleArgumentError}");
                 return 1;
             }
 
@@ -11325,6 +11325,86 @@ public class CommandExecutionTests
 
             Assert.Equal(0, nuspecExit);
             Assert.Contains("Test.NoReadme.Print", nuspecOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_RemovedReadmeFlag_PointsAtItsReplacement()
+    {
+        // A removed spelling answered with "Unrecognized option" is true but leaves the caller to
+        // find the replacement. This repo already answers the stale '--head N' spelling with its
+        // replacement, so a removed flag does the same -- for every form that used to accept it.
+        foreach (var args in new[]
+        {
+            new[] { "package", "Newtonsoft.Json@13.0.3", "--readme" },
+            ["Newtonsoft.Json@13.0.3", "--readme"],
+            new[] { "package", "Newtonsoft.Json@13.0.3", "--readme", "--json" }
+        })
+        {
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("no longer valid", error, StringComparison.Ordinal);
+            Assert.Contains("--print", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ExtensionlessReadme_IsStillTreatedAsMarkdown()
+    {
+        // The readme's kind comes from its role, not its extension: the manifest declared this
+        // file as the readme, and NuGet renders it as Markdown. Keying only on the extension
+        // would refuse --frontmatter and drop blob-to-raw rewriting for a document that is
+        // genuinely Markdown, which is a capability the bespoke readme printer had.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "README"),
+            "---\ntitle: Demo\n---\n\nSee https://github.com/owner/repo/blob/main/x.md for more.\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.Extensionless.nuspec"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.Extensionless</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>README</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.Extensionless.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter", "--bare");
+
+            Assert.Equal(0, scopeExit);
+            Assert.Empty(scopeError);
+            Assert.Contains("title: Demo", scopeOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("See https://", scopeOutput, StringComparison.Ordinal);
+
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            // The nuspec in the same package is not the readme, so it stays verbatim. Role, not
+            // a blanket relaxation of the rule, is what makes the readme Markdown.
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("<readme>README</readme>", nuspecOutput, StringComparison.Ordinal);
         }
         finally
         {

@@ -1094,13 +1094,25 @@ public class PackageCommand
     {
         var section = options.IncludeSections!.Single();
         var view = new InspectionResultView(result);
-        var rows = section switch
+        List<PackageFileRow>? rows = section switch
         {
             PackageSections.FilesNuspec => view.NuspecFiles,
             PackageSections.FilesReadme => view.PackageReadme,
             PackageSections.FilesSkills => view.SkillFiles,
-            _ => null
-        } ?? [];
+            // ValidatePackagePrintSelection admits only the three sections above, so reaching
+            // here means the two lists disagree; say so rather than answering as if empty.
+            _ => throw new InvalidOperationException($"'{section}' is not a printable section.")
+        };
+
+        // A family with no rows and a file listing that was never collected are different facts.
+        // Reporting the second as the first would tell the caller this package ships no such
+        // document when the truth is that nothing ever looked.
+        if (rows is null)
+        {
+            Console.Error.WriteLine(
+                $"Error: the package file listing was not collected, so '{section}' cannot be printed.");
+            return 1;
+        }
 
         // The shared writer refuses an empty payload, but it has no row to name the section from,
         // so it can only say "selected section". This package does ship documents of other kinds,
@@ -1114,8 +1126,9 @@ public class PackageCommand
         // A Markdown scope names a Markdown construct. The caller named this section explicitly,
         // so silently returning the whole document -- or an empty one -- would answer a question
         // they did not ask. Report that the scope does not apply to this document instead.
+        var isReadmeSection = section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase);
         if (options.ContentScope != PackageFileContentScope.Full
-            && rows.FirstOrDefault(row => !MarkdownContent.IsMarkdown(row.Path)) is { } nonMarkdown)
+            && rows.FirstOrDefault(row => !IsMarkdownDocument(row.Path, isReadmeSection)) is { } nonMarkdown)
         {
             Console.Error.WriteLine(
                 $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");
@@ -1138,7 +1151,7 @@ public class PackageCommand
                 extractPath,
                 result.PackageName ?? string.Empty,
                 result.Version ?? string.Empty,
-                new PackageFile(row.Path!, sizeByPath[row.Path!]),
+                new PackageFile(row.Path!, sizeByPath[row.Path!], IsReadme: isReadmeSection),
                 options.ContentScope,
                 normalizeGithubLinksToRaw: !options.BrowsableUrls).Content,
             new PrintProjectionOptions(
@@ -1609,6 +1622,16 @@ public class PackageCommand
         return new PackageFileContentSet(packageName, version, contents);
     }
 
+    /// <summary>
+    /// Whether a package document carries Markdown conventions. Extension answers this for
+    /// ordinary files, but the package README is Markdown by role: NuGet renders whatever the
+    /// manifest declares as the readme, and packages do declare extensionless or otherwise
+    /// unconventionally named files, so keying only on extension would drop link rewriting and
+    /// refuse frontmatter for a document that genuinely is Markdown.
+    /// </summary>
+    private static bool IsMarkdownDocument(string path, bool isReadme)
+        => isReadme || MarkdownContent.IsMarkdown(path);
+
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,
         string packageName,
@@ -1624,14 +1647,14 @@ public class PackageCommand
         // has no way to see that it happened. So Markdown documents are presented, and every
         // other kind is passed through exactly as shipped -- including its byte order mark,
         // which ReadAllText would otherwise consume and silently shorten the document by.
-        if (!MarkdownContent.IsMarkdown(file.Path))
-            return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, ReadTextPreservingPreamble(fullPath));
+        if (!IsMarkdownDocument(file.Path, file.IsReadme))
+            return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, ReadTextPreservingPreamble(fullPath), file.IsReadme);
 
         var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
-        return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
+        return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content, file.IsReadme);
     }
 
     /// <summary>
@@ -1662,7 +1685,7 @@ public class PackageCommand
         // whole document -- a projection answered from a different payload than the one asked
         // for, which is the defect class this command is being kept clear of.
         if (options.ContentScope != PackageFileContentScope.Full
-            && rows.FirstOrDefault(row => row.Found && !MarkdownContent.IsMarkdown(row.Path)) is { } nonMarkdown)
+            && rows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
         {
             Console.Error.WriteLine(
                 $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");

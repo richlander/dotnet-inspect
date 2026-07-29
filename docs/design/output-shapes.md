@@ -178,7 +178,11 @@ producer's concern.
 
 A printed document is the document the package shipped. Markdown conventions --
 YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
-`blob` links to `raw` so the target is fetchable -- apply only to Markdown.
+`blob` links to `raw` so the target is fetchable -- apply only to Markdown. A
+document's kind comes from its extension, except for the package README, whose
+kind comes from its role: the manifest declared it as the readme and NuGet
+renders it as Markdown, so an extensionless or unconventionally named README is
+still Markdown.
 Applied to anything else they are corruption rather than presentation: the link
 rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
 or an MSBuild comment is rewritten and the printed manifest silently stops
