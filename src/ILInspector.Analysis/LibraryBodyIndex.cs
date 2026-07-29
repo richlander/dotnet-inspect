@@ -1490,7 +1490,8 @@ public sealed class LibraryBodyIndex
             spellings.Add(new AssemblyReferenceSpelling(
                 reader.GetString(reference.Name),
                 [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
-                reference.Flags));
+                reference.Flags,
+                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture)));
         }
 
         return spellings.ToImmutable();

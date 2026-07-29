@@ -302,6 +302,91 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// Culture is part of ECMA identity and, unlike version, is checkable: a reference records the
+    /// culture it bound against, and a satellite assembly is not the facade. Reported with an
+    /// executed reproduction in review of <c>372be6d1</c>, where neutral evidence vouched for a
+    /// <c>Culture=fr-FR</c> reference.
+    /// </summary>
+    [Fact]
+    public void PrefilterRejectsAReferenceToADifferentCultureOfTheSameAssembly()
+    {
+        byte[] key = [.. Enumerable.Repeat((byte)0x17, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", key);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // Premise: the neutral reference is admitted, so the rejection below is the culture alone.
+        using (var neutral = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(key)))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(neutral.GetMetadataReader(), target, aliases));
+        }
+
+        using var satellite = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(key),
+            flags: default, culture: "fr-FR", version: new Version(1, 0, 0, 0));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(satellite.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// Version is deliberately <em>not</em> checked, and this pins that non-action so a later
+    /// "complete the identity" change cannot make it silently.
+    ///
+    /// <para>A reference's version is not the definition's: binding rolls forward, and reference
+    /// assemblies routinely record <c>0.0.0.0</c>. Measured over the shared framework plus this
+    /// repository's build output — 1,128 assemblies, 4,622 references to framework-named
+    /// assemblies — <b>64.5%</b> disagreed on version, including <c>mscorlib</c>, the canonical
+    /// forwarding facade, whose reference to <c>System.Private.CoreLib</c> reads <c>0.0.0.0</c>
+    /// against a definition of <c>9.0.0.0</c>. Culture disagreed <b>0</b> times, which is why the
+    /// two are treated differently. Requiring version equality would decline the very shape #3419
+    /// exists to serve.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterAcceptsAReferenceToADifferentVersionOfTheSameAssembly()
+    {
+        byte[] key = [.. Enumerable.Repeat((byte)0x28, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", key);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // The evidence assembly is written at 1.0.0.0; this is the mscorlib shape.
+        using var rollForward = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(key),
+            flags: default, culture: null, version: new Version(0, 0, 0, 0));
+
+        // Premise: the two versions genuinely differ, so admitting the reference is a decision and
+        // not an artifact of the fixture happening to agree.
+        using (var evidence = new PEReader(File.OpenRead(
+            Path.Combine(directory, "Contoso.Facade.dll"))))
+        {
+            var evidenceReader = evidence.GetMetadataReader();
+            Assert.Equal(
+                new Version(1, 0, 0, 0),
+                evidenceReader.GetAssemblyDefinition().Version);
+        }
+
+        var callerReader = rollForward.GetMetadataReader();
+        Assert.Equal(
+            new Version(0, 0, 0, 0),
+            callerReader.GetAssemblyReference(callerReader.AssemblyReferences.Single()).Version);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(rollForward.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
     /// The rule the review of <c>cfd71e37</c> corrected. An alias fires only on <em>verified</em>
     /// identity, which is the opposite of the rule for ordinary identity matching and deliberately
     /// so: aliasing is additive, so declining one restores pre-#3419 behavior — a caller that is
@@ -788,12 +873,28 @@ public class ForwardedTypeAliasesTests
         string typeName,
         byte[]? publicKeyOrToken,
         AssemblyFlags flags)
+        => BuildCallerNaming(
+            assembly, ns, typeName, publicKeyOrToken, flags,
+            culture: null, version: new Version(1, 0, 0, 0));
+
+    /// <summary>
+    /// The same, with the reference's culture and version held apart from its name and token, so a
+    /// test can vary each part of ECMA identity independently.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNaming(
+        string assembly,
+        string ns,
+        string typeName,
+        byte[]? publicKeyOrToken,
+        AssemblyFlags flags,
+        string? culture,
+        Version version)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var reference = metadata.AddAssemblyReference(
             metadata.GetOrAddString(assembly),
-            new Version(1, 0, 0, 0),
-            culture: default,
+            version,
+            culture: culture is null ? default : metadata.GetOrAddString(culture),
             publicKeyOrToken: publicKeyOrToken is null
                 ? default
                 : metadata.GetOrAddBlob(publicKeyOrToken),

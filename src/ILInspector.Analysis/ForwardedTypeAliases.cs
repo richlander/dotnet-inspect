@@ -39,15 +39,32 @@ public sealed class ForwardedTypeAliases
     // a spelling two different assemblies claim: it can never be verified against either.
     static readonly byte[] AmbiguousSpelling = [0];
 
+    /// <summary>
+    /// The identity of the assembly that supplied a spelling's forwarder evidence, in the parts a
+    /// reference can be checked against.
+    ///
+    /// <para><b>Version is deliberately absent.</b> It is part of ECMA identity, but a reference's
+    /// version is not the definition's: binding rolls forward, and reference assemblies routinely
+    /// record <c>0.0.0.0</c>. Measured over the shared framework plus this repository's own build
+    /// output — 1,128 assemblies, 4,622 references to framework-named assemblies — <b>64.5%</b>
+    /// disagreed on version, including <c>mscorlib</c>, the canonical forwarding facade, whose
+    /// reference to <c>System.Private.CoreLib</c> is <c>0.0.0.0</c> against a definition of
+    /// <c>9.0.0.0</c>. Requiring version equality would decline the very case this exists to serve.
+    /// Culture disagreed <b>0</b> times in the same corpus, so requiring it costs nothing and
+    /// closes a real gap: a culture-specific assembly is a different assembly (found in review of
+    /// <c>372be6d1</c>).</para>
+    /// </summary>
+    readonly record struct EvidenceIdentity(byte[] Token, string Culture);
+
     readonly HashSet<string> _aliases;
     readonly HashSet<string> _rawSpellings;
-    readonly Dictionary<string, byte[]> _spellingTokens;
+    readonly Dictionary<string, EvidenceIdentity> _spellingTokens;
     readonly Dictionary<string, string> _canonicalByRaw;
 
     ForwardedTypeAliases(
         HashSet<string> aliases,
         HashSet<string> rawSpellings,
-        Dictionary<string, byte[]> spellingTokens,
+        Dictionary<string, EvidenceIdentity> spellingTokens,
         Dictionary<string, string> canonicalByRaw)
     {
         _aliases = aliases;
@@ -60,29 +77,30 @@ public sealed class ForwardedTypeAliases
     public static ForwardedTypeAliases None { get; } = new(
         new HashSet<string>(StringComparer.Ordinal),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-        new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
     public bool IsEmpty => _aliases.Count == 0;
 
-    /// <summary>The recorded alias spellings, for diagnostics and tests.</summary>
-    public IReadOnlyCollection<string> Aliases => _aliases;
-
     /// <summary>
-    /// The facade names exactly as their assemblies spell them, for consumers that compare raw
-    /// <c>AssemblyRef</c> names rather than <see cref="TypeRef"/> identities.
+    /// Whether an assembly spells its name as one of the facades that forward the type.
     ///
-    /// <para>This is not a convenience: <see cref="Aliases"/> is canonicalized, and the
-    /// canonicalization collapses the five core-library facade spellings onto one name. When
-    /// <c>netstandard</c> is the facade that forwards a type, its canonical alias is
-    /// <c>corelib</c> — and <em>every</em> managed assembly references a core-library facade, so an
+    /// <para>This is a membership test rather than an exposed collection on purpose. Handing out
+    /// the backing sets let a consumer downcast <c>IReadOnlyCollection&lt;string&gt;</c> to the
+    /// <see cref="HashSet{T}"/> behind it and mutate alias state — including the shared
+    /// <see cref="None"/> singleton, which is process-wide — and a mutation also defeats the
+    /// reference-identity memoization in <c>MethodBodyInspectionSession.ApplicableAliases</c>,
+    /// which is sound only because instances never change. Both were demonstrated in review of
+    /// <c>372be6d1</c>; the properties had no product consumers, so they are gone rather than
+    /// hardened.</para>
+    ///
+    /// <para>Raw spellings are the facade names exactly as their assemblies spell them, which is
+    /// not a convenience: the canonical alias set collapses the five core-library facade spellings
+    /// onto one name, and <em>every</em> managed assembly references a core-library facade, so an
     /// assembly-level filter keyed on the canonical name would select the entire scope and undo the
-    /// prefiltering it is part of. The raw spellings are precise: only assemblies that actually
-    /// carry the forwarder appear here.</para>
+    /// prefiltering it is part of. Only assemblies that actually carry the forwarder appear
+    /// here.</para>
     /// </summary>
-    public IReadOnlyCollection<string> RawSpellings => _rawSpellings;
-
-    /// <summary>Whether an assembly spells its name as one of the facades that forward the type.</summary>
     public bool IncludesRawSpelling(string assembly) => _rawSpellings.Contains(assembly);
 
     /// <summary>
@@ -139,7 +157,8 @@ public sealed class ForwardedTypeAliases
             spellings.Add(new AssemblyReferenceSpelling(
                 reader.GetString(reference.Name),
                 [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
-                reference.Flags));
+                reference.Flags,
+                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture)));
         }
 
         return RestrictedTo(spellings.ToImmutable());
@@ -162,7 +181,7 @@ public sealed class ForwardedTypeAliases
             if (!_rawSpellings.Contains(reference.Name))
                 continue;
 
-            switch (VerdictFor(reference.Name, reference.PublicKeyOrToken.AsSpan(), reference.Flags))
+            switch (VerdictFor(reference.Name, reference))
             {
                 case ReferenceVerdict.Verified:
                     verified.Add(reference.Name);
@@ -188,7 +207,7 @@ public sealed class ForwardedTypeAliases
             return None;
 
         var aliases = new HashSet<string>(StringComparer.Ordinal);
-        var spellingTokens = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var spellingTokens = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string raw in verified)
         {
@@ -196,8 +215,8 @@ public sealed class ForwardedTypeAliases
                 continue;
             aliases.Add(canonical);
             canonicalByRaw[raw] = canonical;
-            if (_spellingTokens.TryGetValue(raw, out byte[]? token))
-                spellingTokens[raw] = token;
+            if (_spellingTokens.TryGetValue(raw, out EvidenceIdentity identity))
+                spellingTokens[raw] = identity;
         }
 
         // A canonical alias a contradicted spelling also maps to cannot be admitted either: the
@@ -259,23 +278,25 @@ public sealed class ForwardedTypeAliases
     /// </summary>
     ReferenceVerdict VerdictFor(
         string rawSpelling,
-        ReadOnlySpan<byte> referenceKeyOrToken,
-        AssemblyFlags flags)
+        AssemblyReferenceSpelling reference)
     {
-        if (!_spellingTokens.TryGetValue(rawSpelling, out byte[]? evidenceToken))
+        if (!_spellingTokens.TryGetValue(rawSpelling, out EvidenceIdentity evidence))
             return ReferenceVerdict.Indeterminate;
 
-        if (evidenceToken.AsSpan().SequenceEqual(AmbiguousSpelling))
+        if (evidence.Token.AsSpan().SequenceEqual(AmbiguousSpelling))
             return ReferenceVerdict.Indeterminate;
 
-        if ((flags & AssemblyFlags.Retargetable) != 0)
+        if ((reference.Flags & AssemblyFlags.Retargetable) != 0)
             return ReferenceVerdict.Indeterminate;
 
-        ReadOnlySpan<byte> referenceToken = (flags & AssemblyFlags.PublicKey) != 0
-            ? PublicKeyTokenOf(referenceKeyOrToken)
-            : referenceKeyOrToken;
+        if (!string.Equals(reference.Culture, evidence.Culture, StringComparison.OrdinalIgnoreCase))
+            return ReferenceVerdict.Contradicted;
 
-        return referenceToken.SequenceEqual(evidenceToken)
+        ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
+            ? PublicKeyTokenOf(reference.PublicKeyOrToken.AsSpan())
+            : reference.PublicKeyOrToken.AsSpan();
+
+        return referenceToken.SequenceEqual(evidence.Token)
             ? ReferenceVerdict.Verified
             : ReferenceVerdict.Contradicted;
     }
@@ -403,7 +424,7 @@ public sealed class ForwardedTypeAliases
         // are already indistinguishable to the matcher.
         var forwardsTo = new Dictionary<string, string>(StringComparer.Ordinal);
         var rawByCanonical = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var tokensBySpelling = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var tokensBySpelling = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var probed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int hop = 0; hop <= MaxHops && frontier.Count > 0; hop++)
@@ -431,14 +452,15 @@ public sealed class ForwardedTypeAliases
                 // Two files claiming one simple name cannot both answer for it. Recording only the
                 // first would let the loser's callers be validated against the winner's key, so an
                 // ambiguous spelling is marked unusable (empty token never matches a real one).
-                if (tokensBySpelling.TryGetValue(edge.Assembly, out byte[]? seen)
-                    && !seen.AsSpan().SequenceEqual(edge.Token))
+                if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen)
+                    && !(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
+                        && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase)))
                 {
-                    tokensBySpelling[edge.Assembly] = AmbiguousSpelling;
+                    tokensBySpelling[edge.Assembly] = new EvidenceIdentity(AmbiguousSpelling, "");
                 }
                 else
                 {
-                    tokensBySpelling.TryAdd(edge.Assembly, edge.Token);
+                    tokensBySpelling.TryAdd(edge.Assembly, edge.Identity);
                 }
 
                 // Follow the chain: the assembly this one forwards to may itself be a facade that
@@ -458,7 +480,7 @@ public sealed class ForwardedTypeAliases
 
         var aliases = new HashSet<string>(StringComparer.Ordinal);
         var rawSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var spellingTokens = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var spellingTokens = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string spelling in forwardsTo.Keys)
         {
@@ -471,8 +493,8 @@ public sealed class ForwardedTypeAliases
                 {
                     rawSpellings.Add(raw);
                     canonicalByRaw[raw] = spelling;
-                    if (tokensBySpelling.TryGetValue(raw, out byte[]? token))
-                        spellingTokens[raw] = token;
+                    if (tokensBySpelling.TryGetValue(raw, out EvidenceIdentity identity))
+                        spellingTokens[raw] = identity;
                 }
             }
         }
@@ -521,7 +543,7 @@ public sealed class ForwardedTypeAliases
     /// points at, or null when it carries no such forwarder. Reads metadata only; an unreadable
     /// image contributes no alias, which leaves the matcher exactly where it is today.
     /// </summary>
-    static (string Assembly, string Target, byte[] Token)? ReadForwarder(string path, string fullName)
+    static (string Assembly, string Target, EvidenceIdentity Identity)? ReadForwarder(string path, string fullName)
     {
         try
         {
@@ -534,9 +556,11 @@ public sealed class ForwardedTypeAliases
             if (!reader.IsAssembly)
                 return null;
 
-            string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-            byte[] token = PublicKeyTokenOf(
-                reader.GetBlobContent(reader.GetAssemblyDefinition().PublicKey).AsSpan());
+            var definition = reader.GetAssemblyDefinition();
+            string assembly = reader.GetString(definition.Name);
+            var identity = new EvidenceIdentity(
+                PublicKeyTokenOf(reader.GetBlobContent(definition.PublicKey).AsSpan()),
+                definition.Culture.IsNil ? "" : reader.GetString(definition.Culture));
 
             foreach (var handle in reader.ExportedTypes)
             {
@@ -557,7 +581,7 @@ public sealed class ForwardedTypeAliases
 
                 var target = reader.GetAssemblyReference(
                     (AssemblyReferenceHandle)exported.Implementation);
-                return (assembly, reader.GetString(target.Name), token);
+                return (assembly, reader.GetString(target.Name), identity);
             }
 
             return null;

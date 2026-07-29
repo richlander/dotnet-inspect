@@ -13,6 +13,10 @@ namespace ILInspector.Analysis;
 /// eagerly reduced to a token would discard both distinctions, which is why this is a verbatim
 /// snapshot rather than <see cref="ILInspector.Metadata.AssemblyReferenceIdentity"/>.</para>
 ///
+/// <para>Version is not captured. It is part of ECMA identity but not usable for checking a
+/// reference against a definition: binding rolls forward and reference assemblies routinely record
+/// <c>0.0.0.0</c>. See <c>ForwardedTypeAliases.EvidenceIdentity</c> for the measurement.</para>
+///
 /// <para>This exists so identity questions about an already-indexed image can be answered from the
 /// bytes that were indexed. Re-reading the file to ask them again would lose genuine callers when
 /// the second read fails, and would answer from whatever is on disk at the later moment rather
@@ -21,4 +25,5 @@ namespace ILInspector.Analysis;
 public readonly record struct AssemblyReferenceSpelling(
     string Name,
     ImmutableArray<byte> PublicKeyOrToken,
-    AssemblyFlags Flags);
+    AssemblyFlags Flags,
+    string Culture);
