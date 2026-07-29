@@ -448,7 +448,6 @@ public static class InspectionCommandDefinitions
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Print = parseResult.GetValue(opts.Print),
-                PrintAll = parseResult.GetValue(opts.PrintAll),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
                 Paths = parseResult.GetValue(opts.Paths),

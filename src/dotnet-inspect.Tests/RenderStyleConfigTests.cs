@@ -190,6 +190,42 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void TasteGesture_WinsOverAConfigThatNarrowsTheEndorsedSet()
+    {
+        // --taste is an explicit per-invocation request, so it must not be silently
+        // narrowed by a checked-in config: for the knobs the aggregate covers, the
+        // gesture wins. This is the precedence docs/decompiler-taste.md states.
+        var config = RenderStyleConfig.Parse(
+            """
+            dotnet_inspect_style_full_taste = true
+            dotnet_style_qualification_for_field = false
+            """,
+            origin: "cfg");
+        Assert.False(config.Options.QualifyFieldAccess);
+
+        var gestured = StyleOptionCatalog.ApplyFullTaste(config.Options);
+
+        Assert.True(gestured.QualifyFieldAccess);
+        Assert.True(gestured.PreferConditionalExpressionReturn);
+    }
+
+    [Fact]
+    public void TasteGesture_LeavesKnobsOutsideTheEndorsedSetAlone()
+    {
+        // The aggregate is the oracle-endorsed subset only, so a config selection on
+        // a non-endorsed knob survives the gesture rather than being reset.
+        var config = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true",
+            origin: "cfg");
+        Assert.True(config.Options.PreferBranchlessBoolean);
+
+        var gestured = StyleOptionCatalog.ApplyFullTaste(config.Options);
+
+        Assert.True(gestured.PreferBranchlessBoolean);
+        Assert.True(gestured.QualifyFieldAccess);
+    }
+
+    [Fact]
     public void Parse_FullTasteFalse_IsRecognizedAndLeavesSubsetOff()
     {
         var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = false", origin: null);
@@ -566,10 +602,42 @@ public class RenderStyleConfigTests
         Assert.DoesNotContain("this.Pinged", code);
     }
 
+    // Annotated Source renders the same member as Decompiled Source, through a
+    // different printer path (the statement-line-map overload the interleaved-IL
+    // overlay anchors onto). Both must consume the resolved config: a member that
+    // spells `this._count` in one section and `_count` in the other is one tool
+    // disagreeing with itself (#3191).
+
+    [Fact]
+    public void Collect_AnnotatedSource_AppliesTheSameTasteAsDecompiledSource()
+    {
+        var (decompiled, annotated) = RenderSpecimenBothViews(
+            nameof(ThisQualificationConfigSpecimen.Compute),
+            PrinterOptions.Default with { QualifyFieldAccess = true, QualifyPropertyAccess = true });
+
+        Assert.Contains("this._count", decompiled);
+        Assert.Contains("this.Extra", decompiled);
+        Assert.Contains("this._count", annotated);
+        Assert.Contains("this.Extra", annotated);
+
+        // The knob is byte-preserving, so the annotated view keeps its IL.
+        Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", annotated);
+    }
+
+    [Fact]
+    public void Collect_AnnotatedSource_WithoutRenderOptions_RendersBareThisMemberAccess()
+    {
+        var (_, annotated) = RenderSpecimenBothViews(
+            nameof(ThisQualificationConfigSpecimen.Compute), renderOptions: null);
+
+        Assert.Contains("_count", annotated);
+        Assert.DoesNotContain("this._count", annotated);
+        Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", annotated);
+    }
+
     // Whole-type decompilation (the `type -S "Decompiled Source"` path) routes
     // through MemberBodyProducer.Project rather than Collect, so it needs the
     // resolved options threaded separately.
-
     [Fact]
     public void WholeType_WithoutRenderOptions_RendersBareThisMemberAccess()
     {
@@ -835,6 +903,36 @@ public class RenderStyleConfigTests
         return (decompiled!.Output, decompiled);
     }
 
+    private static (string Decompiled, string Annotated) RenderSpecimenBothViews(
+        string memberName, PrinterOptions? renderOptions)
+    {
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+        var methods = type.Members.Where(m => m.Name == memberName).ToList();
+
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: true,
+            AnnotatedSource: true,
+            CostOverlay: false,
+            SemanticsOverlay: false,
+            IL: false,
+            Attributes: false,
+            Calls: false,
+            Callers: false,
+            CallGraph: false,
+            UnsafeOperations: false);
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+
+        var (_, code) = Assert.Single(results);
+        Assert.NotNull(code.DecompiledResult?.Output);
+        Assert.NotNull(code.AnnotatedResult?.Output);
+        return (code.DecompiledResult!.Output!, code.AnnotatedResult!.Output!);
+    }
+
     private static string RenderSpecimenWholeType(PrinterOptions? renderOptions)
     {
         string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
@@ -869,14 +967,35 @@ public class RenderStyleConfigTests
     [Fact]
     public void ApiOnlyCatalogKnobs_HaveNoConfigKey()
     {
-        // Knobs with no config key (formatting/synthesis) are API-only and must not
-        // be reachable through the file vocabulary; a made-up key still warns.
+        // Knobs with no config key (formatting) are API-only and must not be
+        // reachable through the file vocabulary; a made-up key still warns. The
+        // whitespace-only wrappers are the standing API-only examples (synthesis's
+        // readable-local-names is now file-reachable under a tool-owned key).
         var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
-        Assert.Contains(apiOnly, o => o.Id == "readable-local-names");
+        Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
+        Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
 
-        var result = RenderStyleConfig.Parse("readable_local_names = true", origin: "cfg");
-        Assert.False(result.Options.ReadableLocalNames);
+        var result = RenderStyleConfig.Parse("wrap_splittable_expressions = true", origin: "cfg");
+        Assert.False(result.Options.WrapSplittableExpressions);
         Assert.Contains(result.Warnings, w => w.Contains("unknown key"));
+    }
+
+    [Fact]
+    public void ReadableLocalNamesConfigKey_RoundTrips()
+    {
+        // readable-local-names is byte-preserving synthesis, so it is not in the
+        // oracle-endorsed taste aggregate; it carries its own tool-owned key.
+        var on = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = true", origin: "cfg");
+        Assert.Empty(on.Warnings);
+        Assert.True(on.Options.ReadableLocalNames);
+
+        var off = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = false", origin: "cfg");
+        Assert.Empty(off.Warnings);
+        Assert.False(off.Options.ReadableLocalNames);
+
+        // The aggregate must not turn it on (it is not oracle-endorsed).
+        var taste = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+        Assert.False(taste.Options.ReadableLocalNames);
     }
 
     private static string CreateTempDirectory()

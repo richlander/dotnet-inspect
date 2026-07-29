@@ -4,7 +4,7 @@ dotnet-inspect output narrows through a small ladder of **shapes**. Markout
 defines the shapes and produces them; dotnet-inspect flags choose which rung you
 land on. Naming the ladder gives a shared vocabulary for the output flags
 (`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
-`--print`, `--print-all`, `--bare`, …) and for deciding what a new flag should
+`--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
 Related docs:
@@ -39,9 +39,10 @@ Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, or a tree (for example a call graph). Those are still
 "one section" — the Table rung — and they collapse to Scalars the same way.
 
-## Three flag families
+## Flag families
 
-A flag can contribute in one of three ways:
+Three families walk the shape ladder, and a fourth sits before it. A flag in one
+of the ladder families contributes in one of three ways:
 
 - **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
   `--count`, `-n 1`).
@@ -50,6 +51,40 @@ A flag can contribute in one of three ways:
   `--jsonl`, `--plaintext`, `--no-headers`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
+
+### Coordinate carriers sit before the ladder
+
+A fourth kind of flag does not walk the ladder at all: it *supplies an input the
+command has no other way to express*, and in doing so changes which sections
+exist to be selected. The IL coordinate is the family's one implemented
+currency; `--heap` (see
+[metadata-table-projection.md](metadata-table-projection.md)) is designed to be
+the second.
+
+The family is counted in currencies, not flags, because one currency can have
+more than one spelling. The IL coordinate has two: `--il-offset` takes a single
+coordinate, and `--il-offsets` takes a file of them for batch reporting. They
+are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
+carry the same currency, so they are one member of this family rather than two.
+
+A coordinate carrier is the right shape for a flag only when the input is a
+genuinely new currency — a value that is not a section name, a column name, or a
+row. An IL coordinate (`0x06000002+0x1`) and a heap address (`#Strings:0x1a4`)
+qualify; a table name does not, because a table is already a section and `-S`
+already addresses sections.
+
+Carriers behave consistently:
+
+- The sections they enable are **discoverable only when the carrier is present**,
+  so `-D` reflects the carrier (see the IL-offset case study below).
+- Absent the carrier, requesting a coordinate-scoped section is an error that
+  names the missing carrier, for example
+  `IL coordinate sections require --il-offset`.
+- Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
+  `--columns`, `--count`, and the rest of the ladder like any other.
+
+Prefer a section, a category, or `--where` before reaching for a new carrier.
+The bar is a new currency, not merely a new thing to look at.
 
 ## How Markout produces the shapes
 
@@ -105,51 +140,79 @@ modifier changes how a selected payload is rendered.
 
 `--print` projects a selected row's declared printable payload. It is unary, but
 it does not mean "take the first row." Cardinality is resolved after section
-selection, filtering, and printable-capability filtering:
+selection and filtering:
 
-| Printable rows | `--print` | `--print --row N\|first\|last` | `--print-all` |
-| ---: | --- | --- | --- |
-| 0 | Error: the selected shape is not printable. | Error. | Error: the selected shape is not printable. |
-| 1 | Print the one payload. | Print row `1`, `first`, or `last`; any other index is an error. | Print the one payload. |
-| More than 1 | Guidance error requiring `--row` or `--print-all`. | Print exactly the selected printable row. | Print every printable payload in stable row order. |
+| Rendered rows | `--print` | `--print --row N\|first\|last` |
+| ---: | --- | --- |
+| 0 | Error: the selected section has no rows. | Error. |
+| 1 | Print the one payload. | Print that row by its number, `first`, or `last`; any other number is an error. |
+| More than 1 | Guidance error requiring `--row`. | Print exactly the selected row. |
 
-Numeric `--row N` is one-based and counts printable rows, not every row in the
-selected table. `first` and `last` are stable aliases for the endpoints of that
-printable-row sequence. `--print-all` cannot be combined with `--row`.
+`--print` resolves exactly one payload. There is no fan-out gesture: printing
+more than one document at a time is not currently expressible.
 
-`-n N` / `--head N` and `--tail N` are rendered-line windows applied after
-printable-row cardinality is resolved and payloads are fetched. They do not
-select rows or limit `--print-all` fan-out:
+Numeric `--row N` addresses a row by its position in the rendered section,
+counting from 1. Sections do not print a row-number column, so N is the number
+the reader arrives at by counting rows top to bottom — which is precisely why it
+has to be stable: it is not a position within a filtered subsequence, and
+printability does not renumber anything. A row that declares no payload still
+occupies its number, and selecting it reports that it has no document rather
+than silently sliding to a neighbour. `first` and `last` are the endpoints of
+the rendered sequence, so when a projection skips rows they resolve to the
+first and last numbers actually present rather than to `1` and the row count.
+Structured output makes the number explicit — `--jsonl` and `--json` emit it as
+`row` — and error messages name the addressable numbers, so a projection with
+gaps stays navigable.
+
+This is the one rule that makes the ordinal trustworthy. Numbering by position
+in a filtered list is wrong in the worst way available: it returns a real row,
+so nothing looks broken, and the reader has no way to recover the sequence being
+indexed. Addressing by rendered position can only ever hit the intended row or
+report a miss.
+
+Because `--print` is exactly-one, failing to acquire the selected row's payload
+is an error, not an omission: it reports the failure and exits non-zero rather
+than rendering an empty or short success. This covers acquisition for the
+selected row; whether a section producer declares a row at all is that
+producer's concern.
+
+`-n N` and `--tail` are rendered-line windows applied after
+row cardinality is resolved and the payload is fetched. They do not
+select rows:
 
 ```text
---print --head 1
+--print -n 1
   multi-row selection -> error; does not choose the first row
 
---print --row 2 --head 20
-  select printable row 2 -> fetch one payload -> render its first 20 lines
-
---print-all --tail 20
-  fetch every declared printable payload -> render the final 20 combined lines
+--print --row 2 -n 20
+  select row 2 -> fetch one payload -> render its first 20 lines
 ```
 
-`--rows` changes head/tail from rendered-line windows into per-table data-row
-windows:
+`--rows <spec>` switches to per-table data-row windows and carries its own
+count, so three concerns stay on three flags: `--rows` sets the unit,
+its value sets the count or the rows, and `--head`/`--tail` set the direction.
 
-- `--rows --head N` keeps the first N data rows;
-- `--rows --tail N` keeps the last N data rows.
+- `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
+- `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
+- `--rows 2+10` keeps ten rows starting at row 2.
+- `--rows 10..` keeps row 10 through the last row.
 
-Both row-window forms are incompatible with `--print` and `--print-all`;
-`--row N|first|last` is the explicit printable-row selector. The CLI implements
+A count and a range are different kinds, not two spellings of one: a count
+anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
+rather than silently resolved. Bare `--rows` is an error — it once meant
+"interpret `-n` as rows", which put the count on a different flag than the unit.
+
+Both row-window forms are incompatible with `--print`;
+`--row N|first|last` is the explicit row selector. The CLI implements
 both head and tail data-row windows symmetrically.
 
 This policy deliberately rejects implicit-first behavior. Row order may change
 with filtering, producer evolution, or package versions, and choosing the first
 row could silently fetch the wrong document. It also rejects implicit fan-out:
-`--print-all` is the gesture that explicitly accepts every declared payload
-fetch.
+one `--print` authorizes exactly one declared payload fetch.
 
 Printability is a row capability, not a property implied by Table or Vector
-shape. Neither `--print` nor `--print-all` may:
+shape. `--print` may not:
 
 - reinterpret an address row as the artifact at that address;
 - evaluate an unevaluated address;
@@ -160,19 +223,100 @@ could name a package. The explicit transition to that package artifact remains
 `package Package@version`. Likewise, printing a timeline may use only declared
 payloads on already evaluated rows; it cannot probe missing cells.
 
+### A payload projection is never silently dropped
+
+`--print`, `--value`, `--urls`, `--paths`, and `--count` reshape the payload, so
+a render path that ignores one answers a question the caller did not ask while
+still exiting 0. That failure is invisible to exit-code checks and to tests that
+only cover the unprojected path.
+
+Every accepted payload projection must therefore end in one of two outcomes: the
+payload is projected, or the command reports why it cannot be and exits non-zero.
+Rendering the full unprojected shape is not a third option. The requirement is
+enforced structurally rather than per command — the request is recorded from the
+parse result and the projection writers report which projection they honored, so
+a route that drops one fails loudly instead of shipping the wrong payload.
+
+The whole-surface type listing (`type` with no type name — the Classes, Structs,
+Interfaces, Enums, and Delegates sections) is a name table that exposes no
+printable payload, so `--print`/`--value`/`--urls`/`--paths` there is rejected up
+front rather than dumping the full surface and then tripping this audit. Inspect
+a single type (for example `type <Name>`) to project a member payload. `--count`
+is the one payload projection the surface does honor.
+
+Writers report *which* flag they honored rather than merely acknowledging one.
+A writer can be reached for more than one reason — the print writer also serves
+`--bare` — so an untyped signal would let it satisfy an unrelated request and let
+that drop escape.
+
+The projections are mutually exclusive. Two of them cannot both shape one
+payload, so a combination is rejected before the command runs rather than
+resolved by discarding one.
+
+### Lens modes project their own payload
+
+A few flags select a *lens* rather than a section of the normal document:
+`package --versions`, `--layout`, `--tfms`, `--content`, and `--readme`, along
+with `library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
+
+The lens payload is still a payload, so the two-outcome rule above applies
+unchanged. Because the lens owns the shape, its answers are fixed:
+
+- `--count` counts the lens payload — versions, target frameworks, package
+  files, IL offsets, discovered artifacts — not the lines used to render it. A
+  layout count is a count of files, even though the rendered tree also shows the
+  directories that contain them.
+- `--count` is refused by `--readme`, whose payload is a single document rather
+  than a list. A README is a Scalar in the shape model, and `--count` collapses
+  a Vector, so counting it could only ever report that one document was asked
+  for. `--content` is *not* in this category despite also rendering text: it
+  yields one structured row per matched file, so its count is the number of
+  files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
+- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
+  not approximated. They address a cell or a column of a selected section, and a
+  lens payload has neither; answering anyway would require inferring structure
+  from rendered text. The one exception is `--readme --print`, where the lens
+  renders exactly the printable document `--print` asks for, so it prints it
+  without needing a selection to name it.
+- `-S`/`--select` is refused when the caller typed it, rather than ignored. A
+  lens and a section selection are competing answers to *what am I looking at*,
+  and silently honoring the lens hides that the selection did nothing. The
+  refusal is unconditional: excusing it for `--print` would let `-S <other
+  section> --readme --print` pass while ignoring the selection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
+
+`-S` here means an explicit selection. Some options are sugar that synthesize a
+selection internally, and a synthesized one must not be mistaken for a request
+the caller made.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | the whole Document as one JSON object |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
-| `--tail N` | keep the last N rendered output lines unless `--rows` is active |
-| `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
-| `--rows --tail N` | keep the last N **data rows per table**, across Markdown, TSV, and JSONL |
+| `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
+| `-n N --tail` | keep the last N rendered output lines |
+| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
+| `--rows N --tail` | keep the last N **data rows per table** |
+| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -231,7 +375,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 ```
 
 ```md
-## Source Location
+## Context: Source Location
 
 | Field | Value |
 | ----- | ----- |
@@ -242,7 +386,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Line | 42 |
 | Url | https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42 |
 
-## Member Context
+## Context: Member
 
 | Field | Value |
 | ----- | ----- |
@@ -258,7 +402,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Metadata Token | 0x6000002 |
 | IL Offset | 0x1 |
 
-## Instruction Context
+## Context: Instruction
 
 | Field | Value |
 | ----- | ----- |
@@ -274,13 +418,13 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Terminates Block | No |
 | Falls Through | Yes |
 
-## Exception Context
+## Context: Exception
 
 | Region | Context | Clause | Try Range | Handler Range | Caught Type |
 | ------ | ------- | ------ | --------- | ------------- | ----------- |
 | 1 | try | catch | IL_0010..IL_0045 | IL_0045..IL_0070 | System.TimeoutException |
 
-## Callsite Context
+## Context: Callsite
 
 | Field | Value |
 | ----- | ----- |
@@ -296,7 +440,7 @@ If the coordinate is the return address after the call, the applicable section
 changes:
 
 ```md
-## Return Address Context
+## Context: Return Address
 
 | Field | Value |
 | ----- | ----- |
@@ -313,16 +457,16 @@ present:
 
 ```bash
 dotnet-inspect library My.dll -D
-# Source Location, Member Context, Instruction Context, Exception Context,
-# Callsite Context, and Return Address Context are omitted.
+# Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
+# Context: Callsite, and Context: Return Address are omitted.
 
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
-# Source Location
-# Member Context
-# Instruction Context
-# Exception Context (only when applicable)
-# Callsite Context (only when applicable)
-# Return Address Context (only when applicable)
+# Context: Source Location
+# Context: Member
+# Context: Instruction
+# Context: Exception (only when applicable)
+# Context: Callsite (only when applicable)
+# Context: Return Address (only when applicable)
 ```
 
 The source-location section then projects cleanly:
@@ -330,35 +474,35 @@ The source-location section then projects cleanly:
 ```bash
 # Scalar
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --fields Line --value
+  -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --urls
+  -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --paths
+  -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the raw resolved source line
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --print
+  -S "Context: Source Location" --print
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --count
+  -S "Context: Source Location" --count
 # 1
 ```
 
 This keeps the concerns separate: the default fact section shows all
-symbolication evidence, `Member Context` shows the owning metadata context,
-`Instruction Context` shows the exact IL operation, `Exception Context` shows
-active exception-handling regions, `Callsite Context` shows the call-like
-operation at the coordinate, `Return Address Context` points back to the prior
+symbolication evidence, `Context: Member` shows the owning metadata context,
+`Context: Instruction` shows the exact IL operation, `Context: Exception` shows
+active exception-handling regions, `Context: Callsite` shows the call-like
+operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
 document path, and `--print` returns the raw payload at the location rather than
 a decorated snippet.
@@ -370,18 +514,27 @@ The stable vocabulary is:
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
   single scalar count.
 - `--print` is an exactly-one row-payload projection: it never chooses the first
-  of multiple printable rows implicitly.
-- `--print-all` is the explicit row-payload fan-out projection: it does not make
-  non-printable rows printable or evaluate new addresses.
-- `--head` / `--tail` are post-projection line windows: they do not select rows
+  of multiple rows implicitly, does not make rows without a payload printable,
+  and does not evaluate new addresses.
+- `--head` / `--tail` name a direction, not a count. Outside `--rows` they
+  choose which end of the rendered lines `-n N` keeps; they do not select rows
   or constrain payload acquisition.
-- `--rows` promotes head/tail to first/last data-row windows, but those windows
-  remain presentation limits rather than printable-row selectors.
+- `--rows` makes the window a first/last or absolute data-row window, but those
+  windows remain presentation limits rather than row selectors.
+- `--row` addresses a rendered row by its position in the section, counting from
+  1. Any future selector that takes an ordinal joins this rule: the number a
+  reader arrives at by counting rows is the number that can be addressed, and no
+  filter may renumber it.
 - `--bare` is a presentation modifier: it strips the surrounding framing from an
   already-selected payload.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
+- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
+  that has no other expression and gate the sections it makes meaningful. They
+  do not narrow a shape, and a flag qualifies for this family only if its input
+  is a new currency. Both spell the same currency, so they are one member;
+  `--heap` is the designed second.
 
 New flags should fit one of those buckets rather than blending concepts.

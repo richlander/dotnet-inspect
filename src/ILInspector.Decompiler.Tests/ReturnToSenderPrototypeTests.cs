@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -1181,6 +1182,1269 @@ public class ReturnToSenderPrototypeTests
         finally
         {
             DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExternalSingleMemberExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Seq : System.Collections.IEnumerable
+            {
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Seq",
+                    "System.Collections.IEnumerable.GetEnumerator",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains("class Seq : System.Collections.IEnumerable", StringComparison.Ordinal)
+                || result.Source.Contains("class Seq : IEnumerable", StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains(
+                    "System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "IEnumerator System.Collections.IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "IEnumerator IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal),
+                result.Source);
+            Assert.DoesNotContain("System_Collections_IEnumerable_GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // Close-negative for the shadow-decline (#3112 review): a compiler-authored sibling whose
+    // simple name matches a *non-leading* segment of the interface spelling must NOT trigger a
+    // decline. Only the FIRST segment (`System`) can be shadowed into a compile error, because
+    // the explicit-member qualifier is always emitted fully qualified
+    // (`System.Collections.IEnumerable.GetEnumerator`) and the collision-aware using-collapser
+    // only shortens the base-list entry to the bare `IEnumerable` when nothing collides:
+    //  - `N.Collections` (middle segment): collapser shortens to `class Seq : IEnumerable`; the
+    //    middle `Collections` never leads, so it compiles.
+    //  - `N.IEnumerable` (final type name): collapser detects the collision and KEEPS the base
+    //    list fully qualified (`class Seq : System.Collections.IEnumerable`, leading `System`),
+    //    so it still compiles.
+    // Under RoundTripScope.All the sibling is reconstructed alongside the real explicit impl and
+    // the whole shape must round-trip Exact, not fall back to the sanitized
+    // `System_Collections_IEnumerable_GetEnumerator` floor.
+    [Theory]
+    [InlineData("Collections")]
+    [InlineData("IEnumerable")]
+    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesNonLeadingSegment(string siblingName)
+    {
+        var assemblyPath = CompileFixture($$"""
+            namespace N;
+            public sealed class {{siblingName}} { }
+            public sealed class Seq : System.Collections.IEnumerable
+            {
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.Seq",
+                    "System.Collections.IEnumerable.GetEnumerator",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System.Collections.IEnumerable.GetEnumerator()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "System_Collections_IEnumerable_GetEnumerator",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains($"class {siblingName}", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // Regression for #3112 review: a hand-authored IL assembly can carry a *clean*
+    // explicit-interface metadata name (`System.Collections.IEnumerable.GetEnumerator`)
+    // while also declaring a sibling type `N.System` that shadows the `System` namespace
+    // root of that spelling. No conformant C# compiler can emit this shape — a shadowing
+    // sibling forces `global::` into the explicit override's metadata name, which the gate
+    // declines — but IL is not bound by that rule. Under RoundTripScope.All the sibling is
+    // reconstructed into namespace N, so the unrooted `System.Collections.IEnumerable`
+    // spelling binds to the sibling (CS0426). The gate must decline to the sanitized shape
+    // rather than introduce that new RecompileFail. Under RoundTripScope.Cluster the sibling
+    // is not reconstructed, so engagement must be preserved (round-trips Exact): the decline
+    // is scope-aware, not a blanket stand-down.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenClosureSiblingShadowsSpelling()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL shadow regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(ilasm, ShadowingSiblingIl, directory, "shadowrepro");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget(
+                "N.Seq",
+                "System.Collections.IEnumerable.GetEnumerator",
+                0);
+
+            // Cluster does not reconstruct the shadowing sibling N.System, so the external
+            // explicit-interface reconstruction engages and round-trips Exact.
+            var cluster = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.Cluster));
+            Assert.True(
+                cluster.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"cluster {cluster.Status}: {cluster.Detail}");
+
+            // All reconstructs N.System, which shadows the `System` root of the spelling.
+            // The gate must decline to the sanitized shape (the pre-#3112 ContextFail floor)
+            // rather than emit a new RecompileFail (CS0426). Strictly better or identical,
+            // never worse.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (escaped-identifier shadow): a hand-authored external
+    // interface can live in a namespace whose segment is a C# keyword (`class`), so its raw
+    // metadata full name is `class.IProbe` but its C# display name is `@class.IProbe`. A
+    // sibling type `N.class` (raw) is emitted as `class @class` and shadows the `@class` root
+    // of the spelling under RoundTripScope.All (CS0426). The shadow check must compare the
+    // leading segment against the raw metadata name (`class`), not the escaped display name
+    // (`@class`) — otherwise the collision is missed and a new RecompileFail escapes. The gate
+    // must decline to the sanitized ContextFail floor. Uses two IL assemblies (an external
+    // contract plus the target) resolved as siblings.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenKeywordNamespaceSiblingShadowsSpelling()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL keyword-shadow regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, KeywordContractsIl, directory, "KeywordContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, KeywordShadowFixtureIl, directory, "keywordfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "class.IProbe.M", 0);
+
+            // All reconstructs the sibling N.class (emitted `class @class`), which shadows the
+            // escaped `@class` root of the spelling. The gate must decline to the sanitized
+            // shape rather than emit a new RecompileFail (CS0426). The raw-metadata-name
+            // comparison is what catches this; the escaped display name would miss it.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (unspeakable member name): a hand-authored external interface
+    // can have a legal type name (`Good.IProbe`) but a method whose metadata name is
+    // compiler-unspeakable (`<Bad>`). The explicit-member spelling emits
+    // Identifier(declarationName), which sanitizes `<Bad>` lossily to `__Bad_`; the interface
+    // still declares `<Bad>`, so `Good.IProbe.__Bad_()` binds to no interface member
+    // (CS0539 = RecompileFail). The gate must decline to the sanitized ContextFail floor.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameIsUnrepresentable()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL unspeakable-member regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, UnspeakableMemberContractsIl, directory, "BadMethodContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, UnspeakableMemberFixtureIl, directory, "badmethodfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "Good.IProbe.<Bad>", 0);
+
+            // All would reconstruct `Good.IProbe.__Bad_()` from the lossily-sanitized member
+            // name; the interface declares `<Bad>`, so it binds to nothing (CS0539). The gate
+            // must decline rather than emit a new RecompileFail. The member-name guard is what
+            // catches this; the raw member name is not identifier-like.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (format-character member name): a hand-authored external
+    // interface method name can carry a Unicode format character (U+200C) that is
+    // identifier-like yet does NOT round-trip — Roslyn strips format characters when binding,
+    // so the emitted `Good.IProbe.M\u200C()` binds to `Good.IProbe.M`, which the interface
+    // (declaring the raw `M\u200C`) does not contain (CS0539 = RecompileFail). The member-name
+    // round-trip guard must reject format characters, not merely check identifier-likeness.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameHasFormatCharacter()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL format-character member regression.");
+            return;
+        }
+
+        const string zwnj = "\u200C";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, CfMemberContractsIl.Replace("%ZWNJ%", zwnj), directory, "CfContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, CfMemberFixtureIl.Replace("%ZWNJ%", zwnj), directory, "cffixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.M{zwnj}", 0);
+
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (format-character namespace): the same format-character
+    // hazard applies to the interface TYPE name. A namespace segment `G\u200Cood` is
+    // identifier-like but does not round-trip (Roslyn strips U+200C, so the emitted
+    // `G\u200Cood.IProbe` binds to `Good.IProbe`, which does not exist — CS0246). The
+    // interface-name representability guard must reject format characters per segment.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNamespaceHasFormatCharacter()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL format-character namespace regression.");
+            return;
+        }
+
+        const string zwnj = "\u200C";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, CfNamespaceContractsIl.Replace("%ZWNJ%", zwnj), directory, "CfNsContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, CfNamespaceFixtureIl.Replace("%ZWNJ%", zwnj), directory, "cfnsfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"G{zwnj}ood.IProbe.M", 0);
+
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (decomposed / non-NFC member name): the round-trip guard must
+    // NOT over-decline. Roslyn strips format (Cf) characters when binding identifiers but does
+    // NOT apply Unicode normalization, so a decomposed member name `e` + U+0301 (which is NOT in
+    // NFC — its composed form is U+00E9) is emitted and bound verbatim and round-trips exactly.
+    // A prior guard that additionally required NFC declined this compiler-producible shape to the
+    // sanitized ContextFail floor, regressing a real Exact. The gate must engage and round-trip
+    // Exact, not decline.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenMemberNameIsDecomposed()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL decomposed-identifier member regression.");
+            return;
+        }
+
+        const string comb = "\u0301";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, NfcMemberContractsIl.Replace("%COMB%", comb), directory, "NfcContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, NfcMemberFixtureIl.Replace("%COMB%", comb), directory, "nfcfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.e{comb}", 0);
+
+            var all = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath, [target], RoundTripScope.All, RoundTripBodyPolicy.Full));
+            Assert.True(
+                all.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+            Assert.False(all.UsedCompileBackFloor, all.Detail);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (unrepresentable interface name): a hand-authored external
+    // interface can live in a namespace whose segment is a compiler-unspeakable name (`<Bad>`)
+    // — legal in metadata but not a legal C# identifier. Clean() sanitizes it lossily to a
+    // DIFFERENT identifier (`__Bad_`), so the reconstruction would emit `using __Bad_;` /
+    // `__Bad_.IProbe.M()` referencing a type that does not exist (CS0246 = RecompileFail). The
+    // gate must recognize the name cannot round-trip and decline to the sanitized ContextFail
+    // floor. Uses two IL assemblies (an external contract plus the target) resolved as
+    // siblings.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNameIsUnrepresentable()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL unrepresentable-name regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, UnrepresentableContractsIl, directory, "GeneratedContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, UnrepresentableFixtureIl, directory, "badfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "<Bad>.IProbe.M", 0);
+
+            // All would reconstruct the interface spelling from the lossily-sanitized display
+            // name (`__Bad_.IProbe`), which names no type. The gate must decline rather than
+            // emit a new RecompileFail (CS0246). The name-representability guard is what
+            // catches this; the raw metadata name is not identifier-like.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExternalMultiMemberExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class Convertible : IConvertible
+            {
+                TypeCode IConvertible.GetTypeCode() => TypeCode.Empty;
+                bool IConvertible.ToBoolean(IFormatProvider provider) => false;
+                byte IConvertible.ToByte(IFormatProvider provider) => 0;
+                char IConvertible.ToChar(IFormatProvider provider) => '\0';
+                DateTime IConvertible.ToDateTime(IFormatProvider provider) => default;
+                decimal IConvertible.ToDecimal(IFormatProvider provider) => 0m;
+                double IConvertible.ToDouble(IFormatProvider provider) => 0d;
+                short IConvertible.ToInt16(IFormatProvider provider) => 0;
+                int IConvertible.ToInt32(IFormatProvider provider) => 0;
+                long IConvertible.ToInt64(IFormatProvider provider) => 0L;
+                sbyte IConvertible.ToSByte(IFormatProvider provider) => 0;
+                float IConvertible.ToSingle(IFormatProvider provider) => 0f;
+                string IConvertible.ToString(IFormatProvider provider) => "";
+                object IConvertible.ToType(Type conversionType, IFormatProvider provider) => this;
+                ushort IConvertible.ToUInt16(IFormatProvider provider) => 0;
+                uint IConvertible.ToUInt32(IFormatProvider provider) => 0U;
+                ulong IConvertible.ToUInt64(IFormatProvider provider) => 0UL;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Convertible",
+                    "System.IConvertible.ToBoolean",
+                    0)]));
+
+            // #3112 Increment 2: a multi-member external interface engages by reconstructing the
+            // target member with its real body and synthesizing `throw null` explicit-interface
+            // stubs for every OTHER required member, so the full surface satisfies CS0535 and the
+            // fidelity lookup finds the correctly-named explicit member (Exact, not the sanitized
+            // `System_IConvertible_ToBoolean` ContextFail floor).
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains(": System.IConvertible", StringComparison.Ordinal)
+                || result.Source.Contains(": IConvertible", StringComparison.Ordinal),
+                result.Source);
+            // The target member reconstructs as a real explicit implementation.
+            Assert.Contains("IConvertible.ToBoolean(", result.Source, StringComparison.Ordinal);
+            // A non-target member is synthesized as a `throw null` explicit-interface stub so the
+            // interface's full required surface is satisfied.
+            Assert.Contains("IConvertible.GetTypeCode(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("System_IConvertible_ToBoolean", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithUnspellableSiblingFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2 whole-surface atomicity: engaging a multi-member external interface
+        // names it in the base list, which forces the reconstructed type to implement EVERY
+        // required member (CS0535). The target member (`Target`) is perfectly representable, but
+        // a SIBLING member (`Sibling(ref int)`) carries by-ref detail SignatureDecoder cannot
+        // spell unambiguously. Synthesizing a stub for it (or omitting it) would leave the
+        // surface unsatisfied or drifted (CS0535/CS0539 = RecompileFail). The gate must decline
+        // the WHOLE interface when ANY member is unspellable and keep the sanitized ContextFail
+        // floor, even though the requested target member itself is fine.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsMulti { public interface IProbe { void Target(); void Sibling(ref int value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsMultiContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class MultiImpl : RtsMulti.IProbe
+            {
+                void RtsMulti.IProbe.Target() { }
+                void RtsMulti.IProbe.Sibling(ref int value) => value = 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "MultiImpl",
+                    "RtsMulti.IProbe.Target",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsMulti_IProbe_Target", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsMulti.IProbe.Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithOverloadedSiblingsRoundTrips()
+    {
+        // #3112 Increment 2 overload robustness: a real corpus interface such as
+        // System.ComponentModel.ICustomTypeDescriptor carries same-name overloads
+        // (`GetProperties()` / `GetProperties(Attribute[])`). Every non-target member is
+        // synthesized as a `throw null` explicit-interface stub, and two overloads share one
+        // explicit member name (`RtsOv.IProbe.Overloaded`) while differing only by signature.
+        // The reconstructed members must NOT be deduplicated by name (that would drop one
+        // overload, leaving the interface surface unsatisfied, CS0535). Both stubs must emit as
+        // distinct explicit implementations so the type compiles and the target reconstructs
+        // Exact.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsOv { public interface IProbe { void Target(); int Overloaded(); int Overloaded(string label); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsOvContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class OvImpl : RtsOv.IProbe
+            {
+                void RtsOv.IProbe.Target() { }
+                int RtsOv.IProbe.Overloaded() => 0;
+                int RtsOv.IProbe.Overloaded(string label) => 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OvImpl",
+                    "RtsOv.IProbe.Target",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains(": RtsOv.IProbe", StringComparison.Ordinal)
+                || result.Source.Contains(": IProbe", StringComparison.Ordinal),
+                result.Source);
+            // Both overloads must be present as distinct explicit-interface stubs.
+            Assert.Contains("RtsOv.IProbe.Overloaded()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("RtsOv.IProbe.Overloaded(string", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsOv_IProbe_Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_InheritedBaseInterfaceMemberFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2 base-interface atomicity: an external interface that INHERITS from
+        // another interface flattens the base's members into the required surface, but the
+        // synthesized stubs record no declaring-interface identity and are all qualified with
+        // the ROOT interface. An inherited member emitted as `void IRoot.Member()` is CS0539
+        // (not a member of IRoot) and leaves the base member unimplemented (CS0535 =
+        // RecompileFail). The gate must decline the WHOLE surface to the sanitized ContextFail
+        // floor whenever a base interface contributes a required member.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsInh { public interface IBase { void Sibling(); } public interface IDerived : IBase { void Target(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsInhContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class InhImpl : RtsInh.IDerived
+            {
+                void RtsInh.IDerived.Target() { }
+                void RtsInh.IBase.Sibling() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("InhImpl", "RtsInh.IDerived.Target", 0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsInh_IDerived_Target", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsInh.IDerived.Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_NestedExternalMultiMemberInterfaceFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2: a nested external interface (`Outer.IProbe`) cannot be named in the
+        // reconstructed base list — its metadata separator (`Outer+IProbe`) is not bindable C#
+        // and its TypeReference resolves through the enclosing type rather than an assembly
+        // reference. The engagement must decline to the sanitized ContextFail floor rather than
+        // emit an unspellable `Outer+IProbe` qualifier (CS1001/CS0246 = RecompileFail).
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsNest { public class Outer { public interface IProbe { void Target(); void Sibling(); } } }",
+            directory: fixtureDir,
+            assemblyName: "RtsNestContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class NestImpl : RtsNest.Outer.IProbe
+            {
+                void RtsNest.Outer.IProbe.Target() { }
+                void RtsNest.Outer.IProbe.Sibling() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("NestImpl", "RtsNest.Outer.IProbe.Target", 0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsNest_Outer_IProbe_Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericExternalExplicitInterfaceFallsBackWithoutRecompileFail()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class IntSeq : System.Collections.Generic.IEnumerable<int>
+            {
+                System.Collections.Generic.IEnumerator<int> System.Collections.Generic.IEnumerable<int>.GetEnumerator()
+                {
+                    throw null;
+                }
+
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "IntSeq",
+                    "System.Collections.Generic.IEnumerable<System.Int32>.GetEnumerator",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("System_Collections_Generic_IEnumerable_System_Int32__GetEnumerator", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("System.Collections.Generic.IEnumerable<System.Int32>.GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithSignatureDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the external explicit-interface gate must compare full
+        // signatures, not just name + generic arity. The target is compiled against a
+        // reference interface method `int M(int)`, but the copy of that interface resolved
+        // at reconstruction time (the sibling on disk) declares `int M(string)`. A
+        // name+arity-only gate would engage and emit `int RtsDrift.IProbe.M(int)`, which
+        // binds to no member of the resolved interface (CS0539 = RecompileFail). The gate
+        // must decline and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        // Reference build the target compiles against: M takes an int.
+        var referencePath = CompileFixture(
+            "namespace RtsDrift { public interface IProbe { int M(int value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsDriftContracts");
+        // Drifted build placed next to the target: same type, but M takes a string.
+        CompileFixture(
+            "namespace RtsDrift { public interface IProbe { int M(string value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsDriftContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class DriftImpl : RtsDrift.IProbe
+            {
+                int RtsDrift.IProbe.M(int value) => value;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "DriftImpl",
+                    "RtsDrift.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsDrift_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsDrift.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithAmbiguousDefinitionFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed base list names the interface by display name
+        // only, with no extern alias, so it must be defined by exactly one assembly across
+        // the recompile closure. Here two sibling assemblies both define `RtsDup.IShape`.
+        // Engaging would emit `: RtsDup.IShape`, which the recompile cannot disambiguate
+        // (CS0433 = RecompileFail). The gate must decline and keep the sanitized floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        const string interfaceSource =
+            "namespace RtsDup { public interface IShape { int M(int value); } }";
+        var primaryPath = CompileFixture(
+            interfaceSource,
+            directory: fixtureDir,
+            assemblyName: "RtsDupPrimary");
+        CompileFixture(
+            interfaceSource,
+            directory: fixtureDir,
+            assemblyName: "RtsDupSecondary");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class DupImpl : RtsDup.IShape
+            {
+                int RtsDup.IShape.M(int value) => value;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(primaryPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "DupImpl",
+                    "RtsDup.IShape.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsDup_IShape_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsDup.IShape.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithByRefKindDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a decoded-signature string cannot distinguish by-ref kinds.
+        // SignatureDecoder renders `ref T`, `out T`, and `in T` identically as "ref T", so a
+        // name + arity + decoded-string gate would treat `void M(ref int)` and
+        // `void M(out int)` as equal. The target here is compiled against a reference
+        // interface method `void M(ref int)`, but the copy resolved at reconstruction time
+        // (the sibling on disk) declares `void M(out int)`. Engaging would emit
+        // `void RtsRef.IProbe.M(ref int)`, which binds to no member of the resolved
+        // interface (CS0539 = RecompileFail). The gate must decline any signature carrying
+        // by-ref detail and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        // Reference build the target compiles against: M takes a ref int.
+        var referencePath = CompileFixture(
+            "namespace RtsRef { public interface IProbe { void M(ref int value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsRefContracts");
+        // Drifted build placed next to the target: same type, but M takes an out int.
+        CompileFixture(
+            "namespace RtsRef { public interface IProbe { void M(out int value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsRefContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class RefImpl : RtsRef.IProbe
+            {
+                void RtsRef.IProbe.M(ref int value) => value = 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "RefImpl",
+                    "RtsRef.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsRef_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsRef.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithVarArgsFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the decoded return/parameter strings do not carry a method's
+        // calling convention, so a VarArgs (`__arglist`) interface method is spelled
+        // identically to a fixed-arity one. C# cannot express `__arglist` in a reconstructed
+        // explicit interface member, so engaging would emit `void RtsVar.IProbe.M()` (the
+        // `__arglist` dropped), which binds to no member of the resolved interface
+        // (CS0539 = RecompileFail). The gate must decline any non-default calling convention
+        // and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsVar { public interface IProbe { void M(__arglist); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsVarContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class VarImpl : RtsVar.IProbe
+            {
+                void RtsVar.IProbe.M(__arglist) { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "VarImpl",
+                    "RtsVar.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsVar_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsVar.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed assembly ("return-to-sender-source-oracle")
+        // references the interface's defining assembly but is not granted InternalsVisibleTo,
+        // so it cannot name an internal interface even though the target implements it via IVT
+        // to its own name. Engaging would emit `: RtsInt.IProbe` against a type the recompile
+        // cannot see (CS0122 = RecompileFail). The gate must decline any non-publicly-accessible
+        // interface and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: InternalsVisibleTo("fixture")]
+            namespace RtsInt { internal interface IProbe { void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsIntContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class IntImpl : RtsInt.IProbe
+            {
+                void RtsInt.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "IntImpl",
+                    "RtsInt.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsInt_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsInt.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalMemberFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a PUBLIC interface may still declare a NON-public member (C# 8+
+        // allows explicit accessibility on interface members). The interface type passes the
+        // IsPubliclyAccessible gate, but the reconstructed assembly
+        // ("return-to-sender-source-oracle") is not granted InternalsVisibleTo, so it cannot
+        // name the internal member even though the target implements it via IVT to its own name.
+        // Engaging would emit `void RtsVis.IProbe.M()` against a member the recompile cannot see
+        // (CS0122 = RecompileFail). The gate must decline any non-public required method and keep
+        // the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: InternalsVisibleTo("fixture")]
+            namespace RtsVis { public interface IProbe { internal abstract void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsVisContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class VisImpl : RtsVis.IProbe
+            {
+                void RtsVis.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "VisImpl",
+                    "RtsVis.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsVis_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsVis.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithObsoleteErrorInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed explicit member names the interface twice — the base
+        // list `: RtsObs.IProbe` and the qualifier `void RtsObs.IProbe.M()`. If the interface the
+        // recompile resolves is marked `[Obsolete(..., error: true)]`, naming it is a hard CS0619
+        // (the emitted `#pragma warning disable` suppresses only the warning form), turning the
+        // sanitized ContextFail floor into a RecompileFail. A target cannot itself be compiled
+        // against an obsolete-error interface (CS0619 at its own build), so the obsolete form only
+        // arises as version drift: the target is built against a clean interface, and the sibling
+        // resolved at reconstruction has since become obsolete-error. The gate must decline.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsObs { public interface IProbe { void M(); } }",
+            directory: referenceDir,
+            assemblyName: "RtsObsContracts");
+        CompileFixture(
+            """
+            namespace RtsObs { [System.Obsolete("gone", true)] public interface IProbe { void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsObsContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ObsImpl : RtsObs.IProbe
+            {
+                void RtsObs.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ObsImpl",
+                    "RtsObs.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsObs_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsObs.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithCompilerFeatureRequiredInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: naming the interface in the reconstructed base list (`: N.IProbe`)
+        // forces the recompile to bind to it, which demands every feature the interface requires
+        // via [CompilerFeatureRequired]. If the resolved interface carries an unsatisfiable feature
+        // marker, binding it is a hard CS9041, turning the sanitized ContextFail floor (which never
+        // names the interface, so never triggers the requirement) into a RecompileFail. This
+        // attribute is not emittable from C# source (CS8335), so the poison sibling is authored
+        // directly as metadata: a target built against a clean single-member interface, whose
+        // sibling resolved at reconstruction demands an unknown compiler feature.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsCfr { public interface IProbe { void M(); } }",
+            directory: referenceDir,
+            assemblyName: "RtsCfrContracts");
+        Directory.CreateDirectory(fixtureDir);
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "RtsCfrContracts.dll"),
+            BuildCompilerFeatureRequiredInterfaceImage(
+                assemblyName: "RtsCfrContracts",
+                namespaceName: "RtsCfr",
+                typeName: "IProbe",
+                methodName: "M"));
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class CfrImpl : RtsCfr.IProbe
+            {
+                void RtsCfr.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "CfrImpl",
+                    "RtsCfr.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsCfr_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsCfr.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: SignatureDecoder spells generic method parameters by their metadata
+        // name, not their position, so `int M<T, U>(U)` and `int M<U, T>(U)` both decode their
+        // parameter to "U" and compare equal — yet the parameter is the 2nd type parameter in
+        // one and the 1st in the other. The target is compiled against `int M<T, U>(U)`, but the
+        // sibling resolved at reconstruction declares `int M<U, T>(U)`. Engaging would emit an
+        // explicit member binding to no interface member (CS0539 = RecompileFail). The gate must
+        // decline any signature carrying generic parameters and keep the sanitized floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsGen { public interface IProbe { int M<T, U>(U value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsGenContracts");
+        CompileFixture(
+            "namespace RtsGen { public interface IProbe { int M<U, T>(U value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsGenContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class GenImpl : RtsGen.IProbe
+            {
+                int RtsGen.IProbe.M<T, U>(U value) => 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "GenImpl",
+                    "RtsGen.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsGen_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsGen.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithConstraintOnlyGenericFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a generic type parameter can appear ONLY in a constraint, invisible
+        // to the return/parameter signature the probe inspects. `void M<T>() where T : Base` has
+        // an empty signature, so a signature-only gate would engage. An explicit interface member
+        // cannot restate constraints — it inherits them from the resolved interface. The target is
+        // compiled against the constrained interface (its body calls the constraint member), but
+        // the sibling resolved at reconstruction declares `void M<T>()` with NO constraint.
+        // Engaging would emit `void RtsCon.IProbe.M<T>()` whose inherited (drifted, unconstrained)
+        // T no longer permits the call — CS1061 = RecompileFail. The sanitized floor instead emits
+        // a plain generic method that restates `where T : Base`, so it still compiles. The gate
+        // must decline any generic interface method and keep the ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsCon { public class Base { public void Foo() { } } public interface IProbe { void M<T>() where T : Base; } }",
+            directory: referenceDir,
+            assemblyName: "RtsConContracts");
+        CompileFixture(
+            "namespace RtsCon { public class Base { public void Foo() { } } public interface IProbe { void M<T>(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsConContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ConImpl : RtsCon.IProbe
+            {
+                void RtsCon.IProbe.M<T>()
+                {
+                    default(T).Foo();
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ConImpl",
+                    "RtsCon.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsCon_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsCon.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
         }
     }
 
@@ -4418,13 +5682,22 @@ public class ReturnToSenderPrototypeTests
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
+        var references = RoslynTestReferences.TrustedPlatform.ToArray();
+
+        var decompiledArtifact = CompileBackSourceComposer.Compose(request);
+        var decompiledTree = CSharpSyntaxTree.ParseText(decompiledArtifact.Source, parseOptions);
+        var decompiledDiagnostics = CSharpCompilation
+            .Create("return-to-sender-decompiled", [decompiledTree], references, compileOptions)
+            .GetDiagnostics();
 
         return ReturnToSender.TryIsolateRecompileFailure(
             request,
+            decompiledArtifact.Source,
+            decompiledDiagnostics,
             sourceIndex,
             parseOptions,
             compileOptions,
-            RoslynTestReferences.TrustedPlatform.ToArray());
+            references);
     }
 
     static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
@@ -6591,6 +7864,470 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    // Emits a loadable IL-only assembly containing a single-member public interface whose type
+    // definition carries [CompilerFeatureRequired("<unknown feature>")]. The attribute is not
+    // authorable from C# source (CS8335 even when self-defined), so it is written directly as
+    // metadata: a TypeReference to the real corelib CompilerFeatureRequiredAttribute, a
+    // MemberReference to its (string) constructor, and a CustomAttribute naming an unknown feature
+    // with IsOptional defaulting to false — the shape a downlevel/hand-authored producer emits and
+    // that raises CS9041 when a consumer binds to the interface.
+    static byte[] BuildCompilerFeatureRequiredInterfaceImage(
+        string assemblyName,
+        string namespaceName,
+        string typeName,
+        string methodName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.None);
+
+        var coreLib = typeof(object).Assembly.GetName();
+        var coreLibRef = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(coreLib.Name!),
+            coreLib.Version!,
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(coreLib.GetPublicKeyToken()!),
+            flags: default,
+            hashValue: default);
+        var cfrTypeRef = metadata.AddTypeReference(
+            coreLibRef,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("CompilerFeatureRequiredAttribute"));
+        var cfrCtorSig = new BlobBuilder();
+        cfrCtorSig.WriteByte(0x20); // HASTHIS, default calling convention
+        cfrCtorSig.WriteCompressedInteger(1); // one parameter
+        cfrCtorSig.WriteByte(0x01); // return type: void
+        cfrCtorSig.WriteByte(0x0e); // parameter type: string
+        var cfrCtorRef = metadata.AddMemberReference(
+            cfrTypeRef,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(cfrCtorSig));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var interfaceHandle = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+            metadata.GetOrAddString(namespaceName),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodSig = new BlobBuilder();
+        methodSig.WriteByte(0x20); // HASTHIS, default calling convention
+        methodSig.WriteCompressedInteger(0); // no parameters
+        methodSig.WriteByte(0x01); // return type: void
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(methodSig),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var attributeValue = new BlobBuilder();
+        attributeValue.WriteUInt16(0x0001); // custom attribute prolog
+        attributeValue.WriteSerializedString("TotallyUnknownFeature");
+        attributeValue.WriteUInt16(0); // zero named arguments
+        metadata.AddCustomAttribute(
+            interfaceHandle,
+            cfrCtorRef,
+            metadata.GetOrAddBlob(attributeValue));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    // Hand-authored IL exercising the shadowing-sibling regression: a class with a clean
+    // explicit-interface metadata name for System.Collections.IEnumerable.GetEnumerator plus
+    // a sibling type `N.System` in the same namespace. Assembled with ilasm because no C#
+    // compiler can produce a clean explicit-override name alongside an in-scope shadow.
+    const string ShadowingSiblingIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly shadowrepro { }
+        .module shadowrepro.dll
+
+        .namespace N
+        {
+          .class public auto ansi sealed beforefieldinit Seq
+              extends [System.Runtime]System.Object
+              implements [System.Runtime]System.Collections.IEnumerable
+          {
+            .method private hidebysig newslot virtual final
+                instance class [System.Runtime]System.Collections.IEnumerator
+                'System.Collections.IEnumerable.GetEnumerator'() cil managed
+            {
+              .override [System.Runtime]System.Collections.IEnumerable::GetEnumerator
+              ldnull
+              throw
+            }
+            .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+            {
+              ldarg.0
+              call instance void [System.Runtime]System.Object::.ctor()
+              ret
+            }
+          }
+
+          .class public auto ansi sealed beforefieldinit System
+              extends [System.Runtime]System.Object
+          {
+            .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+            {
+              ldarg.0
+              call instance void [System.Runtime]System.Object::.ctor()
+              ret
+            }
+          }
+        }
+        """;
+
+    // External contract for the keyword-namespace shadow regression: an interface in a
+    // namespace whose segment is the C# keyword `class` (raw metadata `class.IProbe`).
+    const string KeywordContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly KeywordContracts { }
+        .module KeywordContracts.dll
+
+        .class interface public abstract auto ansi 'class'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    // Target for the keyword-namespace shadow regression: N.Seq explicitly implements the
+    // external `class.IProbe` with a clean metadata override name (`class.IProbe.M`), and a
+    // sibling type N.'class' shadows the `class` root of the spelling once reconstructed.
+    const string KeywordShadowFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern KeywordContracts { }
+        .assembly keywordfixture { }
+        .module keywordfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [KeywordContracts]'class'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'class.IProbe.M'() cil managed
+          {
+            .override [KeywordContracts]'class'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit N.'class'
+            extends [System.Runtime]System.Object
+        {
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the unrepresentable-name regression: an interface whose namespace
+    // segment is a compiler-unspeakable name (`<Bad>`) — legal in metadata, not a legal C#
+    // identifier — so Clean() sanitizes it lossily to a different name (`__Bad_`).
+    const string UnrepresentableContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly GeneratedContracts { }
+        .module GeneratedContracts.dll
+
+        .class interface public abstract auto ansi '<Bad>'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    // Target for the unrepresentable-name regression: N.Seq explicitly implements the external
+    // `<Bad>.IProbe`. The reconstruction would emit the sanitized `__Bad_.IProbe`, which names
+    // no real type (CS0246) — the gate must decline to the sanitized ContextFail floor instead.
+    const string UnrepresentableFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern GeneratedContracts { }
+        .assembly badfixture { }
+        .module badfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [GeneratedContracts]'<Bad>'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void '<Bad>.IProbe.M'() cil managed
+          {
+            .override [GeneratedContracts]'<Bad>'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the unspeakable-member regression: an interface with a legal name
+    // (`Good.IProbe`) but a method whose metadata name is compiler-unspeakable (`<Bad>`).
+    const string UnspeakableMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly BadMethodContracts { }
+        .module BadMethodContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void '<Bad>'() cil managed {}
+        }
+        """;
+
+    // Target for the unspeakable-member regression: N.Seq explicitly implements the external
+    // `Good.IProbe.<Bad>`. The reconstruction would emit `Good.IProbe.__Bad_()`, which binds
+    // to no interface member (CS0539) — the gate must decline to the sanitized ContextFail
+    // floor instead.
+    const string UnspeakableMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern BadMethodContracts { }
+        .assembly badmethodfixture { }
+        .module badmethodfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [BadMethodContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.<Bad>'() cil managed
+          {
+            .override [BadMethodContracts]Good.IProbe::'<Bad>'
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the format-character regressions: the `%ZWNJ%` placeholder is
+    // replaced with U+200C (a Unicode format character) at test time. Roslyn strips format
+    // characters when binding identifiers, so a member name `M\u200C` binds as `M` — a name
+    // that is identifier-like yet does not round-trip. Interface variant: namespace `G\u200Cood`.
+    const string CfMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly CfContracts { }
+        .module CfContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void 'M%ZWNJ%'() cil managed {}
+        }
+        """;
+
+    const string CfMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern CfContracts { }
+        .assembly cffixture { }
+        .module cffixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [CfContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.M%ZWNJ%'() cil managed
+          {
+            .override [CfContracts]Good.IProbe::'M%ZWNJ%'
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    const string CfNamespaceContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly CfNsContracts { }
+        .module CfNsContracts.dll
+
+        .class interface public abstract auto ansi 'G%ZWNJ%ood'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    const string CfNamespaceFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern CfNsContracts { }
+        .assembly cfnsfixture { }
+        .module cfnsfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [CfNsContracts]'G%ZWNJ%ood'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'G%ZWNJ%ood.IProbe.M'() cil managed
+          {
+            .override [CfNsContracts]'G%ZWNJ%ood'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the decomposed-identifier (non-NFC) regression: the `%COMB%`
+    // placeholder is replaced with U+0301 (combining acute accent) at test time, so the member
+    // name is `e` + U+0301 — identifier-like, format-character-free, and NOT in NFC. Roslyn binds
+    // it verbatim (no normalization), so it round-trips Exact and must NOT be declined.
+    const string NfcMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly NfcContracts { }
+        .module NfcContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void 'e%COMB%'() cil managed {}
+        }
+        """;
+
+    const string NfcMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern NfcContracts { }
+        .assembly nfcfixture { }
+        .module nfcfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [NfcContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.e%COMB%'() cil managed
+          {
+            .override [NfcContracts]Good.IProbe::'e%COMB%'
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // Locates a usable ilasm: an ILASM_PATH override, then PATH, then the restored
+    // runtime.<rid>.microsoft.netcore.ilasm NuGet package cache. Returns null when none is
+    // available so the caller can skip.
+    static string? TryLocateIlasm()
+    {
+        string exe = OperatingSystem.IsWindows() ? "ilasm.exe" : "ilasm";
+
+        var overridePath = Environment.GetEnvironmentVariable("ILASM_PATH");
+        if (!string.IsNullOrEmpty(overridePath) && File.Exists(overridePath))
+            return overridePath;
+
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        {
+            if (dir.Length == 0)
+                continue;
+            var candidate = Path.Combine(dir, exe);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        var nuget = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget",
+                "packages");
+        if (Directory.Exists(nuget))
+        {
+            foreach (var pkg in Directory.EnumerateDirectories(nuget)
+                .Where(d => Path.GetFileName(d).Contains("microsoft.netcore.ilasm", StringComparison.OrdinalIgnoreCase)))
+            {
+                var hit = Directory.EnumerateFiles(pkg, exe, SearchOption.AllDirectories).FirstOrDefault();
+                if (hit is not null)
+                    return hit;
+            }
+        }
+
+        return null;
+    }
+
+    static string AssembleIlFixture(string ilasm, string il, string directory, string assemblyName)
+    {
+        Directory.CreateDirectory(directory);
+        var ilPath = Path.Combine(directory, assemblyName + ".il");
+        var dllPath = Path.Combine(directory, assemblyName + ".dll");
+        File.WriteAllText(ilPath, il);
+
+        var psi = new System.Diagnostics.ProcessStartInfo(ilasm)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = directory,
+        };
+        psi.ArgumentList.Add(ilPath);
+        psi.ArgumentList.Add("-dll");
+        psi.ArgumentList.Add("-output=" + dllPath);
+
+        using var process = System.Diagnostics.Process.Start(psi)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            File.Exists(dllPath),
+            $"ilasm did not produce an assembly:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
+        return dllPath;
     }
 
     static string CompileFixture(

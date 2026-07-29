@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -214,7 +214,24 @@ internal static class MemberCodeProvider
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts,
-                        MethodToken: methodToken));
+                        MethodToken: methodToken,
+                        // Annotated Source spells the same member as Decompiled
+                        // Source, so it renders with the same resolved style options
+                        // -- otherwise the two views of one member disagree. The
+                        // other projections here (cost/semantics overlays, fact rows)
+                        // are style-invariant evidence and keep the shipped defaults.
+                        PrinterOptions: request.AnnotatedSource ? renderOptions : null,
+                        CaretFocus: request.CaretFocus));
+
+                // Promotion never hides a fact, so a focus that matched nothing
+                // renders identically to no focus at all. Say so, and name the
+                // families this member does have, or a typo is invisible.
+                if (researchProjection.UnmatchedFocusAlternatives is { Count: > 0 } alternatives)
+                {
+                    Console.Error.WriteLine(
+                        $"note: --focus '{request.CaretFocus}' matched no facts here; "
+                        + $"available: {string.Join(", ", alternatives)}");
+                }
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
@@ -223,6 +240,12 @@ internal static class MemberCodeProvider
                 && researchProjection?.AnnotatedSource is { } annotated
                     ? TrimOutput(annotated)
                     : null;
+
+            // Annotated Source now renders with the resolved style options too, so an
+            // Annotated-Source-only run consumes the config and must surface its
+            // warnings on the same latch rather than swallowing them.
+            if (request.AnnotatedSource && annotatedResult?.Output is not null)
+                styledProjectionProduced = true;
 
             Decompiler.DecompilerResult? costOverlayResult = null;
             IReadOnlyList<string>? costOverlayHeaderComments = null;

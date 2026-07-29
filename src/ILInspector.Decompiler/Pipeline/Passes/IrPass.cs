@@ -17,7 +17,7 @@ public interface IIrPass
     void Run(IrFunction function, PassContext context);
 }
 
-/// <summary>The pipeline's pass list and runner. Debug builds validate tree invariants after every pass — a violation is a pass bug, never input data.</summary>
+/// <summary>The pipeline's pass list and runner. When <see cref="ILInspector.Decompiler.Pipeline.IrInvariants.Enabled"/> is set, the runner validates tree invariants after every pass — a violation is a pass bug, never input data.</summary>
 public static class IrPasses
 {
     public static ImmutableArray<IIrPass> Default { get; } =
@@ -176,6 +176,20 @@ public static class IrPasses
         // folding can recompose into one && return (issue #3051).
         new StructReceiverInliningPass(),
         new StructuringPass(),
+        // Second, spill-anchored object-initializer run. The default run above
+        // (early, before diamond collapsing) cannot fold a member whose value
+        // Roslyn spilled to a reused temp because its branches could not sit on
+        // the stack beneath the dup-chain receiver (`cond ? f(x) : null`): at that
+        // point the value is still a ConditionalBranch diamond across basic
+        // blocks, so the spill and its member store are never adjacent. Only after
+        // structuring has collapsed the diamond into a single Conditional in one
+        // straight-line block does the `t = V; ref.M = t` pair become adjacent and
+        // foldable. This run (spillReusedTemps: true) recovers those, and — folding
+        // inner-first with the shared machinery — the enclosing initializers that
+        // held a lowered nested chain as well. It commits a fold only when the plan
+        // rests on such a spill, so every chain the early run already judged stays
+        // exactly as it left it (issue #3336).
+        new ObjectInitializerPass(spillReusedTemps: true),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
         new DestructorRecoveryPass(),
@@ -428,6 +442,14 @@ public static class IrPasses
         // `c ? … : false` diamond shape, and before coercion insertion so the
         // reshaped bool value is coerced at its sink.
         new ShortCircuitTernaryPass(),
+        // Raise the compiler's value-swap lowering (a single-def/single-use temp
+        // saving one place across the two cross-assignments) into the recognized
+        // swap form (q, p) = (p, q). Roslyn lowers that tuple swap to exactly this
+        // one-temp sequence, so the raise is opcode-exact. Runs last, after every
+        // slot/local settling pass, so it matches the final surviving carrier
+        // (stack slot or hidden local); before coercion insertion so the tuple
+        // elements are coerced at their sinks like any load (issue #3166).
+        new SwapIdiomPass(),
         new CoercionInsertionPass(),
     ];
 
@@ -473,7 +495,8 @@ public static class IrPasses
         foreach (var pass in passes)
         {
             pass.Run(function, context);
-            function.CheckInvariant();
+            if (IrInvariants.Enabled)
+                function.CheckInvariant(IrInvariants.CheckSemantics);
         }
     }
 
@@ -506,8 +529,9 @@ public static class IrPasses
     /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
     /// output at the importer boundary and after each pass. The projection runs
     /// between mutations, so each captured string is the tree as that stage left
-    /// it. Debug builds validate invariants after every pass, exactly as
-    /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
+    /// it. Invariants are validated after every pass when
+    /// <see cref="ILInspector.Decompiler.Pipeline.IrInvariants.Enabled"/> is set,
+    /// exactly as <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
         IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
@@ -531,7 +555,8 @@ public static class IrPasses
         foreach (var pass in passes)
         {
             pass.Run(function, context);
-            function.CheckInvariant();
+            if (IrInvariants.Enabled)
+                function.CheckInvariant(IrInvariants.CheckSemantics);
             stages.Add(new(pass.Name, project(function), function.Fidelity));
         }
         return stages;
@@ -565,7 +590,8 @@ public static class IrPasses
             foreach (var pass in Default)
             {
                 pass.Run(function, context);
-                function.CheckInvariant();
+                if (IrInvariants.Enabled)
+                    function.CheckInvariant(IrInvariants.CheckSemantics);
             }
         }
         catch (StepLimitReachedException)

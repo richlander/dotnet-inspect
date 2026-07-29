@@ -30,7 +30,8 @@ public class FindCommand
                     : new DocumentSchema()
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl);
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
+                    projection: options);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -57,14 +58,17 @@ public class FindCommand
             var results = await TypeSearchService.FindTypesAsync(options, patterns, logger, context.HttpClient);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
-            if (options.JsonOutput)
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
+            {
+                WriteCount(results, title);
+            }
+            else if (options.JsonOutput)
             {
                 var writer = new FindJsonWriter();
                 writer.Write(results, new WriterOptions(), Console.Out);
-            }
-            else if (options.Count)
-            {
-                WriteCount(results, title);
             }
             else
             {
@@ -102,14 +106,14 @@ public class FindCommand
         var results = await MemberSearchService.FindMembersAsync(options, memberPatterns, logger, httpClient);
         var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
 
-        if (options.JsonOutput)
+        if (options.Count)
+        {
+            WriteMemberCount(results, title);
+        }
+        else if (options.JsonOutput)
         {
             var writer = new MemberFindJsonWriter();
             writer.Write(results, new WriterOptions(), Console.Out);
-        }
-        else if (options.Count)
-        {
-            WriteMemberCount(results, title);
         }
         else
         {
@@ -147,7 +151,7 @@ public class FindCommand
     private static void WriteCount(List<TypeFindResult> rawData, string title)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
-        Console.WriteLine(view.Results?.Count ?? 0);
+        CountOutput.WriteCount(view.Results?.Count ?? 0);
     }
 
     private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
@@ -178,7 +182,7 @@ public class FindCommand
     private static void WriteMemberCount(List<MemberFindResult> rawData, string title)
     {
         var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        Console.WriteLine(view.Results?.Count ?? 0);
+        CountOutput.WriteCount(view.Results?.Count ?? 0);
     }
 }
 

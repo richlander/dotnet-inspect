@@ -160,11 +160,11 @@ public class MemberCallersSectionTests
     }
 
     [Fact]
-    public async Task CallerGraph_CrossAssembly_IncorporatesExternalCallersTaggedWithSource()
+    public async Task CallGraph_CrossAssembly_IncorporatesExternalCallersTaggedWithSource()
     {
         // Target a product member (in dotnet-inspect.dll) and scope the test bin directory,
         // which contains the test assembly that calls it. The external caller is incorporated
-        // into the reverse graph and annotated with its source assembly (#1337).
+        // into the bidirectional graph and annotated with its source assembly (#1337).
         var ownAssembly = typeof(MemberCommand).Assembly.Location;
         var scopeDir = Path.GetDirectoryName(typeof(MemberCallersSectionTests).Assembly.Location)!;
         var testAssemblyName = Path.GetFileNameWithoutExtension(
@@ -176,21 +176,21 @@ public class MemberCallersSectionTests
             AssemblyPath = ownAssembly,
             MemberFilter = [nameof(MemberCommand.ExecuteAsync)],
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Caller Graph" },
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
             CallerScopeDirectories = [scopeDir],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Caller Graph", result.Output);
+        Assert.Contains("## Call Graph", result.Output);
         Assert.Contains($"from {testAssemblyName}", result.Output);
     }
 
     [Fact]
-    public async Task CallerGraph_NoScope_OmitsSourceAnnotation()
+    public async Task CallGraph_NoScope_OmitsSourceAnnotation()
     {
-        // Without a caller scope, the reverse graph stays single-assembly and no external
+        // Without a caller scope, the caller half stays single-assembly and no external
         // source annotation appears.
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -198,12 +198,13 @@ public class MemberCallersSectionTests
             AssemblyPath = typeof(MemberCallersFixture).Assembly.Location,
             MemberFilter = [nameof(MemberCallersFixture.Target)],
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Caller Graph" },
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
         Assert.DoesNotContain(" from ", result.Output);
     }
 

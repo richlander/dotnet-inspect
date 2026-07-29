@@ -16,7 +16,8 @@ internal readonly record struct LibrarySourcePlan(
     bool AllowPdbDownload,
     bool RunHeadAudit,
     bool RunIntegrity,
-    bool CollectSourceFiles);
+    bool CollectSourceFiles,
+    bool ReadCachedPdb);
 
 internal readonly record struct LibrarySourceSectionPlan(
     string Name,
@@ -33,7 +34,7 @@ internal static class LibrarySourcePlans
         Section<LibrarySections.ILOffset>(downloadPdb: true),
         Section<LibrarySections.SourceFiles>(downloadPdb: true, collectSourceFiles: true),
         Section<LibrarySections.Symbols>(downloadPdb: true),
-        Section<LibrarySections.Signals>(downloadPdb: true, auditSources: true),
+        Section<LibrarySections.Signals>(downloadPdb: true),
         Section<LibrarySections.SourceLinkAudit>(downloadPdb: true, auditSources: true),
         Section<LibrarySections.MissingSourceFiles>(downloadPdb: true, auditSources: true),
         Section<LibrarySections.SourceIntegrity>(downloadPdb: true, verifyIntegrity: true),
@@ -56,8 +57,15 @@ internal static class LibrarySourcePlans
                 ? LibrarySourcePlanModes.Detailed
                 : LibrarySourcePlanModes.None;
 
+        // Cache-only PDB reads are network-free, so they are authorized one tier before downloads:
+        // the auto-rendered symbol-dependent sections (Symbols, Signals) appear from Normal up, so
+        // a Normal / bare-`S` render may consult an embedded, adjacent, or already-cached PDB
+        // without touching the network. Explicit selection already authorizes a cache-first
+        // download, so it needs no separate cache-only read.
+        bool readCachedPdb = !hasExplicitSelection && userVerbosity >= Verbosity.Normal;
+
         if (mode == LibrarySourcePlanModes.None)
-            return default;
+            return new LibrarySourcePlan(false, false, false, false, readCachedPdb);
 
         foreach (var section in s_sections)
         {
@@ -77,7 +85,8 @@ internal static class LibrarySourcePlans
             downloadPdb,
             auditSources,
             verifyIntegrity,
-            collectSourceFiles);
+            collectSourceFiles,
+            readCachedPdb);
     }
 
     private static LibrarySourceSectionPlan Section<TDescriptor>(

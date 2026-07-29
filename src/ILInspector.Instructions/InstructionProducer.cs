@@ -130,7 +130,7 @@ public static class InstructionProducer
     {
         bool canonical = resolver.Syntax == ILSyntax.Canonical;
         int token = (int)instruction.OperandValue;
-        return instruction.Operand switch
+        var operand = instruction.Operand switch
         {
             OperandKind.None => null,
             OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget => $"IL_{instruction.BranchTargets[0]:X4}",
@@ -156,6 +156,23 @@ public static class InstructionProducer
             OperandKind.InlineSwitch => $"({string.Join(", ", instruction.BranchTargets.Select(t => $"IL_{t:X4}"))})",
             _ => null
         };
+
+        // Display operands are embedded in line-oriented output, including C#
+        // side comments in Annotated Source. Metadata names are untrusted and may
+        // contain any C# line terminator, so fold them at the display producer
+        // before they can escape the containing line.
+        //
+        // Canonical is deliberately exempt, and not because it escapes
+        // terminators — CanonicalIL.QuoteName escapes only \ and ' inside the
+        // SQSTRING. The ilasm grammar permits a literal newline inside a quoted
+        // identifier, so leaving it intact is what preserves the metadata name
+        // through an ilasm round trip; folding it would silently rename the
+        // member. Canonical is consumed by the IL round-trip scaffold only and
+        // reaches no Markdown or C# surface, so the injection vector does not
+        // apply to it. That exposure boundary is the safety argument, and it is
+        // the thing to recheck if canonical is ever surfaced by the CLI.
+        // Gate: ILDisassemblerEmitTests pins both sides of this split.
+        return canonical ? operand : operand?.ReplaceLineEndings(" ");
     }
 
     public static string GetDisplayName(ILOpCode opCode)

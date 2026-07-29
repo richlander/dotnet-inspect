@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for the depends command.
 /// </summary>
-public record DependsOptions : IAssemblySourceOptions
+public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
 {
     /// <summary>
     /// Target type name to walk dependencies for (type mode).

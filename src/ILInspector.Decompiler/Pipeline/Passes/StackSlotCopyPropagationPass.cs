@@ -1,3 +1,5 @@
+using ILInspector.ControlFlow;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -101,6 +103,7 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
 
     sealed record CopyPath(
         IReadOnlyList<Block> Blocks,
+        IReadOnlyList<BlockEdges> Edges,
         int CopyBlockIndex,
         int CopyStatementIndex,
         int UseBlockIndex,
@@ -121,6 +124,25 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
 
         var blocks = container.Blocks;
         if (HasUnmodeledControlFlow(blocks))
+            return null;
+
+        // Consume the single shared structural CFG rather than a private edge
+        // model. Cfg.Build reports EH leaves and out-of-container branch targets
+        // as flags instead of resolving them, so bail on any incomplete graph —
+        // the same contract DefiniteAssignment uses. This turns the previously
+        // accidental exclusion of leave edges (a side effect of guard
+        // interaction) into an explicit, pinned invariant.
+        //
+        // The ExternalTargets clause also closes a soundness hole, not just a
+        // missed optimization: the old private Successors silently dropped an
+        // unresolvable branch target (offset lookup → -1 → no edge emitted).
+        // That missing edge flowed into Predecessors, and the region-domination
+        // check reasons over predecessors, so a block with a dropped incoming
+        // edge could look dominated by the copy when it is not — propagating a
+        // value along a path that does not actually carry it. Bailing on any
+        // external target makes that unsound case unreachable by construction.
+        var edges = Cfg.Build(blocks);
+        if (edges.Any(edge => edge.LeavesRegion || edge.ExternalTargets.Count > 0))
             return null;
 
         int copyBlockIndex = copyBlock.ChildIndex;
@@ -159,12 +181,12 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
             if (state.BlockIndex == useBlockIndex)
                 continue;
 
-            foreach (int successor in Successors(blocks, state.BlockIndex))
+            foreach (int successor in edges[state.BlockIndex].Successors)
                 stack.Push((successor, 0));
         }
 
         return foundUse
-            ? new CopyPath(blocks, copyBlockIndex, copy.ChildIndex, useBlockIndex, useStatement, region)
+            ? new CopyPath(blocks, edges, copyBlockIndex, copy.ChildIndex, useBlockIndex, useStatement, region)
             : null;
     }
 
@@ -203,7 +225,7 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
                 return false;
 
             state[blockIndex] = 1;
-            foreach (int successor in Successors(path.Blocks, blockIndex))
+            foreach (int successor in path.Edges[blockIndex].Successors)
                 if (Visit(successor))
                     return true;
             state[blockIndex] = 2;
@@ -213,7 +235,7 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
 
     static bool RegionDominatedByCopy(CopyPath path)
     {
-        var predecessors = Predecessors(path.Blocks);
+        var predecessors = Predecessors(path.Edges);
         foreach (int blockIndex in path.RegionBlocks)
         {
             if (blockIndex == path.CopyBlockIndex)
@@ -225,65 +247,17 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
         return true;
     }
 
-    static List<int>[] Predecessors(IReadOnlyList<Block> blocks)
+    static List<int>[] Predecessors(IReadOnlyList<BlockEdges> edges)
     {
-        var predecessors = new List<int>[blocks.Count];
+        var predecessors = new List<int>[edges.Count];
         for (int i = 0; i < predecessors.Length; i++)
             predecessors[i] = [];
-        for (int i = 0; i < blocks.Count; i++)
+        for (int i = 0; i < edges.Count; i++)
         {
-            foreach (int successor in Successors(blocks, i))
+            foreach (int successor in edges[i].Successors)
                 predecessors[successor].Add(i);
         }
         return predecessors;
-    }
-
-    static IEnumerable<int> Successors(IReadOnlyList<Block> blocks, int index)
-    {
-        var children = blocks[index].Children;
-        if (children.Count == 0)
-        {
-            if (index + 1 < blocks.Count)
-                yield return index + 1;
-            yield break;
-        }
-
-        switch (children[^1])
-        {
-            case Branch branch:
-                int branchTarget = IndexOfOffset(blocks, branch.TargetOffset);
-                if (branchTarget >= 0)
-                    yield return branchTarget;
-                yield break;
-            case ConditionalBranch branch:
-                int conditionalTarget = IndexOfOffset(blocks, branch.TargetOffset);
-                if (conditionalTarget >= 0)
-                    yield return conditionalTarget;
-                if (index + 1 < blocks.Count)
-                    yield return index + 1;
-                yield break;
-            case Leave leave:
-                int leaveTarget = IndexOfOffset(blocks, leave.TargetOffset);
-                if (leaveTarget >= 0)
-                    yield return leaveTarget;
-                yield break;
-            case SwitchBranch branch:
-                foreach (int targetOffset in branch.TargetOffsets)
-                {
-                    int switchTarget = IndexOfOffset(blocks, targetOffset);
-                    if (switchTarget >= 0)
-                        yield return switchTarget;
-                }
-                if (index + 1 < blocks.Count)
-                    yield return index + 1;
-                yield break;
-            case Return or Throw or EndFinally or EndFilter:
-                yield break;
-            default:
-                if (index + 1 < blocks.Count)
-                    yield return index + 1;
-                yield break;
-        }
     }
 
     static bool IsIndependentBodyScope(BlockContainer container)
@@ -311,14 +285,6 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
             if (ContainsUnmodeledControlFlow(child))
                 return true;
         return false;
-    }
-
-    static int IndexOfOffset(IReadOnlyList<Block> blocks, int offset)
-    {
-        for (int i = 0; i < blocks.Count; i++)
-            if (blocks[i].StartOffset == offset)
-                return i;
-        return -1;
     }
 
     static IrNode? EnclosingStatement(IrNode node)

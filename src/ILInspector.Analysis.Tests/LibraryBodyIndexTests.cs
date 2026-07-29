@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -135,6 +136,84 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly()
+    {
+        // A framework TypeRef names the assembly the compiler bound against, which is a
+        // facade that defines nothing and forwards to the definer. This resolver hands back
+        // exactly the assembly a TypeRef names -- no implementation-preference redirect --
+        // so the definition is reachable only by following the facade's ExportedType
+        // forwarder. Dropping that hop makes this return null, which was the #3400 bug.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new FrameworkDirectoryResolver(frameworkDir));
+
+        bool exercisedForwarder = false;
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+
+            string referencedName = reader.GetString(
+                reader.GetAssemblyReference((AssemblyReferenceHandle)typeReference.ResolutionScope).Name);
+            string ns = reader.GetString(typeReference.Namespace);
+            string name = reader.GetString(typeReference.Name);
+            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
+            string namedPath = Path.Combine(frameworkDir, referencedName + ".dll");
+
+            // Only a TypeRef whose named assembly forwards rather than defines exercises the hop.
+            if (!File.Exists(namedPath) || !TypeForwardResolver.ForwardsType(namedPath, fullTypeName))
+                continue;
+
+            var definition = builder.TryResolveExternalTypeDefinition(handle);
+            Assert.True(
+                definition is not null,
+                $"{fullTypeName} is forwarded by {referencedName} and must resolve through that forwarder");
+
+            var definingReader = definition!.Value.DefiningReader;
+            string definingName = definingReader.GetString(definingReader.GetAssemblyDefinition().Name);
+            Assert.NotEqual(referencedName, definingName);
+            Assert.Equal(name, definingReader.GetString(
+                definingReader.GetTypeDefinition(definition.Value.Definition).Name));
+
+            exercisedForwarder = true;
+            break;
+        }
+
+        Assert.True(exercisedForwarder, "expected a framework TypeRef whose named assembly forwards the type");
+    }
+
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ForwarderCycleTerminatesWithoutResolving()
+    {
+        // Answering every identity with the same facade turns the forwarder chain into a
+        // cycle. Resolution must terminate and report nothing rather than spin or invent
+        // a definition.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string facade = Path.Combine(frameworkDir, "netstandard.dll");
+        Assert.True(File.Exists(facade));
+        Assert.True(TypeForwardResolver.ForwardsType(facade, "System.Object"));
+
+        string targetPath = typeof(Console).Assembly.Location;
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new ConstantResolver(facade));
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is null);
+    }
+
+    [Fact]
     public void CrossAssemblyMetadataResolver_NullResolverFailsHonest()
     {
         string targetPath = typeof(Console).Assembly.Location;
@@ -180,6 +259,259 @@ public class LibraryBodyIndexTests
         }
 
         throw new InvalidOperationException("Expected at least one external TypeRef.");
+    }
+
+    /// <summary>
+    /// A chain that starts Platform-scoped stays Platform-scoped for every hop. This gates the
+    /// non-downgrade half of <see cref="LibraryBodyIndex.IndexBuilder.NextHopScope"/> against a
+    /// real framework forwarder chain; it does NOT gate tightening, because a framework TypeRef
+    /// makes <c>ScopeForReference</c> return Platform at hop 0 and the chain never starts at Any.
+    /// <see cref="ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope"/> is the
+    /// tightening gate.
+    /// </summary>
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ResolvesEveryForwarderHopUnderPlatformScope()
+    {
+        // Resolving a hop under Any would let a confusable local copy satisfy it -- see
+        // ILInspector.Analysis.SpoofRuntimeFixtures, an unsigned assembly literally named
+        // System.Runtime.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+        var recorder = new RecordingResolver(new FrameworkDirectoryResolver(frameworkDir));
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, recorder);
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is not null);
+
+        // Non-empty rather than "> 1": whether System.Object takes a forwarder hop from
+        // System.Console depends on the framework layout, but that this test observed real
+        // resolution at all does not.
+        Assert.NotEmpty(recorder.Requests);
+        Assert.All(recorder.Requests, request =>
+            Assert.Equal(AssemblyResolutionScope.Platform, request.Scope));
+    }
+
+    /// <summary>
+    /// The tightening gate, and the only test that fails if the <c>scope = NextHopScope(...)</c>
+    /// call is deleted from the forwarder loop: the unit tests below cover the function in
+    /// isolation and would all still pass with the wiring removed.
+    ///
+    /// The chain is synthetic because no natural artifact pairs an Any-scoped TypeRef with a
+    /// framework-signed forwarder target -- a real framework TypeRef is already Platform at hop 0.
+    /// Contoso.App references unsigned Contoso.Facade (Any), which forwards Sample.Widget to a
+    /// framework-signed identity. That hop must be requested under Platform, or a confusable
+    /// local copy could answer for a framework-signed name.
+    /// </summary>
+    [Fact]
+    public void ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "fwd-scope-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // 7cec85d7bea7798e is System.Private.CoreLib's key, so the forwarded identity is
+            // framework-signed while nothing else in the chain is.
+            byte[] frameworkToken = Convert.FromHexString("7cec85d7bea7798e");
+            string appPath = Path.Combine(directory, "Contoso.App.dll");
+            string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
+            string corelibPath = Path.Combine(directory, "Fake.CoreLib.dll");
+
+            File.WriteAllBytes(appPath, EmitAssembly("Contoso.App", metadata =>
+            {
+                var facadeReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Contoso.Facade"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default, // unsigned -> ScopeForReference yields Any
+                    flags: default,
+                    hashValue: default);
+                metadata.AddTypeReference(
+                    facadeReference,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"));
+            }));
+
+            File.WriteAllBytes(facadePath, EmitAssembly("Contoso.Facade", metadata =>
+            {
+                var corelibReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Fake.CoreLib"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: metadata.GetOrAddBlob(frameworkToken),
+                    flags: default,
+                    hashValue: default);
+                metadata.AddExportedType(
+                    // tdForwarder (ECMA-335 II.23.1.15); not named in System.Reflection.TypeAttributes.
+                    (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    corelibReference,
+                    typeDefinitionId: 0);
+            }));
+
+            File.WriteAllBytes(corelibPath, EmitAssembly("Fake.CoreLib", metadata =>
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1))));
+
+            var recorder = new RecordingResolver(new FrameworkDirectoryResolver(directory));
+
+            using var stream = File.OpenRead(appPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            using var builder = new LibraryBodyIndex.IndexBuilder(appPath, reader, peReader, recorder);
+
+            var widgetReference = FindExternalTypeReference(reader, "Sample", "Widget");
+            Assert.False(widgetReference.IsNil);
+            Assert.NotNull(builder.TryResolveExternalTypeDefinition(widgetReference));
+
+            // The premise: the chain really does start unconstrained. Without this the test
+            // would pass for an implementation that scoped everything Platform from hop 0.
+            Assert.Equal(
+                AssemblyResolutionScope.Any,
+                Assert.Single(recorder.Requests, request => request.Name == "Contoso.Facade").Scope);
+
+            // The property.
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                Assert.Single(recorder.Requests, request => request.Name == "Fake.CoreLib").Scope);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
+    static byte[] EmitAssembly(string name, Action<MetadataBuilder> addContent)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(name + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        // Row 1 is always <Module>, exactly as a compiler emits.
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        addContent(metadata);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Theory]
+    [InlineData("7cec85d7bea7798e")] // System.Private.CoreLib
+    [InlineData("b03f5f7f11d50a3a")] // System.* contracts
+    [InlineData("cc7b13ffcd2ddd51")] // netstandard
+    public void NextHopScope_AnyForwardedToFrameworkSignedAssembly_TightensToPlatform(string token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Private.CoreLib", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Platform,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Theory]
+    [InlineData(null)] // unsigned -- the SpoofRuntimeFixtures adversary
+    [InlineData("1234567890abcdef")] // signed, but not a framework key
+    public void NextHopScope_AnyForwardedToUnsignedOrThirdPartyAssembly_StaysAny(string? token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Runtime", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Any,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Fact]
+    public void NextHopScope_PlatformIsNeverDowngraded()
+    {
+        foreach (string? token in new[] { null, "1234567890abcdef", "7cec85d7bea7798e" })
+        {
+            var forwarded = new AssemblyReferenceIdentity("Whatever", Version: null, Culture: null, token);
+
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Platform, forwarded));
+        }
+    }
+
+    static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)
+    {
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+            if (reader.StringComparer.Equals(typeReference.Namespace, ns)
+                && reader.StringComparer.Equals(typeReference.Name, name))
+                return handle;
+        }
+
+        return default;
+    }
+
+    /// <summary>Resolves an identity to the same-named assembly in a directory, with no redirect.</summary>
+    sealed class FrameworkDirectoryResolver(string directory) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            string candidate = Path.Combine(directory, identity.Name + ".dll");
+            return File.Exists(candidate)
+                ? new ResolvedAssemblyReference(identity, candidate, () => File.OpenRead(candidate), "test")
+                : null;
+        }
+    }
+
+    /// <summary>Answers every identity with one assembly, so any forwarder chain cycles.</summary>
+    sealed class ConstantResolver(string path) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => new(identity, path, () => File.OpenRead(path), "test");
+    }
+
+    /// <summary>Records every identity and scope the builder asks for.</summary>
+    sealed class RecordingResolver(IAssemblyReferenceResolver inner) : IAssemblyReferenceResolver
+    {
+        public List<(string Name, AssemblyResolutionScope Scope)> Requests { get; } = [];
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            Requests.Add((identity.Name, scope));
+            return inner.Resolve(identity, scope);
+        }
     }
 
     sealed class CountingResolver : IAssemblyReferenceResolver
@@ -316,6 +648,246 @@ public class LibraryBodyIndexTests
             child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
 
+    /// <summary>
+    /// Derives this type's mutable cache fields by reflection and pins each one to a side of the
+    /// release boundary, so the two release methods are gated on the property they exist for
+    /// rather than only on staying correct. Both directions fail: a cache the doc claims to drop
+    /// but doesn't, and a cache dropped that the doc says survives. A newly added cache field
+    /// belongs to neither list and fails until someone decides which side it is on.
+    /// <para>
+    /// Known boundary: this compares populated-ness, so it would not see a future release method
+    /// that empties a readonly collection in place instead of nulling a field.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
+    {
+        // Dropped by ReleaseCallGraphCaches(); _scopeGraph is also dropped by ReleaseScopeGraph().
+        string[] callGraphCaches =
+        [
+            "_directCallsByCaller",
+            "_distinctCallerEdgesByCallee",
+            "_distinctCallersByCallee",
+            "_methodMap",
+            "_scopeGraph",
+        ];
+
+        // Evidence-domain caches the release methods deliberately retain.
+        string[] retainedCaches =
+        [
+            "_allocationFanoutOpportunities",
+            "_directCallerLoops",
+            "_generatedFrameworkTypes",
+            "_opportunities",
+            "_rootReachByToken",
+            "_signals",
+            "_unsafeEvidenceByMember",
+        ];
+
+        Assert.Equal(
+            callGraphCaches.Concat(retainedCaches).OrderBy(name => name, StringComparer.Ordinal),
+            MutableCacheFields().Select(field => field.Name).OrderBy(name => name, StringComparer.Ordinal));
+
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+        var scope = LibraryBodyIndex.Open(testPath);
+
+        var index = Exercised(analysisPath, scope);
+        var before = PopulatedCaches(index);
+
+        // The gate is only meaningful if the caches under test were populated to begin with.
+        // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
+        // so the set comparison would hold no matter what the release methods did to it.
+        foreach (var name in callGraphCaches.Concat(retainedCaches))
+            Assert.Contains(name, before);
+
+        index.ReleaseCallGraphCaches();
+        Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
+
+        // ReleaseScopeGraph drops the scope graph and nothing else — that is the whole point of
+        // having it separately, since the single-assembly maps are the cheap, high-value half.
+        var scopeOnly = Exercised(analysisPath, scope);
+        var beforeScopeRelease = PopulatedCaches(scopeOnly);
+        Assert.Contains("_scopeGraph", beforeScopeRelease);
+
+        scopeOnly.ReleaseScopeGraph();
+        Assert.Equal(beforeScopeRelease.Where(name => name != "_scopeGraph"), PopulatedCaches(scopeOnly));
+
+        static LibraryBodyIndex Exercised(string path, LibraryBodyIndex scope)
+        {
+            var index = LibraryBodyIndex.Open(path);
+            int token = index.Methods.First().MetadataToken;
+            index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallerTree(token, new[] { scope }, maxDepth: 2, maxNodes: 50);
+
+            // The retained half of the contract is only gated on caches this workload actually
+            // populates, and the call-tree builders alone reach just one of the seven. Touch the
+            // evidence-domain producers too; OptimizationOpportunities is what pulls in
+            // _directCallerLoops and _rootReachByToken, which have no direct test access.
+            _ = index.OptimizationOpportunities;
+            _ = index.AllocationFanoutOpportunities;
+            _ = index.GetUnsafeEvidenceByMember();
+            _ = index.GeneratedFrameworkTypeNames;
+            return index;
+        }
+
+        // Every non-readonly instance field on this type is a lazy cache, so the filter is just
+        // "mutable state" rather than a type-shaped guess. An earlier version excluded value types
+        // and so silently missed the two ImmutableArray caches, which is the same blind spot this
+        // test exists to catch.
+        static IEnumerable<FieldInfo> MutableCacheFields()
+            => typeof(LibraryBodyIndex)
+                .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)
+                .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly);
+
+        static List<string> PopulatedCaches(LibraryBodyIndex index)
+            => MutableCacheFields()
+                .Where(field => IsPopulated(field.GetValue(index)))
+                .Select(field => field.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+
+        // ImmutableArray caches signal "not yet computed" with IsDefault, not with null.
+        static bool IsPopulated(object? value)
+        {
+            if (value is null)
+                return false;
+
+            var isDefault = value.GetType().GetProperty("IsDefault");
+            return isDefault is null || !(bool)isDefault.GetValue(value)!;
+        }
+    }
+
+    // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
+    // counts, reverse edges, and the cross-assembly scope maps) are cached per index so a
+    // consumer that asks many questions of one index pays for them once. That is only sound if
+    // none of them depends on which member was selected or on a previously requested scope set.
+    // This walks one index through a sequence designed to poison a root- or scope-dependent
+    // cache, and requires every answer to match a fresh index that was asked nothing else.
+    //
+    // Scope note: this pins cache *independence*, not the bodiless-root contract itself. Serving
+    // a bodiless root from the shared grouping is a correctness fault that a fresh index would
+    // reproduce identically, so no independence test can see it;
+    // BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod owns that, and
+    // was confirmed to fail when the guard is removed.
+    [Fact]
+    public void CallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
+    {
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+
+        // Pick a root with a genuinely branching caller tree. Comparing trees is only evidence
+        // if the trees can differ: a root with no in-assembly callers renders one leaf line, and
+        // every comparison below would hold no matter how badly a cache leaked.
+        var probe = LibraryBodyIndex.Open(analysisPath);
+        int richToken = PickRichest(probe, out int richest);
+
+        Assert.True(richest >= 4, $"expected a branching caller tree to compare; richest had {richest} nodes");
+        int otherToken = probe.Methods.First(method => method.MetadataToken != richToken).MetadataToken;
+        // A bodiless root is the one case whose caller grouping genuinely depends on the root,
+        // so it must not be served from (or poison) the shared per-index cache.
+        int bodilessToken = typeof(ICallerGraphTarget).GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
+
+        // Each expectation comes from an index that has answered nothing else.
+        var expectedCallers = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedCallees = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedScoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, new[] { LibraryBodyIndex.Open(testPath) }, maxDepth: 2, maxNodes: 50));
+        var expectedUnscoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+        var expectedBodiless = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
+
+        // Scoping must actually change the answer, or the scope-set comparisons prove nothing.
+        Assert.NotEqual(expectedScoped, expectedUnscoped);
+
+        // Now ask one index everything, in an order that would expose a leaked root or scope.
+        var reused = LibraryBodyIndex.Open(analysisPath);
+        var scopeA = LibraryBodyIndex.Open(testPath);
+        reused.BuildCallerTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(expectedCallers, Describe(reused.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(reused.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+
+        // Alternating scope sets on one index: the empty set must not be answered from the
+        // populated set's map, nor the reverse, however many times they interleave.
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedUnscoped, Describe(reused.BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
+        // A bodiless root asked after body-rooted requests have populated the cache.
+        var reusedTests = LibraryBodyIndex.Open(testPath);
+        int testAsmToken = PickRichest(reusedTests, out int testRichest);
+        Assert.True(testRichest >= 2, $"expected a non-leaf caller tree in the test assembly; richest had {testRichest} nodes");
+        var expectedTestAsmCallers = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50));
+        reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50);
+        Assert.Equal(expectedBodiless, Describe(reusedTests.BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50)));
+
+        // ...and the bodiless request must not have written its root-dependent grouping into the
+        // shared cache, so a body-rooted request after it still answers like a fresh index.
+        Assert.Equal(expectedTestAsmCallers, Describe(reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50)));
+
+        // The scope cache keys on the caller's collection, which the caller still owns and may
+        // mutate. Holding that live list would make the key compare equal to itself while the
+        // built maps still describe the old contents, so the scope references are snapshotted.
+        var mutableScopes = new List<LibraryBodyIndex> { scopeA };
+        var mutated = LibraryBodyIndex.Open(analysisPath);
+        mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50);
+        mutableScopes[0] = LibraryBodyIndex.Open(analysisPath);
+        var expectedAfterMutation = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50));
+
+        // Swapping the element must actually change the answer, or this proves nothing.
+        Assert.NotEqual(expectedScoped, expectedAfterMutation);
+        Assert.Equal(expectedAfterMutation, Describe(mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50)));
+
+        // Releasing the caches is a memory/time trade only: answers after a release must still
+        // match a fresh index, and must not be served from a map that was supposedly dropped.
+        var released = LibraryBodyIndex.Open(analysisPath);
+        released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50);
+        released.ReleaseScopeGraph();
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        released.ReleaseCallGraphCaches();
+        Assert.Equal(expectedCallers, Describe(released.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
+        static int PickRichest(LibraryBodyIndex index, out int richest)
+        {
+            int token = 0;
+            richest = 0;
+            foreach (var method in index.Methods.Take(150))
+            {
+                int size = Describe(index.BuildCallerTree(method.MetadataToken, maxDepth: 2, maxNodes: 50)).Count;
+                if (size > richest)
+                {
+                    richest = size;
+                    token = method.MetadataToken;
+                }
+            }
+
+            return token;
+        }
+
+        static List<string> Describe(CallTreeNode root)
+        {
+            var lines = new List<string>();
+            void Walk(CallTreeNode node, int depth)
+            {
+                lines.Add($"{depth}|{node.Member.DeclaringType.Name}.{node.Member.Name}|{node.Status}|" +
+                    $"{node.Perf?.Source ?? ""}|fanout={node.Perf?.Fanout ?? -1}|fanin={node.Perf?.Fanin ?? -1}");
+                foreach (var child in node.Children)
+                    Walk(child, depth + 1);
+            }
+            Walk(root, 0);
+            return lines;
+        }
+    }
+
     [Fact]
     public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
     {
@@ -341,6 +913,72 @@ public class LibraryBodyIndexTests
 
         static bool HasSource(CallTreeNode node, string source)
             => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
+    }
+
+    // #3331: the scoped and unscoped builders key the reverse graph differently (structural member
+    // identity vs assembly-local tokens) and do not produce the same tree. Prefiltering scope
+    // assemblies on assembly identity therefore must not be allowed to decide which builder runs,
+    // or narrowing a scope to nothing would silently change the answer instead of just costing
+    // less. An empty-but-supplied scope list means "cross-assembly walk requested, nothing
+    // survived"; only a null list means "no scope requested".
+    //
+    // The scan is deliberately self-locating rather than pinned to one method: it asserts the
+    // correctness claim on every method it visits, and separately requires that at least one of
+    // them distinguishes the two builders, so the test cannot quietly become vacuous if the call
+    // structure of this assembly changes.
+    [Fact]
+    public void BuildCallerTree_PrefilteringScopeAssembliesNeverChangesTheTree()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
+
+        // A fixture that does not reference the analysis assembly, so it can never contribute a
+        // caller. Opening it and prefiltering it away must be indistinguishable.
+        var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+
+        int discriminating = 0;
+        int visited = 0;
+        foreach (var method in index.Methods.Take(60))
+        {
+            var noScopeRequested = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, callerScopes: null, maxDepth: 2, maxNodes: 50));
+            var scopeOpened = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, new[] { nonContributing }, maxDepth: 2, maxNodes: 50));
+            var scopePrefilteredAway = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+
+            Assert.Equal(scopeOpened, scopePrefilteredAway);
+
+            visited++;
+            if (!noScopeRequested.SequenceEqual(scopePrefilteredAway))
+                discriminating++;
+        }
+
+        Assert.True(visited > 0, "expected to visit methods");
+        Assert.True(
+            discriminating > 0,
+            "no method distinguished the scoped builder from the unscoped one, so this test proves nothing; "
+                + "if the two builders have genuinely converged, the null/empty scope distinction can be removed");
+    }
+
+    // #3331: the same claim against the cross-assembly fixtures the matcher tests use — an assembly
+    // that cannot reference the target contributes no edges, so skipping it before opening it must
+    // produce an identical tree.
+    [Fact]
+    public void BuildCallerTree_SkippingANonContributingScopeAssemblyDoesNotChangeTheTree()
+    {
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalike = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var ping = targetIndex.Methods.First(method => method.Name == "Ping");
+
+        var unfiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, lookalike }, maxDepth: 2, maxNodes: 50);
+        var prefiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(unfiltered), FlattenCallTree(prefiltered));
+
+        // And when the prefilter removes every scope assembly, the result must still match the walk
+        // that opened them all and found nothing.
+        var onlyNonContributing = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { lookalike }, maxDepth: 2, maxNodes: 50);
+        var allFilteredOut = targetIndex.BuildCallerTree(ping.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(onlyNonContributing), FlattenCallTree(allFilteredOut));
     }
 
     [Fact]
@@ -592,6 +1230,153 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("UseB", aCallers);
         Assert.Contains("UseB", bCallers);
         Assert.DoesNotContain("UseA", bCallers);
+    }
+
+    // #3266: the forward mirror of BuildCallerTree(scopes). A single-assembly callee tree stops
+    // at the assembly boundary (the callee is an External leaf); scoping the callee's assembly
+    // must expand it and tag it with its source assembly.
+    [Fact]
+    public void BuildCallTree_WithScope_IncorporatesAndTagsExternalCallees()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var run = callerIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
+
+        var scoped = callerIndex.BuildCallTree(run.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+        var unscoped = callerIndex.BuildCallTree(run.MetadataToken, maxDepth: 2, maxNodes: 50);
+
+        var scopedPing = Assert.Single(scoped.Children, child => child.Member.Name == "Ping");
+        Assert.NotEqual(CallTreeStatus.External, scopedPing.Status);
+        Assert.Equal(targetAssemblyName, scopedPing.Perf?.Source);
+
+        // The single-assembly tree still lists the callee, but as an untagged external leaf.
+        var unscopedPing = Assert.Single(unscoped.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(CallTreeStatus.External, unscopedPing.Status);
+        Assert.Null(unscopedPing.Perf?.Source);
+    }
+
+    // #3266: with the callee's assembly in scope, a callee chain deepens across the package
+    // boundary — RunOuter -> Run (same assembly) -> Target.Api.Ping (another assembly).
+    [Fact]
+    public void BuildCallTree_WithScope_ExpandsCalleeChainAcrossAssemblyBoundary()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var runOuter = callerIndex.Methods.First(method => method.Name == "RunOuter");
+        var tree = callerIndex.BuildCallTree(runOuter.MetadataToken, new[] { targetIndex }, maxDepth: 3, maxNodes: 50);
+
+        var run = Assert.Single(tree.Children, child => child.Member.Name == "Run");
+        Assert.Null(run.Perf?.Source); // same assembly as the root, so not tagged external
+        var ping = Assert.Single(run.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(targetAssemblyName, ping.Perf?.Source);
+    }
+
+    // #3266: a constructed-generic callee (Echo<int>, a MethodSpec) is pulled into scope and
+    // resolved against the open Echo<T> definition rather than left as an external leaf. Generic
+    // key normalization is shared with BuildCallerTree(scopes) via CallerGraphKey.
+    [Fact]
+    public void BuildCallTree_WithScope_ResolvesConstructedGenericCallee()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var useEcho = callerIndex.Methods.First(method => method.Name == "UseEcho");
+
+        var scoped = callerIndex.BuildCallTree(useEcho.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+        var unscoped = callerIndex.BuildCallTree(useEcho.MetadataToken, maxDepth: 2, maxNodes: 50);
+
+        var scopedEcho = Assert.Single(scoped.Children, child => child.Member.Name == "Echo");
+        Assert.NotEqual(CallTreeStatus.External, scopedEcho.Status);
+        Assert.Equal(targetAssemblyName, scopedEcho.Perf?.Source);
+
+        var unscopedEcho = Assert.Single(unscoped.Children, child => child.Member.Name == "Echo");
+        Assert.Equal(CallTreeStatus.External, unscopedEcho.Status);
+    }
+
+    // #3266: children are keyed and ordered by structural identity, so an irrelevant scope's
+    // position in the list cannot reorder or duplicate the graph.
+    [Fact]
+    public void BuildCallTree_WithScope_IsDeterministicAcrossScopeOrder()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+
+        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+
+        var forward = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { targetIndex, twinIndex }, maxDepth: 3, maxNodes: 50);
+        var reversed = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { twinIndex, targetIndex }, maxDepth: 3, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(forward), FlattenCallTree(reversed));
+    }
+
+    // #3266: with no scopes the multi-assembly overload falls back to the single-assembly builder.
+    [Fact]
+    public void BuildCallTree_WithEmptyScope_MatchesSingleAssemblyBuilder()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+
+        var single = callerIndex.BuildCallTree(useBox.MetadataToken, maxDepth: 3, maxNodes: 50);
+        var fallback = callerIndex.BuildCallTree(useBox.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 3, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(single), FlattenCallTree(fallback));
+    }
+
+    // #3266 (review): a callee whose defining assembly is not in scope stays External even with a
+    // non-empty scope list — Run -> Ping with only an unrelated caller assembly scoped keeps Ping
+    // External (its own body was never decoded), not a false Leaf.
+    [Fact]
+    public void BuildCallTree_WithScope_MarksUndecodedExternalCalleeAsExternal()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var targetAssemblyName = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath())
+            .Methods.First().AssemblyName;
+
+        var run = callerIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
+
+        // The twin scope does not define Target.Api.Ping, so Ping's body is never decoded.
+        var tree = callerIndex.BuildCallTree(run.MetadataToken, new[] { twinIndex }, maxDepth: 3, maxNodes: 50);
+
+        var ping = Assert.Single(tree.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(CallTreeStatus.External, ping.Status);
+        Assert.Equal(targetAssemblyName, ping.Perf?.Source);
+    }
+
+    // #3266 (review): fan-out reports the true outbound call-site count, independent of the
+    // deduplication that collapses repeat call sites to one child — RunTwice calls Echo twice.
+    [Fact]
+    public void BuildCallTree_WithScope_ReportsCallSiteFanoutForRepeatedCallee()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        var runTwice = callerIndex.Methods.First(method => method.Name == "RunTwice");
+        var tree = callerIndex.BuildCallTree(runTwice.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Single(tree.Children, child => child.Member.Name == "Echo");
+        Assert.Equal(2, tree.Perf?.Fanout);
+    }
+
+    static List<string> FlattenCallTree(CallTreeNode root)
+    {
+        var lines = new List<string>();
+        void Walk(CallTreeNode node, int depth)
+        {
+            lines.Add($"{depth}|{node.Member.Name}|{node.Status}|{node.Perf?.Source ?? ""}");
+            foreach (var child in node.Children)
+                Walk(child, depth + 1);
+        }
+        Walk(root, 0);
+        return lines;
     }
 
     // #1741 (unit): the key fragment for a type includes its assembly, so same-FQN types
@@ -3402,6 +4187,64 @@ public class LibraryBodyIndexTests
         Assert.Equal(2, pointerExtern.DirectCallerCount);
         Assert.Equal(CallerUnsafeMode.Implicit, pointerExtern.Mode);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+    }
+
+    [Fact]
+    public void CallTreeFanInCountsDistinctCallersNotCallSites()
+    {
+        var (path, directory) = BuildRepeatedCallSiteFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+            var target = index.Methods.First(method => method.Name == "Target");
+            var caller = index.Methods.First(method => method.Name == "CallsTargetTwice");
+
+            var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 50);
+            var targetNode = tree.Children.First(child => child.Member.Name == "Target");
+
+            // Three call sites reach Target, but only two distinct methods do. Fan-in is a
+            // leverage cue and the reverse graph draws one edge per distinct caller, so the
+            // number has to agree with the edges rather than count repeated sites.
+            Assert.Equal(3, index.DirectCalls.Count(call => call.Callee.Name == "Target"));
+            Assert.Equal(2, targetNode.Perf?.Fanin);
+            Assert.NotNull(target);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static (string Path, string Directory) BuildRepeatedCallSiteFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-repeated-call-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "RepeatedCallSiteFixture.dll");
+
+        var assemblyName = new AssemblyName("RepeatedCallSiteFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("RepeatedCallSiteFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        var target = type.DefineMethod("Target", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        target.GetILGenerator().Emit(OpCodes.Ret);
+
+        // Two call sites from one caller.
+        var twice = type.DefineMethod("CallsTargetTwice", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var twiceIl = twice.GetILGenerator();
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Ret);
+
+        // One call site from a second caller.
+        var once = type.DefineMethod("CallsTargetOnce", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var onceIl = once.GetILGenerator();
+        onceIl.Emit(OpCodes.Call, target);
+        onceIl.Emit(OpCodes.Ret);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
     }
 }
 

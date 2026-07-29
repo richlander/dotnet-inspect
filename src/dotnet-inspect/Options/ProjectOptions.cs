@@ -3,7 +3,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
 
-public record ProjectOptions
+public record ProjectOptions : IProjectionOptions
 {
     public string ProjectPath { get; init; } = ".";
 
@@ -12,8 +12,6 @@ public record ProjectOptions
     public string? ReadmePackageId { get; init; }
 
     public bool Print { get; init; }
-
-    public bool PrintAll { get; init; }
 
     public RowSelector? PrintRow { get; init; }
 

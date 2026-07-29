@@ -20,6 +20,23 @@ public class CSharpNamingTests
     public void SourceMethodName_EscapesKeywordsAfterDemangling(string metadataName, string expected)
         => Assert.Equal(expected, CSharpNaming.SourceMethodName(metadataName));
 
+    // A compiler-generated method name a raising pass left standing (a lambda body
+    // method, a record Clone) is unspeakable in C#; SourceMethodName sanitizes it
+    // into a legal identifier so the rendered body parses, rather than leaking the
+    // raw <...> name into a method-group / call site (#3129).
+    [Theory]
+    [InlineData("<M>b__0_0", "__M_b__0_0")]           // lambda body method
+    [InlineData("<Ag__B>b__0_0", "__Ag__B_b__0_0")]   // enclosing name itself contains g__
+    [InlineData("<RedisFireAndForget>b__8_0", "__RedisFireAndForget_b__8_0")]
+    [InlineData("<Clone>$", "__Clone__")]             // record synthesized clone
+    public void SourceMethodName_SanitizesUnspellableGeneratedName(string metadataName, string expected)
+    {
+        string actual = CSharpNaming.SourceMethodName(metadataName);
+        Assert.Equal(expected, actual);
+        Assert.DoesNotContain('<', actual);
+        Assert.DoesNotContain('>', actual);
+    }
+
     [Theory]
     [InlineData("class", "@class")]
     [InlineData("class`1", "@class")]

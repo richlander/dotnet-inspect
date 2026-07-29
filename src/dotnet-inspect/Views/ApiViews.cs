@@ -746,6 +746,13 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
+    /// <summary>
+    /// True when <see cref="OriginalSourceCode"/> holds the bodyless-member explanation rather than
+    /// authored source. Not a section: consumers that treat the original source as text (Source
+    /// Diff) must skip it (issue #3299).
+    /// </summary>
+    public bool OriginalSourceUnavailable { get; set; }
+
     [MarkoutSection(Name = SectionNames.SourceDiff)]
     public CodeSection SourceDiffCode { get; set; }
 
@@ -784,11 +791,8 @@ public class MemberCodeView
     public static bool CostFactMemberIsEmpty(List<CostFactRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
 
-    [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
-    public List<TreeNode>? CallGraphNodes { get; set; }
- 
-    [MarkoutSection(Name = "Caller Graph", EmptyText = "No inbound callers found for this method.")]
-    public List<TreeNode>? CallerGraphNodes { get; set; }
+    [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = "No inbound callers or outbound calls found for this method.")]
+    public Markout.Graph? CallGraph { get; set; }
  
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }

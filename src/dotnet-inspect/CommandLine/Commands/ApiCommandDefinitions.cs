@@ -103,6 +103,8 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Bare);
+        typeCommand.Options.Add(opts.Taste);
+        typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
@@ -127,7 +129,8 @@ public static class ApiCommandDefinitions
                         jsonl: typeFormat == OutputFormat.Jsonl,
                         markdown: typeFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
-                        sectionCategories: typePipeline.GetCategoryMap());
+                        sectionCategories: typePipeline.GetCategoryMap(),
+                        projection: ProjectionAudit.Requested(parseResult));
 
                 case TypeOptionsParser.ShowHelp:
                     Console.Error.WriteLine("Error: Type name, pattern, or source required.");
@@ -242,6 +245,9 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
+        memberCommand.Options.Add(opts.Taste);
+        memberCommand.Options.Add(opts.ReadableNames);
+        memberCommand.Options.Add(opts.Focus);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
@@ -268,7 +274,8 @@ public static class ApiCommandDefinitions
                         jsonl: memberFormat == OutputFormat.Jsonl,
                         markdown: memberFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
-                        sectionCategories: memberPipeline.GetCategoryMap());
+                        sectionCategories: memberPipeline.GetCategoryMap(),
+                        projection: ProjectionAudit.Requested(parseResult));
 
                 case MemberOptionsParser.ShowHelp:
                     Console.Error.WriteLine("Error: Type name or source required.");

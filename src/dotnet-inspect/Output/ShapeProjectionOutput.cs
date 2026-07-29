@@ -46,6 +46,13 @@ public static class ShapeProjectionOutput
 
     public static int Write(IReadOnlyList<ShapeProjectionRow> rows, ShapeProjectionOptions options)
     {
+        ProjectionAudit.MarkHonored(options.Kind switch
+        {
+            ShapeProjectionKind.Value => ProjectionAudit.Value,
+            ShapeProjectionKind.Urls => ProjectionAudit.Urls,
+            _ => ProjectionAudit.Paths
+        });
+
         if (rows.Count == 0)
         {
             Console.Error.WriteLine($"Error: selected section has no {ProjectionName(options.Kind)} values.");
@@ -55,14 +62,20 @@ public static class ShapeProjectionOutput
         IReadOnlyList<ShapeProjectionRow> selected = rows;
         if (options.Row is { } selector)
         {
-            var row = selector.Resolve(rows.Count);
-            if (row < 1 || row > rows.Count)
+            // Address the row by the number it was rendered with. Indexing the
+            // list positionally would return a different row whenever the
+            // projection skipped one, and would do so without complaint.
+            var rowNumbers = rows.Select(row => row.Row).ToList();
+            var row = selector.Resolve(rowNumbers);
+            var position = RowNumbering.IndexOf(rowNumbers, row);
+            if (position < 0)
             {
-                Console.Error.WriteLine($"Error: row {row} is out of range. Use --row 1 through {rows.Count}, first, or last.");
+                Console.Error.WriteLine(
+                    $"Error: row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
                 return 1;
             }
 
-            selected = [rows[row - 1]];
+            selected = [rows[position]];
         }
 
         if (options.Kind == ShapeProjectionKind.Value && selected.Count != 1)

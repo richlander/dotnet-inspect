@@ -27,6 +27,7 @@ public static class PackageOptionsParser
         Option<bool> AllLibrariesOption,
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
+        Option<bool> IncludeUnlistedOption,
         Option<bool> ReadmeOption,
         Option<bool> ContentOption,
         Option<bool> FrontmatterOption,
@@ -135,9 +136,9 @@ public static class PackageOptionsParser
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
+            IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
             ShowReadme = parseResult.GetValue(args.ReadmeOption),
             Print = parseResult.GetValue(opts.Print),
-            PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
@@ -172,6 +173,9 @@ public static class PackageOptionsParser
             Rows = opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
+
+        // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
+        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } };
 
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)

@@ -27,6 +27,12 @@ public static class CommandLineBuilder
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
     /// <summary>
+    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleDirectionFlagError"/>.
+    /// </summary>
+    public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+        => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
+
+    /// <summary>
     /// Known commands for implicit package command detection.
     /// Delegates to <see cref="ArgumentPreprocessor.KnownCommands"/> for backward compatibility.
     /// </summary>
@@ -43,6 +49,23 @@ public static class CommandLineBuilder
     /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
     /// </summary>
     public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
+
+    /// <summary>
+    /// Invokes a parsed command under the payload-projection audit. This is the single
+    /// invoke choke point: the product entry point and the test harness both call it, so a
+    /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
+    /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
+    /// </summary>
+    public static async Task<int> InvokeAsync(ParseResult parseResult)
+    {
+        // Two projections cannot both shape one payload, so reject the combination before
+        // the command runs rather than letting one of them be discarded.
+        if (!ProjectionAudit.ValidateExclusive(parseResult))
+            return 1;
+
+        using var scope = ProjectionAudit.BeginRequest(parseResult);
+        return ProjectionAudit.Verify(await parseResult.InvokeAsync());
+    }
 
     /// <summary>
     /// Creates the root command with all subcommands configured.

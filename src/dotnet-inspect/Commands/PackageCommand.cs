@@ -35,7 +35,7 @@ public class PackageCommand
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
-        // can never fan out to the unbounded SourceLink Integrity group.
+        // can never fan out to unbounded @Hidden members as a group.
         if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
             return 1;
 
@@ -48,7 +48,8 @@ public class PackageCommand
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap());
+                sectionCategories: pipeline.GetCategoryMap(),
+                projection: options);
         }
 
         // -D defaults to effective discovery for target-based commands.
@@ -66,7 +67,33 @@ public class PackageCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
 
-            if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            // The alternate lens modes render their own payload and never consult the section
+            // filter, so requiring -S here would force the caller to name a section that is then
+            // ignored. LensProjection answers the projection for those modes instead, and -S is
+            // rejected outright below rather than silently dropped.
+            var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
+                || options.ShowContent || options.ShowReadme;
+            // Discovery also renders its own payload, so it is exempt from the single-section
+            // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
+            // is meaningful with -D, which restricts discovery to the selected sections.
+            var rendersOwnPayload = lensMode || options.Discover != null;
+            // Gate on what the caller actually typed: --path and --type synthesize a selection,
+            // and rejecting that would break the lens modes' normal use. The refusal is
+            // unconditional rather than excusing --print: the lens prints its own document
+            // without a selection, so accepting -S there would silently ignore it.
+            if (lensMode && options.SelectExplicitlySet)
+            {
+                var lensName = options.ListVersions ? "--versions"
+                    : options.ListLayout ? "--layout"
+                    : options.ListTfms ? "--tfms"
+                    : options.ShowContent ? "--content"
+                    : "--readme";
+                Console.Error.WriteLine(
+                    $"Error: -S/--select is not available with {lensName}, which renders its own payload rather than sections.");
+                return 1;
+            }
+
+            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -79,11 +106,14 @@ public class PackageCommand
             if (shapeCount == 1)
             {
                 var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-                if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                // In a lens mode the shape projection is refused by LensProjection with an
+                // accurate reason; demanding -S first would report a section requirement that is
+                // not the actual problem.
+                if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
-                if (options.Count || options.Print || options.PrintAll)
+                if (options.Count || options.Print)
                 {
-                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                     return 1;
                 }
                 if (options.Rows is not null)
@@ -93,9 +123,9 @@ public class PackageCommand
                 }
             }
 
-            if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+            if (options.JsonArray && shapeCount == 0 && !options.Print)
             {
-                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
                 return 1;
             }
 
@@ -105,7 +135,10 @@ public class PackageCommand
                 return 1;
             }
 
-            if ((options.Print || options.PrintAll) && !ValidatePackagePrintSelection(options.IncludeSections))
+            // A lens renders its own payload, so demanding a printable section selection reports a
+            // requirement the lens does not have. The readme lens prints its own document, and
+            // the rest refuse --print through LensProjection with an accurate reason.
+            if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
@@ -168,6 +201,35 @@ public class PackageCommand
             {
                 try
                 {
+                    if (options.IncludeUnlisted)
+                    {
+                        // Listing-aware range: resolve the vector from the full listing (unlisted
+                        // included) so unlisted endpoints are found rather than reported as missing,
+                        // then emit each in-range version tagged with its listed status.
+                        // Mirror ResolveAsync: fetch prereleases whenever the range endpoints are
+                        // prerelease (even without --preview), otherwise a prerelease-endpoint range
+                        // fails because its endpoints were filtered out of the listing.
+                        var rangeListings = await PackageExtractor.GetVersionListingsAsync(
+                            context.HttpClient, range!.PackageId,
+                            range!.IncludesPrerelease || options.IncludePrerelease,
+                            includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
+                        if (rangeListings == null)
+                        {
+                            Console.Error.WriteLine($"Error: Package '{range.PackageId}' not found on nuget.org");
+                            return 1;
+                        }
+
+                        var unlistedVector = PackageVersionVector.CreateListingAware(
+                            range!, rangeListings, options.IncludePrerelease);
+                        // Materialized once: counting a lazy sequence and then re-enumerating it
+                        // for the render is how a count starts to disagree with its payload.
+                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
+                        if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
+                            return rangeListingExit;
+                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        return 0;
+                    }
+
                     var vector = await PackageVersionVector.ResolveAsync(
                         context.HttpClient,
                         range!,
@@ -176,7 +238,10 @@ public class PackageCommand
                         options.IncludePrerelease);
                     var rangeVersions = vector.Addresses
                         .Take(options.Limit ?? int.MaxValue)
-                        .Select(address => address.Version.ToNormalizedString());
+                        .Select(address => address.Version.ToNormalizedString())
+                        .ToList();
+                    if (LensProjection.TryProject(options, "--versions", rangeVersions.Count, out var rangeProjectionExit))
+                        return rangeProjectionExit;
                     OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
                     return 0;
                 }
@@ -203,24 +268,40 @@ public class PackageCommand
                 && options.Limit == 1
                 && !options.ForceLatest)
             {
-                if (NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                if (!options.IncludeUnlisted
+                    && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
                 {
+                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
+                        return cachedPinnedExit;
                     Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
 
-                var knownVersions = await PackageExtractor.GetVersionsAsync(
+                // Include unlisted versions here: a pinned version query verifies a specific,
+                // explicitly named version, and an unlisted version is still a valid coordinate
+                // (NuGet restores known unlisted versions). Discovery hiding must not make an
+                // explicitly requested unlisted version look "not found".
+                var knownVersions = await PackageExtractor.GetVersionListingsAsync(
                     context.HttpClient,
                     normalizedName,
                     includePrerelease: true,
+                    includeUnlisted: true,
                     limit: null,
                     log: logger.Log,
                     sourceOptions: options.SourceOptions);
 
-                if (knownVersions != null
-                    && knownVersions.Any(v => string.Equals(v, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
+                var pinnedMatch = knownVersions?.FirstOrDefault(
+                    v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase));
+                if (pinnedMatch != null)
                 {
-                    Console.WriteLine(versionQueryPinned);
+                    // Either spelling renders a single version row, so the projection answers 1
+                    // and returns before the render path chooses between them.
+                    if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
+                        return knownPinnedExit;
+                    if (options.IncludeUnlisted)
+                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                    else
+                        Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
 
@@ -233,11 +314,16 @@ public class PackageCommand
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease)
+            // Skipped under --include-unlisted: that flag requires the listing-aware path below
+            // (a locally-cached single version carries no listed/unlisted status column).
+            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
+                && !options.IncludeUnlisted)
             {
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
                 {
+                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
+                        return cachedLatestExit;
                     Console.WriteLine(cachedVersion);
                     return 0;
                 }
@@ -259,7 +345,37 @@ public class PackageCommand
                     return 1;
                 }
 
+                // A single resolved version is a one-row payload, so --count reports 1.
+                if (LensProjection.TryProject(options, "--latest-version", 1, out var latestProjectionExit))
+                    return latestProjectionExit;
+                if (options.IncludeUnlisted)
+                {
+                    // Latest resolution is listing-aware (#3388), so the version it returns is
+                    // listed by construction. Emit it as a one-row listing so the flag still
+                    // produces the tagged column the user asked for.
+                    OutputFormatter.WriteVersionListings(
+                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                    return 0;
+                }
+
                 Console.WriteLine(latest);
+                return 0;
+            }
+
+            if (options.IncludeUnlisted)
+            {
+                var listings = await PackageExtractor.GetVersionListingsAsync(
+                    context.HttpClient, normalizedName, options.IncludePrerelease,
+                    includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
+                if (listings == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
+                    return listingExit;
+                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }
 
@@ -269,6 +385,9 @@ public class PackageCommand
                 Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
                 return 1;
             }
+
+            if (LensProjection.TryProject(options, "--versions", versions.Count, out var versionsProjectionExit))
+                return versionsProjectionExit;
 
             OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
@@ -350,17 +469,11 @@ public class PackageCommand
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
-            {
-                ListPackageLayout(extractPath, options, packageName, options.TipLevel);
-                return 0;
-            }
+                return ListPackageLayout(extractPath, options, packageName, options.TipLevel);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
-            {
-                ListPackageTfms(extractPath, options.Tsv, options.Jsonl);
-                return 0;
-            }
+                return ListPackageTfms(extractPath, options);
 
             // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
@@ -376,8 +489,11 @@ public class PackageCommand
                     options);
             }
 
-            // Handle --readme/--print mode: print the selected grounding document and exit early
-            if (options.ShowReadme || options.Print || options.PrintAll)
+            // Handle --readme/--print mode: print the selected grounding document and exit early.
+            // Discovery is excluded: it renders its own payload further down and refuses --print
+            // with an accurate reason, where falling in here would print the grounding document
+            // instead of the discovery rows the caller asked to project.
+            if (options.ShowReadme || (options.Print && !effectiveDiscovery))
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
@@ -456,13 +572,17 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (options.Count)
+            // Effective discovery renders the discovered rows below and answers the projection
+            // against them. Counting here would count the package document instead, which is a
+            // different payload than the one -D displays.
+            if (options.Count && !effectiveDiscovery)
             {
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
 
-            if (options.Value || options.Urls || options.Paths)
+            if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
                 return WritePackageShapeProjection(result, options);
 
             if (options.Bare)
@@ -520,7 +640,8 @@ public class PackageCommand
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap());
+                    sectionCategories: pipeline.GetCategoryMap(),
+                    projection: options);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -653,7 +774,7 @@ public class PackageCommand
 
         if (options.Count)
         {
-            Console.WriteLine(CountMultiPackageRows(results, rowSection, options).ToString(CultureInfo.InvariantCulture));
+            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
             return 0;
         }
 
@@ -802,7 +923,6 @@ public class PackageCommand
         var multiReadmeFrontmatter = options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter;
         if (options.ShowReadme && !multiReadmeFrontmatter) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (multiReadmeFrontmatter && options.JsonOutput) conflicts.Add("--json");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
@@ -839,15 +959,9 @@ public class PackageCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.ShowContent)
+        if (options.Print && options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --content.");
-            return false;
-        }
-
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            Console.Error.WriteLine("Error: --print cannot be combined with --content.");
             return false;
         }
 
@@ -861,9 +975,9 @@ public class PackageCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return false;
         }
 
@@ -873,9 +987,9 @@ public class PackageCommand
             return false;
         }
 
-        if (scopedContent && !options.ShowReadme && !options.Print && !options.PrintAll && !options.ShowContent)
+        if (scopedContent && !options.ShowReadme && !options.Print && !options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, --print-all, or --content.");
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, or --content.");
             return false;
         }
 
@@ -888,12 +1002,6 @@ public class PackageCommand
         if (options.ShowContent && options.Tabular && !options.Jsonl)
         {
             Console.Error.WriteLine("Error: --content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
-            return false;
-        }
-
-        if (options.ShowContent && options.Count)
-        {
-            Console.Error.WriteLine("Error: --content cannot be combined with --count.");
             return false;
         }
 
@@ -1433,6 +1541,13 @@ public class PackageCommand
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+
+        // A path that matches nothing still yields one row so the render can show it as absent.
+        // Counting that row would answer "one file matched" when none did, so count found files,
+        // as the bare writer below already does.
+        if (LensProjection.TryProject(options, "--content", rows.Count(row => row.Found), out var contentProjectionExit))
+            return contentProjectionExit;
+
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
@@ -1779,7 +1894,6 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
@@ -1800,7 +1914,6 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
         if (options.Columns != null) conflicts.Add("--columns");
@@ -1918,6 +2031,10 @@ public class PackageCommand
         if (sections.Count == 0)
         {
             Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            // An empty match is still an answer to --count, and returning without projecting
+            // would report the absence as unprojected output.
+            if (libraryOptions.Count)
+                CountOutput.WriteCount(0);
             return 0;
         }
 
@@ -2069,8 +2186,8 @@ public class PackageCommand
     {
         if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
-            Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
-            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
+            Console.Error.WriteLine($"Error: --all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
             return false;
         }
 
@@ -2085,7 +2202,7 @@ public class PackageCommand
         if (table == null)
         {
             Console.Error.WriteLine($"Error: --all-libraries row output does not support section: {sections[0]}.");
-            Console.Error.WriteLine("Use Markdown output, or select Library Info, Integrations, Switches, Integration Opportunities, or a focused integration section.");
+            Console.Error.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
             return false;
         }
 
@@ -2124,26 +2241,7 @@ public class PackageCommand
                 libraryInfoRows);
         }
 
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = inspections
-                .SelectMany(inspection => LibraryIntegrationCatalog.All
-                    .Select(descriptor => new { Inspection = inspection, Descriptor = descriptor, Signals = descriptor.GetSignals(inspection) })
-                    .Where(row => row.Signals.Count > 0)
-                    .Select(row => WithProvenance(
-                        packageName,
-                        version,
-                        row.Inspection,
-                        row.Descriptor.Name,
-                        row.Descriptor.CountRenderedRows(row.Signals).ToString())))
-                .ToArray();
-            return new(
-                ["Package", "Version", "Library", "TFM", "Integration", "APIs"],
-                ["package", "version", "library", "tfm", "integration", "apis"],
-                integrationRows);
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2181,7 +2279,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return null;
 
@@ -2298,36 +2396,13 @@ public class PackageCommand
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
-        => section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase)
-           || section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase)
+        => section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase)
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
-           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+           || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
     private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
     {
-        if (section.Equals(EcosystemIntegrationNames.Integrations, StringComparison.OrdinalIgnoreCase))
-        {
-            var integrationRows = LibraryIntegrationCatalog.All
-                .Select(descriptor =>
-                {
-                    var count = inspections.Sum(inspection =>
-                    {
-                        var signals = descriptor.GetSignals(inspection);
-                        return signals.Count > 0 ? descriptor.CountRenderedRows(signals) : 0;
-                    });
-                    return new { descriptor.Name, Count = count };
-                })
-                .Where(row => row.Count > 0)
-                .ToList();
-            if (integrationRows.Count == 0)
-                return;
-
-            AppendHeading(sb, section);
-            AppendTable(sb, ["Integration", "APIs"], integrationRows.Select(row => new[] { row.Name, row.Count.ToString() }));
-            return;
-        }
-
-        if (section.Equals("Integration Opportunities", StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
@@ -2383,7 +2458,7 @@ public class PackageCommand
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
-            d.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+            d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
             return;
 
@@ -2562,7 +2637,7 @@ public class PackageCommand
         }
     }
 
-    private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
+    private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
         string searchPath;
         string relativeBase;
@@ -2580,7 +2655,7 @@ public class PackageCommand
             else
             {
                 Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
-                return;
+                return 1;
             }
 
             // Show paths relative to parent of TFM dir so TFM appears as root node
@@ -2592,7 +2667,7 @@ public class PackageCommand
             if (error != null)
             {
                 Console.Error.WriteLine(error);
-                return;
+                return 1;
             }
             searchPath = resolved;
             relativeBase = extractPath;
@@ -2610,8 +2685,12 @@ public class PackageCommand
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
 
+        if (LensProjection.TryProject(options, "--layout", results.Count, out var projectionExitCode))
+            return projectionExitCode;
+
         PackageOutputFormatter.WriteFileTree(results);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
+        return 0;
     }
 
     internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
@@ -2634,11 +2713,15 @@ public class PackageCommand
         return (extractPath, null);
     }
 
-    private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
+    private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
 
-        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
+        if (LensProjection.TryProject(options, "--tfms", tfms.Count, out var projectionExit))
+            return projectionExit;
+
+        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        return 0;
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
@@ -2719,12 +2802,14 @@ public class PackageCommand
 
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
-        if (options.Print || options.PrintAll)
+
+        if (LensProjection.TryProject(options, "--readme", result.Files.Count, out var readmeProjectionExit, printHandledByLens: true, scalarPayload: true))
+            return readmeProjectionExit;
+        if (options.Print)
         {
             return PrintProjectionOutput.Write(
                 [new PrintableDocument(1, PackageSections.PackageReadme, file.Path, file.Path, null, file.Content)],
                 new PrintProjectionOptions(
-                    options.PrintAll,
                     options.PrintRow,
                     options.JsonOutput,
                     options.Jsonl,

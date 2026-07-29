@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for assembly inspection.
 /// </summary>
-public record LibraryOptions
+public record LibraryOptions : IProjectionOptions
 {
     /// <summary>
     /// Assembly name within a package (positional argument).
@@ -153,6 +153,15 @@ public record LibraryOptions
     public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
 
     /// <summary>
+    /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose
+    /// declared <see cref="SectionSizeClass.Fixed"/> growth class and <see cref="SectionCost.NetworkFree"/>
+    /// cost make their membership package-independent. Set internally when a valueless <c>-S</c>
+    /// (no value, no explicit selection) is issued at the default verbosity; leaves an explicit
+    /// <c>-v:n</c>/<c>-v:d</c> on the normal curated ladder.
+    /// </summary>
+    public bool FixedOverview { get; init; }
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }
@@ -190,8 +199,6 @@ public record LibraryOptions
     public bool Count { get; init; }
 
     public bool Print { get; init; }
-
-    public bool PrintAll { get; init; }
 
     public bool Value { get; init; }
 

@@ -211,7 +211,7 @@ SourceLink URLs are exposed on the command you are already using.
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --table
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --jsonl
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --jsonl
 ```
 
 ```expect
@@ -229,7 +229,7 @@ dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S
 public static partial class JsonSerializer
 ```
 
-For stack-trace style diagnostics, `library --il-offset` maps a MethodDef token plus IL offset to coordinate-scoped sections such as `Source Location`, `Member Context`, `Instruction Context`, `Exception Context`, `Callsite Context`, and `Return Address Context`.
+For stack-trace style diagnostics, `library --il-offset` maps a MethodDef token plus IL offset to coordinate-scoped sections such as `Context: Source Location`, `Context: Member`, `Context: Instruction`, `Context: Exception`, `Context: Callsite`, and `Context: Return Address`.
 
 ```bash
 dotnet-inspect library --platform System.Text.Json --il-offset 0x06000001+0x0 --json

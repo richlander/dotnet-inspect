@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace DotnetInspector.Output;
 
 /// <summary>
@@ -64,8 +66,32 @@ public static class CountOutput
         return count;
     }
 
+    /// <summary>
+    /// Writes a single count and records that the <c>--count</c> projection was honored.
+    /// Count-emitting paths should route through this rather than writing to the console
+    /// directly, so the payload-projection audit can tell a rendered count from a dropped one.
+    /// </summary>
+    public static void WriteCount(int count) => WriteCount(count, null);
+
+    /// <summary>
+    /// Writes a count to <paramref name="outputPath"/>, or to stdout when it is null. A count is
+    /// still the command's payload, so --out has to apply to it as it does to a full render.
+    /// </summary>
+    public static void WriteCount(int count, string? outputPath)
+    {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+        // Invariant: a count is machine-readable output, so it must not pick up
+        // culture-specific digits or grouping from the ambient locale.
+        var text = count.ToString(CultureInfo.InvariantCulture);
+        if (string.IsNullOrEmpty(outputPath))
+            Console.WriteLine(text);
+        else
+            File.WriteAllText(outputPath, text + Environment.NewLine);
+    }
+
     public static void WriteCountFromMarkdown(string markdown)
     {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         Console.WriteLine(CountMarkdownTableRows(markdown));
     }
 
@@ -127,6 +153,7 @@ public static class CountOutput
     /// </summary>
     public static void WriteCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
     {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         var counts = CountMarkdownTableRowsBySection(markdown);
         Console.WriteLine("| Section | Count |");
         Console.WriteLine("| ------- | ----- |");

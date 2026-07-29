@@ -508,6 +508,79 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void InlineArrayObjectConditionalElementSpan_RaisesSpilledStore()
+    {
+        // The address-spilled dual of InlineArraySpan: an element VALUE that
+        // carries a branch and a call (`s is not null ? s.ToUpper() : "null"`) in
+        // a params ReadOnlySpan<object> context cannot be evaluated in one push,
+        // so csc computes the element-ref address first and spills it to an
+        // evaluation-stack temp, spills the conditional's value to a second temp,
+        // then stores through the spilled address. Left flat, both the angle-
+        // bracketed buffer name and the raw stack temps never parse.
+        // InlineArrayCollectionPass recovers the spilled address+value and raises
+        // the whole thing back to `[a, s is not null ? s.ToUpper() : "null"]`.
+        // This is the shape EncLocalInfo's params string.Format hits in the wild
+        // (issue #3129, S4).
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArrayObjectConditionalElementSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, s is not null ? s.ToUpper() : \"null\"]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+
+    [Fact]
+    public void InlineArraySpanTernaryConditionValue_RaisesRunOnceConditionEdge()
+    {
+        // A params ReadOnlySpan<object> collection whose span is the CONDITION of a
+        // value-position ternary is evaluated exactly once, unconditionally, before
+        // either arm. Left flat the `<>y__InlineArray2<object>` buffer name never
+        // parses and caps fidelity at Partial; InlineArrayCollectionPass now allow-
+        // lists the ternary condition as a run-once governing edge (issue #3129, S4
+        // follow-up #3281) and raises it to `[a, b]`, restoring Full. Real compiled
+        // witness for the synthetic ConditionalConditionSpan case in
+        // InlineArraySpilledElementTests.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue));
+    }
+
+    [Fact]
+    public void InlineArraySpanSwitchExpressionValue_RaisesRunOnceScrutineeEdge()
+    {
+        // Span on the scrutinee of a switch expression — a run-once governing edge
+        // (#3281). Left flat it caps fidelity at Partial; the pass raises it to
+        // `[a, b]`, restoring Full.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanSwitchExpressionValue));
+    }
+
+    [Fact]
+    public void InlineArraySpanUsingResource_RaisesRunOnceResourceEdge()
+    {
+        // Span on the resource of a using statement; the body is a separate block,
+        // so the using statement itself is the span consumer and the element stores
+        // are its contiguous earlier siblings — a run-once governing edge (#3281).
+        // Left flat it caps fidelity at Partial; the pass raises it to `[a, b]`,
+        // restoring Full.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanUsingResource));
+    }
+
+    static void AssertRunOnceEdgeSpanRaises(string methodName)
+    {
+        var function = ImportFixture(methodName);
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, b]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void InlineArrayFieldAsSpan_RaisesToCast()
     {
         // A real [InlineArray(4)] field viewed as a Span<int>: csc lowers the
@@ -2489,19 +2562,34 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void StackSlotLiveRange_ReusedStringListCount_SplitsTypedCarriers()
+    public void ReusedTempSpillFold_StringListCount_RaisesObjectInitializer()
     {
-        // One edge slot can carry unrelated straight-line values: a string
-        // property value, then a nullable list receiver, then the int Count. The
-        // final C# needs distinct synthetic carriers rather than assigning the
-        // list/int values through the earlier string slot (CS0029).
+        // This fixture used to reach StackSlotLiveRangePass with one edge slot
+        // carrying a string property value, then a nullable list receiver, then
+        // the int Count — disjoint live ranges that needed distinct typed
+        // carriers to avoid CS0029. After #3336 stage 2, the post-structuring
+        // reused-temp spill fold raises that dup-chain into an object initializer
+        // *before* StackSlotLiveRangePass runs, so the reused edge slot no longer
+        // reaches that pass. That reuse is intrinsic to the foldable dup-chain
+        // lowering (the member values sit on the stack beneath the dup'd receiver
+        // and merge into reused edge slots), so it cannot be reproduced in a
+        // non-folding fixture. The slot-splitting mechanism itself stays guarded
+        // by BooleanMaterialization_ReusedReceiverSlot_KeepsBoolLiveRangeDistinct
+        // (string -> bool) and the SlotMergedDateTimeFormat object-slot case.
+        //
+        // This test now pins the fold: the method raises to
+        // `new SlotReuseSection { Status = ..., Missing = ... }`, with the
+        // nullable-list Count spelled correctly and no mistyped carrier leaked.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.ReusedSlotStringListCount), source);
 
-        Assert.Contains(".Missing", output);
-        Assert.Contains(".Count", output);
-        Assert.DoesNotContain("string S_0 = missing", output);
-        Assert.DoesNotContain("string S_0 = S_", output);
+        Assert.Contains("new SlotReuseSection", output);
+        Assert.Contains("Status = complete ? \"Complete\" : \"Partial\"", output);
+        Assert.Contains("Missing = missing is not null ? missing.Count : 0", output);
+        // The verbose S_NNN version-copy chain is gone: no leaked receiver copy
+        // and no member store through a synthetic carrier.
+        Assert.DoesNotContain("section.Missing", output);
+        Assert.DoesNotContain("string S_0 = ", output);
     }
 
     [Fact]
@@ -2843,7 +2931,7 @@ public class RaisingPassTests
         block.Add(new StoreLocal(0, boolType, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
         block.Add(new Return(new LoadLocal(0, boolType)));
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         Assert.Equal("return false;", CSharpPrinter.PrintRaised(function).Output!.Trim());
     }
@@ -4411,7 +4499,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(intType,
             [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
@@ -4703,7 +4791,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(boolType,
             [new Parameter("ch", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!;

@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for package inspection.
 /// </summary>
-public record InspectionOptions
+public record InspectionOptions : IProjectionOptions
 {
     /// <summary>
     /// Package name/path arguments (positional). First element is package identifier.
@@ -100,6 +100,12 @@ public record InspectionOptions
     public bool IncludePrerelease { get; init; }
 
     /// <summary>
+    /// Include unlisted versions in <c>--versions</c> output, marked as unlisted, instead of hiding
+    /// them. Discovery hides unlisted versions by default; this opt-in reveals them flagged.
+    /// </summary>
+    public bool IncludeUnlisted { get; init; }
+
+    /// <summary>
     /// Show the README.md content from the package.
     /// </summary>
     public bool ShowReadme { get; init; }
@@ -108,8 +114,6 @@ public record InspectionOptions
     /// Print the document behind the selected section's first row.
     /// </summary>
     public bool Print { get; init; }
-
-    public bool PrintAll { get; init; }
 
     public RowSelector? PrintRow { get; init; }
 
@@ -213,6 +217,13 @@ public record InspectionOptions
     public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>. <see cref="Select"/> alone cannot
+    /// answer this: <c>--path</c> and <c>--type</c> are sugar that synthesize a selection, so a
+    /// non-empty <see cref="Select"/> does not imply the caller asked for one.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
+
+    /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
@@ -262,7 +273,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

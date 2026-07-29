@@ -54,7 +54,24 @@ A readable name is only as honest as the role it rests on. The synthesizer takes
 When no evidence supports a readable name, it falls back to `V_index` rather than
 fabricating — honest degradation, same as the rest of the pipeline.
 
-## Open fork (needs a decision before wiring)
+## Wiring decision (resolved)
+
+Of the fork below, **option A (printer option)** was taken. The library already
+carries `PrinterOptions.ReadableLocalNames` (default off) and consumes it in
+`CSharpPrinter.LocalName`; the CLI exposes it as the api-surface flag
+`--readable-names` on the `member` and `type` commands. The flag is threaded as
+`ApiOptions.RequestReadableLocalNames` and applied at the CLI edge in
+`ApiCommand` on top of the resolved `.dotnet-inspectconfig`/`--taste` render
+options — it is orthogonal to those style axes (a name synthesis, not a
+byte-divergent lens), so it never has to be reconciled against them and leaves
+the Annotated view's interleaved IL intact. For a persistent form the catalog
+entry also carries the tool-owned config key
+`dotnet_inspect_style_readable_local_names`. Because the mode is byte-preserving
+(names do not affect IL) it is **not** oracle-endorsed, so the `--taste` /
+`dotnet_inspect_style_full_taste` aggregate never turns it on; only the explicit
+flag or its own key does. Default output stays byte-identical `V_index`.
+
+## Open fork (historical — resolved above)
 
 Where the opt-in lives:
 

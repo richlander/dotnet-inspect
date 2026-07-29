@@ -36,7 +36,15 @@ public enum LibraryBodyAnalysisFeatures
     All = Default | LeakTriage,
 }
 
-/// <summary>Materialized IL body evidence for one assembly.</summary>
+/// <summary>
+/// Materialized IL body evidence for one assembly.
+/// <para>
+/// Derived call-graph maps are populated lazily on first use and then retained, so an instance is
+/// not safe for concurrent use without external synchronization — the same as the evidence
+/// accessors that already cached this way. Use <see cref="ReleaseScopeGraph"/> or
+/// <see cref="ReleaseCallGraphCaches"/> to hand that memory back.
+/// </para>
+/// </summary>
 public sealed class LibraryBodyIndex
 {
     LibraryBodyIndex(
@@ -123,6 +131,49 @@ public sealed class LibraryBodyIndex
     Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
+    MethodDefinitionMap? _methodMap;
+    IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
+    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
+    ScopeGraph? _scopeGraph;
+
+    /// <summary>
+    /// Drops the cross-assembly maps cached for the last-requested scope set.
+    /// <para>
+    /// These are by far the largest thing this index retains — indexing one root plus 22 scopes
+    /// holds roughly 370 MB — and they are specific to one scope set, so a consumer that has
+    /// finished rendering for a scope (or is moving to a different one) can release them without
+    /// giving up the single-assembly caches. Everything rebuilds on next use; this only trades
+    /// time for memory.
+    /// </para>
+    /// </summary>
+    public void ReleaseScopeGraph() => _scopeGraph = null;
+
+    /// <summary>
+    /// Drops the maps that back the call-tree builders: the scope graph, the definition map, the
+    /// distinct-caller counts and edges, and the direct-call grouping.
+    /// <para>
+    /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
+    /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
+    /// evidence, root-reach roll-ups, unsafe-evidence grouping, generated-framework type sets, and
+    /// the optimization-opportunity arrays — which serve other producers and together retain well
+    /// under a megabyte. Prefer <see cref="ReleaseScopeGraph"/> between
+    /// renders that keep visiting members of this same assembly: the single-assembly maps are
+    /// comparatively small and are what make repeated requests cheap. Everything rebuilds on next
+    /// use, so this only trades time for memory.
+    /// </para>
+    /// <para>
+    /// <c>ReleaseMethods_DropExactlyTheCachesTheyDocument</c> derives this type's cache fields by
+    /// reflection and fails if one is added, or moved across that boundary, without updating it.
+    /// </para>
+    /// </summary>
+    public void ReleaseCallGraphCaches()
+    {
+        _scopeGraph = null;
+        _methodMap = null;
+        _distinctCallersByCallee = null;
+        _distinctCallerEdgesByCallee = null;
+        _directCallsByCaller = null;
+    }
 
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
@@ -983,6 +1034,192 @@ public sealed class LibraryBodyIndex
             .GroupBy(call => call.Caller.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
 
+    /// <summary>
+    /// Token/signature resolution over this assembly's defined methods. Depends only on
+    /// <see cref="Methods"/>, so it is built once instead of per call-tree request: a single
+    /// progressive render asks for several trees over the same index.
+    /// </summary>
+    MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
+
+    /// <summary>
+    /// Distinct callers per callee definition token, over the whole assembly.
+    ///
+    /// Fan-in is the <em>true</em> inbound degree, not the degree of the drawn subgraph: a bounded
+    /// tree visits at most <c>maxNodes</c> nodes, but the annotation means "how many members depend
+    /// on this one", so it must count callers the tree never expanded. That is why this is a
+    /// whole-graph quantity and cannot be narrowed to the visited set — it is cached per index
+    /// instead, so the cost is paid once rather than on every request.
+    /// </summary>
+    IReadOnlyDictionary<int, int> DistinctCallersByCallee()
+        => _distinctCallersByCallee ??= DirectCalls
+            .GroupBy(call => MethodMap.Resolve(call))
+            .Where(group => group.Key != 0)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(call => call.Caller.MetadataToken).Distinct().Count(),
+                EqualityComparer<int>.Default);
+
+    /// <summary>
+    /// Inbound call edges per callee definition token, collapsed to one edge per distinct caller
+    /// method and preserving an in-loop call site when the same caller has one.
+    ///
+    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/>, which is root-independent. The caller
+    /// tree's own resolution additionally maps any edge whose callee definition token equals the
+    /// requested root onto that root, which matters only when the root is bodiless
+    /// (abstract/interface/extern) and therefore absent from <see cref="Methods"/>; for a root with
+    /// a body <c>Resolve</c> already returns that same token. <see cref="BuildCallerTree(int, int,
+    /// int)"/> therefore uses this cache only for rooted-in-a-body requests and builds its own map
+    /// for the bodiless case, rather than caching a map that silently depends on the root.
+    /// </summary>
+    IReadOnlyDictionary<int, ImmutableArray<DirectCall>> DistinctCallerEdgesByCallee()
+        => _distinctCallerEdgesByCallee ??= DirectCalls
+            .GroupBy(call => MethodMap.Resolve(call))
+            .Where(group => group.Key != 0)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .GroupBy(call => call.Caller.MetadataToken)
+                    .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
+                    .ToImmutableArray(),
+                EqualityComparer<int>.Default);
+
+    /// <summary>
+    /// The cross-assembly structural maps for one caller/callee scope set, cached on the index
+    /// that roots the request.
+    ///
+    /// Both directions are keyed by <c>CallerGraphKey</c> and depend only on the participating
+    /// assemblies' calls, methods and signals — never on which member was selected — so a scope set
+    /// can be indexed once and reused across requests. Each direction is built on first use, so a
+    /// caller-only or callee-only consumer never pays for the other.
+    /// </summary>
+    sealed class ScopeGraph(LibraryBodyIndex root, IReadOnlyList<LibraryBodyIndex> scopes)
+    {
+        // Snapshot the scope references. The caller owns the list it passed and may mutate or reuse
+        // it, and Participants() is a lazy iterator, so holding the live list would let a later
+        // mutation both invalidate Matches (it would compare the list against itself) and change
+        // which assemblies get indexed after the fact.
+        readonly ImmutableArray<LibraryBodyIndex> _scopes = [.. scopes];
+
+        Dictionary<string, List<ForwardCalleeEdge>>? _forward;
+        Dictionary<string, HashSet<string>>? _incoming;
+        Dictionary<string, (string Assembly, MethodSignals Signals)>? _definitions;
+        Dictionary<string, List<ReverseCallerEdge>>? _reverse;
+
+        /// <summary>True when this cache was built for exactly the same scope instances, in order.</summary>
+        /// <remarks>
+        /// The root is part of the key because it is itself a graph participant, not merely the
+        /// object holding the cache. That clause cannot currently fail — the only storage is
+        /// <c>_scopeGraph</c> on the same instance <c>ScopeGraphFor</c> passes as <c>this</c> — so it
+        /// is an uncoverable branch, worth knowing if branch coverage here is ever read as
+        /// meaningful. It stays because dropping it would leave the key incomplete rather than
+        /// simplified, and silently wrong if a graph were ever cached anywhere but its own root.
+        /// </remarks>
+        public bool Matches(LibraryBodyIndex requestRoot, IReadOnlyList<LibraryBodyIndex> requested)
+        {
+            if (!ReferenceEquals(root, requestRoot) || _scopes.Length != requested.Count)
+                return false;
+            for (int i = 0; i < _scopes.Length; i++)
+            {
+                if (!ReferenceEquals(_scopes[i], requested[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        public (Dictionary<string, List<ForwardCalleeEdge>> Forward,
+                Dictionary<string, HashSet<string>> Incoming,
+                Dictionary<string, (string Assembly, MethodSignals Signals)> Definitions) ForwardMaps()
+        {
+            if (_forward is not null && _incoming is not null && _definitions is not null)
+                return (_forward, _incoming, _definitions);
+
+            var forward = new Dictionary<string, List<ForwardCalleeEdge>>(StringComparer.Ordinal);
+            var incoming = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var definitions = new Dictionary<string, (string Assembly, MethodSignals Signals)>(StringComparer.Ordinal);
+            foreach (var assembly in Participants())
+            {
+                var signals = assembly.Signals;
+                foreach (var call in assembly.DirectCalls)
+                {
+                    if (call.Callee.Kind == MemberKind.Unsupported)
+                        continue;
+                    var callerKey = CallerGraphKey(call.Caller);
+                    var calleeKey = CallerGraphKey(call.Callee);
+                    var edge = new ForwardCalleeEdge(call.Callee, calleeKey, call.Kind, call.InLoop);
+                    if (forward.TryGetValue(callerKey, out var list))
+                        list.Add(edge);
+                    else
+                        forward[callerKey] = [edge];
+                    if (incoming.TryGetValue(calleeKey, out var callers))
+                        callers.Add(callerKey);
+                    else
+                        incoming[calleeKey] = new HashSet<string>(StringComparer.Ordinal) { callerKey };
+                }
+
+                foreach (var method in assembly.Methods)
+                {
+                    var key = CallerGraphKey(method);
+                    if (!definitions.ContainsKey(key))
+                        definitions[key] = (method.AssemblyName, signals.GetValueOrDefault(method.MetadataToken, MethodSignals.None));
+                }
+            }
+
+            _forward = forward;
+            _incoming = incoming;
+            _definitions = definitions;
+            return (forward, incoming, definitions);
+        }
+
+        public Dictionary<string, List<ReverseCallerEdge>> ReverseMap()
+        {
+            if (_reverse is not null)
+                return _reverse;
+
+            var reverse = new Dictionary<string, List<ReverseCallerEdge>>(StringComparer.Ordinal);
+            foreach (var assembly in Participants())
+            {
+                var signals = assembly.Signals;
+                foreach (var call in assembly.DirectCalls)
+                {
+                    if (call.Callee.Kind == MemberKind.Unsupported)
+                        continue;
+                    var calleeKey = CallerGraphKey(call.Callee);
+                    var caller = call.Caller;
+                    var callerKey = CallerGraphKey(caller);
+                    var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
+                    if (reverse.TryGetValue(calleeKey, out var list))
+                        list.Add(edge);
+                    else
+                        reverse[calleeKey] = [edge];
+                }
+            }
+
+            return _reverse = reverse;
+        }
+
+        IEnumerable<LibraryBodyIndex> Participants()
+        {
+            yield return root;
+            foreach (var scope in _scopes)
+                yield return scope;
+        }
+    }
+
+    /// <summary>
+    /// The <see cref="ScopeGraph"/> for <paramref name="scopes"/>, reusing the cached one when the
+    /// same scope instances are requested again. A progressive render asks for the same scope set
+    /// in both directions, and indexing it is proportional to every edge in every participating
+    /// assembly.
+    /// </summary>
+    ScopeGraph ScopeGraphFor(IReadOnlyList<LibraryBodyIndex> scopes)
+    {
+        if (_scopeGraph is { } cached && cached.Matches(this, scopes))
+            return cached;
+
+        return _scopeGraph = new ScopeGraph(this, scopes);
+    }
+
     public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
         => _unsafeEvidenceByMember ??= UnsafeEvidence
             .GroupBy(evidence => evidence.Member.MetadataToken)
@@ -1334,11 +1571,9 @@ public sealed class LibraryBodyIndex
             ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
             : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var callsByCaller = DirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
-            .ToDictionary(group => group.Key, group => group.ToList());
+        var callsByCaller = GetDirectCallsByCaller();
 
-        var methodMap = MethodDefinitionMap.Create(Methods);
+        var methodMap = MethodMap;
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
@@ -1347,10 +1582,11 @@ public sealed class LibraryBodyIndex
         int ResolveCallee(DirectCall call)
             => methodMap.Resolve(call);
 
-        var incomingCounts = DirectCalls
-            .GroupBy(call => ResolveCallee(call))
-            .Where(group => group.Key != 0)
-            .ToDictionary(group => group.Key, group => group.Count(), EqualityComparer<int>.Default);
+        // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
+        // members depend on this one"), and the reverse graph draws one edge per distinct
+        // caller, so the annotation has to agree with the picture it annotates. Cached on the
+        // index because it is a whole-graph quantity that every request would otherwise rebuild.
+        var incomingCounts = DistinctCallersByCallee();
 
         CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
         {
@@ -1365,7 +1601,7 @@ public sealed class LibraryBodyIndex
             // tree expanded. CallTreeStatus separately conveys why expansion stopped,
             // so depth-limited/already-shown/truncated nodes still report their real
             // fan-out instead of reading like leaves.
-            var fanout = edges.Count;
+            var fanout = edges.Length;
             if (depth >= maxDepth)
                 return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
 
@@ -1415,7 +1651,7 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var methodMap = MethodDefinitionMap.Create(Methods);
+        var methodMap = MethodMap;
 
         int ResolveCalleeToken(DirectCall call)
         {
@@ -1435,16 +1671,25 @@ public sealed class LibraryBodyIndex
         // method (the section reports callers, not call sites). Preserve the in-loop signal:
         // if any call site from a caller hits the target inside a loop, keep that edge so the
         // loop annotation survives deduplication.
-        var reverseEdges = DirectCalls
-            .GroupBy(call => ResolveCalleeToken(call))
-            .Where(group => group.Key != 0)
-            .ToDictionary(
-                group => group.Key,
-                group => group
-                    .GroupBy(call => call.Caller.MetadataToken)
-                    .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
-                    .ToList(),
-                EqualityComparer<int>.Default);
+        //
+        // When the root has a body, ResolveCalleeToken agrees with MethodDefinitionMap.Resolve
+        // for every edge — Resolve returns CalleeDefinitionToken whenever that token is a defined
+        // method — so the shared per-index cache applies. A bodiless root is the one case where
+        // the grouping genuinely depends on the root, because edges naming it would otherwise be
+        // resolved onto some other defined method; that case builds its own map.
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> reverseEdges =
+            methodMap.ContainsToken(rootMethodToken)
+                ? DistinctCallerEdgesByCallee()
+                : DirectCalls
+                    .GroupBy(call => ResolveCalleeToken(call))
+                    .Where(group => group.Key != 0)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group
+                            .GroupBy(call => call.Caller.MetadataToken)
+                            .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
+                            .ToImmutableArray(),
+                        EqualityComparer<int>.Default);
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
@@ -1468,7 +1713,7 @@ public sealed class LibraryBodyIndex
                 return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig));
             }
 
-            var fanin = edges.Count;
+            var fanin = edges.Length;
             if (depth >= maxDepth)
                 return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
 
@@ -1511,12 +1756,18 @@ public sealed class LibraryBodyIndex
     /// <c>--caller-package</c> scope). The graph is keyed by structural member identity rather
     /// than assembly-local tokens, so a dependency member can surface the product entry points
     /// and callers that reach it. Nodes from an assembly other than the selected member's own
-    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Falls back to the
-    /// single-assembly builder when no scopes are supplied.
+    /// carry their source assembly in <see cref="CallTreePerf.Source"/>.
+    ///
+    /// <paramref name="callerScopes"/> distinguishes "no cross-assembly scope was requested"
+    /// (<see langword="null"/>, which falls back to the single-assembly token-keyed builder) from
+    /// "a scope was requested but contributed no additional assemblies" (an empty list, which still
+    /// takes the structural walk). The two builders key the reverse graph differently and do not
+    /// produce identical trees, so the choice must follow what the user asked for and never the
+    /// incidental number of assemblies that survived scope filtering.
     /// </summary>
-    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> callerScopes, int maxDepth = 3, int maxNodes = 25)
+    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex>? callerScopes, int maxDepth = 3, int maxNodes = 25)
     {
-        if (callerScopes is not { Count: > 0 })
+        if (callerScopes is null)
             return BuildCallerTree(rootMethodToken, maxDepth, maxNodes);
 
         var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
@@ -1547,27 +1798,8 @@ public sealed class LibraryBodyIndex
         // Structural reverse map across the selected member's assembly plus the caller scopes:
         // callee structural key -> inbound caller edges (each carrying the caller's own-assembly
         // signals captured at index time, since signal tables are assembly-local by token).
-        var reverse = new Dictionary<string, List<ReverseCallerEdge>>(StringComparer.Ordinal);
-        void IndexAssembly(LibraryBodyIndex assembly)
-        {
-            var signals = assembly.Signals;
-            foreach (var call in assembly.DirectCalls)
-            {
-                if (call.Callee.Kind == MemberKind.Unsupported)
-                    continue;
-                var calleeKey = CallerGraphKey(call.Callee);
-                var caller = call.Caller;
-                var callerKey = CallerGraphKey(caller);
-                var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
-                if (reverse.TryGetValue(calleeKey, out var list))
-                    list.Add(edge);
-                else
-                    reverse[calleeKey] = [edge];
-            }
-        }
-        IndexAssembly(this);
-        foreach (var scope in callerScopes)
-            IndexAssembly(scope);
+        // Cached per scope set: it depends on the participating assemblies, not on the selection.
+        var reverse = ScopeGraphFor(callerScopes).ReverseMap();
 
         int budget = Math.Max(1, maxNodes);
         int created = 1;
@@ -1632,6 +1864,131 @@ public sealed class LibraryBodyIndex
 
         var rootSignals = rootIdentity is { } rootId ? Signals.GetValueOrDefault(rootId.MetadataToken, MethodSignals.None) : MethodSignals.None;
         return Build(rootMember, rootKey, targetAssembly, rootSignals, 0, false);
+    }
+
+    readonly record struct ForwardCalleeEdge(MemberRef Callee, string CalleeKey, CallKind Kind, bool InLoop);
+
+    /// <summary>
+    /// Like <see cref="BuildCallTree(int,int,int)"/>, but extends the bounded outbound (callee)
+    /// graph across additional assemblies (the <c>--bin</c>/<c>--project</c>/<c>--caller-package</c>
+    /// scope), the forward mirror of <see cref="BuildCallerTree(int,IReadOnlyList{LibraryBodyIndex},int,int)"/>.
+    /// A single-assembly callee tree stops at the assembly boundary (a callee defined elsewhere is an
+    /// <see cref="CallTreeStatus.External"/> leaf); with <paramref name="calleeScopes"/> the callee's
+    /// own body — decoded in whichever scope defines it — is expanded, so a callee chain can cross a
+    /// package boundary. The graph is keyed by structural member identity (<see cref="CallerGraphKey(MemberRef)"/>)
+    /// rather than assembly-local tokens, so a constructed call site links to its open-definition
+    /// callee across assemblies. Nodes defined in an assembly other than the selected member's own
+    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Unlike the single-assembly
+    /// builder (which keeps one child per call site in IL order), this deduplicates to one child per
+    /// distinct callee and orders children by structural key, so output is independent of scope order.
+    /// Falls back to the single-assembly builder when no scopes are supplied.
+    /// </summary>
+    public CallTreeNode BuildCallTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> calleeScopes, int maxDepth = 3, int maxNodes = 25)
+    {
+        if (calleeScopes is not { Count: > 0 })
+            return BuildCallTree(rootMethodToken, maxDepth, maxNodes);
+
+        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        MemberRef rootMember;
+        string rootKey;
+        if (rootIdentity is { } identity)
+        {
+            rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
+            rootKey = CallerGraphKey(identity);
+        }
+        else
+        {
+            // Bodiless/absent selected member (abstract/interface/extern): it has no body of its own,
+            // so it has no outbound callees and renders as a leaf. Recover its label from any inbound
+            // edge in this assembly so the graph still names the target.
+            rootMember = DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
+                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolved }
+                ? resolved
+                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
+            rootKey = rootMember.Kind != MemberKind.Unsupported ? CallerGraphKey(rootMember) : "";
+        }
+
+        string targetAssembly = rootIdentity?.AssemblyName
+            ?? Methods.FirstOrDefault()?.AssemblyName
+            ?? "";
+
+        // Structural forward map across the selected member's assembly plus the callee scopes:
+        // caller structural key -> outbound callee edges. A companion definition map records each
+        // decoded method's home assembly and signals (both assembly-local by token), so an expanded
+        // callee reports its source assembly and perf signals from wherever it is actually defined.
+        // Distinct callers per callee, not call sites — same leverage semantics as the
+        // single-assembly builder and as the reverse graph's one-edge-per-caller shape.
+        // Cached per scope set: these depend on the participating assemblies, not the selection.
+        var (forward, incoming, definitions) = ScopeGraphFor(calleeScopes).ForwardMaps();
+
+        int budget = Math.Max(1, maxNodes);
+        int created = 1;
+        var expanded = new HashSet<string>(StringComparer.Ordinal);
+
+        CallTreeNode Build(MemberRef member, string key, CallKind? kind, int depth, bool inLoop)
+        {
+            (string Assembly, MethodSignals Signals)? def =
+                key.Length > 0 && definitions.TryGetValue(key, out var found) ? found : null;
+            string assembly = def?.Assembly
+                ?? (member.Kind != MemberKind.Unsupported ? member.DeclaringType.Assembly : "");
+            var sig = def?.Signals ?? MethodSignals.None;
+            bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
+            string? source = external ? assembly : null;
+            string? loopHint = inLoop ? "loop" : null;
+            int fanin = incoming.TryGetValue(key, out var inboundCallers) ? inboundCallers.Count : 0;
+
+            if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
+            {
+                // No outbound edges: classify the boundary. A callee with no definition entry here
+                // (Unsupported, or a real member whose declaring assembly is neither the target nor
+                // any callee scope) is an unexpandable External boundary, not a proven leaf. An
+                // indexed callee with no outbound edges is a leaf. This reads "indexed" as "decoded",
+                // which holds when the in-scope assemblies were fully decoded — the contract the
+                // product's cross-library layer guarantees by passing full-assembly indexes. As with
+                // the single-assembly builder, a body-scoped index can hold an indexed-but-undecoded
+                // body that would read as a leaf here; hardening that is tracked by issue #3275.
+                var leafStatus = depth > 0 && def is null ? CallTreeStatus.External : CallTreeStatus.Leaf;
+                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, null, sig, source));
+            }
+
+            // One edge per distinct callee (the graph reports callees by identity, not call sites);
+            // preserve an in-loop edge if any call site to that callee sat in a loop. Sort by
+            // structural key so output is deterministic across scope order.
+            var edges = rawEdges
+                .GroupBy(edge => edge.CalleeKey, StringComparer.Ordinal)
+                .Select(group => group.FirstOrDefault(edge => edge.InLoop, group.First()))
+                .OrderBy(edge => edge.CalleeKey, StringComparer.Ordinal)
+                .ToList();
+
+            // Fan-out is the true outbound call-site count (matching the single-assembly builder),
+            // independent of the deduplication that collapses repeat call sites into one child.
+            var fanout = rawEdges.Count;
+            if (depth >= maxDepth)
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
+            if (!expanded.Add(key))
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
+
+            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
+            bool truncated = false;
+            foreach (var edge in edges)
+            {
+                if (created >= budget)
+                {
+                    truncated = true;
+                    break;
+                }
+                created++;
+                children.Add(Build(edge.Callee, edge.CalleeKey, edge.Kind, depth + 1, edge.InLoop));
+            }
+
+            var nodeStatus = truncated
+                ? CallTreeStatus.Truncated
+                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
+            return new CallTreeNode(member, kind, nodeStatus, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, loopHint, null, sig, source));
+        }
+
+        return Build(rootMember, rootKey, null, 0, false);
     }
 
     // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
@@ -1772,18 +2129,70 @@ public sealed class LibraryBodyIndex
             string ns,
             string name)
         {
-            var metadata = ResolveReferencedAssembly(assemblyReference);
-            if (metadata is null)
-                return null;
+            var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
+            var scope = ScopeForReference(assemblyReference);
+            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
 
-            foreach (var candidateHandle in metadata.Reader.TypeDefinitions)
+            // A TypeRef names the assembly the compiler bound against, which is routinely
+            // a facade that type-forwards to the definer -- every framework reference in a
+            // reference-assembly or facade-only shared-framework layout resolves this way.
+            // Opening only the named assembly finds no TypeDef there and reports the type
+            // as unresolvable, so follow ExportedType forwarders to the defining assembly.
+            //
+            // Decoding a forwarder is TypeForwardResolver's mechanism and is reused here.
+            // The traversal itself runs in the builder because the defining MetadataReader
+            // must outlive this call under _referencedAssemblyCache's ownership, whereas
+            // TypeForwardResolver.LocateType disposes every assembly it opens.
+            HashSet<AssemblyReferenceIdentity>? visited = null;
+            for (int hop = 0; hop <= TypeForwardResolver.DefaultMaxHops; hop++)
             {
-                var candidate = metadata.Reader.GetTypeDefinition(candidateHandle);
+                var metadata = ResolveReferencedAssembly(identity, scope);
+                if (metadata is null)
+                    return null;
+
+                if (FindTopLevelTypeDefinition(metadata.Reader, ns, name) is { } definition)
+                    return (metadata.Reader, definition);
+
+                if (TypeForwardResolver.ForwardTargetAssemblyIdentity(metadata.Reader, fullTypeName) is not { } forwarded)
+                    return null;
+
+                visited ??= new HashSet<AssemblyReferenceIdentity> { identity };
+                if (!visited.Add(forwarded))
+                    return null;
+                identity = forwarded;
+                scope = NextHopScope(scope, forwarded);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Scope for the next forwarder hop. A forwarder must not launder a platform
+        /// assembly into an unconstrained lookup: an <see cref="AssemblyResolutionScope.Any"/>
+        /// reference can forward into a framework-signed assembly, and resolving that hop
+        /// under <c>Any</c> would let a confusable local copy satisfy it. Scope only ever
+        /// tightens, never the reverse. The function is gated by the <c>NextHopScope_*</c>
+        /// tests; the call site below is gated by
+        /// <c>ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope</c>, which is
+        /// the one test that fails if this call is dropped from the loop.
+        /// </summary>
+        internal static AssemblyResolutionScope NextHopScope(
+            AssemblyResolutionScope current, AssemblyReferenceIdentity forwarded)
+            => current == AssemblyResolutionScope.Any
+                && FrameworkAssemblyKeys.IsFrameworkToken(forwarded.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : current;
+
+        static TypeDefinitionHandle? FindTopLevelTypeDefinition(MetadataReader reader, string ns, string name)
+        {
+            foreach (var candidateHandle in reader.TypeDefinitions)
+            {
+                var candidate = reader.GetTypeDefinition(candidateHandle);
                 if (candidate.IsNested)
                     continue;
-                if (metadata.Reader.StringComparer.Equals(candidate.Namespace, ns)
-                    && metadata.Reader.StringComparer.Equals(candidate.Name, name))
-                    return (metadata.Reader, candidateHandle);
+                if (reader.StringComparer.Equals(candidate.Namespace, ns)
+                    && reader.StringComparer.Equals(candidate.Name, name))
+                    return candidateHandle;
             }
 
             return null;
@@ -1811,9 +2220,8 @@ public sealed class LibraryBodyIndex
             return null;
         }
 
-        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceHandle handle)
+        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
-            var identity = AssemblyReferenceIdentity.From(_reader, handle);
             // Guarded because parallel full builds resolve referenced assemblies concurrently
             // from many method-analysis threads. Resolution is per unique referenced assembly
             // (bounded and cached), so lock contention is negligible; the lock is reentrant on
@@ -1824,7 +2232,7 @@ public sealed class LibraryBodyIndex
                 if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
                     return cached;
 
-                var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
+                var resolved = OpenReferencedAssembly(identity, scope);
                 _referencedAssemblyCache[identity] = resolved;
                 return resolved;
             }

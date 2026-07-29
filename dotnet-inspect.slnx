@@ -8,13 +8,16 @@
     <Project Path="src/DiffFixtures.V2/DiffFixtures.V2.csproj" />
     <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
+    <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphCallerTwin/ILInspector.Analysis.CallerGraphCallerTwin.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphIndirectCaller/ILInspector.Analysis.CallerGraphIndirectCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="src/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
@@ -45,6 +48,7 @@
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainC/ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.VbFinalizer/ILInspector.Decompiler.Fixtures.VbFinalizer.vbproj" />
     <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
@@ -55,16 +59,20 @@
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
+    <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
+    <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
   </Folder>
   <Folder Name="/src/runfaster.Tests/Fixtures/">
     <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="tests/DotnetInspector.Fixtures.Tests/DotnetInspector.Fixtures.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>

@@ -57,6 +57,13 @@ if (isolated && cacheBasePath == null)
 // Initialize library configuration
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
+// The IR invariant check is armed by default so any host that runs the
+// decompiler pipeline validates it (#3267). The shipped tool is the one
+// sanctioned opt-out: users are not developing the pipeline, so the per-pass
+// tree walk is pure overhead on the decompile hot path. Setting
+// DOTNET_INSPECT_IR_INVARIANTS=1 (or full) overrides this and arms the shipped
+// tool for debugging.
+ILInspector.Decompiler.Pipeline.IrInvariants.DisableForShippedTool();
 // Wire the tool-tier SourceLink index cache into the engine's dependency-inversion seam.
 ILInspector.Metadata.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
 
@@ -119,7 +126,14 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
 // covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
 // which is why no --rows gate remains here.
-var rowLimitMode = args.Any(a => a == "--rows");
+var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+
+if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
+{
+    Console.Error.WriteLine($"Error: {staleDirectionError}");
+    return 1;
+}
+
 // Line/tail windows apply only outside --rows mode; in --rows mode the count is a
 // per-table data-row window rendered by the commands, not an output-line window.
 if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
@@ -145,7 +159,7 @@ if (result.Errors.Count > 0)
 int exitCode;
 try
 {
-    exitCode = await result.InvokeAsync();
+    exitCode = await CommandLineBuilder.InvokeAsync(result);
 }
 catch (RowWindowValidationException ex)
 {

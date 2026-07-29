@@ -91,93 +91,124 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
-        var appliedLenses = new List<DecompilerDecision>();
+        List<DecompilerDecision> appliedLenses;
         try
         {
-            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
-            IrPasses.Run(function, IrPasses.Default, context);
-            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
-            // only when requested, after the byte-faithful default pipeline has
-            // left the guarded bool return flat. The oracle-endorsed ternary runs
-            // first so that, when both lenses are enabled, it wins the shared shape
-            // (it consumes the guarded return, leaving the branchless pass a no-op).
-            // When a lens actually rewrites, record a byte-divergent applied-lens
-            // decision so a host can surface that the render is no longer
-            // opcode-faithful (the #3127 signal) instead of inferring it from prose.
-            if (options?.PreferConditionalExpressionReturn == true)
-            {
-                var pass = new PreferConditionalReturnPass();
-                pass.Run(function, context);
-                if (pass.Rewrites > 0)
-                    appliedLenses.Add(new DecompilerDecision(
-                        "style-lens.prefer-conditional-return",
-                        DecompilerDecisionCategories.StyleLens,
-                        function.Name,
-                        "Rewrote a guarded boolean return as a conditional expression "
-                            + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
-                            + "Behavior-preserving but byte-divergent: the render no longer "
-                            + "reproduces the original branch opcodes.")
-                    {
-                        OldValue = "if (c) return A; return B;",
-                        NewValue = "return c ? A : B;",
-                    });
-            }
-            if (options?.PreferBranchlessBoolean == true)
-            {
-                var pass = new PreferBranchlessBooleanPass();
-                pass.Run(function, context);
-                if (pass.Rewrites > 0)
-                    appliedLenses.Add(new DecompilerDecision(
-                        "style-lens.prefer-branchless-boolean",
-                        DecompilerDecisionCategories.StyleLens,
-                        function.Name,
-                        "Folded a guarded boolean return into the compact short-circuit "
-                            + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
-                            + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
-                            + "no longer reproduces the original branch opcodes.")
-                    {
-                        OldValue = "if (c) return false; return B;",
-                        NewValue = "return !c && B;",
-                    });
-            }
+            appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        var result = Print(function, options);
-        if (appliedLenses.Count > 0 && result.Output is not null)
+        return WithAppliedLenses(Print(function, options), appliedLenses);
+    }
+
+    /// <summary>
+    /// Runs the default raising pipeline, then any opt-in byte-divergent style
+    /// lens, and returns the decisions for the lenses that actually rewrote.
+    /// Shared by both <see cref="PrintRaised(IrFunction, Func{MethodRef, IrFunction}, PrinterOptions, Func{TypeRef, TypeRef, bool})"/>
+    /// and the statement-line-map overload the annotated view uses, so the two
+    /// paths raise and apply taste identically instead of drifting apart.
+    /// </summary>
+    static List<DecompilerDecision> RaiseWithStyleLenses(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
+    {
+        var appliedLenses = new List<DecompilerDecision>();
+        var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+        IrPasses.Run(function, IrPasses.Default, context);
+        // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+        // only when requested, after the byte-faithful default pipeline has
+        // left the guarded bool return flat. The oracle-endorsed ternary runs
+        // first so that, when both lenses are enabled, it wins the shared shape
+        // (it consumes the guarded return, leaving the branchless pass a no-op).
+        // When a lens actually rewrites, record a byte-divergent applied-lens
+        // decision so a host can surface that the render is no longer
+        // opcode-faithful (the #3127 signal) instead of inferring it from prose.
+        if (options?.PreferConditionalExpressionReturn == true)
         {
-            result = result with
+            var pass = new PreferConditionalReturnPass();
+            pass.Run(function, context);
+            if (pass.Rewrites > 0)
+                appliedLenses.Add(new DecompilerDecision(
+                    "style-lens.prefer-conditional-return",
+                    DecompilerDecisionCategories.StyleLens,
+                    function.Name,
+                    "Rewrote a guarded boolean return as a conditional expression "
+                        + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
+                        + "Behavior-preserving but byte-divergent: the render no longer "
+                        + "reproduces the original branch opcodes.")
+                {
+                    OldValue = "if (c) return A; return B;",
+                    NewValue = "return c ? A : B;",
+                });
+        }
+        if (options?.PreferBranchlessBoolean == true)
+        {
+            var pass = new PreferBranchlessBooleanPass();
+            pass.Run(function, context);
+            if (pass.Rewrites > 0)
+                appliedLenses.Add(new DecompilerDecision(
+                    "style-lens.prefer-branchless-boolean",
+                    DecompilerDecisionCategories.StyleLens,
+                    function.Name,
+                    "Folded a guarded boolean return into the compact short-circuit "
+                        + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
+                        + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
+                        + "no longer reproduces the original branch opcodes.")
+                {
+                    OldValue = "if (c) return false; return B;",
+                    NewValue = "return !c && B;",
+                });
+        }
+        return appliedLenses;
+    }
+
+    static DecompilerResult WithAppliedLenses(DecompilerResult result, List<DecompilerDecision> appliedLenses)
+        => appliedLenses.Count == 0 || result.Output is null
+            ? result
+            : result with
             {
                 Metadata = result.Metadata with
                 {
                     Decisions = [.. result.Metadata.Decisions, .. appliedLenses],
                 },
             };
-        }
-        return result;
-    }
 
     /// <summary>
-    /// The product path with a statement line map: same output as
-    /// <see cref="PrintRaised(IrFunction)"/>, plus a table from each top-level
-    /// statement node to its 0-based start line. Line-anchored overlays (the
-    /// annotated C# view) splice onto those lines; the printer itself stays
-    /// annotation-agnostic. The map is empty on failure.
+    /// The product path with a printed-range map: same output as
+    /// <see cref="PrintRaised(IrFunction)"/>, plus a record of which characters
+    /// of that output each statement node emitted. Line- and range-anchored
+    /// overlays (the annotated C# view) splice onto those positions; the printer
+    /// itself stays annotation-agnostic. The map is empty on failure.
     /// </summary>
-    public static DecompilerResult PrintRaised(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
-        => PrintRaised(function, out statementLines, importMethodBody: null);
+    public static DecompilerResult PrintRaised(IrFunction function, out PrintedRangeMap printedRanges)
+        => PrintRaised(function, out printedRanges, importMethodBody: null);
 
-    /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <inheritdoc cref="PrintRaised(IrFunction, out PrintedRangeMap)"/>
+    /// <remarks>
+    /// <paramref name="options"/> applies the same taste as the plain
+    /// <see cref="PrintRaised(IrFunction, Func{MethodRef, IrFunction}, PrinterOptions, Func{TypeRef, TypeRef, bool})"/>
+    /// path, so a line-anchored overlay never renders a different spelling than
+    /// the Source view for the same member. When a byte-divergent style lens
+    /// actually rewrites, the result carries a
+    /// <see cref="DecompilerDecisionCategories.StyleLens"/> decision: the render
+    /// no longer reproduces the original opcodes, so an overlay that interleaves
+    /// raw IL must consult those decisions rather than presenting the two as
+    /// corresponding.
+    /// </remarks>
     public static DecompilerResult PrintRaised(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
-        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        IrFunction function, out PrintedRangeMap printedRanges, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null,
+        PrinterOptions? options = null)
     {
-        statementLines = new Dictionary<IrNode, int>();
+        printedRanges = PrintedRangeMap.Empty;
+        List<DecompilerDecision> appliedLenses;
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
         catch (Exception ex)
         {
@@ -186,11 +217,11 @@ public sealed partial class CSharpPrinter
 
         try
         {
-            var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            var sink = new PrintedRangeMap();
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
             string output = printer.PrintBody(function);
-            statementLines = sink;
-            return printer.Result(output, function);
+            printedRanges = sink.Complete(output);
+            return WithAppliedLenses(printer.Result(output, function), appliedLenses);
         }
         catch (Exception ex)
         {
@@ -226,16 +257,24 @@ public sealed partial class CSharpPrinter
     /// As <see cref="PrintLowered(IrFunction)"/>, but also yields the
     /// statement-to-output-line table the mixed-source view uses to anchor fact
     /// comments and interleaved IL onto the lowered C# (the lowered analogue of
-    /// <see cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>).
+    /// <see cref="PrintRaised(IrFunction, out PrintedRangeMap)"/>).
     /// </summary>
-    public static DecompilerResult PrintLowered(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
-        => PrintLowered(function, out statementLines, importMethodBody: null);
+    public static DecompilerResult PrintLowered(IrFunction function, out PrintedRangeMap printedRanges)
+        => PrintLowered(function, out printedRanges, importMethodBody: null);
 
-    /// <inheritdoc cref="PrintLowered(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <inheritdoc cref="PrintLowered(IrFunction, out PrintedRangeMap)"/>
+    /// <remarks>
+    /// <paramref name="options"/> applies the printer's byte-preserving spelling
+    /// and layout knobs so the lowered annotated view spells a member the same way
+    /// the Source view does. The byte-divergent style lenses are deliberately not
+    /// run here: they are raised-altitude sugar, and the lowered pipeline exists to
+    /// show the shape below that sugar.
+    /// </remarks>
     public static DecompilerResult PrintLowered(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
+        IrFunction function, out PrintedRangeMap printedRanges, Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options = null)
     {
-        statementLines = new Dictionary<IrNode, int>();
+        printedRanges = PrintedRangeMap.Empty;
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -247,10 +286,10 @@ public sealed partial class CSharpPrinter
 
         try
         {
-            var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            var sink = new PrintedRangeMap();
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
             string output = printer.PrintBody(function);
-            statementLines = sink;
+            printedRanges = sink.Complete(output);
             return printer.Result(output, function);
         }
         catch (Exception ex)
@@ -466,8 +505,8 @@ public sealed partial class CSharpPrinter
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
-    /// <summary>Optional sink mapping each printed top-level statement node to its 0-based start line in the output; null on the shipped print path. Drives line-anchored overlays (annotated views) without the printer knowing what they are.</summary>
-    Dictionary<IrNode, int>? _statementLines;
+    /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
+    PrintedRangeMap? _printedRanges;
 
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
@@ -1618,7 +1657,9 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
+    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
+    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
+    internal static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
         => !localFunction.Locals.IsEmpty
             || localFunction.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 
@@ -1651,18 +1692,29 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine(line);
     }
 
-    /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
+    /// <summary>
+    /// Records the characters <paramref name="node"/> emits, then emits them.
+    /// The range is taken from the builder's length either side of the call, so
+    /// it costs nothing to capture and is exact by construction; recovering it
+    /// afterwards would mean guessing. Wrapping rather than recording inline is
+    /// what makes the end offset correct across every exit of the emission body.
+    /// </summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
-        _statementIndent = indent;
-        if (_statementLines is not null)
+        if (_printedRanges is null)
         {
-            int startLine = 0;
-            for (int c = 0; c < sb.Length; c++)
-                if (sb[c] == '\n')
-                    startLine++;
-            _statementLines.TryAdd(node, startLine);
+            AppendStatementCore(sb, node, indent);
+            return;
         }
+        int start = sb.Length;
+        AppendStatementCore(sb, node, indent);
+        _printedRanges.Record(node, start, sb.Length);
+    }
+
+    /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
+    void AppendStatementCore(StringBuilder sb, IrNode node, int indent)
+    {
+        _statementIndent = indent;
         string pad = new(' ', indent * 4);
         if (node is LocalFunctionStatement localFunction)
         {
@@ -1979,7 +2031,8 @@ public sealed partial class CSharpPrinter
         {
             if (!TryAppendFluentChain(sb, node, line, indent)
                 && !TryAppendSplittableExpression(sb, node, line, indent)
-                && !TryAppendBitwiseChain(sb, node, line, indent))
+                && !TryAppendBitwiseChain(sb, node, line, indent)
+                && !TryAppendBraceBody(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2318,6 +2371,83 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
+    /// Emits <paramref name="node"/> as a wrapped brace-bodied expression — an
+    /// object/collection initializer (<c>new T(...) { ... }</c>), a record
+    /// <c>with</c> expression (<c>receiver with { ... }</c>), or an anonymous object
+    /// (<c>new { ... }</c>) — with the head on the first line, an Allman <c>{</c>/<c>}</c>
+    /// pair on their own lines, and one entry per line, when it is a brace-bodied
+    /// statement whose flat single-line form would exceed
+    /// <see cref="FluentChainWrapWidth"/>, returning true after appending; false to
+    /// fall through to the flat single-line emit. The broken form is only chosen
+    /// when the flat statement <paramref name="line"/> is exactly
+    /// <c>prefix + body + ";"</c>, so any coercion cast the renderer added around the
+    /// body keeps the statement inline — breaking never drops or reshapes a token.
+    /// </summary>
+    bool TryAppendBraceBody(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (_options.DisableOneLinerWrapping)
+            return false;
+        if (!TryBraceBodyStatement(node, out var value, out var prefix))
+            return false;
+        string flat = value switch
+        {
+            ObjectInitializerExpression initializer => ObjectInitializerText(initializer),
+            WithExpression with => WithExpressionText(with),
+            AnonymousObject anonymous => AnonymousObjectText(anonymous),
+            _ => null!,
+        };
+        if (line != prefix + flat + ";")
+            return false;
+        string? broken = value switch
+        {
+            ObjectInitializerExpression initializer => ObjectInitializerLines(initializer, prefix, ";", indent),
+            WithExpression with => WithExpressionLines(with, prefix, ";", indent),
+            AnonymousObject anonymous => AnonymousObjectLines(anonymous, prefix, ";", indent),
+            _ => null,
+        };
+        if (broken is null)
+            return false;
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Recognizes the statement positions whose value is a bare brace-bodied
+    /// expression — an object/collection initializer, a record <c>with</c>
+    /// expression, or an anonymous object — in a <c>return</c> or a (non-ref) local
+    /// or stack-slot store, and yields the value plus the exact statement prefix the
+    /// flat renderer prints before it. The caller re-derives the flat text and only
+    /// breaks the body when it matches, so the prefix here need only cover the common
+    /// (cast-free) spelling.
+    /// </summary>
+    bool TryBraceBodyStatement(IrNode node, out IrExpression value, out string prefix)
+    {
+        switch (node)
+        {
+            case Return { Value: ObjectInitializerExpression or WithExpression or AnonymousObject } ret:
+                value = ret.Value!;
+                prefix = "return ";
+                return true;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: ObjectInitializerExpression or WithExpression or AnonymousObject } store:
+                value = store.Value;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
+                    : $"{LocalName(store.Index)} = ";
+                return true;
+            case StoreStackSlot store when store.Value is (ObjectInitializerExpression or WithExpression or AnonymousObject) && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                value = store.Value;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
+                    : $"{StackSlotName(store)} = ";
+                return true;
+            default:
+                value = null!;
+                prefix = "";
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Emits <paramref name="node"/> as a wrapped short-circuit
     /// <c>&amp;&amp;</c>/<c>||</c> chain (one operand per line) when
     /// <see cref="PrinterOptions.WrapSplittableExpressions"/> is set and the chain
@@ -2467,7 +2597,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type, SpellVarForApparentType(s.Type, s.Value) ? null : s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
@@ -2481,7 +2611,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s), SpellVarForApparentType(StackSlotTargetType(s)!, s.Value) ? null : StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -5364,18 +5494,46 @@ public sealed partial class CSharpPrinter
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         // An anonymous type has no spellable name, so `var` is mandatory here — not a
-        // taste call. Every other declaration keeps its explicit type on the byte-stable
-        // default. A future opt-in `var` lens will consult `TypeIsApparent(type,
-        // initializer)` to decide whether to spell `var`. Note that `var` and the
-        // target-typed-`new` shortener are *mutually exclusive* spellings of the same
-        // apparent site, not simultaneous: dropping both ends of `List<int> x = new
-        // List<int>()` at once yields `var x = new()`, which is CS8754 (no target type
-        // for `new()`). The shared predicate is only the apparency input; that lens must
-        // own the either/or decision (keep the RHS type when spelling `var`, or keep the
-        // LHS type when shortening to `new()`).
-        => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
+        // taste call. Otherwise the declaration keeps its explicit type unless the
+        // opt-in apparent-type `var` bucket applies (see `SpellVarForApparentType`),
+        // which is off on the byte-stable default. `var` and the target-typed-`new`
+        // shortener are *mutually exclusive* spellings of the same apparent site, not
+        // simultaneous: dropping both ends of `List<int> x = new List<int>()` at once
+        // yields `var x = new()`, which is CS8754 (no target type for `new()`). When
+        // this returns `var`, the caller suppresses the shortener (passing a null
+        // `new` target to `InitializerText`) so the RHS keeps its explicit `new T(...)`.
+        => (initializer is AnonymousObject anonymous && type.Equals(anonymous.Type))
+            || SpellVarForApparentType(type, initializer)
             ? "var"
             : TypeText(type);
+
+    /// <summary>
+    /// Whether an opt-in apparent-type <c>var</c> spelling applies to a local
+    /// declaration (`csharp_style_var_when_type_is_apparent`). True only when the
+    /// bucket is enabled, the declared type is <em>not</em> a C# built-in keyword type
+    /// (those belong to the separate built-in-types bucket, keeping the two families a
+    /// clean partition), and the initializer makes the type apparent
+    /// (<see cref="TypeIsApparent"/> — object creation of the exact type, an array
+    /// creation, or an explicit reference cast). Apparency guarantees the initializer's
+    /// static type is exactly the declared type, so <c>var</c> infers that same type:
+    /// byte-neutral (no IL consequence) and always faithful. Off by default.
+    /// </summary>
+    bool SpellVarForApparentType(TypeRef type, IrExpression initializer)
+        => _options.PreferVarWhenTypeApparent
+            && !IsBuiltInType(type)
+            && TypeIsApparent(type, initializer);
+
+    /// <summary>
+    /// Whether a declared type is a C# built-in (predefined keyword) type — the set
+    /// the built-in-types <c>var</c> bucket owns. Drawn from the shared keyword table
+    /// (<see cref="PrimitiveTypeNames"/>, the same one <see cref="TypeText"/> renders
+    /// keywords from) so both <c>var</c> buckets partition declaration sites
+    /// identically. <c>void</c> is excluded — it is never a local's type.
+    /// </summary>
+    static bool IsBuiltInType(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && PrimitiveTypeNames.TryToKeywordForSystemType(type.Name, out var keyword)
+            && keyword != "void";
 
     string TypeOfTypeText(TypeRef type)
         => type.Kind == TypeRefKind.Definition && OpenGenericArity(type) is { } arity

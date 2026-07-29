@@ -326,6 +326,27 @@ public class FidelityGateTests
         // internal System.Text.Json surface is not recompilable by the compile-back
         // oracle (tracked for a future cross-assembly compile-back capability).
         "SwitchWithTwoLoopingCaseSections",
+        // #3166: the value-swap idiom. csc lowers the tuple swap `(a, b) = (b, a)`
+        // (and the equivalent manual `temp = b; b = a; a = temp;`) to a single
+        // dup-slot save plus the two cross-stores; SwapIdiomPass raises that
+        // surviving carrier back to `(a, b) = (b, a)`. Because the tuple swap and
+        // the one-temp sequence share IL, the raise is opcode-exact — this pins it.
+        // Mirrors System.Text.Json.JsonElement.DeepEquals, which swaps two
+        // JsonElement structs through one such temp but cannot itself be fed to the
+        // compile-back oracle (internal System.Text.Json surface).
+        "SwapStructPair",
+        // #3164: the inline-Current foreach. On its Array arm DeepEquals runs a
+        // compiler `foreach` whose single-use iteration variable csc hoists as
+        // `item = e.Current`; ExpressionInliningPass folds that store into its one
+        // use before ForeachStatementPass runs, so the hidden enumerator survives
+        // referenced only by MoveNext and one inline `e.Current`. The pass rebinds
+        // that inline read to a fresh foreach variable. Because the raised
+        // `foreach` re-lowers to csc's original hoist, the transform is
+        // opcode-exact — this pins it. Mirrors System.Text.Json.JsonElement.
+        // DeepEquals, whose Array arm iterates one enumerator by `foreach` while a
+        // second is advanced manually, but which cannot itself be fed to the
+        // compile-back oracle (internal System.Text.Json surface, #3197).
+        "ForeachSingleUseWithParallelEnumerator",
         // The compile-back oracle replays the fixture's runtime-async feature,
         // so these methods must retain the same lowering rather than merely
         // remaining recompilable.

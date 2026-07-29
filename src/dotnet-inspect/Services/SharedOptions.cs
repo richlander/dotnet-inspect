@@ -21,6 +21,9 @@ public class SharedOptions
     public Option<bool> RawUrls { get; } = new("--raw") { Description = "Emit GitHub URLs as raw/fetchable URLs (default; URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
+    public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
+    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Synthesize readable names (from a local's type/role) for locals that have no usable PDB source name, instead of the V_index fallback; byte-preserving (names do not affect IL)" };
+    public Option<string?> Focus { get; } = new("--focus") { Description = "Report a fact family with the caret gesture (underlined beneath the statement) instead of a trailing comment: a category (allocation), a descriptor id (alloc.box), or an id prefix (alloc). Promotes, never filters: unmatched facts keep their trailing comment", Arity = ArgumentArity.ExactlyOne };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
     public Option<bool> Jsonl { get; } = new("--jsonl") { Description = "Output as JSON Lines (one object per row)" };
@@ -32,11 +35,15 @@ public class SharedOptions
 
     // Output control options
     public Option<int?> Limit { get; }
-    public Option<bool> Rows { get; } = new("--rows") { Description = "Interpret -n/--head N or --tail N as data rows per rendered table instead of output lines" };
-    public Option<int?> Tail { get; }
+    public Option<string?> Rows { get; } = new("--rows")
+    {
+        Description = "Select data rows per rendered table: a count (6), an inclusive range (2..10), a start plus count (2+10), or an open range (10..)",
+        Arity = ArgumentArity.ExactlyOne
+    };
+    public Option<bool> Head { get; } = new("--head") { Description = "Take the count from the start (the default direction)" };
+    public Option<bool> Tail { get; } = new("--tail") { Description = "Take the count from the end instead of the start" };
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
-    public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
     public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
     public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N|first|last when multiple rows exist" };
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
@@ -95,10 +102,7 @@ public class SharedOptions
         Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
         PerformanceTriageMinConfidence.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, "low", "medium", "high");
 
-        Limit = new Option<int?>("-n") { Description = "Limit to first N lines (like head -n)" };
-        Limit.Aliases.Add("--head");
-
-        Tail = new Option<int?>("--tail") { Description = "Limit to last N lines (like tail -n)" };
+        Limit = new Option<int?>("-n") { Description = "Count of output lines to keep (like head -n); pair with --tail to take them from the end" };
 
         Tips = new Option<string?>("--tips")
         {
@@ -157,34 +161,72 @@ public class SharedOptions
         command.Options.Add(Info);
         command.Options.Add(Limit);
         command.Options.Add(Rows);
+        command.Options.Add(Head);
         command.Options.Add(Tail);
+
+        // --head and --tail name a direction, so asking for both is not a narrower
+        // window but a contradiction. This applies with or without --rows.
+        command.Validators.Add(result =>
+        {
+            if (result.GetValue(Head) && result.GetValue(Tail))
+                result.AddError("--head and --tail select opposite ends; choose one.");
+        });
 
         if (!supportsRowWindows)
         {
             command.Validators.Add(result =>
             {
-                if (result.GetValue(Rows))
+                if (result.GetResult(Rows) is not null)
                     result.AddError($"--rows is not supported by the '{command.Name}' command.");
             });
             return;
         }
 
-        // Validate the --rows head/tail window at parse time so an invalid combination
-        // surfaces as a clean System.CommandLine error (one line on stderr, exit 1)
-        // rather than a RowWindowValidationException thrown inside the invocation
-        // pipeline, which SCL prints as an unhandled-exception stack trace. Reading the
-        // parse results here (not the arg-preprocessor token scan) covers =-syntax and
-        // concatenated forms the scanner misses.
+        // Validate the --rows spec at parse time so an invalid selection surfaces as a
+        // clean System.CommandLine error (one line on stderr, exit 1) rather than a
+        // RowWindowValidationException thrown inside the invocation pipeline, which SCL
+        // prints as an unhandled-exception stack trace. Reading the parse results here
+        // (not the arg-preprocessor token scan) covers =-syntax and concatenated forms
+        // the scanner misses.
+        //
+        // This reads the raw token rather than calling GetValue, because GetValue on a
+        // required-argument option with no value throws out of the validator itself --
+        // which surfaced as a stack trace *and* exit code 0, hiding the failure from any
+        // caller checking the exit code. Leaving a valueless --rows alone lets
+        // System.CommandLine report the missing argument the way it reports every other.
         command.Validators.Add(result =>
         {
-            if (!result.GetValue(Rows))
+            if (result.GetResult(Rows) is not { } rowsResult || rowsResult.Tokens.Count == 0)
                 return;
-            var hasHead = result.GetValue(Limit) is not null;
-            var hasTail = result.GetValue(Tail) is not null;
-            if (hasHead && hasTail)
-                result.AddError("--rows cannot combine -n/--head with --tail; choose one row window.");
-            else if (!hasHead && !hasTail)
-                result.AddError("--rows requires -n/--head N or --tail N.");
+
+            var token = rowsResult.Tokens[^1].Value;
+
+            // System.CommandLine will hand a required-argument option the next token
+            // even when it is plainly another option, so `--rows --tsv` arrives here as
+            // a row selection of "--tsv". Blaming the spelling of --tsv would send a
+            // reader to fix the wrong thing; the actual mistake is the missing value.
+            if (token.StartsWith('-'))
+            {
+                result.AddError($"--rows requires a row selection, but '{token}' is another option. Give --rows a count (6), a range (2..10), a start plus count (2+10), or an open range (10..).");
+                return;
+            }
+
+            if (!RowSpec.TryParse(token, out var spec, out var error))
+            {
+                result.AddError($"--rows {error}");
+                return;
+            }
+
+            // A range names the rows to keep, so it already answers the question a
+            // direction would answer. Taking "the last of rows 2..10" is not a
+            // narrower request, it is two different answers to the same question.
+            if (spec.IsRange && (result.GetValue(Head) || result.GetValue(Tail)))
+                result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with --head or --tail; use a count such as --rows {spec.RowCount ?? 10} --tail to take rows from one end.");
+
+            // -n counts output lines. With --rows the count comes from the spec, so a
+            // second count is ambiguous rather than redundant.
+            if (result.GetValue(Limit) is not null)
+                result.AddError($"--rows {token} already carries the count, so it cannot combine with -n; drop one.");
         });
     }
 
@@ -244,7 +286,6 @@ public class SharedOptions
     public void AddPrintOptionTo(Command command)
     {
         command.Options.Add(Print);
-        command.Options.Add(PrintAll);
         command.Options.Add(Row);
     }
 
@@ -259,27 +300,36 @@ public class SharedOptions
     }
 
     public RowWindow? ParseRows(ParseResult parseResult)
-        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Limit), parseResult.GetValue(Tail));
+        => BuildRowWindow(parseResult.GetValue(Rows), parseResult.GetValue(Tail));
 
     /// <summary>
-    /// Resolves the <c>--rows</c> data-row window from the parsed head/tail values.
+    /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.
     /// The primary user-facing validation is the parse-time command validator in
     /// <see cref="AddOutputOptionsTo"/>, which fails cleanly during parsing before
     /// this runs. The throws here are a defensive invariant guard for direct callers
-    /// (and are unit-tested); in the CLI path the invalid both/neither combinations
-    /// are already rejected, so they are not expected to fire.
+    /// (and are unit-tested); in the CLI path the invalid combinations are already
+    /// rejected, so they are not expected to fire.
     /// </summary>
-    public static RowWindow? BuildRowWindow(bool rows, int? head, int? tail)
+    public static RowWindow? BuildRowWindow(string? rows, bool fromEnd)
     {
-        if (!rows)
+        if (rows is null)
             return null;
-        if (head is not null && tail is not null)
-            throw new RowWindowValidationException("--rows cannot combine -n/--head with --tail; choose one row window.");
-        if (head is int h)
-            return new RowWindow(h, FromEnd: false);
-        if (tail is int t)
-            return new RowWindow(t, FromEnd: true);
-        throw new RowWindowValidationException("--rows requires -n/--head N or --tail N.");
+        if (!RowSpec.TryParse(rows, out var spec, out var error))
+            throw new RowWindowValidationException($"--rows {error}");
+        return BuildRowWindow(spec, fromEnd);
+    }
+
+    /// <inheritdoc cref="BuildRowWindow(string?, bool)"/>
+    public static RowWindow BuildRowWindow(RowSpec spec, bool fromEnd)
+    {
+        if (spec.IsRange)
+        {
+            if (fromEnd)
+                throw new RowWindowValidationException($"--rows {spec} already names which rows to keep, so it cannot combine with --head or --tail.");
+            return RowWindow.Range(spec.Start, spec.IsOpenEnded ? null : spec.End);
+        }
+
+        return fromEnd ? RowWindow.Tail(spec.Count) : RowWindow.Head(spec.Count);
     }
 
     public RowSelector? ParsePrintRow(ParseResult parseResult)

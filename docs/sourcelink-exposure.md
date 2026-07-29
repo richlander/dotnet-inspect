@@ -18,7 +18,7 @@ SourceLink answers three related questions:
 | Question | Best home |
 | --- | --- |
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
-| Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
+| Which source files map to this target? | `SourceLink: Files` (`library`) / `Source Files` (`package` / `type`) |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
 | What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset <token>+<offset>` for MethodDef token + IL offset point queries |
 
@@ -37,10 +37,10 @@ selection controls rendering.
 | --- | --- | --- |
 | `Symbols` | PDB format/location, SourceLink presence, symbol server, builder hints | may acquire one missing PDB when authorized |
 | `Signals` | summary evidence including SourceLink/provenance signals | opt-in; may acquire one missing PDB |
-| `Source Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
-| `SourceLink Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
-| `SourceLink Missing Files` | files not reachable or embedded | opt-in; derived from availability pass |
-| `SourceLink Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
+| `SourceLink: Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
+| `SourceLink: Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
+| `SourceLink: Missing Files` | files not reachable or embedded | opt-in; derived from availability pass |
+| `SourceLink: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
 ### Package
 
@@ -88,10 +88,10 @@ The former `source` command has been folded into host-command sections and point
 queries. Issue [#1163](https://github.com/richlander/dotnet-inspect/issues/1163)
 records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `Original Source` / package
-content patterns, availability checks live in `SourceLink Integrity` and
-`SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
+content patterns, availability checks live in `SourceLink: Integrity` and
+`SourceLink: Availability`, URL shape is selected with `--blob`, and IL offset
 symbolication is now `library --il-offset <token>+<offset>`, which supplies the
-value for the `Source Location` section.
+value for the `Context: Source Location` section.
 
 Sample URLs are less direct: they should be URL rows from real package or
 documentation metadata rather than calculated links, because some sample URL
@@ -147,10 +147,26 @@ to the wrong documents. Therefore:
 - Symbol-package cache keys include PDB identity, not just package/version/file
   name.
 - If identity does not match, treat the PDB as unavailable for that assembly.
-- SourceLink Integrity cannot replace identity checking: content hashes can
+- SourceLink: Integrity cannot replace identity checking: content hashes can
   verify source files while method-row mappings are still wrong.
 
 This is a fail-closed rule: missing SourceLink is better than wrong SourceLink.
+
+### Discovery-time cache-only probe
+
+`-D` discovery lists the SourceLink section family only when a local PDB
+(embedded, adjacent, or already in the symbol cache) exposes a SourceLink
+document — determined **network-free**. `LibraryMetadataService.ProbeLocalSourceLinkAsync`
+opens the assembly and, if no embedded/adjacent PDB is present, consults the
+symbol cache **read-only** via `SymbolPackageDownloader.DownloadPdbAsync(..., cacheOnly: true)`:
+each `TryLocateFrom*` helper returns after its cache-hit check and issues no
+HTTP (no GET/HEAD, no `PutAsync`). Steps 3–4 above (snupkg / symbol server) are
+consulted only as cache lookups here; the network download for those steps still
+happens on demand when a SourceLink section is explicitly rendered. A PDB warmed
+into the cache by a prior render therefore makes the family discoverable on the
+next `-D`; the effective-section cache keys on this availability so warming or
+clearing the PDB busts a stale catalog. See
+`docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
 
 ## Network and performance policy
 
@@ -160,8 +176,8 @@ use the network only when the selected section justifies it.
 | Work | When allowed |
 | --- | --- |
 | Acquire one missing PDB | explicit SourceLink/source/provenance section, or detailed library provenance where already documented |
-| HEAD every source URL | explicit `SourceLink Availability` / `SourceLink Missing Files` |
-| Download every source body | explicit `SourceLink Integrity` |
+| HEAD every source URL | explicit `SourceLink: Availability` / `SourceLink: Missing Files` |
+| Download every source body | explicit `SourceLink: Integrity` |
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 

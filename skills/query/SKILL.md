@@ -23,13 +23,12 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--table` — compact aligned rows.
 - `--tsv` — stable snake_case headers, no embedded tabs/newlines.
 - `--jsonl` — one JSON object per row.
-- `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print-all`).
+- `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print`).
 - `--json` — structured documents.
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected printable row; use `--row N` when multiple printable rows exist.
-- `--print-all` — print every printable row from one selected section, with text separators, `--jsonl`, or `--json-array`.
 - `--mermaid` — graph-shaped output.
 
 ## Discover and select sections
@@ -53,8 +52,8 @@ work best with one concrete section, not a category.
 Prefer built-in limits to shell pipes:
 
 - `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
-- `--tail N` shows the end, like `tail`.
-- `--rows` makes `-n` cap Markdown table data rows instead of output lines.
+- `--tail` takes the same count from the end, like `tail`.
+- `--rows N` caps Markdown table data rows instead of output lines; `--rows 2..10` names the rows to keep.
 - With `--print`, `--value`, `--urls`, or `--paths`, `--row N` chooses the projected row; `-n N` still limits output lines.
 - `--count` counts rows in one selected table.
 

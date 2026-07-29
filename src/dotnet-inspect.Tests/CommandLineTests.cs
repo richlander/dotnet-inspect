@@ -31,6 +31,67 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    // --taste is the one-invocation form of the config's full-taste aggregate
+    // (#3191). It is an api-surface gesture: only the commands that render member
+    // source consume RenderOptions.
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("type")]
+    public void ApiCommands_AcceptTasteGesture(string command)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse([command, "System.Math", "--taste"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void NonApiCommand_DoesNotDeclareTasteGesture()
+    {
+        // --taste only means something where RenderOptions is consumed, so it must
+        // not appear on commands that never render member source.
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.True(DeclaresTaste(root, "member"));
+        Assert.True(DeclaresTaste(root, "type"));
+        Assert.False(DeclaresTaste(root, "package"));
+
+        static bool DeclaresTaste(Command root, string name) =>
+            root.Subcommands
+                .Single(c => c.Name == name)
+                .Options
+                .Any(o => o.Name == "--taste");
+    }
+
+    // --readable-names, like --taste, is an api-surface gesture: it only means
+    // something where RenderOptions is consumed to render member source.
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("type")]
+    public void ApiCommands_AcceptReadableNamesGesture(string command)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse([command, "System.Math", "--readable-names"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void NonApiCommand_DoesNotDeclareReadableNamesGesture()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.True(DeclaresReadableNames(root, "member"));
+        Assert.True(DeclaresReadableNames(root, "type"));
+        Assert.False(DeclaresReadableNames(root, "package"));
+
+        static bool DeclaresReadableNames(Command root, string name) =>
+            root.Subcommands
+                .Single(c => c.Name == name)
+                .Options
+                .Any(o => o.Name == "--readable-names");
+    }
+
     [Fact]
     public void RootCommand_WithInvalidVerbosity_ReportsParseError()
     {
@@ -43,7 +104,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "5"]);
 
         var error = Assert.Single(result.Errors);
         Assert.Equal("--rows is not supported by the 'cache' command.", error.Message);
@@ -52,7 +113,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithTailLineLimit_Parses()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "-n", "5", "--tail"]);
 
         Assert.Empty(result.Errors);
     }

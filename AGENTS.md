@@ -43,8 +43,8 @@ documentation.
   working-tree changes into your work.
 - Treat worktrees as temporary. For a PR requiring adversarial review, confirm
   the exact reviewed head is pushed, then remove the development and review
-  worktrees with `git worktree remove <path>` as soon as both fixed-head
-  reviews are clean. For a change that does not require adversarial review,
+  worktrees with `git worktree remove <path>` as soon as every required
+  fixed-head review is clean. For a change that does not require adversarial review,
   remove its development worktree after merge. Do not retain inactive
   worktrees in case more work appears; recreate one for the branch if follow-up
   work is needed.
@@ -53,6 +53,7 @@ documentation.
 
 | Area | Read first |
 | --- | --- |
+| Layering and consumer boundaries | `docs/design/inspection-layers.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |
@@ -63,7 +64,7 @@ documentation.
 | Package resolution and caches | `docs/design/version-resolution.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
 | Analysis, Findings, and Research | `docs/design/finding-adoption.md` |
-| Call-graph Mermaid projection | `docs/design/call-graph-mermaid-projection.md` |
+| Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler behavior or harnesses | `docs/decompiler-correctness-pipeline.md` |
@@ -105,6 +106,17 @@ skill listing.
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 
+### Terminology
+
+Prefer inclusive terminology in code, identifiers, comments, output, and docs.
+These substitutions are required, not stylistic:
+
+- Write "allow list" instead of "whitelist".
+- Write "deny list" instead of "blacklist".
+
+Match the surrounding casing and word form when substituting (for example
+`allowList`/`AllowList` for an identifier, "deny-listed" for an adjective).
+
 ## Evidence and validation
 
 Match evidence to the claim and use the smallest existing check that proves it:
@@ -120,11 +132,53 @@ Match evidence to the claim and use the smallest existing check that proves it:
   the change explicitly intends otherwise.
 - For output changes, exercise the affected Markdown and structured modes,
   schema/query fields, ordering, and verbosity behavior.
+- For any taste- or style-oriented raise or rendering change, consult **both**
+  facets of the dotnet/runtime style oracle before landing it and record what
+  each says: the **declared** facet (`dotnet/runtime`'s `.editorconfig` and
+  enabled analyzers — quote the `dotnet_style_*`/`csharp_style_*` key or state
+  it is silent) and the **revealed** facet (the dominant form in
+  `dotnet/runtime` source, with `path/file.cs:line` witnesses). Cite the facet a
+  claim rests on; never assert "oracle approved" uncited, and never infer one
+  facet from the other. A knowing divergence is legitimate only when the
+  consultation happened and is recorded. See
+  [`docs/decompiler-taste.md`](docs/decompiler-taste.md#consulting-both-facets-is-required).
 - For corpus or performance claims, record the pinned input, command, baseline,
   and result. Static analysis proves structural evidence, not runtime heat,
   frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
 - Documentation-only changes that make no measured behavior claim require
   Markdown validation, not product builds or tests.
+- A doc comment or README that asserts a safety, soundness, or faithfulness
+  property must name the gate that enforces it, or explicitly mark the
+  property as unverified.
+
+### Asserted properties name their gate
+
+"Unverified" is an acceptable answer; an unmarked, ungated claim is not. A
+green suite plus a confident comment reads exactly like a verified property,
+and a reviewer can only tell them apart by tampering with the code to see
+whether anything notices. Naming the gate moves that cost to the author, where
+it is a one-line answer.
+
+Prefer making the declaration *drive* the enforcement set over restating it, so
+that stale and missing entries both fail:
+
+- `ByteNeutralityGateTests` derives its coverage set from the style catalog
+  (`StyleOptionCatalog.Options.Where(o => !o.ByteDivergent)`) and asserts set
+  equality against the specimens.
+- `SpanAttributionTests` asserts set equality between the body-intrinsic error
+  allowlist and the pin for the current `MethodologyVersion`.
+
+When the property depends on wiring rather than on a set, write one named
+non-vacuity test that fails if the wiring dies, and say in its doc comment that
+it is that test —
+`IrInvariantCheckTests.PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree`
+is the example.
+
+A gate only counts if it runs in the configuration the suite uses. The suite
+runs Release for fixture fidelity (see [Building and
+testing](#building-and-testing)), so a `[Conditional("DEBUG")]` check asserts
+nothing. Make such a check a runtime opt-in that the test host arms; do not
+switch the suite to Debug.
 
 ### Harness boundary
 
@@ -190,6 +244,55 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 
+Run the suite in **Release** for input fidelity, not speed: the optimized IL a
+Release build of the compilers emits is what ships and what the decompiler
+corpus consumes, so a Debug run would validate the decompiler against IL shapes
+users never see. Because the suite runs Release, correctness checks must not
+hide behind `[Conditional("DEBUG")]` — such a call is stripped from the Release
+test assembly and asserts nothing. The IR invariant check
+(`IrNode.CheckInvariant`) is instead a runtime flag (`IrInvariants.Enabled`,
+env var `DOTNET_INSPECT_IR_INVARIANTS`) that is **on by default**, so any host
+that runs the pipeline — test suite, harness, sweep, benchmark — validates it
+after every pass in the same build users run. The shipped CLI is the one
+sanctioned opt-out (`IrInvariants.DisableForShippedTool()` in
+`src/dotnet-inspect/Program.cs`), so the tool pays nothing on the decompile hot
+path. Declining validation has exactly one form — `Enabled`'s setter is private,
+so the compiler rejects any other spelling — and `IrInvariantsHostContractTests`
+pins that one call site, so a new host cannot quietly decline. An explicit
+`DOTNET_INSPECT_IR_INVARIANTS` value (trimmed, case-insensitive) outranks the
+opt-out in both directions.
+
+The invariant check is **leveled**, but both levels are armed together, so the
+leveling names what is checked rather than offering a way to check less:
+
+- **Structural** invariants (parent/child back-pointer consistency, tree
+  shape) hold on *any* well-formed `IrNode` graph, including the deliberately
+  minimal `IrFunction`s that hand-built pass-unit fixtures construct
+  (`IrInvariants.Enabled`).
+- **Semantic** invariants (e.g. local-slot indices within the enclosing
+  function/lambda's `Locals`) require a function that declares the slots it
+  references. These were opt-in until #3302 on the stated grounds that arming
+  them suite-wide would false-positive on ~120 minimal fixtures; measured, the
+  number was five. Those five now declare their locals, and the level is on by
+  default (`IrInvariants.CheckSemantics`), as a computed projection of
+  `Enabled` so the two cannot drift apart and the shipped tool's opt-out
+  lowers both.
+  `CheckInvariant(includeSemantics: true)` still threads the level explicitly
+  for hermetic per-test coverage.
+
+A hand-built fixture that trips the semantic level is referencing locals it
+does not declare; give the `IrFunction` its local table rather than lowering
+the level. Do not derive the local table from the body — that makes every
+fixture pass by construction and retires the invariant while appearing to keep
+it.
+
+Per-pass validation fires inside `IrPasses.Run`/`PipelineRunner`, so a test
+that calls `pass.Run(...)` directly never reaches it. Roughly a dozen test
+files still build an `IrFunction` with an empty local table and reference slots
+in it. They are unaffected today, but **converting one to `IrPasses.Run` will
+fail it** — correctly, because the fixture is malformed. Declare the locals;
+do not route around the check.
+
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
@@ -218,7 +321,12 @@ to these trait filters (e.g. `--gate fast`, `--gate no-corpus`); run
 `--gate list` for the table.
 
 Pack and publish flows remain separate and build `src/dotnet-inspect`
-directly.
+directly. Packaging is off by default (`IsPackable=false` in the root
+`Directory.Build.props`), so only `src/dotnet-inspect` and `src/runfaster` opt
+back in and no other project can ship however pack is invoked. Internal
+libraries have no versioning story and no API-stability commitment; treat their
+public surface as an internal design constraint, not an external compatibility
+surface. `PackagingSurfaceTests` pins both halves.
 
 ## Output contract
 
@@ -243,9 +351,27 @@ follow-up so readiness remains unambiguous.
 
 ## Adversarial review
 
-Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
-correctness, security, or compatibility risk requires adversarial review from
-two different models (latest versions) chosen from:
+**These instructions assume a harness — such as the GitHub Copilot CLI — that can
+delegate a review to any model family in the roster below.** The multi-model tiers
+depend on that ability. Most harnesses do not expose multiple model families; a
+harness that only exposes its own vendor's models handles review differently (see
+*Single-vendor harnesses* below).
+
+**How much review a PR needs is a function of its triviality and risk alone —
+never the kind of change it makes.** Place the PR on that spectrum and match the
+review depth to it:
+
+- **Trivial** — no review. State why the change is trivial.
+- **More than trivial, but not high risk** — a single review, always with
+  **MAI-Code**.
+- **High risk** (subtle correctness, security, or compatibility risk, or a large
+  or uncertain blast radius) — the default for any substantial change — two
+  reviews from two different models.
+
+If you are unsure which tier a PR falls in, escalate: default to more review, not
+less.
+
+Reviewer roster:
 
 - Claude Opus
 - Gemini Pro
@@ -253,27 +379,34 @@ two different models (latest versions) chosen from:
 - MAI-Code
 
 This list is the single source of truth for the reviewer roster; scenario docs
-should reference it rather than restating it.
+should reference it rather than restating it. **Always use the highest version a
+model offers** — e.g. if both Opus 4.8 and Opus 5 are available, use Opus 5.
 
-Do not review with your own model when another listed family is available. A
-single-model agent that cannot delegate may use independent passes from its own
-model.
+For a two-model review, do not review with your own model when another listed
+family is available.
 
-Give both reviewers the same self-contained prompt: exact base and head, design
+**Single-vendor harnesses.** The tiers above set how many reviews and which models
+a PR requires; a harness's capabilities change only *how* those reviews are
+obtained, not the bar. Most harnesses expose only their own vendor's models — for
+example Claude Code or Codex. For the **single-review tier**, such a harness just
+reviews with its own model (for example an Opus subagent under Claude Code); that
+one review satisfies the tier — no MAI-Code or other cross-model review is
+additionally required. The cross-model requirement applies only to the **two-model
+tier**: there the harness reviews with its own model (independent passes on the
+fixed head), then **requests a second, different-family review from the user**, and
+does **not** mark the PR ready until that different-model review is obtained.
+
+Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
 Isolate every reviewer in a separate linked review worktree; never detach the
 primary checkout for review. Require scratch work under `/tmp/` and prohibit
 `git reset`, `git add`, and commits in review trees. Before acting on a blocking
 finding, reproduce it on a clean exact-head review worktree.
 
-After addressing findings, re-review the fixed exact head. Reconcile both
-reviews publicly on the PR: attribute findings, state what was verified or
-dismissed, and link resolution commits or explain explicit non-actions. Do not
-mark the PR ready until both fixed-head reviews are clean.
-
-Simple, mechanical, or documentation-only changes do not require adversarial
-review; state why the change is low risk. If the blast radius is uncertain,
-default to review.
+After addressing findings, re-review the fixed exact head. Reconcile the reviews
+publicly on the PR: attribute findings, state what was verified or dismissed, and
+link resolution commits or explain explicit non-actions. Do not mark the PR ready
+until every required fixed-head review is clean.
 
 ## PR and CI discipline
 

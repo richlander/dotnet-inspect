@@ -211,7 +211,7 @@ dotnet-inspect package Markout -S "Grounding" --print
 dotnet-inspect project ./src/App -S "Skills"
 dotnet-inspect project ./src/App -S "Skills" --paths
 dotnet-inspect project ./src/App -S "Skills" --print --row 1
-dotnet-inspect project ./src/App -S "Skills" --print-all --jsonl
+dotnet-inspect project ./src/App -S "Skills" --print --row 1 --jsonl
 dotnet-inspect package Markout -S "Markdown Files"
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl

@@ -39,8 +39,8 @@ internal static class CSharpSpellability
         {
             Call call => MethodIssue(call.Callee),
             NewObject newObject => ConstructorIssue(newObject.Constructor),
-            AddressOfMethod address => MethodIssue(address.Method),
-            DelegateCreation creation => MethodIssue(creation.Method),
+            AddressOfMethod address => MethodGroupTargetIssue(address.Method),
+            DelegateCreation creation => MethodGroupTargetIssue(creation.Method),
             LoadField load => FieldIssue(load.Field),
             StoreField store => FieldIssue(store.Field),
             LoadFieldAddress address => FieldIssue(address.Field),
@@ -221,8 +221,16 @@ internal static class CSharpSpellability
         yield return function.Signature.ReturnType;
         foreach (var parameter in function.Signature.Parameters)
             yield return parameter.Type;
-        foreach (var local in function.Locals)
-            yield return local;
+        for (int slot = 0; slot < function.Locals.Length; slot++)
+        {
+            // A slot a raising pass proved dead renders nowhere (the printer skips
+            // it), so its type — often an unspellable synthesized buffer such as
+            // <>y__InlineArrayN — must not degrade fidelity for output it never
+            // appears in.
+            if (function.EliminatedLocalSlots.Contains(slot))
+                continue;
+            yield return function.Locals[slot];
+        }
         foreach (var region in function.Regions)
             if (region.CatchType is { } catchType)
                 yield return catchType;
@@ -237,12 +245,27 @@ internal static class CSharpSpellability
     }
 
     static NameIssue? MethodIssue(MethodRef method)
+        => MethodIssue(method, isMethodGroupTarget: false);
+
+    /// <summary>
+    /// The spellability of a method used as a delegate/method-group target
+    /// (<c>ldftn</c>). Unlike a constructor <em>call</em> — which renders as a
+    /// <c>base(...)</c>/<c>this(...)</c> initializer or <c>new T(...)</c> and so
+    /// exempts <c>.ctor</c> — a constructor has no C# method-group spelling, so a
+    /// <c>.ctor</c> target must degrade. Otherwise the name sanitizer's legal
+    /// <c>__ctor</c> fallback would be presented as Full fidelity and could
+    /// silently bind an unrelated real <c>__ctor</c> member (#3129).
+    /// </summary>
+    static NameIssue? MethodGroupTargetIssue(MethodRef method)
+        => MethodIssue(method, isMethodGroupTarget: true);
+
+    static NameIssue? MethodIssue(MethodRef method, bool isMethodGroupTarget)
     {
         foreach (var argument in method.TypeArguments)
             if (TypeIssue(argument) is { } issue)
                 return issue;
 
-        if (method.Name is ".ctor")
+        if (method.Name is ".ctor" && !isMethodGroupTarget)
             return null;
 
         if (IsUnverifiedAccessorLikeMethod(method))

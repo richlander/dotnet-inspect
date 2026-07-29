@@ -51,7 +51,7 @@ Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
 confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
 curated ranked prefix. Supplying any of those flags selects `Performance Triage`
 automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
-before rendering; `-n N --rows` is a generic rendered-row cap applied afterward.
+before rendering; `--rows N` is a generic rendered-row cap applied afterward.
 Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
 `linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
 from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
@@ -189,11 +189,12 @@ probing versions; use this final adjacent comparison as the onset proof.
 
 ## Drill a candidate
 
-`Call Graph` is a bounded outbound tree; `Caller Graph` is a bounded reverse
-tree to entry points. Project per-node cost with `--fields` (alloc, copy,
-unsafe, reflection, throw/exception, catch/finally).
+`Call Graph` is a bounded bidirectional graph: inbound callers up to entry
+points and outbound calls, centred on the selected member. Project per-node cost
+with `--fields` (alloc, copy, unsafe, reflection, throw/exception,
+catch/finally).
 
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
 ```

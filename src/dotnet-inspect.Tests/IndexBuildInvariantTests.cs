@@ -37,7 +37,6 @@ public class IndexBuildInvariantTests
             [
                 SectionNames.Calls,
                 SectionNames.CallGraph,
-                SectionNames.CallerGraph,
                 SectionNames.UnsafeOperations,
                 SectionNames.AllocationFacts,
                 SectionNames.SafetyFacts,
@@ -94,10 +93,10 @@ public class IndexBuildInvariantTests
                 SectionNames.UnsafeMembers,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
-                SectionNames.ResourceTriage,
+                SectionNames.ArrayPoolEscapes,
             ],
             Markdown = true,
-            Rows = new RowWindow(25, FromEnd: false),
+            Rows = RowWindow.Head(25),
         }));
 
         Assert.Equal(0, result.ExitCode);

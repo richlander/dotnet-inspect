@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using System.Text.Json;
 using DotnetInspector.Options;
@@ -36,7 +37,7 @@ public static class OutputFormatter
         // so a single buffered Write(string) is not interchangeable with row-by-row writes
         // (it changes which trailing content survives the limit). Keep the buffered path for
         // those wrappers to preserve byte-identical output; their output is already small.
-        if (maxRows is null or { Count: < 0 } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
+        if (maxRows is null or { IsUnlimited: true } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
             serialize(output, new TableFormatter(showHeader));
             return;
@@ -55,10 +56,11 @@ public static class OutputFormatter
     /// </summary>
     public static string LimitRenderedTableRows(string rendered, RowWindow? maxRows, bool hasHeader)
     {
-        if (maxRows is not { Count: >= 0 } limit || string.IsNullOrEmpty(rendered))
+        if (maxRows is not { IsUnlimited: false } limit || string.IsNullOrEmpty(rendered))
             return rendered;
 
         var trailingNewline = rendered.EndsWith('\n');
+        var newline = MarkdownScan.DetectNewline(rendered);
         var body = rendered.ReplaceLineEndings("\n");
         if (trailingNewline)
             body = body.TrimEnd('\n');
@@ -77,16 +79,15 @@ public static class OutputFormatter
 
         var header = lines.Take(headerLines);
         var dataRows = lines.Skip(headerLines);
-        var windowed = limit.FromEnd
-            ? dataRows.Skip(Math.Max(0, (lines.Length - headerLines) - limit.Count))
-            : dataRows.Take(limit.Count);
-        var kept = string.Join('\n', header.Concat(windowed));
+        var (keepStart, keepEnd) = limit.Resolve(lines.Length - headerLines);
+        var windowed = dataRows.Skip(keepStart).Take(keepEnd - keepStart);
+        var kept = string.Join(newline, header.Concat(windowed));
         // A zero-width window over a headerless format (JSONL, --no-header TSV) keeps
         // nothing; return empty rather than re-adding the trailing newline, which would
         // emit a phantom blank row / invalid empty JSONL record.
         if (kept.Length == 0)
             return string.Empty;
-        return trailingNewline ? kept + "\n" : kept;
+        return trailingNewline ? kept + newline : kept;
     }
 
     public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv, bool jsonl)
@@ -149,6 +150,23 @@ public static class OutputFormatter
                 markoutWriter.WriteTable([displayName], [stableName], rows);
             else
                 markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
+            markoutWriter.Flush();
+        });
+    }
+
+    /// <summary>
+    /// Writes a version list annotated with listing status as a two-column Version/Listing table.
+    /// Used by <c>--versions --include-unlisted</c> so unlisted versions are marked rather than
+    /// silently included.
+    /// </summary>
+    public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
+        bool tsv, bool jsonl, TextWriter output)
+    {
+        var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
+        WriteTable(output, showHeader: false, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
             markoutWriter.Flush();
         });
     }
@@ -221,11 +239,10 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
-            inspection, options.Verbosity, options.IncludeSections, selectAll);
+            inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         var writerOpts = new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
@@ -235,14 +252,11 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
-                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else
@@ -273,20 +287,14 @@ public static class OutputFormatter
         else if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -330,7 +338,6 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
@@ -340,21 +347,18 @@ public static class OutputFormatter
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections, selectAll),
+                inspections[0], options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
-                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else
@@ -373,10 +377,7 @@ public static class OutputFormatter
         if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -385,7 +386,7 @@ public static class OutputFormatter
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var includeSections = pipeline.ComputeIncludeSections(
-                    inspection, options.Verbosity, options.IncludeSections, selectAll);
+                    inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
                 var writerOpts = new MarkoutWriterOptions
                 {
                     IncludeSections = includeSections,

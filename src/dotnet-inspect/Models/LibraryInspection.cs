@@ -184,7 +184,7 @@ public class LibraryInspection
     public bool? AllSourcesAccessible { get; set; }
 
     /// <summary>
-    /// Whether a SourceLink Integrity pass (GET + checksum verification) was run.
+    /// Whether a SourceLink: Integrity pass (GET + checksum verification) was run.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SourceIntegrityChecked { get; set; }
@@ -558,7 +558,7 @@ public class LibraryInspection
             AddFailure(failures, "Switches", SwitchInspection);
             AddFailure(
                 failures,
-                DotnetInspector.Sections.SectionNames.ResourceTriage,
+                DotnetInspector.Sections.SectionNames.ArrayPoolEscapes,
                 ResourceLifecycleInspection);
             return NullIfEmpty(failures);
             });

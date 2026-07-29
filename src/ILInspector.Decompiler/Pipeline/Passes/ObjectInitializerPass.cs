@@ -29,10 +29,40 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed class ObjectInitializerPass : IIrPass
 {
-    public string Name => "object-initializer";
+    // When set, this is the second, post-structuring run (registered after
+    // StructuringPass). Its sole extra capability over the default run is folding
+    // reused-temp member-value spills (TryReusedTempSpill), which cannot fire at
+    // the default early position: Roslyn spills a branchy member value
+    // (`cond ? f(x) : null`) into a shared temp precisely because its branches
+    // cannot sit on the stack beneath the dup-chain receiver, so at the default
+    // position (before diamond collapsing and structuring) the value is still a
+    // ConditionalBranch diamond spread across basic blocks, never the adjacent
+    // `t = V; ref.M = t` this pass matches. Only after structuring has collapsed
+    // the diamond into a single Conditional in one straight-line block does the
+    // spill/store pair become adjacent. To stay narrow, the late run commits a
+    // fold only when the plan actually rests on such a spill (PlanRequiresSpill):
+    // any chain the early run could already have folded — one whose members are
+    // all plain stores — was deliberately left lowered there (e.g. an initializer
+    // argument sequenced before a short-circuit, or a trusted-platform factory
+    // lookalike), and re-folding it here would reorder or misclassify it. The
+    // spill anchor leaves those exactly as the early run decided.
+    readonly bool _spillReusedTemps;
+
+    public ObjectInitializerPass(bool spillReusedTemps = false) => _spillReusedTemps = spillReusedTemps;
+
+    public string Name => _spillReusedTemps ? "object-initializer-late-spill" : "object-initializer";
 
     public void Run(IrFunction function, PassContext context)
     {
+        // The late (spill) run folds inner-first, so an enclosing chain whose
+        // member value is a nested initializer this run already produced can still
+        // fold even though the enclosing chain has no spill of its own: the fold
+        // that composes a spill-recovered initializer is itself part of the
+        // #3336 residue. Track those produced nodes by identity so an outer plan
+        // that reaches one (through the version-copy chain, landed use-site as the
+        // member value) counts as resting on the spill.
+        var spillDerived = _spillReusedTemps ? new HashSet<IrNode>(ReferenceEqualityComparer.Instance) : null;
+
         // Process seeds inner-first. The compiler emits the outer `new T(...)`
         // before any nested `new U(...)` that feeds one of its members, so reverse
         // document order folds sub-initializers before their enclosing initializer
@@ -43,12 +73,24 @@ public sealed class ObjectInitializerPass : IIrPass
             if (seed.Parent is not Block || seed.Value is not NewObject creation)
                 continue;
 
-            if (TryBuild(function, seed, creation) is not { } plan)
+            if (TryBuild(function, seed, creation, _spillReusedTemps) is not { } plan)
+                continue;
+
+            // Late (spill) run: only commit folds that actually rest on a
+            // reused-temp spill — the capability the early run lacked — directly or
+            // by composing a nested initializer this run already recovered from a
+            // spill. A plan of all plain stores that reaches no such spill was
+            // already available to (and declined by) the early run; re-folding it
+            // here would reorder or misclassify it.
+            if (_spillReusedTemps
+                && !PlanRequiresSpill(plan)
+                && !PlanReferencesSpillDerived(plan, spillDerived!))
                 continue;
 
             context.Stepper.StepOver(
                 $"raise {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
-            Apply(plan);
+            var produced = Apply(plan);
+            spillDerived?.Add(produced);
         }
 
         foreach (var seed in function.Descendants.OfType<StoreLocal>().Reverse().ToList())
@@ -61,9 +103,19 @@ public sealed class ObjectInitializerPass : IIrPass
             if (TryBuild(function, seed, creation) is not { } plan)
                 continue;
 
+            // The named-local TryBuild has no spill branch, so a named-local plan
+            // only reaches the late run by composing a nested spill-recovered
+            // initializer (PlanReferencesSpillDerived); a plain named-local chain
+            // stays exactly as the early run left it.
+            if (_spillReusedTemps
+                && !PlanRequiresSpill(plan)
+                && !PlanReferencesSpillDerived(plan, spillDerived!))
+                continue;
+
             context.Stepper.StepOver(
                 $"raise named-local {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
-            Apply(plan);
+            var produced = Apply(plan);
+            spillDerived?.Add(produced);
         }
     }
 
@@ -85,23 +137,37 @@ public sealed class ObjectInitializerPass : IIrPass
     /// carries a <see cref="BlockPlan"/> and no direct arguments. Block construction
     /// is deferred to <see cref="Apply"/> so its leaf arguments are detached from
     /// their lowered statements before being reparented into the new IR.
+    /// <para>
+    /// <see cref="FromReusedSpill"/> marks an entry recovered by
+    /// <see cref="TryReusedTempSpill"/>. The late (post-structuring) run folds a
+    /// plan only when it — directly or through a nested block — contains such an
+    /// entry (see <see cref="PlanRequiresSpill"/>), because that spill is the one
+    /// capability the early run lacked.
+    /// </para>
     /// </summary>
     sealed record EntryPlan(
         string? Member,
         IReadOnlyList<IrExpression> Arguments,
         BlockPlan? Block,
         MethodRef? ConsumedMethod = null,
-        FieldRef? ConsumedField = null);
+        FieldRef? ConsumedField = null,
+        bool FromReusedSpill = false);
 
     /// <summary>A nested initializer body: an object/collection brace group with no creation.</summary>
     sealed record BlockPlan(bool IsCollection, IReadOnlyList<EntryPlan> Entries);
 
-    static Plan? TryBuild(IrFunction function, StoreStackSlot seed, NewObject creation)
+    static Plan? TryBuild(IrFunction function, StoreStackSlot seed, NewObject creation, bool spillReusedTemps)
     {
         var statements = seed.Parent!.Children;
         var aliasSlots = new HashSet<int> { seed.Slot };
         var consumed = new List<IrNode> { seed };
         var entries = new List<EntryPlan>();
+        // Statements interleaved before the first initializer entry that are
+        // independent of the threaded reference (a sibling constructor argument
+        // spilled to its own slot because it was live on the stack beneath this dup
+        // chain). They are left in place and the escape is treated as if they were
+        // not present. See the skip branch below.
+        var skipped = new List<IrNode>();
         bool? isCollection = null;
 
         // A run of nested ops on the same member folds into one InitializerBlock
@@ -181,6 +247,70 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
+            // A member-value spill feeding the immediately-following member store,
+            // in either of two shapes:
+            //   * `default(T) V = default; ref.M = V` — the compiler spills a
+            //     struct `default(T)` (an `initobj` into its own local) and reads it
+            //     straight back (TryDefaultValueSpill).
+            //   * `t = V; ref.M = t` — a (possibly reused) stack-slot temp holds a
+            //     computed member value, e.g. `t = cond ? Write(x) : null; ref.M = t`
+            //     that Roslyn spills because the value's branches cannot sit on the
+            //     stack beneath the dup-chain receiver (TryReusedTempSpill).
+            // Either way, fold both statements into `M = <value>` inlined at the
+            // member's position. Sound because the member value stays in member order
+            // at the fold site — unlike a pre-entry skip, it is never reordered across
+            // the `newobj` or other members: the spill statement and its consuming
+            // member store are adjacent in the same straight-line block, so the spilled
+            // value already evaluated immediately before the member store and keeps
+            // that spot in the initializer. TryReusedTempSpill additionally proves the
+            // temp is a linear spill slot (each definition consumed by exactly its next
+            // statement), so dropping this store/load pair strands no other reader.
+            if (i + 1 < statements.Count
+                && !TouchesAnySlot(statement, aliasSlots)
+                && (TryDefaultValueSpill(function, statement, statements[i + 1], aliasSlots)
+                    ?? (spillReusedTemps
+                        ? TryReusedTempSpill(function, statement, statements[i + 1], aliasSlots)
+                        : null)) is { } spilled)
+            {
+                if (isCollection == true)
+                    break;
+                FlushPending();
+                isCollection = false;
+                entries.Add(spilled);
+                consumed.Add(statement);
+                consumed.Add(statements[i + 1]);
+                i++;   // the member store is consumed together with its spill
+                continue;
+            }
+
+            // A statement interleaved before the first initializer entry that neither
+            // reads nor writes the threaded reference — e.g. `t = new(); a = Other();
+            // t.X = ...` where `a` is a preceding constructor argument the stackifier
+            // spilled because it was live beneath the dup chain. It cannot observe the
+            // partially-built object, so leave it in place and skip it; the escape
+            // logic below treats it as a permitted gap and folds via the use site
+            // (never the seed), which keeps the member stores after this statement in
+            // their original order. Only tolerated before the first entry so no member
+            // store is ever reordered across it.
+            //
+            // Skipping is only sound when the statement's own computation already
+            // executed BEFORE the `newobj` (its IL offset precedes the creation's).
+            // Use-site folding moves the `newobj` after the skipped statement, so a
+            // statement that originally ran after the `newobj` (e.g. `t = new();
+            // SideEffect(); t.X = ...`, where Roslyn erased the named local into this
+            // dup form) would have its construction reordered across it — observable
+            // if the constructor or the statement has side effects. The offset guard
+            // admits only genuine preceding-argument spills, which the compiler always
+            // emits before the `newobj`.
+            if (entries.Count == 0
+                && pendingInner is null
+                && !TouchesAnySlot(statement, aliasSlots)
+                && ExecutesBefore(statement, creation))
+            {
+                skipped.Add(statement);
+                continue;
+            }
+
             break;
         }
 
@@ -224,6 +354,10 @@ public sealed class ObjectInitializerPass : IIrPass
         // statements sit between the run and the escape, materialize the initializer at
         // the original seed instead: that keeps member-value side effects before the
         // gap and still collapses the compiler temp chain into one initialized value.
+        // Skipped pre-entry statements (see the loop) are permitted gaps: they must be
+        // folded via the use site so the member stores stay after them, never via the
+        // seed (which would hoist the member stores before them).
+        var skippedSet = skipped.ToHashSet();
         IrNode escapeStatement = outsideUses[0];
         while (escapeStatement.Parent is { } parent && !ReferenceEquals(parent, seed.Parent))
             escapeStatement = parent;
@@ -232,12 +366,19 @@ public sealed class ObjectInitializerPass : IIrPass
         bool contiguousEscape = true;
         for (int i = seed.ChildIndex + 1; i < escapeStatement.ChildIndex; i++)
         {
-            if (!consumedSet.Contains(statements[i]))
+            var between = statements[i];
+            if (!consumedSet.Contains(between) && !skippedSet.Contains(between))
             {
                 contiguousEscape = false;
                 break;
             }
         }
+
+        // A skip forces use-site folding. If the escape is not contiguous (a real gap
+        // after the members that would need seed materialization), seed folding would
+        // hoist the members before the skipped statement — unsound — so decline.
+        if (!contiguousEscape && skipped.Count != 0)
+            return null;
 
         return new Plan(
             consumed,
@@ -484,6 +625,194 @@ public sealed class ObjectInitializerPass : IIrPass
         _ => null,
     };
 
+    /// <summary>
+    /// Matches a <c>default(T)</c> member-value spill and its consuming member store:
+    /// <c>InitObject L</c> (a struct-typed <c>initobj</c> that zero-inits its own
+    /// local <c>L</c>) immediately followed by <c>ref.M = LoadLocal L</c> on a
+    /// threaded slot, where <c>L</c> is single-assignment, addressed only by this
+    /// <c>initobj</c>, and read exactly once — as that member value. Returns the
+    /// member entry with <see cref="DefaultValue"/> inlined in place of the temp so
+    /// the spill statement can be dropped. The compiler emits this shape for a
+    /// struct-typed <c>default</c> assigned to an initializer member; recovering it
+    /// lets the whole chain fold instead of leaving the trailing member lowered.
+    /// </summary>
+    static EntryPlan? TryDefaultValueSpill(IrFunction function, IrNode spill, IrNode memberStatement, HashSet<int> aliasSlots)
+    {
+        // The spill: `initobj L` writing the zero value through a local's address.
+        if (spill is not InitObject { Address: LoadLocalAddress { Index: var localIndex } } init)
+            return null;
+
+        // The consuming member store: `ref.M = LoadLocal L` on a threaded slot, with
+        // no index arguments (the value is the whole right-hand side).
+        var (member, method, fieldRef) = memberStatement switch
+        {
+            StoreProperty { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } property
+                when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
+                    && property.IndexArguments.Count == 0 && IsInitializerSpellable(property)
+                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null),
+            StoreField { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } field
+                when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
+                => (field.Field.Name, null, field.Field),
+            _ => ((string?)null, null, null),
+        };
+        if (member is null)
+            return null;
+
+        // The temp must belong solely to this spill/use pair: referenced or bound
+        // nowhere else, never re-stored, and addressed only by this `initobj`. That
+        // makes dropping its definition and inlining `default(T)` semantics-preserving.
+        if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, localIndex, [spill, memberStatement]))
+            return null;
+        if (function.Descendants.OfType<StoreLocal>().Any(store => store.Index == localIndex))
+            return null;
+        if (function.Descendants.OfType<LoadLocalAddress>()
+                .Any(address => address.Index == localIndex && !ReferenceEquals(address, init.Address)))
+            return null;
+
+        return new EntryPlan(member, [new DefaultValue(init.Type)], null, ConsumedMethod: method, ConsumedField: fieldRef);
+    }
+
+    /// <summary>
+    /// Matches a stack-slot member-value spill and its consuming member store:
+    /// <c>t = V</c> (a <see cref="StoreStackSlot"/> writing a computed value into a
+    /// non-threaded temp slot <c>t</c>) immediately followed by
+    /// <c>ref.M = LoadStackSlot t</c> on a threaded slot, where the load is the whole
+    /// right-hand side. Returns the member entry with <paramref name="V"/> inlined in
+    /// place of the temp so both statements fold into <c>M = V</c>.
+    /// <para>
+    /// The temp may be reused across several members (Roslyn spills each branchy
+    /// member value — e.g. <c>cond ? Write(x) : null</c> — into one shared slot
+    /// because the branches cannot straddle the dup-chain receiver on the stack), so
+    /// the single-use ownership guard of <see cref="TryDefaultValueSpill"/> does not
+    /// apply. Instead <see cref="IsLinearSpillSlot"/> proves the slot is used
+    /// strictly linearly — every definition is consumed by exactly the immediately
+    /// following statement — so removing this (store, load) pair strands no other
+    /// reader and reorders nothing: spill and store are adjacent in one straight-line
+    /// block, so <c>V</c> already evaluated in this exact position, after the
+    /// <c>newobj</c> and in member order.
+    /// </para>
+    /// </summary>
+    static EntryPlan? TryReusedTempSpill(IrFunction function, IrNode spill, IrNode memberStatement, HashSet<int> aliasSlots)
+    {
+        // The spill: `t = V`, where `t` is a temp slot distinct from the threaded
+        // reference chain (a store into an alias slot is a version copy, not a spill).
+        if (spill is not StoreStackSlot { Slot: var tempSlot, Value: var spilledValue }
+            || aliasSlots.Contains(tempSlot))
+            return null;
+
+        // The consuming member store: `ref.M = LoadStackSlot t` on a threaded slot,
+        // with no index arguments (the temp is the whole right-hand side).
+        var (member, method, fieldRef) = memberStatement switch
+        {
+            StoreProperty { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadStackSlot use } property
+                when aliasSlots.Contains(slot.Slot) && use.Slot == tempSlot
+                    && property.IndexArguments.Count == 0 && IsInitializerSpellable(property)
+                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null),
+            StoreField { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadStackSlot use } field
+                when aliasSlots.Contains(slot.Slot) && use.Slot == tempSlot
+                => (field.Field.Name, null, field.Field),
+            _ => ((string?)null, null, null),
+        };
+        if (member is null)
+            return null;
+
+        // The spilled value must not read the temp itself — that would observe the
+        // slot's prior definition, which this fold drops.
+        if (SubtreeLoadsStackSlot(spilledValue, tempSlot))
+            return null;
+
+        // Fold only when the temp is a linear spill slot: each definition reaches
+        // exactly its adjacent consuming use, so dropping this pair is sound.
+        if (!IsLinearSpillSlot(function, tempSlot))
+            return null;
+
+        return new EntryPlan(member, [spilledValue], null, ConsumedMethod: method, ConsumedField: fieldRef, FromReusedSpill: true);
+    }
+
+    /// <summary>
+    /// Whether a plan rests on a reused-temp spill — an entry recovered by
+    /// <see cref="TryReusedTempSpill"/>, directly or inside a nested block. The
+    /// late (post-structuring) run folds only such plans, leaving every
+    /// all-plain-store chain exactly as the early run decided.
+    /// </summary>
+    static bool PlanRequiresSpill(Plan plan) => EntriesRequireSpill(plan.Entries);
+
+    static bool EntriesRequireSpill(IEnumerable<EntryPlan> entries)
+        => entries.Any(entry => entry.FromReusedSpill
+            || (entry.Block is { } block && EntriesRequireSpill(block.Entries)));
+
+    /// <summary>
+    /// Whether a plan composes a nested initializer this run already recovered from
+    /// a spill: any leaf member value (recursively) is or contains one of the
+    /// tracked <paramref name="spillDerived"/> nodes. Inner-first folding lands such
+    /// a nested initializer use-site as the enclosing member's value, so the
+    /// enclosing fold is part of the same #3336 residue even without a spill of its
+    /// own. All of the pass's ordering guards still apply; this only relaxes the
+    /// spill-narrowing, never a soundness check.
+    /// </summary>
+    static bool PlanReferencesSpillDerived(Plan plan, HashSet<IrNode> spillDerived)
+        => spillDerived.Count != 0 && EntriesReferenceSpillDerived(plan.Entries, spillDerived);
+
+    static bool EntriesReferenceSpillDerived(IEnumerable<EntryPlan> entries, HashSet<IrNode> spillDerived)
+        => entries.Any(entry =>
+            entry.Arguments.Any(argument => argument.Descendants.Prepend(argument).Any(spillDerived.Contains))
+            || (entry.Block is { } block && EntriesReferenceSpillDerived(block.Entries, spillDerived)));
+
+    /// <summary>
+    /// Whether stack slot <paramref name="slot"/> is used strictly linearly: every
+    /// <see cref="StoreStackSlot"/> of it is a block statement whose value does not
+    /// re-read the slot and whose immediately following sibling statement consumes it
+    /// with exactly one <see cref="LoadStackSlot"/> and no re-store, and the total
+    /// load count equals the store count. Together these make each definition reach
+    /// exactly its adjacent use (adjacency in a straight-line block means no branch
+    /// intervenes), so folding any (store, load) pair strands no other reader.
+    /// </summary>
+    static bool IsLinearSpillSlot(IrFunction function, int slot)
+    {
+        int stores = 0;
+        int loads = 0;
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreStackSlot store when store.Slot == slot:
+                {
+                    stores++;
+                    if (store.Parent is not { } parent)
+                        return false;
+                    int next = store.ChildIndex + 1;
+                    if (next >= parent.Children.Count)
+                        return false;  // a definition with no following consumer
+                    if (SubtreeLoadsStackSlot(store.Value, slot))
+                        return false;  // the definition reads the slot it defines
+                    var consumer = parent.Children[next];
+                    if (CountStackSlotLoads(consumer, slot) != 1 || SubtreeStoresStackSlot(consumer, slot))
+                        return false;  // the next statement is not a lone consuming use
+                    break;
+                }
+
+                case LoadStackSlot load when load.Slot == slot:
+                    loads++;
+                    break;
+            }
+        }
+
+        // Each store contributes one consuming load in a distinct next-sibling
+        // statement (two stores cannot share a consumer, and adjacent stores are
+        // rejected by the re-store check above). Equal totals therefore mean every
+        // load is one of those consuming loads — no stray reader of any definition.
+        return stores > 0 && stores == loads;
+    }
+
+    static bool SubtreeLoadsStackSlot(IrNode root, int slot)
+        => root.Descendants.Prepend(root).Any(node => node is LoadStackSlot load && load.Slot == slot);
+
+    static bool SubtreeStoresStackSlot(IrNode root, int slot)
+        => root.Descendants.Prepend(root).Any(node => node is StoreStackSlot store && store.Slot == slot);
+
+    static int CountStackSlotLoads(IrNode root, int slot)
+        => root.Descendants.Prepend(root).Count(node => node is LoadStackSlot load && load.Slot == slot);
+
     static EntryPlan? TryMemberStore(IrNode statement, int localIndex) => statement switch
     {
         StoreProperty { HasInstance: true, Instance: LoadLocal local } property
@@ -570,6 +899,73 @@ public sealed class ObjectInitializerPass : IIrPass
         => (node is LoadStackSlot load && slots.Contains(load.Slot))
             || node.Descendants.OfType<LoadStackSlot>().Any(descendant => slots.Contains(descendant.Slot));
 
+    /// <summary>
+    /// Whether a statement subtree reads or writes any of the threaded-reference
+    /// slots. Used to prove an interleaved statement is independent of the object
+    /// under construction before skipping it: independence requires it neither
+    /// loads the reference (observing the partial object) nor stores an alias slot
+    /// (clobbering the reference).
+    /// </summary>
+    static bool TouchesAnySlot(IrNode node, HashSet<int> slots)
+    {
+        if (node is LoadStackSlot load && slots.Contains(load.Slot))
+            return true;
+        if (node is StoreStackSlot store && slots.Contains(store.Slot))
+            return true;
+        foreach (var descendant in node.Descendants)
+        {
+            if (descendant is LoadStackSlot d && slots.Contains(d.Slot))
+                return true;
+            if (descendant is StoreStackSlot s && slots.Contains(s.Slot))
+                return true;
+        }
+        return false;
+    }
+
+    // True when the statement's own computation completed BEFORE `creation`'s
+    // `newobj` executed in the original IL, so keeping it ahead of the folded
+    // `newobj` preserves observable order. See EffectOffset for how the offset is
+    // derived. Missing offsets decline the skip (conservative).
+    static bool ExecutesBefore(IrNode statement, NewObject creation)
+    {
+        int creationOffset = creation.SourceOffset;
+        if (creationOffset < 0)
+            return false;
+        int effect = EffectOffset(statement);
+        return effect >= 0 && effect < creationOffset;
+    }
+
+    // The latest IL offset at which the statement's side effect is observed. Later
+    // passes can rebuild a value's root node (e.g. property-access recognition)
+    // and drop its offset, so scan the whole value subtree and take the max
+    // retained offset rather than trusting the root alone. The store/expression
+    // wrapper's own offset is a stackifier artifact that can fall after the
+    // `newobj`, so it is excluded — only the value's computation counts. Because a
+    // statement's operands execute in the same window as the statement, this max
+    // is a sound bound: a statement that ran before the `newobj` has every
+    // retained offset below the creation offset, and one that ran after has every
+    // retained offset above it (or none, which conservatively declines the skip).
+    static int EffectOffset(IrNode statement)
+    {
+        var value = statement switch
+        {
+            StoreStackSlot store => (IrNode)store.Value,
+            StoreLocal store => store.Value,
+            ExpressionStatement expr => expr.Expression,
+            _ => statement,
+        };
+        return MaxOffsetInSubtree(value);
+    }
+
+    static int MaxOffsetInSubtree(IrNode node)
+    {
+        int max = node.SourceOffset;
+        foreach (var descendant in node.Descendants)
+            if (descendant.SourceOffset > max)
+                max = descendant.SourceOffset;
+        return max;
+    }
+
     static bool ReferencesLocal(IrNode node, int index)
         => (node is LoadLocal load && load.Index == index)
             || node.Descendants.OfType<LoadLocal>().Any(descendant => descendant.Index == index);
@@ -582,7 +978,7 @@ public sealed class ObjectInitializerPass : IIrPass
         return false;
     }
 
-    static void Apply(Plan plan)
+    static ObjectInitializerExpression Apply(Plan plan)
     {
         // Drop the lowered run from the block, then lift the creation and leaf
         // arguments out of those now-detached statements before reparenting them
@@ -595,7 +991,8 @@ public sealed class ObjectInitializerPass : IIrPass
         }
 
         foreach (var leaf in LeafArguments(plan.Entries))
-            leaf.Detach();
+            if (leaf.Parent is not null)
+                leaf.Detach();   // a synthesized leaf (e.g. an inlined default) is already free
 
         var entries = plan.Entries.Select(BuildEntry).ToList();
         switch (plan.Target)
@@ -606,7 +1003,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
                 initializer.InheritSourceOffset(plan.Creation);
                 stackSlot.Use.ReplaceWith(initializer);
-                break;
+                return initializer;
             }
 
             case StackSlotSeedTarget stackSlotSeed:
@@ -617,7 +1014,7 @@ public sealed class ObjectInitializerPass : IIrPass
                 plan.Creation.ReplaceWith(initializer);
                 if (stackSlotSeed.Use.Slot != stackSlotSeed.Seed.Slot)
                     stackSlotSeed.Use.ReplaceWith(new LoadStackSlot(stackSlotSeed.Seed.Slot, stackSlotSeed.Use.Type));
-                break;
+                return initializer;
             }
 
             case LocalSeedTarget:
@@ -626,8 +1023,11 @@ public sealed class ObjectInitializerPass : IIrPass
                 var initializer = new ObjectInitializerExpression(creation, plan.IsCollection, entries);
                 initializer.InheritSourceOffset(plan.Creation);
                 plan.Creation.ReplaceWith(initializer);
-                break;
+                return initializer;
             }
+
+            default:
+                throw new InvalidOperationException($"Unhandled initializer target {plan.Target.GetType().Name}.");
         }
     }
 

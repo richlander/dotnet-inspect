@@ -25,7 +25,7 @@ public sealed partial class CSharpPrinter
         => $"{Operand(node.Receiver)} with {{ {string.Join(", ", node.Entries.Select(WithExpressionEntryText))} }}";
 
     string WithExpressionEntryText(InitializerEntry entry)
-        => $"{CSharpNaming.EscapeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
+        => $"{CSharpNaming.SafeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
 
     /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
     string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
@@ -51,7 +51,7 @@ public sealed partial class CSharpPrinter
             : Expression(value);
 
         if (entry.Member is { } member)
-            return $"{CSharpNaming.EscapeIdentifier(member)} = {valueText}";
+            return $"{CSharpNaming.SafeIdentifier(member)} = {valueText}";
 
         // An indexer member: the trailing argument is the value, the rest are keys.
         var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
@@ -70,6 +70,17 @@ public sealed partial class CSharpPrinter
     {
         if (anonymous.Values.Count == 0)
             return "new { }";
+        return $"new {{ {string.Join(", ", AnonymousObjectParts(anonymous))} }}";
+    }
+
+    /// <summary>
+    /// Renders each anonymous-object projection part (<c>x</c> / <c>obj.Member</c>
+    /// shorthand where the value's own member name matches, else <c>Name = value</c>),
+    /// shared by the inline <see cref="AnonymousObjectText"/> and the wrapped
+    /// <c>AnonymousObjectLines</c> so both spell identical tokens.
+    /// </summary>
+    List<string> AnonymousObjectParts(AnonymousObject anonymous)
+    {
         var parts = new List<string>(anonymous.Values.Count);
         for (int i = 0; i < anonymous.Values.Count; i++)
         {
@@ -82,7 +93,7 @@ public sealed partial class CSharpPrinter
                 || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + escapedName, StringComparison.Ordinal));
             parts.Add(shorthand ? text : $"{escapedName} = {text}");
         }
-        return $"new {{ {string.Join(", ", parts)} }}";
+        return parts;
     }
 
     /// <summary>
@@ -210,7 +221,9 @@ public sealed partial class CSharpPrinter
             _ => null,
         };
 
-    static bool NeedsNestedLambdaScope(Lambda lambda)
+    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
+    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
+    internal static bool NeedsNestedLambdaScope(Lambda lambda)
         => !lambda.Locals.IsEmpty
             || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 

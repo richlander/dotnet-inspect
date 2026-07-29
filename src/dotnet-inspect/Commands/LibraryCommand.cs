@@ -52,8 +52,28 @@ public class LibraryCommand
                     sectionCategories: pipeline.GetCategoryMap(),
                     // --schema reveals the full catalog including the @Hidden pole; a static -D
                     // without --schema keeps the curated top-level view.
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections());
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                    projection: options);
             }
+        }
+
+        // Bare -S (a lone @Default preset — i.e. `-S` with no value) selects the network-free
+        // "fixed" overview: only sections whose declared growth class is Fixed and whose cost is
+        // NetworkFree, so the rendered set is structurally identical for every package (absence
+        // means "not applicable", never "too long for this package"). This still includes the
+        // symbol-dependent fact tables (Symbols, Signals) because they read an embedded, adjacent,
+        // or already-cached PDB without touching the network. Drop the preset marker and flag the
+        // fixed overview; keep display verbosity at Normal so the cache-only PDB read stays enabled
+        // (never downgrading a higher verbosity the user asked for, in which case the normal
+        // curated ladder applies instead of the fixed overview).
+        if (options.Discover == null
+            && options.Select is { Length: 1 }
+            && SelectResolver.IsInfoSelector(options.Select))
+        {
+            options = options with { Select = null };
+            if (options.Verbosity == Verbosity.Minimal)
+                options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
         // -D defaults to effective discovery for target-based commands.
@@ -73,7 +93,7 @@ public class LibraryCommand
 
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
-        // the unbounded SourceLink Integrity check (and other @Hidden members) as a group.
+        // unbounded @Hidden members as a group.
         if (RejectHiddenRenderSelector(options.Select))
             return 1;
 
@@ -104,7 +124,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", -S \"Exception Context\", -S \"Callsite Context\", or -S \"Return Address Context\".");
+            Console.Error.WriteLine($"Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
@@ -115,12 +135,19 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
+        // section filter to make --count meaningful.
+        var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        // Discovery renders its own rows, so a section requirement describes a filter it does
+        // not use. -S still narrows effective discovery, so it stays permitted.
+        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
+
+        if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
-        if (options.Count && (options.Print || options.PrintAll))
+        if (options.Count && options.Print)
         {
-            Console.Error.WriteLine("Error: --count cannot be combined with --print or --print-all.");
+            Console.Error.WriteLine("Error: --count cannot be combined with --print.");
             return 1;
         }
 
@@ -134,11 +161,13 @@ public class LibraryCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // The batch path refuses shape projections with an accurate reason; a section
+            // requirement reported first would not be the actual problem.
+            if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
-            if (options.Count || options.Print || options.PrintAll)
+            if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
@@ -148,9 +177,9 @@ public class LibraryCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
             return 1;
         }
 
@@ -160,28 +189,16 @@ public class LibraryCommand
             return 1;
         }
 
-        if ((options.Print || options.PrintAll) && !ValidateLibraryPrintSelection(options.IncludeSections))
+        if (options.Print && !rendersOwnPayload && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return 1;
         }
 
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
-            return 1;
-        }
-
-        if (options.PrintAll && options.PrintRow is not null)
-        {
-            Console.Error.WriteLine("Error: --print-all cannot be combined with --row.");
-            return 1;
-        }
-
-        if (options.ProjectionRow is not null && !options.Print && !options.PrintAll && shapeCount == 0)
+        if (options.ProjectionRow is not null && !options.Print && shapeCount == 0)
         {
             Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return 1;
@@ -208,7 +225,7 @@ public class LibraryCommand
 
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections);
+            options.Verbosity, options.IncludeSections, options.FixedOverview);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -255,10 +272,16 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe: drives the SourceLink section
+                // family in -D and keys the effective cache so a warmed/cleared PDB busts a
+                // stale catalog. Skipped (false) outside discovery.
+                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(resolvedPath!);
+                    var cached = TryGetCachedEffective(resolvedPath!, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
@@ -266,7 +289,7 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry);
+                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
                 if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
@@ -282,10 +305,10 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
@@ -313,10 +336,15 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe (see platform branch).
+                bool sourceLinkAvailable = effectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
+                        packageName: packageName, packageVersion: packageVersion);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPaths[0]);
+                    var cached = TryGetCachedEffective(assemblyPaths[0], sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
@@ -335,7 +363,7 @@ public class LibraryCommand
                 // Inspect all assemblies
                 var inspections = await CollectPackageInspectionsAsync(
                     assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry);
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery);
 
                 if (inspections.Count == 0)
                 {
@@ -352,10 +380,10 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
@@ -382,10 +410,14 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe (see platform branch).
+                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPath!);
+                    var cached = TryGetCachedEffective(assemblyPath!, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
@@ -393,7 +425,7 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry);
+                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
                 if (inspection == null)
                 {
                     Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
@@ -408,10 +440,10 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
@@ -486,7 +518,6 @@ public class LibraryCommand
                 Select = [.. sections],
                 Discover = null,
                 Print = false,
-                PrintAll = false,
                 Count = false,
                 Value = false,
                 Urls = false,
@@ -505,9 +536,23 @@ public class LibraryCommand
                 : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
+        var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
+
+        // --rows narrows what the table renders, so it has to narrow the count by
+        // the same window; counting the unwindowed batch answers a question the
+        // user did not ask, and the audit cannot see the difference. The exit code
+        // still reports every coordinate that failed to resolve, windowed out of
+        // view or not, because that is a resolution result rather than a display
+        // concern.
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
+
+        // A coordinate that failed to resolve is still a reported row, so it counts; the
+        // non-zero exit remains the signal that some coordinate did not resolve.
+        if (LensProjection.TryProject(options, "--il-offsets", visibleRows.Count, out var projectionExitCode))
+            return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
+
         WriteILCoordinateBatchRows(rows, options);
-        return rows.Any(row => row.Meaning == "error") ? 1 : 0;
-    }
+        return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
     [
@@ -651,12 +696,21 @@ public class LibraryCommand
         string? ilOffset = options.ILOffsetParameter;
         bool hasExplicitSelect = select.Count > 0;
 
+        // Reject "<coordinate section>:<offset>" selectors. The legacy spellings ("IL Offset",
+        // "Source Location") stay listed because they still resolve as aliases, and the current
+        // name itself contains a colon, so the guard must match name + ':' rather than any colon.
+        string[] parameterizedPrefixes =
+        [
+            "IL Offset:",
+            "Source Location:",
+            SectionNames.ILOffset + ":",
+        ];
+
         for (var i = 0; i < select.Count; i++)
         {
             var value = select[i].Trim();
-            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase)
-                || value.StartsWith("Source Location:", StringComparison.OrdinalIgnoreCase))
-                return (options, "Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"Source Location\".");
+            if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                return (options, $"Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -692,15 +746,15 @@ public class LibraryCommand
 
     // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
     // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
-    // selection from fanning out to the unbounded SourceLink Integrity check (and other @Hidden
-    // members) as a group. Shared with the package embedded-library render path, which resolves
+    // selection from fanning out to unbounded @Hidden members as a group. Shared with the
+    // package embedded-library render path, which resolves
     // -S against the same curated LibrarySections pipeline.
     internal static bool RejectHiddenRenderSelector(string[]? select)
     {
         if (select is { Length: > 0 }
             && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Top Leverage\").");
             return true;
         }
 
@@ -806,7 +860,7 @@ public class LibraryCommand
             SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
             _ => false
         };
-        Console.WriteLine(hasRow ? 1 : 0);
+        CountOutput.WriteCount(hasRow ? 1 : 0);
         return true;
     }
 
@@ -816,7 +870,7 @@ public class LibraryCommand
         var section = options.IncludeSections!.Single();
         var rows = section switch
         {
-            "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
+            SectionNames.SourceLinkFiles => ProjectLibrarySourceFiles(inspection, section, kind, options),
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
@@ -835,7 +889,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
+        if (rows.Count == 0 && section is not (SectionNames.SourceLinkFiles or "Library Info") && section != SectionNames.ILOffset)
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -871,7 +925,6 @@ public class LibraryCommand
         return PrintProjectionOutput.Write(
             projection.Documents,
             new PrintProjectionOptions(
-                options.PrintAll,
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
@@ -1029,14 +1082,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Member Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.MemberContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectMemberContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Member Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.MemberContext}.");
             return [];
         }
 
@@ -1072,14 +1125,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Instruction Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.InstructionContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectInstructionContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Instruction Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.InstructionContext}.");
             return [];
         }
 
@@ -1116,7 +1169,7 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Exception Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.ExceptionContext} requires --fields <name>.");
             return [];
         }
 
@@ -1129,7 +1182,7 @@ public class LibraryCommand
         }
 
         if (projected.Count == 0)
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Exception Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ExceptionContext}.");
 
         return projected;
     }
@@ -1159,14 +1212,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Callsite Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.CallsiteContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectCallsiteContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Callsite Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.CallsiteContext}.");
             return [];
         }
 
@@ -1197,14 +1250,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Return Address Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.ReturnAddressContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectReturnAddressContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Return Address Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ReturnAddressContext}.");
             return [];
         }
 
@@ -1296,8 +1349,13 @@ public class LibraryCommand
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool cache = true)
+        bool sourceLinkAvailable = false, bool cache = true)
     {
+        // Seed the network-free SourceLink-availability fact so the SourceLink section family
+        // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
+        // inspection already established from an embedded or adjacent PDB).
+        inspection.HasSourceLink |= sourceLinkAvailable;
+
         // Compute all structurally applicable sections for discovery/caching,
         // including opt-in sections whose renderability depends on the section's
         // own work (for example SourceLink audit sections).
@@ -1307,7 +1365,7 @@ public class LibraryCommand
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
         if (cache)
-            CacheEffective(assemblyPath, allEffective, filteredSchema);
+            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -1318,21 +1376,23 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(pipeline));
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            projection: options);
     }
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v11";
+    private const string EffectiveCategory = "effective-v18";
 
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
 
-    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath)
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, bool hasSourceLink)
     {
-        string key = GetEffectiveCacheKey(assemblyPath);
+        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
         var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
 
@@ -1351,9 +1411,9 @@ public class LibraryCommand
         return (sections, schema);
     }
 
-    private static void CacheEffective(string assemblyPath, List<string> sections, DocumentSchema filteredSchema)
+    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections, DocumentSchema filteredSchema)
     {
-        string key = GetEffectiveCacheKey(assemblyPath);
+        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
         var sb = new System.Text.StringBuilder();
         foreach (var name in sections)
         {
@@ -1366,11 +1426,13 @@ public class LibraryCommand
         CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
-    private static string GetEffectiveCacheKey(string assemblyPath)
+    private static string GetEffectiveCacheKey(string assemblyPath, bool hasSourceLink)
     {
-        // Include file size for invalidation when local files change
+        // Include file size for invalidation when local files change, and a network-free
+        // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
+        // the SourceLink section family is effective) busts a stale -D catalog.
         var size = new FileInfo(assemblyPath).Length;
-        return $"{assemblyPath}#{size}";
+        return $"{assemblyPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)
@@ -1390,7 +1452,9 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()));
+            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
+            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors(),
+            projection: options);
     }
 
     /// <summary>
@@ -1483,15 +1547,14 @@ public class LibraryCommand
                 or EcosystemIntegrationNames.OpenTelemetry;
         }
 
-        if (section.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.OrdinalIgnoreCase))
+        if (failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal))
         {
-            return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
-                   || failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal);
+            return section.Equals(IntegrationSectionNames.OpenTelemetry, StringComparison.OrdinalIgnoreCase);
         }
 
         return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
                && LibraryIntegrationCatalog.All.Any(
-                   descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+                   descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)
@@ -1519,7 +1582,8 @@ public class LibraryCommand
         List<string> assemblyPaths, LibraryOptions options, VerboseLogger logger,
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
-        HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null)
+        HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
+        bool discoveryOnly = false)
     {
         List<LibraryInspection> inspections = [];
 
@@ -1527,7 +1591,7 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry);
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly);
             if (inspection == null)
             {
                 logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");

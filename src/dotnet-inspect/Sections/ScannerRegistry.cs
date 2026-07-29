@@ -18,7 +18,7 @@ public sealed class ScannerContext
 
     /// <summary>
     /// Analysis features required by the complete scanner set. The shared body session computes
-    /// their union once, so Resource Triage can share acquisition with leverage/performance scans
+    /// their union once, so Array Pool Escapes can share acquisition with leverage/performance scans
     /// without making a resource-only request pay for unrelated body evidence.
     /// </summary>
     public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }
@@ -67,6 +67,16 @@ public sealed class ScannerContext
 public sealed class ScannerRegistry
 {
     private readonly Dictionary<string, Action<ScannerContext>> _scanners = [];
+
+    /// <summary>
+    /// The keys of every registered scanner. This is the supply side of the section-to-scanner
+    /// binding; the demand side is <see cref="SectionPipeline{TModel}.DeclaredScannerKeys"/>.
+    /// Exposed so a test can hold the two sets equal: <see cref="RunScanners"/> skips a requested
+    /// key it has no registration for, so an unregistered key is otherwise silent. Gate for the
+    /// library pipeline:
+    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>.
+    /// </summary>
+    public IReadOnlyCollection<string> RegisteredKeys => _scanners.Keys;
 
     /// <summary>
     /// Registers a scanner by key. The action populates the model with data.

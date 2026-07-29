@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
+using DotnetInspector.CSharpBodySlicer;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Text;
@@ -188,13 +189,25 @@ public static class AuthoredSourceAcquisition
             // by the source-mapping producer), NOT a "Finalize" name match, so an
             // ordinary parameterized method named "Finalize" is never truncated.
             bool isDestructor = mapping.IsFinalizer;
-            string memberText = SourceLinkResolver.ExtractMethodBody(
+            string? memberText = BodySlicer.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
                 methodName,
                 isDestructor,
                 isDestructor ? mapping.Anchor.TypeFullName : null);
+            if (memberText is null)
+            {
+                // The member's sequence points map to its type's header, not to a declaration
+                // of its own. Absent is the honest answer; the header is not this member's
+                // source.
+                return Absent(
+                    "The selected member has no authored declaration of its own; its source range is the declaring type's header.",
+                    mapping,
+                    document,
+                    verification);
+            }
+
             var lines = TextFindings.Inspect(memberText, subject).ToImmutableArray();
             return new AuthoredMemberSourceInspection(
                 new FindingInspection<string>.Complete(lines),

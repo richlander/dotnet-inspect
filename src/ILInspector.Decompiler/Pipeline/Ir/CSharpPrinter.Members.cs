@@ -419,23 +419,118 @@ public sealed partial class CSharpPrinter
             && !IsEnclosingTypeAtOwnInstantiation(declaringType);
 
     /// <summary>
-    /// True when <paramref name="receiver"/> is a value type's <c>this</c> boxed
-    /// to reach an interface member. On a struct, <c>((I)this).M()</c> is a
-    /// boxing conversion that lowers to <c>ldobj; box; callvirt I::M</c>, so the
-    /// receiver is a <see cref="Box"/> over the dereferenced <c>this</c> pointer
-    /// (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>) rather than the bare
-    /// <c>LoadArgument{0,"this"}</c> the reference-type upcast of #3128 leaves.
-    /// The member is not a member of the struct, so bare <c>(this).M()</c> is
-    /// CS1061; re-inserting <c>((I)this)</c> is opcode-faithful because the cast
-    /// re-emits exactly the <c>ldobj; box</c> the boxing conversion produced.
-    /// Uses the same confirmed-interface gate as
-    /// <see cref="IsInterfaceCastThisReceiver"/> (declines when interface-ness is
-    /// unknown), and only <c>this</c> — a boxed field/local/parameter has a
-    /// different address operand and is left to the ordinary receiver path (#3201).
+    /// True when <paramref name="receiver"/> (or method-group target) is the
+    /// enclosing value type's <c>this</c> boxed to reach a member of a type the
+    /// struct was cast to. A struct must box to invoke a base
+    /// (<c>System.ValueType</c>/<c>System.Object</c>) or interface member, so
+    /// <c>((T)this).M()</c> / <c>base.M()</c> lowers to
+    /// <c>ldarg.0; ldobj S; box S; call[virt] T::M</c> — the receiver is a
+    /// <see cref="Box"/> over the dereferenced <c>this</c> pointer
+    /// (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>), not the bare
+    /// <c>LoadArgument{0,"this"}</c> a reference-type upcast (no IL) leaves. Only a
+    /// value type produces this shape (a class <c>this</c> is already a reference).
+    /// The <see cref="Box"/> is itself the evidence of the cast, so no interface
+    /// metadata is needed: callers re-spell it as <c>base.M</c> when the
+    /// non-virtual callee is declared on one of the struct's base classes
+    /// (<see cref="System.ValueType"/> or <see cref="System.Object"/>, where
+    /// base-suppression reaches the base member and <c>base</c> is the only valid
+    /// spelling for a <c>protected</c> member), and as the erased
+    /// <c>((T)this).M</c> cast otherwise — a virtual call, or a non-virtual call to
+    /// an interface member (#3201, #3213). See <see cref="IsStructBaseClass"/>.
+    /// <para>
+    /// Gated on the enclosing method having an implicit <c>this</c>: a
+    /// <c>static</c> method (or extension method) whose first parameter is spelled
+    /// <c>@this</c> emits the metadata name <c>"this"</c> at index 0, matching the
+    /// shape, but <c>base</c>/<c>this</c> are illegal there (CS0026). Such a boxed
+    /// <c>@this</c> parameter falls through to the ordinary receiver path, which
+    /// spells the parameter by name (#3213 review).
+    /// </para>
     /// </summary>
-    bool IsBoxedThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType)
-        => receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } }
-            && IsInterfaceCastThisReceiver(declaringType);
+    bool IsBoxedThisReceiver(IrExpression receiver)
+        => _function.Signature.HasThis
+            && receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } };
+
+    /// <summary>
+    /// True when <paramref name="type"/> is one of a struct's two base classes,
+    /// <c>System.ValueType</c> or <c>System.Object</c>. A non-virtual boxed-
+    /// <c>this</c> call to a member declared on a base class re-spells as
+    /// <c>base.M()</c>: base-suppression (<c>call</c>, no virtual dispatch) reaches
+    /// the base member, and <c>base</c> is the ONLY spelling that stays valid for a
+    /// <c>protected</c> base member like <c>object::MemberwiseClone</c> — an
+    /// <c>((object)this).MemberwiseClone()</c> cast is CS1540 (protected access
+    /// through a base-typed qualifier). An interface callee is excluded (a sealed
+    /// default interface member emits a non-virtual <c>call I::M</c>, yet has no
+    /// <c>base</c>: CS0117); it takes the erased <c>((I)this).M()</c> cast, which is
+    /// opcode-faithful <c>ldobj; box; call I::M</c> (#3213 review).
+    /// <para>
+    /// Residual: a non-virtual <c>call</c> to an <em>overridable</em> base member
+    /// that <c>ValueType</c> overrides (e.g. a hand-emitted <c>call
+    /// object::GetHashCode</c>) has no faithful spelling either way — <c>base.</c>
+    /// rebinds to <c>ValueType</c>'s override and a cast re-dispatches
+    /// (<c>callvirt</c>). C# cannot express it, and csc never emits it; the
+    /// <c>base.</c> form here (matching a real <c>base.GetType()</c> call) is a
+    /// best-effort, valid-C# render of that synthetic shape.
+    /// </para>
+    /// </summary>
+    static bool IsStructBaseClass(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Object" };
+
+    /// <summary>
+    /// True when <paramref name="receiver"/> (or method-group target) is a boxed
+    /// NON-<c>this</c> value — a local, parameter, field, or <c>ref</c>/<c>in</c>
+    /// place — reaching a CONFIRMED interface member of
+    /// <paramref name="declaringType"/>; <paramref name="placeText"/> receives the
+    /// unboxed place spelled as a cast operand. A value type must box to invoke an
+    /// interface member (`<c>ldobj; box; call[virt] I::M</c>` — or `<c>ldftn</c>`
+    /// for a group), so the member is not on the value type and the erased
+    /// <c>((I)x)</c> upcast must be re-inserted: bare <c>(x).M()</c> is CS1061 for a
+    /// default interface member or explicit implementation, and a silent rebind to
+    /// the struct's own method for a normally-implemented one. The boxed
+    /// <c>this</c> case (arg0) is owned by <see cref="IsBoxedThisReceiver"/> (with
+    /// its <c>base</c>/cast split) and is excluded here. A <c>static</c> method's
+    /// <c>@this</c> parameter shares the arg0 metadata name but is a genuine
+    /// non-<c>this</c> place; it is also excluded because the printer still spells
+    /// arg0-<c>"this"</c> with the <c>this</c> keyword (CS0026 in a static body) —
+    /// a pre-existing spelling limitation (#3260) — so it stays on the ordinary
+    /// path, unchanged from before this arm existed, rather than gaining an invalid
+    /// <c>((I)this)</c> cast.
+    /// <para>
+    /// The place is spelled deref-aware: a <c>ref</c>/<c>in</c> managed reference
+    /// reads back as the bare identifier/member (<c>s</c>) via
+    /// <see cref="DerefLoad"/>, while any other <see cref="LoadIndirect"/> — an
+    /// unmanaged pointer especially — is spelled through <see cref="Operand"/> so
+    /// its dereference is PARENTHESIZED: bare <c>*p</c> after a cast reparses as
+    /// multiplication (<c>(I)*p</c> is <c>(I) * p</c>, CS0119), whereas
+    /// <c>(I)(*p)</c> binds as a cast. Unwrapping the address instead would drop
+    /// the <c>*</c> entirely and emit <c>((I)p).M()</c> for a <c>T*</c> (CS0030).
+    /// </para>
+    /// <para>
+    /// Gated on a CONFIRMED interface declaring type
+    /// (<see cref="IrFunction.InterfaceTypes"/>; an unresolved or non-interface
+    /// callee is absent, so a boxed value reaching a base-class member stays on the
+    /// ordinary path — a separate fidelity concern). Unlike
+    /// <see cref="IsInterfaceCastThisReceiver"/> it does NOT apply the
+    /// enclosing-instantiation exclusion: that carve-out is sound only for a real
+    /// <c>this</c> receiver (already typed as the interface), whereas a boxed
+    /// struct place always needs the cast even when the callee interface is the
+    /// enclosing type. The non-<c>this</c> sibling of #3201/#3213 (#3214).
+    /// </para>
+    /// </summary>
+    bool TryBoxedNonThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType, out string placeText)
+    {
+        placeText = "";
+        if (receiver is not Box box)
+            return false;
+        var place = box.Operand is LoadIndirect { Address: { } address } ? address : box.Operand;
+        if (place is LoadArgument { Index: 0, Name: "this" })
+            return false;
+        if (!_function.InterfaceTypes.Contains(NamedDefinition(declaringType)))
+            return false;
+        placeText = box.Operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef } byRefDeref
+            ? DerefLoad(byRefDeref)
+            : Operand(box.Operand);
+        return true;
+    }
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
@@ -524,13 +619,36 @@ public sealed partial class CSharpPrinter
             }
             return name;
         }
-        // A struct's interface method group boxes this: ((I)this).M lowers to
-        // `ldobj; box; dup; ldvirtftn I::M`, so the target is a Box over this, not
-        // a bare LoadArgument. Re-insert the ((I)this) cast the boxing spells —
-        // bare (this).M / this.M is CS1061 (#3201), the value-type sibling of the
-        // reference-type arm above.
-        if (IsBoxedThisInterfaceReceiver(target, method.DeclaringType))
+        // A method group through a boxed this to a type the struct was cast to
+        // (base class or interface). A non-virtual (ldftn) group to a base-class
+        // member (ValueType or Object) is base.M — base-suppression reaches the
+        // base member, so `base.M` lowers to `ldobj; box; ldftn T::M`, and base. is
+        // the only valid spelling for a protected base member like
+        // object::MemberwiseClone. A virtual (ldvirtftn) group, and a non-virtual
+        // group to a sealed interface member, are the erased ((T)this).M upcast —
+        // `((T)this).M` lowers to `ldobj; box; [dup;] ld[virt]ftn T::M`,
+        // opcode-faithful for each. Bare (this).M / this.M would be CS1061 or
+        // rebind to the derived override; a base.M to an interface would be CS0117.
+        // Subsumes the struct interface-cast case (#3201) and the base-class case
+        // (#3213).
+        // HasThis gates the whole branch: a closed static extension method group
+        // (`((object)this).Ext`) shares the `ldobj; box; ldftn` shape but binds the
+        // boxed this as its first argument, so its DeclaringType is the static
+        // extension host — not a cast target (`((E)this).Ext` is CS0716). Those
+        // fall through to the ordinary receiver path, which spells the boxed
+        // receiver ((object)this) the extension already carries.
+        if (method.HasThis && IsBoxedThisReceiver(target))
+        {
+            if (!isVirtual && IsCrossType(method.DeclaringType) && IsStructBaseClass(method.DeclaringType))
+                return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
+        }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M` re-emits `ldobj; box;
+        // ld[virt]ftn I::M`; bare `(x).M` would be CS1061 for a DIM/explicit impl.
+        if (TryBoxedNonThisInterfaceReceiver(target, method.DeclaringType, out var boxedGroupPlace))
+            return $"(({TypeText(method.DeclaringType)}){boxedGroupPlace}).{name}";
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
@@ -631,14 +749,38 @@ public sealed partial class CSharpPrinter
         }
         if (call.Callee.Name == "Invoke" && receiver is Lambda lambda)
             return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
-        // A struct reaching an interface member through this boxes the value:
-        // ((I)this).M() lowers to `ldobj; box; callvirt I::M`, so the receiver is
-        // a Box over this, not a bare LoadArgument. Re-insert the ((I)this) cast
-        // the boxing conversion spells — bare (this).M() is CS1061 (#3201), the
-        // value-type sibling of the reference-type this arm below. Faithful: the
-        // cast re-emits exactly the `ldobj; box` the struct boxing produced.
-        if (IsBoxedThisInterfaceReceiver(receiver, call.Callee.DeclaringType))
-            return $"(({TypeText(call.Callee.DeclaringType)})this).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+        if (IsBoxedThisReceiver(receiver))
+        {
+            string boxedMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            // A non-virtual call through a boxed this to a base-class member
+            // (System.ValueType or System.Object) is base.M(): base-suppression
+            // (`call`, no dispatch) reaches the base member and `base.M()` lowers to
+            // `ldobj; box; call T::M`. Bare (this).M() here re-dispatches virtually
+            // to the struct's own override — self-recursion or a wrong target (e.g.
+            // GetHashCode calling itself) (#3213). base. is also the ONLY valid
+            // spelling for a protected base member like object::MemberwiseClone —
+            // ((object)this).MemberwiseClone() is CS1540. Stays base. even under the
+            // qualify knob. A non-virtual call to a sealed interface member takes
+            // the cast arm below, not base.: base would be CS0117 for an interface —
+            // `((I)this).M()` re-emits the same non-virtual `call I::M` (#3213
+            // review).
+            if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType) && IsStructBaseClass(call.Callee.DeclaringType))
+                return $"base.{boxedMethodName}{typeArguments}({rest})";
+            // A call through a boxed this to an interface the struct was cast to:
+            // ((I)this).M(). The explicit box is the source's upcast; ((I)this).M()
+            // re-emits `ldobj; box; call[virt] I::M` — callvirt for a virtual
+            // callee, call for a non-virtual one (a sealed DIM). A bare this.M()
+            // would instead emit `constrained. callvirt` (no box) — not
+            // opcode-faithful. Subsumes the struct interface-cast case (#3201).
+            return $"(({TypeText(call.Callee.DeclaringType)})this).{boxedMethodName}{typeArguments}({rest})";
+        }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M()` re-emits `ldobj; box;
+        // call[virt] I::M`; bare `(x).M()` would be CS1061 for a DIM/explicit impl,
+        // or a silent rebind to the value type's own method otherwise.
+        if (TryBoxedNonThisInterfaceReceiver(receiver, call.Callee.DeclaringType, out var boxedNonThisPlace))
+            return $"(({TypeText(call.Callee.DeclaringType)}){boxedNonThisPlace}).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
@@ -748,7 +890,92 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// A rectangular (multi-dimensional) array element/creation pseudo-member.
+    /// Renders a brace-bodied expression — an object/collection initializer, a
+    /// record <c>with</c> expression, or an anonymous object — as a wrapped Allman
+    /// block: <paramref name="head"/> on the first line, <c>{</c> and <c>}</c> on
+    /// their own lines at the statement indent, and one entry per line one
+    /// continuation level deeper. Returns null (render inline) when the body has
+    /// fewer than <see cref="FluentChainMinSegments"/> entries or its single-line
+    /// form fits within <see cref="FluentChainWrapWidth"/>. The wrapped form reuses
+    /// the same <paramref name="head"/> and <paramref name="entryTexts"/> the inline
+    /// renderer emits and carries no trailing comma, so it is token-identical to the
+    /// inline form: only whitespace differs and the IL is unchanged. A defensive
+    /// re-match against the inline <paramref name="flat"/> text keeps the statement
+    /// inline if the reconstruction diverges rather than reshaping a token.
+    /// </summary>
+    string? BraceBodyLines(string head, IReadOnlyList<string> entryTexts, string flat, string prefix, string suffix, int indent)
+    {
+        if (entryTexts.Count < FluentChainMinSegments)
+            return null;
+
+        if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        // The wrapped form must be a pure whitespace variant of the inline text.
+        // Reconstruct the inline body from the same head and entry texts and bail if
+        // it does not match exactly, so a renderer quirk keeps the statement inline
+        // rather than reshaping a token.
+        if ($"{head} {{ {string.Join(", ", entryTexts)} }}" != flat)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(prefix).Append(head);
+        sb.Append('\n').Append(pad).Append('{');
+        for (int i = 0; i < entryTexts.Count; i++)
+        {
+            sb.Append('\n').Append(continuation).Append(entryTexts[i]);
+            if (i < entryTexts.Count - 1)
+                sb.Append(',');
+        }
+        sb.Append('\n').Append(pad).Append('}');
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Wraps an object/collection initializer (<c>new T(...) { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="ObjectInitializerText"/> renders.
+    /// </summary>
+    string? ObjectInitializerLines(ObjectInitializerExpression initializer, string prefix, string suffix, int indent)
+    {
+        var creation = initializer.Creation;
+        string arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string head = $"new {TypeText(creation.Constructor.DeclaringType)}{arguments}";
+        var entryTexts = initializer.Entries
+            .Select(entry => InitializerEntryText(initializer.IsCollection, entry))
+            .ToList();
+        return BraceBodyLines(head, entryTexts, ObjectInitializerText(initializer), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps a record <c>with</c> expression (<c>receiver with { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="WithExpressionText"/> renders.
+    /// </summary>
+    string? WithExpressionLines(WithExpression node, string prefix, string suffix, int indent)
+    {
+        string head = $"{Operand(node.Receiver)} with";
+        var entryTexts = node.Entries.Select(WithExpressionEntryText).ToList();
+        return BraceBodyLines(head, entryTexts, WithExpressionText(node), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps an anonymous object (<c>new { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same projection parts the inline
+    /// <see cref="AnonymousObjectText"/> renders.
+    /// </summary>
+    string? AnonymousObjectLines(AnonymousObject node, string prefix, string suffix, int indent)
+    {
+        if (node.Values.Count == 0)
+            return null;
+        return BraceBodyLines("new", AnonymousObjectParts(node), AnonymousObjectText(node), prefix, suffix, indent);
+    }
+
     /// The CLR models <c>int[,]</c> element get/set/address and construction as
     /// calls to runtime-generated members named <c>Get</c>/<c>Set</c>/<c>Address</c>
     /// and a rank-shaped <c>.ctor</c> — none of which are spellable C#. The

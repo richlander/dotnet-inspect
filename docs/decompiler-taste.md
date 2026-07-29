@@ -43,6 +43,36 @@ that is what runtime code writes. So "the oracle is silent" always means the
 no dominant form. A shape can be declared-silent yet revealed-endorsed — which is
 exactly the status of the fidelity-neutral formatting/synthesis knobs below.
 
+### Consulting both facets is required
+
+Because the oracle has these two facets, **every taste- or style-oriented raise
+or rendering change must consult both before it lands**, and record what each
+one says. This is a required step, not a courtesy:
+
+1. **Declared facet — `dotnet/runtime`'s `.editorconfig` and enabled analyzers.**
+   Check whether a `dotnet_style_*` / `csharp_style_*` key (or an enabled IDE
+   fixer) speaks to the shape. Quote the key and its value, or state explicitly
+   that the declared oracle is **silent** on it.
+2. **Revealed facet — `dotnet/runtime` source.** Look for the dominant form the
+   runtime's own code actually writes for the shape, with concrete
+   `path/file.cs:line` witnesses. If the corpus shows no dominant form, say so.
+
+A change may only claim oracle endorsement for the facet it actually checked:
+"the runtime writes it this way" is a *revealed* claim and needs source
+witnesses; "the `.editorconfig` prescribes it" is a *declared* claim and needs
+the key. Do not infer one facet from the other, and do not assert "oracle
+approved" without naming which facet and citing it.
+
+Consulting the oracle does not mean the tool must match it. Where we knowingly
+diverge — a compactness knob, or a terminal-oriented wrapping trigger more eager
+than the corpus's habit — the divergence is legitimate **only when the
+consultation happened and the result is recorded**, so a later reader sees a
+deliberate, cited taste choice rather than an unreviewed gap. (Example: the
+`with`/anonymous width-wrap trigger is intentionally more eager than the
+runtime's inline habit for terminal readability, recorded against its issue.)
+An unchecked or uncited taste change is incomplete regardless of how the output
+looks.
+
 ## The three-class rule
 
 Every proposed rendering falls into one of three classes, and the class decides the answer:
@@ -485,8 +515,7 @@ behavior-preserving; that is what lets the lens re-offer a fold the default had
 to decline. It deliberately stops at IDE0046: the further `c ? true : d` → `c ||
 d` collapse (IDE0075) is a separate future knob, so a literal-arm ternary such as
 `a ? true : b` is kept as written rather than simplified. The lens runs only on
-the opt-in raised path, after the default pipeline, and the IL-anchored Annotated
-view never applies it (it must stay byte-faithful for line/IL alignment).
+the opt-in raised path, after the default pipeline.
 
 The second lens is `PrinterOptions.PreferBranchlessBoolean`
 (`dotnet_inspect_style_prefer_branchless_boolean`). It targets the *same* declined
@@ -521,9 +550,86 @@ present, it would rebind to that operator's semantics), or valid but not branchl
 Over-declining is always valid and faithful. When both lenses are enabled the
 oracle-endorsed ternary wins the shared shape.
 
+### Lenses and the Annotated view
+
+The Annotated view renders the same member as Decompiled Source, so it applies
+the same resolved style options: a member must not be spelled `this._count` in
+one section and `_count` in the other. For every byte-preserving knob this is
+free — the knob changes only the C# spelling, so the interleaved IL beneath each
+statement is byte-identical to the default render, and the view demonstrates the
+knob's contract rather than obscuring it.
+
+A style lens cannot keep that bargain. Its render no longer reproduces the
+member's opcodes, so anchoring the raw IL beneath it would assert a
+statement-to-opcode correspondence that does not hold — the single claim this
+view exists to make. When a lens **actually rewrites** (it records a
+`style-lens.*` decision under the `style-lens` category), the Annotated view
+therefore drops the interleaved IL for that member.
+
+Suppression keys on what the render *did*, not on what the host *asked for*: a
+lens that is enabled but finds no shape to rewrite is byte-faithful for that
+member, so its IL stays. The fact-comment overlay also stays, because a fact is
+a property of the member, not a claim about which opcodes a printed statement
+reproduces.
+
+### Reading applied taste in the Annotated view
+
+The applied knobs travel on the result as typed decisions, and the Annotated view
+renders them as a single trailing side comment on the member's signature — the
+same shape the fact overlay uses for analysis, so style and analysis read alike:
+
+```csharp
+public object? Pick(bool useName, string suffix)  // taste.qualify-property-access(Name); taste.qualify-field-access(_count)
+{
+    if (useName)
+        // IL_0000: ldarg.1                                              // arg: useName; stack: [bool]
+        // IL_0001: brfalse.s    IL_0009                                 // stack: []
+    {
+        return new object();  // alloc.new(object; alloc=System.Object; path=branch; path-confidence=behind-branch; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=conditional)
+            // IL_0003: newobj       object::.ctor()  // alloc.new(object; alloc=System.Object; path=branch; path-confidence=behind-branch; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=conditional); stack: [object]
+            // IL_0008: ret                                                  // stack: []
+    }
+    return string.Concat(this.Name, suffix, this._count.ToString());
+        // IL_0009: ldarg.0                                              // arg: this; stack: [Cache]
+        // IL_000A: call         Cache::get_Name()                       // stack: [string]
+        // IL_000F: ldarg.2                                              // arg: suffix; stack: [string, string]
+        // IL_0010: ldarg.0                                              // arg: this; stack: [string, string, Cache]
+        // IL_0011: ldflda       int Cache::_count                       // stack: [string, string, ref int]
+        // IL_0016: call         int::ToString()                         // stack: [string, string, string]
+        // IL_001B: call         string::Concat(string, string, string)  // stack: [string]
+        // IL_0020: ret                                                  // stack: []
+}
+```
+
+Both knobs above are byte-preserving, so the IL is byte-identical to the default
+render. A byte-divergent lens reports its fidelity instead of its subject (the
+subject is the enclosing method, already spelled on that line), and that is also
+the signal explaining the absent IL:
+
+```csharp
+public bool Allow(bool trusted, bool cached)  // taste.qualify-property-access(Name); taste.qualify-field-access(_count); taste.prefer-conditional-return(fidelity=byte-divergent)
+{
+    return trusted ? cached : (this.Name.Length > this._count);
+}
+```
+
+The comment is anchored to the signature rather than to a statement because a
+style decision carries a subject but no IL offset. `-S "Applied Taste"` remains
+the full account, with each rule's detail and fidelity as table rows.
+
+Nothing is annotated by default: no style decision is recorded unless a knob was
+requested, so the comment appears exactly when the reader asked for taste.
+`--taste` is the one-invocation gesture for requesting the whole oracle-endorsed
+set (the flag form of `dotnet_inspect_style_full_taste`); it applies after the
+config file resolves and wins for the knobs it covers.
+
+The lowered Annotated stage applies the byte-preserving knobs but never runs the
+lenses at all: they are raised-altitude sugar, and the lowered pipeline exists to
+show the shape beneath that sugar.
+
 ## Names
 
-Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
+Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`text`, `items`, `stringBuilder`) where no PDB source name exists is the largest remaining cosmetic gap against source, so it is exposed as an **opt-in** knob rather than a default: turning it on for every render would break the slot-name alignment the Annotated IL view relies on and churn the corpus. It rests only on evidence already in the IR (a local's type, and whether it is a loop counter) and falls back to `V_index` when no honest name applies (see `docs/design/readable-local-names.md`). Select it per run with `--readable-names` on `member`/`type`, or persistently with `dotnet_inspect_style_readable_local_names = true`. It is byte-preserving (names do not affect IL), so it is not part of the oracle-endorsed [taste](#style-configuration) aggregate and carries its own tool-owned key.
 
 ## Style configuration
 
@@ -564,9 +670,12 @@ dotnet_style_prefer_conditional_expression_over_return = true
 - Recognized keys map to `PrinterOptions`: the four `this`-qualification keys
   above (field, property, method, event — byte-preserving class-3 spellings),
   `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
-  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
+  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)),
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
-  branchless lens, under a tool-owned key). The set grows as more knobs ship.
+  branchless lens, under a tool-owned key), and
+  `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name
+  synthesis for slot locals — see [Names](#names) — under a tool-owned key). The
+  set grows as more knobs ship.
 - `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
   enables the whole oracle-endorsed subset at once (the four `this`-qualifications
   and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
@@ -576,6 +685,14 @@ dotnet_style_prefer_conditional_expression_over_return = true
   order like any other key, so a later explicit per-knob line overrides it
   (last-write-wins) — `full_taste = true` then
   `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
+- `--taste` on `member` and `type` is the same aggregate as a one-invocation
+  gesture, for asking a single question without leaving a config file behind. It
+  applies after the file resolves, so for the knobs the aggregate covers the
+  flag wins: an explicit gesture is never silently narrowed by a checked-in
+  `full_taste = true` + `dotnet_style_qualification_for_field = false`. Knobs
+  outside the endorsed set — the branchless lens — keep whatever the file
+  selected. Because the aggregate includes the ternary lens, the Annotated view
+  drops its interleaved IL for any member that lens actually rewrites.
 - The recognized keys are not hand-maintained in the resolver: they come from the
   library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
   the CLI vocabulary and the option surface cannot drift.
