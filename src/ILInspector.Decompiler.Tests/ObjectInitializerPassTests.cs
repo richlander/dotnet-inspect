@@ -18,6 +18,18 @@ public class ObjectInitializerPassTests
 
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
 
+    // Raises a method on any top-level fixture type in this assembly (not just
+    // CfgSampleClass), for fixtures declared as their own types at end of file.
+    static IrFunction RaisedFrom(string typeFullName, string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver);
+        var function = IrImporter.Import(source, typeFullName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return function!;
+    }
+
     static readonly IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
 
     [Fact]
@@ -612,6 +624,74 @@ public class ObjectInitializerPassTests
             CSharpPrinter.Print(function).Output);
     }
 
+    // #3459: an object initializer used as a CALL ARGUMENT whose enclosing call has a
+    // pure receiver spill (`_rest`, a field off `this`) and a `default` struct argument
+    // spilled around the member store — the Azure.Data.Tables `TableClient.Create`
+    // shape. The fold moves the construction to the call-argument position AND inlines
+    // both reorder-safe spills back into their operands, restoring the canonical
+    // stack-only spelling that recompiles byte-for-byte to the original IL.
+    [Fact]
+    public void CallArgumentInitializer_FoldsAndInlinesReorderSafeSpills()
+    {
+        var function = RaisedFrom("ILInspector.Decompiler.Tests.CallArgClient", "CreateViaField");
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["Name"], initializer.Members);
+
+        // Both reorder-safe spills are inlined: the receiver `_rest` (no residual slot
+        // store) and the `default` struct argument (the spilling initobj is gone).
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<InitObject>());
+
+        Assert.Contains(
+            "return _rest.Create(new CallArgTarget { Name = Label }, default(Nullable<CallArgFlag>), _options);",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3459 breadth: a VOLATILE field receiver. The receiver read runs before the
+    // `newobj`, so it is an offset-guarded skip rather than a reorder-safe one — the
+    // object-initializer pass leaves it in place (only reorder-safe spills are inlined
+    // by this pass; a later copy-propagation pass may still hoist it). Either way the
+    // initializer folds, and the result stays byte-neutral (verified on the standalone
+    // witness). This pins that a volatile receiver never blocks the call-argument fold.
+    [Fact]
+    public void CallArgumentInitializer_WithVolatileReceiver_StillFolds()
+    {
+        var function = RaisedFrom("ILInspector.Decompiler.Tests.CallArgClient", "CreateViaVolatileField");
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["Name"], initializer.Members);
+
+        Assert.Contains(
+            "Create(new CallArgTarget { Name = Label }, default(Nullable<CallArgFlag>), _options)",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3459 close negative for the inline single-use guard: a reorder-safe spill whose
+    // slot is loaded MORE THAN ONCE must NOT be inlined — replacing one load and
+    // detaching the store would leave the other load dangling on a removed slot. The
+    // guard leaves the spill store in place; the initializer still folds via the use
+    // site. (Roslyn never spills a pure value it reads twice — it re-loads it — so this
+    // shape is reached only through hand-written IL or an unusual lowering, exercised
+    // here with a synthetic function.)
+    [Fact]
+    public void ReorderSafeSpillWithMultipleUses_IsNotInlined()
+    {
+        var function = FunctionWithReorderSafeSpillUsedTwice();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["X"], initializer.Members);
+
+        // The twice-used reorder-safe spill store survives (not inlined), and both of
+        // its loads remain intact.
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 257));
+        function.CheckInvariant();
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -755,6 +835,46 @@ public class ObjectInitializerPassTests
             "ForeignReadBeforeMembers",
             TypeRef.Definition("Synthetic", "Samples", "Owner"),
             new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_257 = n; S_256.X = 1; return Consume(S_256, S_257, S_257);`
+    // where S_257 (a reorder-safe LoadArgument spill) is loaded TWICE in the escape call.
+    // The pass folds the initializer into the call-argument position but must leave the
+    // twice-used spill store in place (inlining it would drop the second load).
+    static IrFunction FunctionWithReorderSafeSpillUsedTwice()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var consume = new MethodRef(owner, "Consume", intType, [type, intType, intType], HasThis: false);
+
+        const int seed = 256;
+        const int spill = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(spill, new LoadArgument(0, "n", intType)));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Constant(1, intType)));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(seed, type),
+            new LoadStackSlot(spill, intType),
+            new LoadStackSlot(spill, intType),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "ReorderSafeSpillUsedTwice",
+            owner,
+            new MethodSignature(intType, [new Parameter("n", intType)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
     }
