@@ -237,6 +237,13 @@ enforced structurally rather than per command — the request is recorded from t
 parse result and the projection writers report which projection they honored, so
 a route that drops one fails loudly instead of shipping the wrong payload.
 
+The whole-surface type listing (`type` with no type name — the Classes, Structs,
+Interfaces, Enums, and Delegates sections) is a name table that exposes no
+printable payload, so `--print`/`--value`/`--urls`/`--paths` there is rejected up
+front rather than dumping the full surface and then tripping this audit. Inspect
+a single type (for example `type <Name>`) to project a member payload. `--count`
+is the one payload projection the surface does honor.
+
 Writers report *which* flag they honored rather than merely acknowledging one.
 A writer can be reached for more than one reason — the print writer also serves
 `--bare` — so an untyped signal would let it satisfy an unrelated request and let
@@ -251,7 +258,7 @@ resolved by discarding one.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`) |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

@@ -489,9 +489,18 @@ public class ApiCommand
 
     // ===== Full API Surface Rendering =====
 
-    internal static void WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
+    internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
+
+        // Fail closed: the type-listing surface has no dispatch for payload projections
+        // (--print/--value/--urls/--paths); its sections are type-name tables that expose no
+        // printable payload. Report that honestly before rendering, rather than emitting the
+        // whole document and then tripping the projection audit (#3390) with a "bug in
+        // dotnet-inspect" message. --count is a payload projection the surface does honor, so
+        // it is excluded from this guard.
+        if (IsProjectionRequested(options))
+            return RejectSurfacePayloadProjection(options);
 
         if (api.InspectionFailures.Count > 0
             && (options.Count
@@ -505,8 +514,12 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count)
         {
+            // --fields/--columns select table columns; document JSON has no column-slicing
+            // facility, so the combination is rejected rather than silently dropped.
+            if (IsColumnProjectionRequested(options))
+                return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
-            return;
+            return 0;
         }
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
@@ -541,6 +554,8 @@ public class ApiCommand
                     MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions), options.Rows);
             }
         }
+
+        return 0;
     }
 
     // ===== Method Source Resolution =====
@@ -661,6 +676,37 @@ public class ApiCommand
     private static bool IsProjectionRequested(ApiOptions options)
         => options.Print || options.Value || options.Urls || options.Paths;
 
+    // --fields/--columns select table columns. They compose with the row-oriented formats
+    // (--table/--tsv/--jsonl) and, when paired with a scalar payload projection, pick which
+    // column feeds --value/--print. They do not compose with document --json, which renders the
+    // whole typed graph and has no column-slicing (jq-style) facility, so the combination is
+    // rejected rather than silently dropped. See dotnet-inspect#3386 and richlander/markout#173.
+    private static bool IsColumnProjectionRequested(ApiOptions options)
+        => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+
+    private static int RejectColumnProjectionUnderJson(bool suggestPayloadProjection)
+    {
+        var hint = suggestPayloadProjection
+            ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
+            : " Use --tsv, --jsonl, or --table to project columns.";
+        Console.Error.WriteLine(
+            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+            + "which renders the whole document." + hint);
+        return 1;
+    }
+
+    private static int RejectSurfacePayloadProjection(ApiOptions options)
+    {
+        var flag = options.Print ? "--print"
+            : options.Value ? "--value"
+            : options.Urls ? "--urls"
+            : "--paths";
+        Console.Error.WriteLine(
+            $"Error: {flag} is not supported when listing types; the listing exposes no printable "
+            + "payload. Inspect a single type (for example `type <Name>`) to project a member payload.");
+        return 1;
+    }
+
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
@@ -673,6 +719,11 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
         {
+            // --fields/--columns select table columns; document JSON has no column-slicing
+            // facility, so the combination is rejected rather than silently dropped. A scalar
+            // payload projection (--value/--print) does compose, and is handled above.
+            if (IsColumnProjectionRequested(options))
+                return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
             WriteJsonTypeOutput(type, options);
             return 0;
         }
