@@ -218,7 +218,7 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
@@ -287,7 +287,7 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -507,6 +507,14 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
     PrintedRangeMap? _printedRanges;
+
+    /// <summary>
+    /// Text captured per expression node while <see cref="_printedRanges"/> is
+    /// collecting, so <see cref="RecordExpressionRanges"/> can bind expressions to
+    /// characters. Null whenever the sink is, so the shipped print path allocates
+    /// nothing and runs the same code it did before.
+    /// </summary>
+    Dictionary<IrNode, string>? _expressionText;
 
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
@@ -1708,7 +1716,59 @@ public sealed partial class CSharpPrinter
         }
         int start = sb.Length;
         AppendStatementCore(sb, node, indent);
+        RecordExpressionRanges(sb, node, start);
         _printedRanges.Record(node, start, sb.Length);
+    }
+
+    /// <summary>
+    /// Binds each expression under <paramref name="statement"/> to the characters
+    /// it contributed, now that the statement sits at a known offset.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A statement records its range by bracketing the builder, which is exact.
+    /// An expression cannot: the expression printer composes text bottom-up by
+    /// returning strings, so a node's characters do not exist at a known offset
+    /// until an enclosing statement has been appended. What is knowable during
+    /// composition is the text each node produced, which
+    /// <see cref="Expression(IrExpression)"/> captures, and this rebases it.
+    /// </para>
+    /// <para>
+    /// The binding is by unique occurrence: a node claims characters only when
+    /// its printed text appears exactly once in the statement. That is a refusal
+    /// to guess, not a heuristic that usually works. Where the text repeats --
+    /// <c>x + x</c>, two calls spelled identically -- the composition order does
+    /// not say which occurrence belongs to which node, and a caret placed on the
+    /// wrong one would point confidently at the wrong characters. No range is
+    /// recorded, the node stays absent from the map, and a consumer falls back to
+    /// the enclosing statement, which is what it had before.
+    /// </para>
+    /// <para>
+    /// Nested statements record first, because they are appended while this
+    /// statement's body is still running, and <see cref="PrintedRangeMap.Record"/>
+    /// keeps the first range a node is given. So an expression inside a nested
+    /// block is claimed against that block, where it is more likely to be unique,
+    /// rather than against the whole outer statement. This runs before the
+    /// statement claims its own range for the same reason the nesting works at
+    /// all: the map enumerates in completion order, and a descendant must not
+    /// appear after the ancestor that contains it.
+    /// </para>
+    /// </remarks>
+    void RecordExpressionRanges(StringBuilder sb, IrNode statement, int start)
+    {
+        if (_expressionText is null || _expressionText.Count == 0 || sb.Length <= start)
+            return;
+
+        string text = sb.ToString(start, sb.Length - start);
+        foreach (var descendant in statement.Descendants)
+        {
+            if (!_expressionText.TryGetValue(descendant, out string? printed) || printed.Length == 0)
+                continue;
+            int at = text.IndexOf(printed, StringComparison.Ordinal);
+            if (at < 0 || text.IndexOf(printed, at + 1, StringComparison.Ordinal) >= 0)
+                continue;
+            _printedRanges!.Record(descendant, start + at, start + at + printed.Length);
+        }
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
@@ -2951,7 +3011,27 @@ public sealed partial class CSharpPrinter
         return true;                    // unknown backing: wrap to be safe
     }
 
-    string Expression(IrExpression node) => node switch
+    /// <summary>
+    /// The text <paramref name="node"/> printed, captured on the way out so an
+    /// enclosing statement can bind it to characters once it knows its own
+    /// offset. See <see cref="RecordExpressionRanges"/>.
+    /// </summary>
+    /// <remarks>
+    /// Capture is keyed by node and the last write wins. A node printed more than
+    /// once keeps its most recent text, which is the one an enclosing statement
+    /// is about to append; an earlier, different rendering would simply not be
+    /// found in the statement and would claim nothing.
+    /// </remarks>
+    string Expression(IrExpression node)
+    {
+        if (_expressionText is null)
+            return ExpressionCore(node);
+        string text = ExpressionCore(node);
+        _expressionText[node] = text;
+        return text;
+    }
+
+    string ExpressionCore(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),

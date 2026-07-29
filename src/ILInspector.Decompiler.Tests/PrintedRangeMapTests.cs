@@ -145,22 +145,47 @@ public class PrintedRangeMapTests
     [Theory]
     [InlineData(nameof(AllocSampleClass.SumList))]
     [InlineData(nameof(AllocSampleClass.SumEnumerable))]
-    public void RangeText_StartsAtTheStatementOnItsOwnLine(string methodName)
+    public void RangeText_SitsAtTheExactColumnItClaims(string methodName)
     {
-        // Catches an off-by-N start: the recorded slice, once its leading indent
-        // is dropped, must be what the line at that position actually reads.
+        // Catches an off-by-N start. A statement's slice is its whole line, but an
+        // expression's is a fragment of one, so "the slice equals the line" is no
+        // longer the invariant; "the slice is at the column it claims" is, and it
+        // is the stronger check — it pins the column a caret will be drawn at,
+        // which equality of trimmed text would not.
         var (output, ranges) = Print(methodName);
         var lines = output.Replace("\r\n", "\n").Split('\n');
 
         foreach (var range in ranges)
         {
             var (start, end) = Offsets(range, output.Length);
-            string slice = output[start..end].TrimStart();
-            if (slice.Length == 0)
+            string firstSliceLine = output[start..end].Replace("\r\n", "\n").Split('\n')[0];
+            if (firstSliceLine.Trim().Length == 0)
                 continue;
+
             Assert.True(ranges.TryGetLine(range.Node, out int line));
-            string firstSliceLine = slice.Replace("\r\n", "\n").Split('\n')[0];
-            Assert.Equal(lines[line].TrimStart(), firstSliceLine);
+            int lineStart = output.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
+            int column = start - lineStart;
+
+            Assert.InRange(column, 0, lines[line].Length);
+            Assert.True(
+                column + firstSliceLine.Length <= lines[line].Length,
+                $"{range.Node.GetType().Name} claims past the end of line {line}");
+            Assert.Equal(firstSliceLine, lines[line].Substring(column, firstSliceLine.Length));
+
+            // The check above derives the column from the same offset it verifies,
+            // so a uniform shift would move both together and slip through. This
+            // does not: a range that begins or ends inside an identifier is
+            // off-by-something no matter how self-consistent its arithmetic is.
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+            string slice = output[start..end];
+            if (IsWordChar(slice[0]) && start > 0)
+                Assert.False(
+                    IsWordChar(output[start - 1]),
+                    $"{range.Node.GetType().Name} starts inside an identifier: ...{output[Math.Max(0, start - 8)..end]}");
+            if (IsWordChar(slice[^1]) && end < output.Length)
+                Assert.False(
+                    IsWordChar(output[end]),
+                    $"{range.Node.GetType().Name} ends inside an identifier: {output[start..Math.Min(output.Length, end + 8)]}...");
         }
     }
 
@@ -213,6 +238,55 @@ public class PrintedRangeMapTests
         Assert.False(PrintedRangeMap.Empty.TryGetLine(new Return(null), out _));
     }
 
+    [Fact]
+    public void Expression_ClaimsExactlyItsOwnCharacters_NotTheWholeStatement()
+    {
+        // The reason this work exists. Only the allocation allocates, but until an
+        // expression owned characters of its own, the tightest thing anything
+        // could point at was the statement -- so a caret under
+        // `sink.Add(new object());` claimed the call allocates, which is false.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.AddOne));
+
+        var allocation = Assert.Single(ranges, r => r.Node is NewObject);
+        var (start, end) = Offsets(allocation, output.Length);
+        Assert.Equal("new object()", output[start..end]);
+
+        // Strictly inside the statement, and strictly smaller: a range equal to
+        // its statement would pass a containment check while claiming nothing new.
+        var statement = Assert.Single(ranges, r => r.Node is ExpressionStatement);
+        var (stmtStart, stmtEnd) = Offsets(statement, output.Length);
+        Assert.InRange(start, stmtStart, stmtEnd);
+        Assert.InRange(end, start, stmtEnd);
+        Assert.True(end - start < stmtEnd - stmtStart, "the expression claimed its whole statement");
+        Assert.Contains("sink.Add(new object());", output);
+    }
+
+    [Fact]
+    public void RepeatedExpression_ClaimsNothing_RatherThanGuessWhichOccurrenceIsWhich()
+    {
+        // `x + x` prints both operands identically, and composition order does not
+        // say which characters belong to which node. Recording either one would be
+        // a coin flip that reads as certainty, so neither is recorded and the
+        // consumer falls back to the statement -- exactly what it had before.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.TwiceTheSame));
+
+        Assert.Contains("x + x", output);
+        Assert.DoesNotContain(ranges, r => r.Node is LoadArgument);
+
+        // The gate is about ambiguity, not about arguments being unrecordable:
+        // the same node kind, printed once, does claim its characters.
+        var (singleOutput, singleRanges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.OnlyOnce));
+        var argument = Assert.Single(singleRanges, r => r.Node is LoadArgument);
+        var (argStart, argEnd) = Offsets(argument, singleOutput.Length);
+        Assert.Equal("x", singleOutput[argStart..argEnd]);
+    }
+
     static IrNode? NearestRecordedAncestor(IrNode node, PrintedRangeMap ranges)
     {
         for (var current = node.Parent; current is not null; current = current.Parent)
@@ -233,4 +307,21 @@ public sealed class PrintedRangeChainFixture
     public PrintedRangeChainFixture(string name) => Name = name;
 
     public string Name { get; }
+}
+
+/// <summary>
+/// Statements whose interesting part is smaller than the statement. See
+/// <see cref="PrintedRangeMapTests.Expression_ClaimsExactlyItsOwnCharacters_NotTheWholeStatement"/>
+/// and <see cref="PrintedRangeMapTests.RepeatedExpression_ClaimsNothing_RatherThanGuessWhichOccurrenceIsWhich"/>.
+/// </summary>
+public static class PrintedRangeExpressionFixture
+{
+    /// <summary>The allocation is one call argument, not the whole statement.</summary>
+    public static void AddOne(List<object> sink) => sink.Add(new object());
+
+    /// <summary>Both operands print as the same characters.</summary>
+    public static int TwiceTheSame(int x) => x + x;
+
+    /// <summary>The same node kind as above, printed once, so it is unambiguous.</summary>
+    public static int OnlyOnce(int x) => x + 1;
 }
