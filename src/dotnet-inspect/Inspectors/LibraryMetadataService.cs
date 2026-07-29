@@ -1474,13 +1474,21 @@ internal static class LibraryMetadataService
 
     internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
-        var existing = new HashSet<string>(
-            LibraryIntegrationCatalog.All
-                .Where(descriptor => descriptor.GetSignals(inspection).Count > 0)
-                .Select(descriptor => descriptor.Name),
-            StringComparer.Ordinal);
-        var gaps = session.IntegrationOpportunities(existing);
-        inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
+        try
+        {
+            var existing = new HashSet<string>(
+                LibraryIntegrationCatalog.All
+                    .Where(descriptor => descriptor.GetSignals(inspection).Count > 0)
+                    .Select(descriptor => descriptor.Name),
+                StringComparer.Ordinal);
+            var gaps = session.IntegrationOpportunities(existing);
+            inspection.IntegrationOpportunities = gaps.Count > 0 ? gaps : null;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning integration opportunities in {path}: {ex.Message}");
+            MarkIntegrationFailuresIfMissing(path, inspection, ex);
+        }
     }
 
     internal static FindingInspection<OpenTelemetrySignalInfo> ScanOpenTelemetry(

@@ -1,6 +1,7 @@
 using ILInspector.Metadata;
 using ILInspector.Findings;
 using ILInspector.Research;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -1568,6 +1569,55 @@ public class SectionPipelineTests
         Assert.Equal(0, context.SharedScanCount);
         Assert.NotNull(model.ResourceInspection);
         Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
+    }
+
+    [Fact]
+    public void SharedSessionScanners_MapTheirOwnFailuresRatherThanThrowing()
+    {
+        // Routing a scanner through the shared session means it runs its SESSION overload where it
+        // used to run its PATH overload. The path overloads all wrap their work in try/catch and
+        // produce a typed per-scanner failure; the session overloads have to do the same, or a
+        // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
+        // command degrades to one generic "Could not read library".
+        //
+        // ScanIntegrationOpportunities' session overload did NOT catch, so the shared-session
+        // change silently dropped that mapping for it. This gate is why that was found.
+        //
+        // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
+        // ObjectDisposedException on every facet, so it faults each scanner at the point where it
+        // touches metadata, deterministically and on every platform.
+        var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+
+        var logger = new Output.VerboseLogger(false);
+        const string Path = "disposed.dll";
+
+        // Each entry must complete without throwing. Failure mapping per scanner is asserted below.
+        var model = new LibraryInspection();
+        var scans = new (string Name, Action Run)[]
+        {
+            ("ExtensionMethods", () => model.Apply(LibraryMetadataService.ScanExtensionMembers(session, Path, logger))),
+            ("ClassifiedMethods", () => model.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger))),
+            ("Resources", () => model.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger)),
+            ("CustomAttributes", () => model.Apply(LibraryMetadataService.ScanCustomAttributes(session, Path, logger))),
+            ("TypeForwarders", () => model.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger)),
+            ("Integrations", () => LibraryMetadataService.ScanIntegrations(session, Path, model, logger)),
+            ("IntegrationOpportunities", () => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, model, logger)),
+            ("AuditSignals", () => AuditSignalBuilder.PopulateLibraryAudit(session, Path, model, logger)),
+        };
+
+        foreach (var (name, run) in scans)
+        {
+            var ex = Record.Exception(run);
+            Assert.True(ex is null, $"{name} let {ex?.GetType().Name} escape its session overload.");
+        }
+
+        // Not just "did not throw": the fault has to be visible as a typed failure, otherwise a
+        // scanner could satisfy this test by swallowing the error into success-shaped empty output.
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
+        Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(model.TypeForwarderInspection!.Value);
+        Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(model.OpenTelemetryInspection!.Value);
+        Assert.NotEmpty(model.InspectionFailures!);
     }
 
     private static ScannerContext NullScannerContext() => new()
