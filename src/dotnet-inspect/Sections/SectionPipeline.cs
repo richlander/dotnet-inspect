@@ -14,6 +14,14 @@ public sealed class SectionEntry<TModel>
     public bool Info { get; init; }
     public bool Noisy { get; init; }
     public bool ListedInCatalog { get; init; } = true;
+
+    /// <summary>
+    /// Whether this section can be projected to rows. False for sections whose model is not
+    /// row-shaped (e.g. a dependency tree), which therefore render nothing in <c>--table</c>,
+    /// <c>--tsv</c> and <c>--jsonl</c>. Used to keep that emptiness visible rather than letting
+    /// it look like a successful empty result.
+    /// </summary>
+    public bool HasRowProjection { get; init; } = true;
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
     public SectionSizeClass SizeClass { get; init; }
@@ -66,6 +74,19 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Selected sections that cannot be projected to rows, so they render nothing in the
+    /// row-oriented output modes. Callers use this to keep that emptiness visible.
+    /// </summary>
+    public IEnumerable<string> GetSectionsWithoutRowProjection(IEnumerable<string> selected)
+    {
+        var wanted = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _entries
+            .Where(e => !e.HasRowProjection && wanted.Contains(e.Name))
+            .Select(e => e.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Membership test for the visible <c>@All</c> pole (curated catalogs only), computed from flags
     /// alone so it is independent of any model: a section is included when it is cheap and is either
     /// auto-selectable by verbosity or an explicitly opt-in <see cref="SectionEntry{TModel}.Noisy"/>
@@ -89,6 +110,7 @@ public sealed class SectionPipeline<TModel>
             Info = TDescriptor.Info,
             Noisy = TDescriptor.Noisy,
             ListedInCatalog = TDescriptor.ListedInCatalog,
+            HasRowProjection = TDescriptor.HasRowProjection,
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
             SizeClass = TDescriptor.SizeClass,

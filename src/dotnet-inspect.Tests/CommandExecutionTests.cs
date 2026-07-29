@@ -6891,6 +6891,42 @@ public class CommandExecutionTests
         Assert.DoesNotContain("## Dependencies", allOutput);
     }
 
+    // A tree section has data but no row projection, so the row-oriented modes render nothing.
+    // Silence there is indistinguishable from a successful empty result, which is the failure mode
+    // AGENTS.md forbids ("do not turn rendering failures into success-shaped empty output").
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task LibraryCommand_TreeSectionInRowMode_SaysItCannotBeProjected(string mode)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Dependencies", mode, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("cannot be projected to rows", error);
+        Assert.Contains("Dependencies", error);
+        // The note is diagnostic, so it must not contaminate the data stream.
+        Assert.DoesNotContain("cannot be projected to rows", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_RowShapedSection_DoesNotClaimMissingRowProjection()
+    {
+        // Close negative: a genuinely tabular section must never trip the note, and the default
+        // Markdown mode must not warn either -- the tree renders perfectly well there.
+        var (tableExit, tableOutput, tableError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "References", "--table", "--tips", "q");
+        var (mdExit, _, mdError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Dependencies", "--tips", "q");
+
+        Assert.Equal(0, tableExit);
+        Assert.DoesNotContain("cannot be projected to rows", tableError);
+        Assert.Contains("System.Collections", tableOutput);
+        Assert.Equal(0, mdExit);
+        Assert.DoesNotContain("cannot be projected to rows", mdError);
+    }
+
     [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {

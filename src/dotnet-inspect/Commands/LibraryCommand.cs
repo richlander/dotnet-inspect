@@ -1495,6 +1495,32 @@ public class LibraryCommand
             Console.Error.WriteLine(
                 $"Note: {unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
         }
+
+        WarnSectionsWithoutRowProjection(options, pipeline);
+    }
+
+    /// <summary>
+    /// Keeps a tree-shaped section's emptiness visible in the row-oriented output modes. Such a
+    /// section has data but no row projection, so it renders nothing; without this note that is
+    /// indistinguishable from a successful empty result.
+    /// </summary>
+    private static void WarnSectionsWithoutRowProjection(LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        if (!options.Tabular && !options.Tsv && !options.Jsonl)
+            return;
+
+        if (options.IncludeSections is not { Count: > 0 })
+            return;
+
+        var unprojectable = pipeline.GetSectionsWithoutRowProjection(options.IncludeSections).ToList();
+        if (unprojectable.Count == 0)
+            return;
+
+        var label = unprojectable.Count == 1 ? "section is" : "sections are";
+        Console.Error.WriteLine(
+            $"Note: {unprojectable.Count} matched {label} not row-shaped and cannot be projected to "
+            + $"rows: {string.Join(", ", unprojectable)}. Use the default Markdown output.");
     }
 
     internal static bool FailureAffectsSection(string failureSection, string section)

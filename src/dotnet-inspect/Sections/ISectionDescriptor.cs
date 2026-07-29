@@ -52,6 +52,15 @@ public interface ISectionDescriptor<TModel>
     static virtual bool ListedInCatalog => true;
 
     /// <summary>
+    /// Whether this section has a row projection. False for sections whose model is not
+    /// row-shaped (e.g. a tree), which render nothing in the row-oriented output modes
+    /// (<c>--table</c>, <c>--tsv</c>, <c>--jsonl</c>) and report zero for <c>--count</c>.
+    /// Declaring it lets the command keep that emptiness visible instead of emitting
+    /// success-shaped empty output. See issue #3427.
+    /// </summary>
+    static virtual bool HasRowProjection => true;
+
+    /// <summary>
     /// When false, effective discovery (<c>-D</c>) lists this section using only its
     /// section pipeline's structural applicability gate and never renders it to confirm it produces
     /// content. Use for sections whose content probe is heavy (e.g. opening a whole-assembly

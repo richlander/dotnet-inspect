@@ -533,6 +533,9 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
+        // A tree, not a table: the row-oriented modes have nothing to project until the graph
+        // gets a declared row lowering (#3427).
+        public static bool HasRowProjection => false;
         public static string? ScannerKey => ScannerTransitiveRefs;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
