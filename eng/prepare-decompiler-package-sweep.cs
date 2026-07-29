@@ -33,7 +33,17 @@ if (positional.Length is < 1 or > 3 || args.Any(argument =>
     return;
 }
 
-string root = FindRepositoryRoot(Directory.GetCurrentDirectory());
+string? root = FindRepositoryRoot(Directory.GetCurrentDirectory());
+if (root is null)
+{
+    // Run from outside a clone, this used to throw. The sweep reads its list and pin
+    // from the repository, so it is a stated refusal like every other input problem.
+    Console.Error.WriteLine(
+        $"Could not find the repository root from '{Directory.GetCurrentDirectory()}'; "
+        + "run this from inside the dotnet-inspect repository.");
+    Environment.ExitCode = 2;
+    return;
+}
 string outputDirectory = Path.GetFullPath(positional[0]);
 int startRank = 1;
 int packageCount = 10;
@@ -105,6 +115,13 @@ try
 catch (JsonException ex)
 {
     unreadable = $"Could not parse '{(parsedList is null ? sourcePath : pinPath)}': {ex.Message}";
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    // A missing or unreadable list is the same kind of refusal as an unparseable one:
+    // the sweep has nothing to work from, and the caller is entitled to be told so
+    // rather than handed an exit code it cannot tell from a crash.
+    unreadable = $"Could not read '{(parsedList is null ? sourcePath : pinPath)}': {ex.Message}";
 }
 
 if (unreadable is not null)
@@ -478,9 +495,16 @@ foreach (var entry in selected)
 }
 
 assemblies.Sort(StringComparer.Ordinal);
-await File.WriteAllLinesAsync(
-    Path.Combine(outputDirectory, "assemblies.txt"),
-    assemblies);
+string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
+string? unwritable = await WriteOrReport(
+    assembliesPath, () => File.WriteAllLinesAsync(assembliesPath, assemblies));
+if (unwritable is not null)
+{
+    Console.Error.WriteLine(unwritable);
+    Environment.ExitCode = 2;
+    return;
+}
+
 var manifest = new PackageSweepManifest(
     SchemaVersion: 1,
     GeneratedAtUtc: DateTimeOffset.UtcNow,
@@ -489,9 +513,16 @@ var manifest = new PackageSweepManifest(
     RequestedPackageCount: packageCount,
     SelectedPackageCount: assemblies.Count,
     Packages: results);
-await File.WriteAllTextAsync(
-    Path.Combine(outputDirectory, "manifest.json"),
-    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine);
+string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+unwritable = await WriteOrReport(manifestPath, () => File.WriteAllTextAsync(
+    manifestPath,
+    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine));
+if (unwritable is not null)
+{
+    Console.Error.WriteLine(unwritable);
+    Environment.ExitCode = 2;
+    return;
+}
 
 if (refreshPin)
 {
@@ -532,7 +563,7 @@ if (refreshPin)
     // Rank lives in nuget-top-packages.json and is deliberately not repeated here.
     // Two files stating the same rank is two things to keep in step, and the one that
     // drifts is the one nothing reads.
-    await File.WriteAllTextAsync(
+    unwritable = await WriteOrReport(pinPath, () => File.WriteAllTextAsync(
         pinPath,
         JsonSerializer.Serialize(
             // No timestamp: the file is a pure function of the pins, so re-recording an
@@ -541,7 +572,16 @@ if (refreshPin)
             // #3349 found that hashing a file with a timestamp in it yields an identity
             // that never repeats.
             new PackagePinFile(SchemaVersion: 1, Packages: recorded),
-            jsonContext.PackagePinFile) + Environment.NewLine);
+            jsonContext.PackagePinFile) + Environment.NewLine));
+    if (unwritable is not null)
+    {
+        // A refresh that cannot write the pin has not refreshed anything, and the file
+        // the next sweep reads is the old one. Saying so beats exiting 134.
+        Console.Error.WriteLine(unwritable);
+        Environment.ExitCode = 2;
+        return;
+    }
+
     Console.WriteLine($"Recorded {recorded.Length} pinned packages in {Path.GetRelativePath(root, pinPath)}.");
 }
 
@@ -615,7 +655,20 @@ static SweepPackageResult Failed(
         AssemblyPath: null,
         fromCache);
 
-static string FindRepositoryRoot(string start)
+static async Task<string?> WriteOrReport(string path, Func<Task> write)
+{
+    try
+    {
+        await write();
+        return null;
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        return $"Could not write '{path}': {ex.Message}";
+    }
+}
+
+static string? FindRepositoryRoot(string start)
 {
     for (var directory = new DirectoryInfo(start);
         directory is not null;
@@ -625,8 +678,7 @@ static string FindRepositoryRoot(string start)
             return directory.FullName;
     }
 
-    throw new InvalidOperationException(
-        $"Could not find the repository root from '{start}'.");
+    return null;
 }
 
 static string SafePathSegment(string value)
