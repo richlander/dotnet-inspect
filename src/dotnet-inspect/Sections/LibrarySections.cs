@@ -117,17 +117,17 @@ public static class LibrarySections
     {
         return new ScannerRegistry()
             .Add(ScannerExtensionMethods, ctx =>
-                LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                ctx.Model.Apply(LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerClassifiedMethods, ctx =>
-                LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                ctx.Model.Apply(LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerResources, ctx =>
                 ctx.Model.ResourceInspection = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerCustomAttributes, ctx =>
-                LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                ctx.Model.Apply(LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnionTypes, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
-                LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                ctx.Model.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerInfoCounts, ctx =>
                 LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerAuditSignals, ctx =>
@@ -146,12 +146,11 @@ public static class LibrarySections
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerResourceTriage, ctx =>
-                LibraryMetadataService.ScanResourceTriage(
+                ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
                     ctx.DrillMap,
                     ctx.AssemblyPath,
-                    ctx.Model,
-                    ctx.Logger))
+                    ctx.Logger)))
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
