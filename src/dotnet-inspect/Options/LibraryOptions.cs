@@ -218,6 +218,22 @@ public record LibraryOptions
     public RowWindow? Rows { get; init; }
 
     /// <summary>
+    /// Whether the request consumes a section's row projection, in any of its forms: a rendered
+    /// table, its TSV/JSONL serializations, a row count, a row window, a single addressed row, or
+    /// the column schema those share. A section with no row projection answers all of them with
+    /// nothing, so this is the set that has to be told when it does.
+    /// <para>
+    /// Every row-oriented surface belongs here. This started as an inline <c>||</c> chain and had
+    /// already drifted twice -- missing <c>--count</c>, then missing <c>--rows</c>/<c>--row</c>
+    /// and <c>--schema</c> -- because a new row mode had no single place to register. Add new ones
+    /// here rather than at a call site.
+    /// </para>
+    /// </summary>
+    public bool ConsumesRowProjection =>
+        Tabular || Tsv || Jsonl || Count || Schema || Rows is not null
+        || PrintRow is not null || ProjectionRow is not null;
+
+    /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;

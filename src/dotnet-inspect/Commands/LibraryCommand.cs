@@ -1507,8 +1507,7 @@ public class LibraryCommand
     internal static void WarnSectionsWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        // --count consumes the same row projection, so it belongs here: a tree counts zero rows.
-        if (!options.Tabular && !options.Tsv && !options.Jsonl && !options.Count)
+        if (!options.ConsumesRowProjection)
             return;
 
         if (options.IncludeSections is not { Count: > 0 })

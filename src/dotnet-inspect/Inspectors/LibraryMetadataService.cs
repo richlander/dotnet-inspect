@@ -569,20 +569,20 @@ internal static class LibraryMetadataService
         // Windows accepts the superscript digits as the digit in COMn/LPTn, so "COM\u00b9" opens
         // the same device as "COM1". Tools that only check the ASCII spelling have been bypassed
         // this way before (the Wasmtime sandbox escape and the Node.js device-name fix are both
-        // this bug), so fold the three superscripts before comparing rather than listing every
-        // spelling of every device.
+        // this bug).
         //
-        // Only these three fold: Windows does not treat any other Unicode digit as the digit in
-        // COMn/LPTn, so "COM\uff11" (fullwidth) and "COM\u0661" (Arabic-Indic) are ordinary
-        // filenames and are deliberately accepted. Do not widen this to NFKC, which would reject
-        // them for naming a device they do not name.
-        if (stem.Contains('\u00b9') || stem.Contains('\u00b2') || stem.Contains('\u00b3'))
-        {
-            stem = stem
-                .Replace('\u00b9', '1')
-                .Replace('\u00b2', '2')
-                .Replace('\u00b3', '3');
-        }
+        // Rather than enumerate spellings, fold any character whose Unicode numeric value is a
+        // single digit down to that digit before comparing. That covers the superscripts, the
+        // fullwidth digits, and the Arabic-Indic digits in one rule, which matters because these
+        // all collapse onto the ASCII digit under best-fit ANSI conversion -- a mapping Microsoft
+        // documents as a security consideration precisely because "COM4", "COM\u2074" and
+        // "COM\uff14" can reach the same device.
+        //
+        // Folding only affects a name whose *whole stem* becomes a device name, so it costs
+        // nothing in practice: no real assembly is named "COM\uff11", while "COM\u00b9Plus" and
+        // "Contoso.V\u00b2" fold to "COM1Plus" and "Contoso", match no device, and stay accepted.
+        if (ContainsNonAsciiDigit(stem))
+            stem = FoldDigits(stem);
 
         foreach (var reserved in ReservedDeviceNames)
         {
@@ -591,6 +591,32 @@ internal static class LibraryMetadataService
         }
 
         return true;
+    }
+
+    private static bool ContainsNonAsciiDigit(string value)
+    {
+        foreach (var c in value)
+        {
+            if (c > '\u007f' && char.GetNumericValue(c) is >= 0 and <= 9)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string FoldDigits(string value)
+    {
+        return string.Create(value.Length, value, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                var c = source[i];
+                var numeric = c > '\u007f' ? char.GetNumericValue(c) : -1;
+                span[i] = numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
+                    ? (char)('0' + (int)numeric)
+                    : c;
+            }
+        });
     }
 
     /// <summary>
