@@ -930,22 +930,14 @@ public class ScanTokenTests
     {
         const string Alphabet = "#/*'\"@$\\{}a";
         int checked_ = 0;
-        HashSet<string>? seedFirstLines = null;
+        HashSet<(string First, string Second)>? seedPairs = null;
 
         void Check(string[] content)
         {
-            var bare = BodySlicer.ScanTokens(content);
+            if (seedPairs is not null && content.Length == 2)
+                seedPairs.Add((content[0], content[1]));
 
-            // Record only calls that actually did the seeded arm's work: two lines, whose
-            // second one opens with a fragment carried in from the first. Recording the first
-            // line alone would let a single-line call stand in for the two-line one.
-            if (seedFirstLines is not null
-                && content.Length > 1
-                && bare.FirstOrDefault(t => t.Line == 1) is
-                    { Kind: ScanTokenKind.StringLiteral or ScanTokenKind.Comment })
-            {
-                seedFirstLines.Add(content[0]);
-            }
+            var bare = BodySlicer.ScanTokens(content);
 
             string[] wrapped = ["{", "[", .. content];
             var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
@@ -1018,7 +1010,7 @@ public class ScanTokenTests
         var tails = new List<string> { "" };
         Walk(new char[1], 0, 1, tails.Add);
 
-        seedFirstLines = [];
+        seedPairs = [];
 
         foreach (var opener in openers)
         {
@@ -1032,46 +1024,25 @@ public class ScanTokenTests
         // The sweep is only as good as its size; pin it so a shrunken alphabet is visible.
         Assert.Equal(16_104 + (132 * 132) + (9 * 12 * 132), checked_);
 
-        // Size and seed quality are still not the same as reach. A seed only does its work
-        // when it opens the *first* line, because scanner state runs forward: swapping the two
-        // lines preserves every pairing and every assertion above while removing the carried
-        // raw literal entirely (adversarial review, GPT). Pin that each seed was actually
-        // scanned in the position that carries.
+        // Size and seed quality are still not the same as reach: the arm only does its work if
+        // each seeded line is scanned in the position that carries, and against every second
+        // line, because scanner state runs forward. Neither is implied by the count. Swapping
+        // the two lines, or collapsing the inner loop onto one repeated second line, preserves
+        // the count and every assertion above while dropping the carried construct or the paths
+        // its continuation reaches -- the latter far enough to let a wrong depth on a carried
+        // interpolated fragment go unnoticed (adversarial review, GPT and Gemini).
         //
-        // Three narrowings make that pin bite, each closing a way the previous spelling passed
-        // without the arm doing its work (adversarial review, GPT and Gemini):
-        //
-        // The record is scoped to the seeded arm rather than collected across all three arms,
-        // because seven of the nine openers are spellable from the single-line alphabet and a
-        // shared set would already hold them.
-        //
-        // Only calls that carry a fragment onto a second line are recorded, so a single-line
-        // call cannot stand in for the two-line one.
-        //
-        // The key is the whole first line, opener *and* tail, not the opener alone. Under the
-        // swap the recorded lines are the `seconds`, which are every string of length two or
-        // less, so an opener of that length would be handed back to the record verbatim by a
-        // line that never opened it.
-        //
-        // A seeded line no longer than the pair arm's reach is exempt, because that arm already
-        // scanned it in first position; such a line is not something the seeds uniquely provide.
-        // Both lengths are read back off the collections that produced them rather than restated,
-        // so lengthening the tails, shortening the pair arm, or adding a short opener moves the
-        // exemption here instead of silently widening it. `"` is the only opener exempt for every
-        // tail it can take, and that is asserted as a set, so a second one cannot join it quietly.
-        int pairArmReach = seconds.Max(line => line.Length);
-        int longestTail = tails.Max(tail => tail.Length);
-
-        Assert.Equal(["\""], openers.Where(o => o.Length + longestTail <= pairArmReach));
-
+        // Recording the ordered pair rather than the first line alone pins both at once. The
+        // pair is ordered, so a swap no longer matches; it is the whole first line, so a second
+        // line short enough for the exhaustive pair arm to spell cannot vouch for a seed the
+        // arm cannot reach; and it names the second line, so the inner loop cannot collapse.
+        // Only two-line calls are recorded, so a single-line call cannot stand in either.
         foreach (var opener in openers)
         {
             foreach (var tail in tails)
             {
-                if ((opener + tail).Length <= pairArmReach)
-                    continue;
-
-                Assert.Contains(opener + tail, seedFirstLines);
+                foreach (var second in seconds)
+                    Assert.Contains((opener + tail, second), seedPairs);
             }
         }
     }
