@@ -938,6 +938,12 @@ function parameterTitle(parameters) {
   return `(${parameters.map(parameter => parameter.type.split(".").at(-1)).join(", ")})`;
 }
 
+// The C#-spelled type name for display (List<T>, Dictionary<TKey, TValue>). Identity —
+// item.id / item.name — stays the metadata form for selection, search, and deep-links.
+function typeDisplayName(item) {
+  return item?.displayName || item?.name || "";
+}
+
 function completions() {
   const input = state.command.trimStart();
   const tokens = input.split(/\s+/).filter(Boolean);
@@ -1095,7 +1101,7 @@ function render() {
             <div class="breadcrumbs">
               ${state.atPackageRoot
                 ? `<strong>${escapeHtml(packageDisplayName(state.package))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
+                : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
@@ -1249,7 +1255,7 @@ function renderTypeNav(current, visible) {
               const selected = item.id === current.id;
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
-                <span class="type-name">${escapeHtml(item.name)}</span>
+                <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 <small>${escapeHtml(shortKind(item.kind))}</small>
               </button>`;
             }).join("")}
@@ -1262,7 +1268,7 @@ function renderTypeNav(current, visible) {
 function renderMemberNav(type) {
   const entries = memberNavEntries(type);
   return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(type.name)}">
+    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
@@ -1271,7 +1277,7 @@ function renderMemberNav(type) {
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
         <span class="chevron">‹</span>
-        <span class="type-name">${escapeHtml(type.name)}</span>
+        <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
       <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
@@ -2013,7 +2019,7 @@ function renderLens(item) {
 function renderMember(type, member) {
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     return `
-      <button class="member-back" id="member-back">← ${escapeHtml(type.name)}</button>
+      <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
       <section class="overload-picker">
         <p class="eyebrow">${escapeHtml(member.kind)} group</p>
         <h1>${escapeHtml(member.name)}</h1>
@@ -2038,7 +2044,7 @@ function renderMember(type, member) {
       <article class="learn-overview">
         <header class="learn-title">
           <p>${escapeHtml(type.namespace)}</p>
-          <h1>${escapeHtml(type.name)}.${escapeHtml(member.name)}${parameterTitle(parameters)} ${escapeHtml(pageKind)}</h1>
+          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitle(parameters)} ${escapeHtml(pageKind)}</h1>
           <span>${escapeHtml(state.package.id)} · ${escapeHtml(state.package.activeFramework)}</span>
         </header>
         <section class="learn-section definition-section">
@@ -2245,7 +2251,7 @@ function typeHeading(item) {
     <div class="type-badge">${kindIcon(item.kind)}</div>
     <div>
       <div class="type-namespace">${escapeHtml(item.namespace)}</div>
-      <h1>${escapeHtml(item.name)}</h1>
+      <h1>${escapeHtml(typeDisplayName(item))}</h1>
       <code class="type-signature">${highlight(item.signature)}</code>
     </div>
     <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
@@ -4276,11 +4282,25 @@ function bindHomeEvents() {
   requestAnimationFrame(() => document.querySelector("#spotlight-input")?.focus());
 }
 
+// The two package demos jump to a rich, curated deep link (open tabs + selected type +,
+// for the platform, a scoped library) so the buttons showcase the workbench, not a bare
+// package root. pushState keeps them shareable/refreshable; the workspace restore reuses
+// the same path as a shared link. The call-graph demo stays a bespoke multi-package load.
+const HOME_DEMO_LINKS = {
+  stj: "?package=System.Text.Json&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdXSwiYSI6MCwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIifQ",
+  runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
+};
+
 function runHomeDemo(kind) {
   state.home = false;
-  if (kind === "stj") loadPackage("System.Text.Json", "10.0.0", "net10.0");
-  else if (kind === "callgraph") runCallGraphDemo();
-  else if (kind === "runtime") openRuntimePackFromHome();
+  if (kind === "callgraph") { runCallGraphDemo(); return; }
+  const link = HOME_DEMO_LINKS[kind];
+  if (!link) return;
+  try { history.pushState(null, "", link); } catch {}
+  const loc = parseLocation();
+  restoreWorkspaceFromLocation(loc, {
+    type: loc.type, member: loc.member, overload: loc.overload, section: loc.section
+  });
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -6194,18 +6214,20 @@ async function runCallGraphDemo() {
   await loadSelectedMemberCallGraph();
 }
 
-// Restores the full open-tab set from the opaque workspace bucket (or just the visible
-// target for a lone/legacy link), loading each tab in order so the tab bar and any
-// cross-package dependency edges come back. Only the focused target restores its deep-link.
-async function restoreInitialWorkspace() {
+// Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
+// lone target), then restores the active tab's platform library scope and deep-link
+// selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
+async function restoreWorkspaceFromLocation(loc, deep) {
+  state.home = false;
+  state.loading = true;
+  state.error = "";
+  render();
   const target = {
-    id: state.requestedPackage,
-    version: state.requestedVersion,
-    framework: state.requestedFramework
+    id: loc.package,
+    version: loc.version || "latest",
+    framework: loc.framework || ""
   };
-  const tabs = (initialLocation.tabs && initialLocation.tabs.length)
-    ? initialLocation.tabs.slice()
-    : [target];
+  const tabs = (loc.tabs && loc.tabs.length) ? loc.tabs.slice() : [target];
   const matchesTarget = tab =>
     isRuntimePackId(tab.id)
       ? isRuntimePackId(target.id)
@@ -6213,7 +6235,7 @@ async function restoreInitialWorkspace() {
         && String(tab.version).toLowerCase() === String(target.version).toLowerCase());
   if (!tabs.some(matchesTarget)) tabs.push(target);
 
-  const savedDeep = pendingDeepLink;
+  // Tab loads must not consume a stale deep link; the target's selection is applied below.
   pendingDeepLink = null;
   for (const tab of tabs) {
     // The runtime pack has no nupkg; rebuild it from its TFM so a refreshed/shared link that
@@ -6221,21 +6243,33 @@ async function restoreInitialWorkspace() {
     if (isRuntimePackId(tab.id)) await loadRuntimePack(tab.framework);
     else await loadPackage(tab.id, tab.version, tab.framework);
   }
-  pendingDeepLink = savedDeep;
 
   const targetModel = state.packages.find(matchesTarget);
   if (targetModel) {
     state.package = targetModel;
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
-    if (isRuntimePackId(targetModel.id) && initialLocation.library) {
-      await applyPlatformLibraryScope(initialLocation.library);
+    if (isRuntimePackId(targetModel.id) && loc.library) {
+      await applyPlatformLibraryScope(loc.library);
     }
-    applyDeepLink(savedDeep);
+    applyDeepLink(deep);
   }
   state.loading = false;
   render();
   loadSelectionData();
+}
+
+// Restores the full open-tab set from the opaque workspace bucket (or just the visible
+// target for a lone/legacy link), loading each tab in order so the tab bar and any
+// cross-package dependency edges come back. Only the focused target restores its deep-link.
+async function restoreInitialWorkspace() {
+  const loc = {
+    ...initialLocation,
+    package: state.requestedPackage,
+    version: state.requestedVersion,
+    framework: state.requestedFramework
+  };
+  await restoreWorkspaceFromLocation(loc, pendingDeepLink);
 }
 
 async function bootstrap() {

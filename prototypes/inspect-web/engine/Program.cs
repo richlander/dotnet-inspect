@@ -52,6 +52,7 @@ public sealed record BrowserPackageDocumentContent(
 public sealed record BrowserTypeSurface(
     string Id,
     string Name,
+    string DisplayName,
     string Namespace,
     string Kind,
     string Accessibility,
@@ -2626,6 +2627,11 @@ public static partial class BrowserInspectionEngine
 
     static BrowserTypeSurface ToBrowserType(ApiType type, string assembly)
     {
+        // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using real generic
+        // parameter names when the surface carries them, else placeholders — never the raw
+        // `List`1` reflection arity form. Identity (Id/Name) stays the metadata form so
+        // deep-links, search, and tab matching remain stable.
+        var displayName = MetadataTypeNameFormatter.FormatGenericTypeName(type.Name, type.TypeParameters);
         var accessibility = string.IsNullOrWhiteSpace(type.Accessibility) ? "public" : type.Accessibility;
         var modifiers = new List<string> { accessibility };
         if (type.IsStatic)
@@ -2642,7 +2648,7 @@ public static partial class BrowserInspectionEngine
                 modifiers.Add("ref");
         }
         modifiers.Add(type.Kind);
-        modifiers.Add(type.Name);
+        modifiers.Add(displayName);
 
         var members = type.Members.Select(member =>
         {
@@ -2673,6 +2679,7 @@ public static partial class BrowserInspectionEngine
         return new BrowserTypeSurface(
             type.FullName,
             type.Name,
+            displayName,
             type.Namespace ?? "",
             string.Join(' ', modifiers.Skip(1).SkipLast(1)),
             accessibility,
