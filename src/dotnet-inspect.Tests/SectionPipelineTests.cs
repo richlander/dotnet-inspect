@@ -1191,6 +1191,34 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Proves the shared read does not claim a key no section declares.
+    /// </summary>
+    /// <remarks>
+    /// The gates around this one all run in the direction "a declared key must be honored by
+    /// something". None ran the other way, so an entry added to
+    /// <see cref="LibraryMetadataService.ReferenceReadingScannerKeys"/> that names nothing was
+    /// invisible: a reviewer added a bogus key and every gate still passed. That direction is not
+    /// cosmetic. The set feeds <see cref="LibraryMetadataService.SharedReadScannerKeys"/>, which
+    /// is one of the two sources that permit a section to declare a key with no registered
+    /// scanner -- so a wrong entry here re-creates the exact defect this PR fixes: a section that
+    /// passes every check and renders empty.
+    /// <para>
+    /// Deriving <c>SharedReadScannerKeys</c> from this set stops the two from drifting apart, but
+    /// it cannot make a hand-written literal true; only comparing it against the sections can.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void EveryKeyTheReadClaims_IsDeclaredBySomeSection()
+    {
+        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys;
+
+        Assert.NotEmpty(LibraryMetadataService.ReferenceReadingScannerKeys);
+        Assert.All(
+            LibraryMetadataService.ReferenceReadingScannerKeys,
+            key => Assert.Contains(key, declared));
+    }
+
+    /// <summary>
     /// Proves every declared key the shared read does not satisfy has a registered scanner.
     /// </summary>
     /// <remarks>
