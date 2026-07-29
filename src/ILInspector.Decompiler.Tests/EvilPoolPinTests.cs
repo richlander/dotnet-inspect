@@ -90,9 +90,14 @@ public class EvilPoolPinTests
         {
             Assert.False(string.IsNullOrWhiteSpace(pin.Package), "a pin has no package name");
             Assert.Contains(pin.Status, (string[])["pinned", "no-library"]);
-            Assert.False(
-                string.IsNullOrWhiteSpace(pin.Version),
-                $"'{pin.Package}' is pinned as {pin.Status} but states no version");
+            // The same rule the sweep applies, not a weaker one. Checking only for
+            // blankness let ".." through this test while the sweep refused it: a file
+            // gate looser than the product rule reports a file as good that the tool
+            // will not run against, which is the least useful thing a gate can do.
+            Assert.True(
+                IsBareVersion(pin.Version),
+                $"'{pin.Package}' is pinned as {pin.Status} but states no usable "
+                + $"version ('{pin.Version}')");
         }
 
         var duplicates = pins
@@ -102,6 +107,18 @@ public class EvilPoolPinTests
             .ToArray();
         Assert.Empty(duplicates);
     }
+
+    /// <summary>
+    /// A version the sweep will accept: SemVer's numeric major, no <c>..</c>, and no
+    /// character outside the NuGet version alphabet. Kept in step with
+    /// <c>IsBareVersion</c> in <c>eng/prepare-decompiler-package-sweep.cs</c>, which is
+    /// where the refusal lives; this is the file gate for the same rule.
+    /// </summary>
+    static bool IsBareVersion(string? version) =>
+        !string.IsNullOrWhiteSpace(version)
+        && char.IsAsciiDigit(version[0])
+        && !version.Contains("..", StringComparison.Ordinal)
+        && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+');
 
     /// <summary>
     /// Every <c>pinned</c> entry names the bytes of the assembly it stands for.
