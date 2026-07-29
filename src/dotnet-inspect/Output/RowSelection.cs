@@ -73,6 +73,11 @@ public readonly record struct RowWindow
     /// &lt;= dataCount</c>), so a caller can use it without re-clamping. An
     /// absolute range that starts past the end of the table resolves to an empty
     /// window rather than an error: the rows it names simply are not there.
+    ///
+    /// For a Range the ordering half of that invariant holds by construction, not
+    /// by clamping here: <see cref="Range"/> rejects <c>end &lt; start</c>, so
+    /// <c>_end &gt;= _start</c>, and <see cref="Math.Min(int,int)"/> is monotonic.
+    /// <c>RowWindowResolutionTests.Range_RefusesAnEndBeforeItsStart</c> is the gate.
     /// </summary>
     public (int KeepStart, int KeepEnd) Resolve(int dataCount)
     {
@@ -89,7 +94,7 @@ public readonly record struct RowWindow
             default:
                 var start = Math.Min(_start - 1, dataCount);
                 var end = _end is int e ? Math.Min(e, dataCount) : dataCount;
-                return (start, Math.Max(start, end));
+                return (start, end);
         }
     }
 }

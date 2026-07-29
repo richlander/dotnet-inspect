@@ -59,6 +59,7 @@ public static class OutputFormatter
             return rendered;
 
         var trailingNewline = rendered.EndsWith('\n');
+        var newline = MarkdownScan.DetectNewline(rendered);
         var body = rendered.ReplaceLineEndings("\n");
         if (trailingNewline)
             body = body.TrimEnd('\n');
@@ -79,13 +80,13 @@ public static class OutputFormatter
         var dataRows = lines.Skip(headerLines);
         var (keepStart, keepEnd) = limit.Resolve(lines.Length - headerLines);
         var windowed = dataRows.Skip(keepStart).Take(keepEnd - keepStart);
-        var kept = string.Join('\n', header.Concat(windowed));
+        var kept = string.Join(newline, header.Concat(windowed));
         // A zero-width window over a headerless format (JSONL, --no-header TSV) keeps
         // nothing; return empty rather than re-adding the trailing newline, which would
         // emit a phantom blank row / invalid empty JSONL record.
         if (kept.Length == 0)
             return string.Empty;
-        return trailingNewline ? kept + "\n" : kept;
+        return trailingNewline ? kept + newline : kept;
     }
 
     public static MarkoutWriterOptions ConfigureTableWriterOptions(MarkoutWriterOptions options, bool tsv, bool jsonl)

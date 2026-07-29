@@ -1316,6 +1316,36 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void LimitRenderedTableRows_PreservesTheLineEndingsItWasGiven()
+    {
+        // Row limiting selects which rows survive. It is not licensed to rewrite the
+        // line endings, which would make the same output differ byte for byte between
+        // a run with a row window and one without -- the unlimited fast path returns
+        // the string untouched.
+        var crlf = "name\tcount\r\nA\t1\r\nB\t2\r\nC\t3\r\n";
+
+        var windowed = OutputFormatter.LimitRenderedTableRows(crlf, RowWindow.Head(2), hasHeader: true);
+        Assert.Equal("name\tcount\r\nA\t1\r\nB\t2\r\n", windowed);
+
+        // An open-ended range keeps every row, so it must be byte-identical to the input.
+        var openEnded = OutputFormatter.LimitRenderedTableRows(crlf, RowWindow.Range(1, null), hasHeader: true);
+        Assert.Equal(crlf, openEnded);
+
+        var lf = "name\tcount\nA\t1\nB\t2\nC\t3\n";
+        Assert.Equal("name\tcount\nA\t1\nB\t2\n", OutputFormatter.LimitRenderedTableRows(lf, RowWindow.Head(2), hasHeader: true));
+    }
+
+    [Fact]
+    public void LimitRenderedTableRows_MarkdownPreservesTheLineEndingsItWasGiven()
+    {
+        var markdown = "| name | count |\r\n| --- | --- |\r\n| A | 1 |\r\n| B | 2 |\r\n| C | 3 |\r\n";
+
+        var output = OutputFormatter.LimitRenderedTableRows(markdown, RowWindow.Head(2), hasHeader: true);
+
+        Assert.Equal("| name | count |\r\n| --- | --- |\r\n| A | 1 |\r\n| B | 2 |\r\n", output);
+    }
+
+    [Fact]
     public void LimitRenderedTableRows_TsvWithoutHeaderLimitsFromFirstLine()
     {
         var tsv = "A\t1\nB\t2\nC\t3\n";

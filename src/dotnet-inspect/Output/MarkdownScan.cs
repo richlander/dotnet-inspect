@@ -18,6 +18,15 @@ internal static class MarkdownScan
     public static bool IsCodeFence(string line)
         => line.TrimStart().StartsWith("```", StringComparison.Ordinal);
 
+    /// <summary>
+    /// The line ending the text already uses, so a pass that splits on '\n' can rejoin
+    /// without changing them. Row limiting selects which rows survive; it is not
+    /// licensed to rewrite CRLF to LF, which would make the same output differ byte
+    /// for byte depending on whether a row window was supplied.
+    /// </summary>
+    public static string DetectNewline(string text)
+        => text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+
     /// <summary>True for a table separator row (e.g. <c>| --- | :--: |</c>).</summary>
     public static bool IsSeparatorLine(string line)
     {

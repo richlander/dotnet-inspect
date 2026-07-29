@@ -8,6 +8,7 @@ internal static class MarkdownTableRowLimiter
             return markdown;
 
         var normalized = markdown.ReplaceLineEndings("\n");
+        var newline = MarkdownScan.DetectNewline(markdown);
         var lines = normalized.Split('\n');
         List<string> output = new(lines.Length);
         var inCodeFence = false;
@@ -55,6 +56,6 @@ internal static class MarkdownTableRowLimiter
             }
         }
 
-        return string.Join('\n', output);
+        return string.Join(newline, output);
     }
 }

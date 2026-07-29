@@ -2337,6 +2337,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ValuedTailFlag_AfterEndOfOptions_IsNotReportedAsAMigration()
+    {
+        // After `--` everything is positional, so `--tail` is a literal argument and
+        // not a direction flag at all. The migration guard scans raw tokens, so it
+        // would otherwise claim a stale spelling for something that was never a flag.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--", "--tail", "5", "--tips", "q");
+
+        Assert.DoesNotContain("is no longer valid", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("is no longer valid", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(

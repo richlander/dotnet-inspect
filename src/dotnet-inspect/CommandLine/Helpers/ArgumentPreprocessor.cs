@@ -31,18 +31,26 @@ public static class ArgumentPreprocessor
     /// positional there is nothing left to recognize -- so it runs before parsing
     /// rather than as a validator. It lives here, not in the entry point, so that every
     /// host that preprocesses args gets the same answer.
+    ///
+    /// The scan stops at the <c>--</c> end-of-options separator. After it, <c>--tail</c>
+    /// is a literal positional and not a direction flag at all, so the stale spelling
+    /// cannot be what the user meant and reporting it would be a false positive.
     /// </summary>
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
     {
         error = null;
-        for (var i = 0; i < args.Length - 1; i++)
+        var end = Array.IndexOf(args, "--");
+        if (end < 0)
+            end = args.Length;
+
+        for (var i = 0; i < end - 1; i++)
         {
             if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
                 continue;
 
             var flag = args[i];
             var count = args[i + 1];
-            var rowMode = args.Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+            var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
             var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
             error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
                 + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
