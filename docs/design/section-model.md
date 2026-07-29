@@ -199,6 +199,15 @@ them under `-D` is network-free.
   fail if the key stops being content-derived. When the bytes cannot be read,
   the key is `null` and the cache is bypassed rather than keyed on a weaker
   identity.
+- The hash and the parse are still two reads, so a catalog could in principle be
+  filed under the identity of an assembly replaced mid-run. `CacheEffective`
+  compares a pre-inspection hash against a post-inspection one and declines to
+  cache when they disagree, which turns a silent, persistent mislabelling into a
+  recomputation on the next run. This narrows the window rather than closing it;
+  closing it requires the inspection to report the identity of the image it
+  parsed, tracked in #3478. The decline path is **not** covered by a
+  deterministic gate — the race cannot be driven reliably from a test — so treat
+  that specific behavior as unverified.
 - Hyper-subscribe applies: with no resolvable SourceLink, the `@SourceLink` door
   and its members disappear from `-D` entirely.
 - `-D` discovery is network-free at **every** verbosity. The discovery
