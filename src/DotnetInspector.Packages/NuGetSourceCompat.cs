@@ -19,8 +19,6 @@ public record NuGetSourceOptions
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
-    public bool HasCustomConfiguration =>
-        Sources.Length > 0 || AdditionalSources.Length > 0 || ConfigFile != null;
 }
 
 /// <summary>
@@ -39,13 +37,14 @@ public static class NuGetSourceResolver
 
         if (options.Sources.Length > 0)
         {
-            return SelectExplicitSources(options);
+            return SelectExplicitSources(options, workingDirectory);
         }
 
         IReadOnlyList<NuGetSource> sources = SourceResolver.ResolveSources(
             explicitSource: null,
             configPath: options.ConfigFile,
-            additionalSources: options.AdditionalSources.Length > 0 ? options.AdditionalSources : null);
+            additionalSources: options.AdditionalSources.Length > 0 ? options.AdditionalSources : null,
+            workingDirectory: workingDirectory);
 
         return [.. sources];
     }
@@ -133,9 +132,12 @@ public static class NuGetSourceResolver
     /// command line has already declared that feed's credentials in nuget.config, keyed by the
     /// same URL, and NuGet's own client matches them the same way.
     /// </remarks>
-    private static List<NuGetSource> SelectExplicitSources(NuGetSourceOptions options)
+    private static List<NuGetSource> SelectExplicitSources(
+        NuGetSourceOptions options,
+        string? workingDirectory)
     {
-        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveConfiguredSources(options.ConfigFile);
+        IReadOnlyList<NuGetSource> configured =
+            SourceResolver.ResolveConfiguredSources(options.ConfigFile, workingDirectory);
 
         List<NuGetSource> selected = [.. options.Sources.Select(url => Match(url, configured))];
         selected.AddRange(options.AdditionalSources.Select(url => Match(url, configured)));
@@ -151,8 +153,13 @@ public static class NuGetSourceResolver
     /// <c>/FeedA</c> and <c>/feeda</c>, which are different feeds on servers with case-sensitive
     /// paths, and would hand one feed's credentials to the other. Origin is compared
     /// case-insensitively because scheme and host are case-insensitive by definition; path and
-    /// query are compared ordinally on their escaped form because they are not. A trailing slash
-    /// is not a distinction any feed makes, so it is ignored.
+    /// query are compared ordinally on their escaped form because they are not.
+    ///
+    /// An exact spelling wins outright. A trailing slash is not a distinction any feed makes, so
+    /// it is tolerated only as a fallback, and only when exactly one configured source matches
+    /// that way: if two entries differ solely by a trailing slash they are separate entries with
+    /// potentially separate credentials, and picking either one would be a guess that could send
+    /// one entry's secret to the other's spelling.
     ///
     /// On a match only the credentials are adopted. The URL stays exactly as the user spelled it,
     /// so a request never silently goes somewhere other than where it was pointed.
@@ -160,7 +167,15 @@ public static class NuGetSourceResolver
     private static NuGetSource Match(string url, IReadOnlyList<NuGetSource> configured)
     {
         NuGetSource? match = configured.FirstOrDefault(
-            s => NuGetCredentialScope.IsSameEndpoint(s.Url, url));
+            s => string.Equals(s.Url, url, StringComparison.Ordinal));
+
+        if (match is null)
+        {
+            List<NuGetSource> tolerant =
+                [.. configured.Where(s => NuGetCredentialScope.IsSameEndpoint(s.Url, url))];
+
+            match = tolerant.Count == 1 ? tolerant[0] : null;
+        }
 
         return match is null ? new NuGetSource("explicit", url) : match with { Url = url };
     }
@@ -198,9 +213,10 @@ public record NuGetSearchOutcome(
 public static class NuGetSearchService
 {
     /// <summary>
-    /// Searches the configured NuGet sources. With no custom source configuration this searches
-    /// nuget.org, as before. Otherwise each resolved HTTP source has its SearchQueryService
-    /// endpoint discovered from its V3 service index and is searched with its own credentials.
+    /// Searches the resolved NuGet sources. Resolution always runs, so a NuGet.config discovered
+    /// from the working directory is honored even when no source option was passed. Each resolved
+    /// HTTP source has its SearchQueryService endpoint discovered from its V3 service index and is
+    /// searched with its own credentials.
     /// </summary>
     public static async Task<NuGetSearchOutcome> SearchAsync(
         HttpClient client,
@@ -212,7 +228,13 @@ public static class NuGetSearchService
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
-        if (sourceOptions is null || !sourceOptions.HasCustomConfiguration)
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        // nuget.org's search endpoint is well known, so searching it needs no service-index
+        // request. That shortcut is keyed on where resolution actually landed, not on whether a
+        // source option was passed: a discovered NuGet.config can name an entirely different feed,
+        // and gating on the flags alone sent those users to nuget.org anyway (issue #3417, bug 2).
+        if (sources is [{ Credential: null } only] && only.IsNuGetOrg)
         {
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
@@ -220,18 +242,17 @@ public static class NuGetSearchService
             return new NuGetSearchOutcome(results.Select(NuGetSearchResult.From).ToList(), []);
         }
 
-        return await SearchSourcesAsync(client, sourceOptions, query, take, prerelease, log);
+        return await SearchSourcesAsync(client, sources, query, take, prerelease, log);
     }
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
         HttpClient client,
-        NuGetSourceOptions sourceOptions,
+        List<NuGetSource> sources,
         string query,
         int take,
         bool prerelease,
         Action<string>? log)
     {
-        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
         HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);

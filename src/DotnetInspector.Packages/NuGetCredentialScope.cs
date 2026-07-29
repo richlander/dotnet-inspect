@@ -65,10 +65,12 @@ public static class NuGetCredentialScope
     /// its configured spelling, and the alternative failure — authentication silently not
     /// working — is the one this whole change exists to prevent.
     ///
-    /// Trailing-slash tolerance grants no exposure that the origin gate does not already grant.
-    /// <see cref="AuthFor"/> scopes credentials to the configured source's *origin*, so a
-    /// credentialed source may already reach any path on that host; being stricter here would
-    /// only decide which configured source is consulted, not where credentials may travel.
+    /// Trailing-slash tolerance is a candidacy test, not an authorization decision. It can make a
+    /// URL match more than one configured entry, and entries that differ only by a trailing slash
+    /// may carry different credentials, so callers that adopt credentials from a match must
+    /// require the match to be unambiguous. <see cref="NuGetSourceResolver"/> does that by
+    /// preferring an exact spelling and accepting a slash-tolerant match only when exactly one
+    /// configured source matches.
     /// </remarks>
     public static bool IsSameEndpoint(string? a, string? b)
     {

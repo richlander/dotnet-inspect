@@ -531,6 +531,90 @@ public class NuGetSearchSourcesTests
                 $"unexpected request to {url}"));
     }
 
+    /// <summary>
+    /// Regression: source resolution ran only when a source option was passed, so a NuGet.Config
+    /// discovered from the working directory was ignored and search silently went to nuget.org —
+    /// the exact symptom issue #3417 reported for an authenticated feed configured that way.
+    /// </summary>
+    [Fact]
+    public void ResolveSources_NoOptions_HonorsDiscoveredConfig()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"discover-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "NuGet.Config"), """
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="contoso" value="https://contoso.example/v3/index.json" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            List<PackageSource> sources = NuGetSourceResolver.ResolveSources(null, dir);
+
+            PackageSource only = Assert.Single(sources);
+            Assert.Equal("https://contoso.example/v3/index.json", only.Url);
+            Assert.False(only.IsNuGetOrg);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Two configured entries differing only by a trailing slash are separate entries that may
+    /// carry separate credentials. Slash tolerance decides candidacy, never authorization, so an
+    /// exact spelling wins outright rather than the first slash-tolerant candidate.
+    /// </summary>
+    [Fact]
+    public void ResolveSources_TrailingSlashAmbiguity_PrefersExactSpelling()
+    {
+        const string bare = "https://feed.example/v3/index.json";
+        const string slashed = "https://feed.example/v3/index.json/";
+
+        using var config = new TempNuGetConfig(
+            [("bare", bare), ("slashed", slashed)], credentialedSource: "bare");
+
+        List<PackageSource> sources = NuGetSourceResolver.ResolveSources(
+            new NuGetSourceOptions { Sources = [slashed], ConfigFile = config.Path });
+
+        PackageSource only = Assert.Single(sources);
+        Assert.Equal(slashed, only.Url);
+        Assert.Equal("slashed", only.Name);
+        Assert.Null(only.Credential);
+        Assert.Null(only.GetAuthHeader());
+    }
+
+    /// <summary>
+    /// With no exact spelling to prefer, an ambiguous slash-tolerant match adopts no credential at
+    /// all. Picking either candidate would be a guess that could send one entry's secret to the
+    /// other's spelling.
+    /// </summary>
+    [Fact]
+    public void ResolveSources_TrailingSlashAmbiguity_WithoutExactMatch_AdoptsNoCredential()
+    {
+        using var config = new TempNuGetConfig(
+            [("bare", "https://feed.example/v3/index.json"),
+             ("slashed", "https://feed.example/v3/index.json/")],
+            credentialedSource: "bare");
+
+        List<PackageSource> sources = NuGetSourceResolver.ResolveSources(
+            new NuGetSourceOptions
+            {
+                Sources = ["https://feed.example/v3/index.json//"],
+                ConfigFile = config.Path
+            });
+
+        PackageSource only = Assert.Single(sources);
+        Assert.Equal("explicit", only.Name);
+        Assert.Null(only.Credential);
+        Assert.Null(only.GetAuthHeader());
+    }
+
     /// <summary>Writes a nuget.config naming the given sources, and deletes it on dispose.</summary>
     private sealed class TempNuGetConfig : IDisposable
     {

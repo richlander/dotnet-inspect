@@ -19,7 +19,8 @@ public static class SourceResolver
     public static IReadOnlyList<PackageSource> ResolveSources(
         string? explicitSource = null,
         string? configPath = null,
-        IEnumerable<string>? additionalSources = null)
+        IEnumerable<string>? additionalSources = null,
+        string? workingDirectory = null)
     {
         // Explicit source overrides everything
         if (explicitSource is not null)
@@ -27,7 +28,7 @@ public static class SourceResolver
             return [new PackageSource("explicit", explicitSource)];
         }
 
-        List<PackageSource> sources = [.. ResolveConfiguredSources(configPath)];
+        List<PackageSource> sources = [.. ResolveConfiguredSources(configPath, workingDirectory)];
 
         // Default to nuget.org if no config sources found
         if (sources.Count == 0)
@@ -59,7 +60,9 @@ public static class SourceResolver
     /// packages from a feed the caller did not choose. Callers that need to tell those two cases
     /// apart use this method and decide for themselves.
     /// </remarks>
-    public static IReadOnlyList<PackageSource> ResolveConfiguredSources(string? configPath = null)
+    public static IReadOnlyList<PackageSource> ResolveConfiguredSources(
+        string? configPath = null,
+        string? workingDirectory = null)
     {
         // Merge sources across all config files (most-distant first, so nearest wins)
         Dictionary<string, string> mergedSources = [];
@@ -68,7 +71,7 @@ public static class SourceResolver
 
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
-            : FindConfigFiles();
+            : FindConfigFiles(workingDirectory);
 
         // FindConfigFiles returns nearest-first; reverse to process most-distant first
         // so that <clear/> in a nearer config properly resets distant sources
