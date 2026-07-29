@@ -48,7 +48,7 @@ public class LibraryCommand
         var aliasNormalized = NormalizeMetadataTableAliases(options);
         if (aliasNormalized.Error is not null)
         {
-            Console.Error.WriteLine(aliasNormalized.Error);
+            CommandError.Write(aliasNormalized.Error);
             return 1;
         }
         options = aliasNormalized.Options;
@@ -111,7 +111,7 @@ public class LibraryCommand
         var heapNormalized = NormalizeHeapSelection(options);
         if (heapNormalized.Error is not null)
         {
-            Console.Error.WriteLine(heapNormalized.Error);
+            CommandError.Write(heapNormalized.Error);
             return 1;
         }
         options = heapNormalized.Options;
@@ -155,7 +155,7 @@ public class LibraryCommand
                 }
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine($"Error: \"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    CommandError.Write($"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
                     return 1;
                 }
             }
@@ -167,7 +167,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
-            Console.Error.WriteLine($"Error: --heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            CommandError.Write($"--heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
@@ -863,10 +863,10 @@ public class LibraryCommand
         if (!selected.Any(MetadataSectionNames.IsMetadataSection))
             return false;
 
-        Console.Error.WriteLine(
-            $"Error: {SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
-            $"but this package resolved to {inspections.Count} assemblies.");
-        Console.Error.WriteLine("Select one assembly with --library <path> and retry.");
+        CommandError.Write(
+            $"{SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
+            $"but this package resolved to {inspections.Count} assemblies.",
+            "Select one assembly with --library <path> and retry.");
         return true;
     }
 
@@ -938,11 +938,11 @@ public class LibraryCommand
     {
         var (select, selectError) = ResolveTableAliases(options.Select);
         if (selectError is not null)
-            return (options, $"Error: {selectError}");
+            return (options, selectError);
 
         var (discover, discoverError) = ResolveTableAliases(options.Discover);
         if (discoverError is not null)
-            return (options, $"Error: {discoverError}");
+            return (options, discoverError);
 
         if (select is null && discover is null)
             return (options, null);
@@ -993,7 +993,7 @@ public class LibraryCommand
             return (options, null);
 
         if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
-            return (options, $"Error: invalid --heap value '{options.HeapParameter}': {error}");
+            return (options, $"invalid --heap value '{options.HeapParameter}': {error}");
 
         if (options.Discover != null || options.Select is { Length: > 0 })
             return (options, null);
@@ -1037,19 +1037,19 @@ public class LibraryCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error reading {name} heap at {address} in {path}: {ex.Message}");
-            Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {ex.Message}");
+            logger.LogWarning($"Error reading {name} heap at {address} in {path}: {ex.Message}");
+            CommandError.Write($"could not read {name} heap at {address}: {ex.Message}");
             return 1;
         }
 
         switch (value)
         {
             case null:
-                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {path} carries no metadata.");
+                CommandError.Write($"could not read {name} heap at {address}: {path} carries no metadata.");
                 return 1;
 
             case MetadataValue.Malformed malformed:
-                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {malformed.Detail}");
+                CommandError.Write($"could not read {name} heap at {address}: {malformed.Detail}");
                 return 1;
 
             default:

@@ -153,9 +153,74 @@ public class UntrustedArgumentDiagnosticContainmentTests
         AssertEveryLineIsOwned(injectedLines, injected);
     }
 
+    /// <summary>
+    /// <c>CommandError.Writer</c> contains what is written through it, and does
+    /// so per line rather than per call.
+    /// </summary>
+    /// <remarks>
+    /// The metadata lens takes its caveat sink as a <see cref="TextWriter"/>
+    /// parameter and was handed <c>Console.Error</c> directly, so a caveat
+    /// naming a hostile heap entry went out raw. Routing it through the owner
+    /// is only worth as much as the seam: a writer that forwarded each
+    /// <c>Write</c> call would contain <c>"a\nError: FORGED"</c> written whole
+    /// but not the same text written a character at a time, and
+    /// <c>TextWriter.Write(string)</c> is free to do either. So both spellings
+    /// are asserted to produce the same contained lines.
+    /// </remarks>
+    [Fact]
+    public async Task ContainedWriter_FoldsInjectedLinesWhateverTheCallShape()
+    {
+        const string Hostile = "caveat\nError: FORGEDCAVEAT";
+
+        var (_, whole) = await ConsoleCapture.RunAsync(() =>
+        {
+            Output.CommandError.Writer.WriteLine(Hostile);
+            Output.CommandError.Writer.Flush();
+        });
+
+        var (_, piecemeal) = await ConsoleCapture.RunAsync(() =>
+        {
+            foreach (char c in Hostile)
+                Output.CommandError.Writer.Write(c);
+            Output.CommandError.Writer.WriteLine();
+            Output.CommandError.Writer.Flush();
+        });
+
+        var (_, split) = await ConsoleCapture.RunAsync(() =>
+        {
+            Output.CommandError.Writer.Write(Hostile);
+            Output.CommandError.Writer.WriteLine();
+            Output.CommandError.Writer.Flush();
+        });
+
+        var (_, boxed) = await ConsoleCapture.RunAsync(() =>
+        {
+            Output.CommandError.Writer.WriteLine((object)Hostile);
+            Output.CommandError.Writer.Flush();
+        });
+
+        var (_, unterminated) = await ConsoleCapture.RunAsync(() =>
+        {
+            Output.CommandError.Writer.Write(Hostile);
+            Output.CommandError.Writer.Flush();
+        });
+
+        Assert.Equal(whole, piecemeal);
+        Assert.Equal(whole, split);
+        Assert.Equal(whole, boxed);
+        Assert.Equal(whole, unterminated);
+
+        string[] lines = Lines(whole);
+        Assert.Single(lines);
+        Assert.DoesNotContain("\n", lines[0], StringComparison.Ordinal);
+        Assert.Contains("FORGEDCAVEAT", lines[0], StringComparison.Ordinal);
+        Assert.False(
+            lines[0].StartsWith("Error: ", StringComparison.Ordinal),
+            $"The injected severity line must not survive as a line of its own: {whole}");
+    }
+
     private static string[] Lines(string text)
         => text.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
-
     private static void AssertOneUnindentedLine(string[] lines, string raw)
     {
         string[] unindented = [.. lines.Skip(1).Where(l => l.Length > 0 && !l.StartsWith("  ", StringComparison.Ordinal))];

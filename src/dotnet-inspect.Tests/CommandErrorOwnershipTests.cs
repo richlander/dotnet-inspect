@@ -1312,6 +1312,12 @@ public class CommandErrorOwnershipTests
             // URL carries the package id from argv, so its consumer takes
             // containment as a required constructor parameter.
             ["src/DotnetInspector.Core/HttpClientFactory.cs: return_networkTrafficLoggingSubscription??=NetworkTelemetry.Subscribe(newNetworkTrafficLogConsumer(Console.Error,contain));"] = 1,
+
+            // CommandError.Writer's TextWriter.Encoding override, which reads
+            // the stream's encoding and never writes to it. Reporting the real
+            // encoding is the honest answer for a writer that forwards to this
+            // stream, and it is a read, so it cannot forge a line.
+            ["src/dotnet-inspect/Output/CommandError.cs: publicoverrideEncodingEncoding=>Console.Error.Encoding;"] = 1,
         };
 
         Assert.Equal(accounted, sinks);
@@ -1335,7 +1341,11 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrSink, "var sink = Console.Error;");
         Assert.Matches(StderrSink, "Serialize(view, writer: Console.Error, ctx);");
         Assert.Matches(StderrSink, "using var s = Console.OpenStandardError();");
-        Assert.Matches(StderrSink, "Console.SetError(w);");
+
+        // Composed rather than written literally, so this file is not itself an
+        // offender under ConsoleCaptureTests' redirection scan, which reads
+        // source text and cannot tell a sample from a call.
+        Assert.Matches(StderrSink, $"Console.{nameof(Console.SetError)}(w);");
         Assert.DoesNotMatch(StderrSink, "Console.Error.WriteLine(x);");
 
         // Naming a method rather than the stream left every other member of
@@ -1735,6 +1745,12 @@ public class CommandErrorOwnershipTests
             // Its consumer takes containment as a required constructor
             // parameter, and the logged URL carries the package id from argv.
             ["DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging"] = 1,
+
+            // CommandError.Writer's Encoding override. It reads the stream
+            // rather than writing to it; its Write/Flush go through
+            // CommandError.WriteLine, which is why no other member of this
+            // type appears here.
+            ["dotnet-inspect!ContainedWriter.get_Encoding"] = 1,
         };
 
         Assert.Equal(

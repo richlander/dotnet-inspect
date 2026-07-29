@@ -363,7 +363,7 @@ public static class OutputFormatter
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
-                    inspection, writerOpts.IncludeSections, format, writer, Console.Error,
+                    inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
                 options.Rows);
             return;

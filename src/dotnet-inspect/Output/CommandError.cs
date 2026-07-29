@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.CSharp;
 
 namespace DotnetInspector.Output;
@@ -218,6 +219,80 @@ internal static class CommandError
     /// so needs no containment.
     /// </summary>
     public static void WriteBlankLine() => Console.Error.WriteLine();
+
+    /// <summary>
+    /// A <see cref="TextWriter"/> view of this writer, for the renderers that
+    /// take their caveat sink as a parameter rather than calling a static.
+    /// </summary>
+    /// <remarks>
+    /// A line boundary comes from an explicit <see cref="TextWriter.WriteLine()"/>
+    /// or <see cref="TextWriter.Flush"/>, never from a terminator inside written
+    /// text. That is the same resolution the message rule reaches above, for the
+    /// same reason: this writer cannot tell the composer's newline from the
+    /// attacker's, so honoring either would let injected text become a line of
+    /// its own. Splitting on the terminator was tried first and is what the
+    /// forged caveat needs -- <c>WriteLine("caveat\nError: FORGED")</c> printed
+    /// <c>Error: FORGED</c> unindented, which is the whole attack.
+    ///
+    /// Buffering rather than forwarding each write is what makes that hold per
+    /// line rather than per call: <see cref="TextWriter.Write(string)"/> is free
+    /// to deliver text whole or a character at a time, and both shapes must
+    /// produce the same contained lines.
+    ///
+    /// It never touches <see cref="Console.Error"/> itself, so it adds no second
+    /// route to the stream.
+    ///
+    /// Buffering makes it stateful, and it is not synchronized: two threads
+    /// writing through it would interleave into one line. Its consumer is the
+    /// metadata lens' caveat sink, which renders on one thread. That is a
+    /// property of the caller, not something enforced here.
+    /// </remarks>
+    public static TextWriter Writer { get; } = new ContainedWriter();
+
+    private sealed class ContainedWriter : TextWriter
+    {
+        private readonly StringBuilder _line = new();
+
+        public ContainedWriter()
+        {
+            // The base WriteLine overloads append this to the buffer rather
+            // than routing through WriteLine(), so an empty terminator is what
+            // makes the overrides below the only source of a line boundary.
+            // Left as "\n", the terminator arrives as ordinary written text and
+            // is contained into a trailing space.
+            CoreNewLine = [];
+        }
+
+        public override Encoding Encoding => Console.Error.Encoding;
+
+        public override void Write(char value) => _line.Append(value);
+
+        public override void WriteLine() => EndLine();
+
+        public override void WriteLine(string? value)
+        {
+            if (value is not null)
+                _line.Append(value);
+
+            EndLine();
+        }
+
+        public override void Flush()
+        {
+            if (_line.Length > 0)
+                EndLine();
+        }
+
+        private void EndLine()
+        {
+            // Qualified deliberately: unqualified, this binds to
+            // TextWriter.WriteLine(string) -- the base method -- and recurses
+            // until the stack is gone. The ownership gate stays green on that,
+            // because the name it looks for is still absent.
+            CommandError.WriteLine(_line.ToString());
+            _line.Clear();
+        }
+    }
 
     /// <summary>
     /// Writes <c>&lt;severity&gt;: &lt;message&gt;</c> with the message

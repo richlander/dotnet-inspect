@@ -1784,7 +1784,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error reading metadata image of {path}: {ex.Message}");
+            logger.LogWarning($"Error reading metadata image of {path}: {ex.Message}");
             inspection.MetadataOverview = null;
         }
     }
