@@ -2053,6 +2053,8 @@ public sealed class LibraryBodyIndex
 
     internal sealed class IndexBuilder : IDisposable
     {
+        const int MaxTypeForwarderHops = 8;
+
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
@@ -2129,18 +2131,56 @@ public sealed class LibraryBodyIndex
             string ns,
             string name)
         {
-            var metadata = ResolveReferencedAssembly(assemblyReference);
-            if (metadata is null)
-                return null;
+            var metadata = ResolveReferencedAssembly(_reader, assemblyReference);
+            return metadata is null
+                ? null
+                : TryResolveTopLevelTypeInAssembly(metadata.Reader, ns, name, hop: 0);
+        }
 
-            foreach (var candidateHandle in metadata.Reader.TypeDefinitions)
+        // A referenced framework assembly is frequently a pure facade rather than the
+        // defining assembly. On a shared-framework (implementation) layout,
+        // System.Runtime.dll carries a single TypeDef and ~950 ExportedType forwarders
+        // into System.Private.CoreLib, so scanning only TypeDefinitions resolves nothing
+        // for any of its types (#3400). Follow the forwarder to the implementation
+        // assembly, which is the hop reference-assembly layouts never need.
+        (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveTopLevelTypeInAssembly(
+            MetadataReader reader,
+            string ns,
+            string name,
+            int hop)
+        {
+            foreach (var candidateHandle in reader.TypeDefinitions)
             {
-                var candidate = metadata.Reader.GetTypeDefinition(candidateHandle);
+                var candidate = reader.GetTypeDefinition(candidateHandle);
                 if (candidate.IsNested)
                     continue;
-                if (metadata.Reader.StringComparer.Equals(candidate.Namespace, ns)
-                    && metadata.Reader.StringComparer.Equals(candidate.Name, name))
-                    return (metadata.Reader, candidateHandle);
+                if (reader.StringComparer.Equals(candidate.Namespace, ns)
+                    && reader.StringComparer.Equals(candidate.Name, name))
+                    return (reader, candidateHandle);
+            }
+
+            // Bounded rather than cycle-tracked: real forwarder chains are one or two hops
+            // (netstandard -> System.Runtime -> System.Private.CoreLib), and a malformed or
+            // hostile assembly must not be able to spin this loop.
+            if (hop >= MaxTypeForwarderHops)
+                return null;
+
+            foreach (var exportedHandle in reader.ExportedTypes)
+            {
+                var exported = reader.GetExportedType(exportedHandle);
+                // Only top-level forwarders can satisfy a top-level lookup. An
+                // ExportedType implemented by another ExportedType is a nested entry,
+                // and a File implementation is a multi-module member, not a forwarder.
+                if (!exported.IsForwarder || exported.Implementation.Kind != HandleKind.AssemblyReference)
+                    continue;
+                if (!reader.StringComparer.Equals(exported.Namespace, ns)
+                    || !reader.StringComparer.Equals(exported.Name, name))
+                    continue;
+
+                var forwardedTo = ResolveReferencedAssembly(reader, (AssemblyReferenceHandle)exported.Implementation);
+                return forwardedTo is null
+                    ? null
+                    : TryResolveTopLevelTypeInAssembly(forwardedTo.Reader, ns, name, hop + 1);
             }
 
             return null;
@@ -2168,9 +2208,11 @@ public sealed class LibraryBodyIndex
             return null;
         }
 
-        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceHandle handle)
+        // The reader is explicit because a type-forwarder hop reads the next assembly
+        // reference out of the facade's metadata, not out of the inspected assembly's.
+        ReferencedAssemblyMetadata? ResolveReferencedAssembly(MetadataReader reader, AssemblyReferenceHandle handle)
         {
-            var identity = AssemblyReferenceIdentity.From(_reader, handle);
+            var identity = AssemblyReferenceIdentity.From(reader, handle);
             // Guarded because parallel full builds resolve referenced assemblies concurrently
             // from many method-analysis threads. Resolution is per unique referenced assembly
             // (bounded and cached), so lock contention is negligible; the lock is reentrant on
@@ -2181,7 +2223,7 @@ public sealed class LibraryBodyIndex
                 if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
                     return cached;
 
-                var resolved = OpenReferencedAssembly(identity, ScopeForReference(handle));
+                var resolved = OpenReferencedAssembly(identity, ScopeForReference(reader, handle));
                 _referencedAssemblyCache[identity] = resolved;
                 return resolved;
             }
@@ -2229,8 +2271,8 @@ public sealed class LibraryBodyIndex
             }
         }
 
-        AssemblyResolutionScope ScopeForReference(AssemblyReferenceHandle handle)
-            => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
+        AssemblyResolutionScope ScopeForReference(MetadataReader reader, AssemblyReferenceHandle handle)
+            => FrameworkAssemblyKeys.IsFrameworkReference(reader, handle)
                 ? AssemblyResolutionScope.Platform
                 : AssemblyResolutionScope.Any;
 

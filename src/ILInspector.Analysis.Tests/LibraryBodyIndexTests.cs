@@ -134,6 +134,116 @@ public class LibraryBodyIndexTests
         Assert.True(resolvedFrameworkType, "expected at least one framework TypeRef to resolve to readable metadata");
     }
 
+    /// <summary>
+    /// This is the gate for the type-forwarder hop in
+    /// <c>IndexBuilder.TryResolveTopLevelTypeInAssembly</c> (#3400). The sibling
+    /// <see cref="CrossAssemblyMetadataResolver_ResolvesFrameworkTypeDefinition"/> stops at the
+    /// first success, so on a layout where some referenced assembly still defines its own types
+    /// it can pass without ever crossing a facade — which is exactly how the Windows
+    /// shared-framework failure went unnoticed. This test instead selects a TypeRef that
+    /// <em>provably</em> requires the hop (the referenced assembly has no matching TypeDef but
+    /// does have a matching forwarder) and asserts resolution lands in a different assembly.
+    /// Deleting the hop fails this test; it does not fail the sibling.
+    /// </summary>
+    [Fact]
+    public void CrossAssemblyMetadataResolver_FollowsTypeForwarderOutOfFacadeAssembly()
+    {
+        string targetPath = typeof(Console).Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
+        {
+            IncludeDepsJsonAssets = false,
+            IncludeAspNetCoreSharedFramework = false,
+            PreferImplementationAssemblies = true,
+        });
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver);
+
+        int forwardedCandidates = 0;
+        int hopsFollowed = 0;
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+            var assemblyReference = (AssemblyReferenceHandle)typeReference.ResolutionScope;
+            if (!FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyReference))
+                continue;
+
+            string ns = reader.GetString(typeReference.Namespace);
+            string name = reader.GetString(typeReference.Name);
+
+            // Independent oracle: resolve and read the referenced assembly directly rather
+            // than asking the product where the type went.
+            var referenced = resolver.Resolve(
+                AssemblyReferenceIdentity.From(reader, assemblyReference),
+                AssemblyResolutionScope.Platform);
+            if (referenced?.Path is not { Length: > 0 } referencedPath || !File.Exists(referencedPath))
+                continue;
+
+            using var referencedStream = File.OpenRead(referencedPath);
+            using var referencedPeReader = new PEReader(referencedStream);
+            if (!referencedPeReader.HasMetadata)
+                continue;
+            var referencedReader = referencedPeReader.GetMetadataReader();
+            if (DefinesTopLevelType(referencedReader, ns, name) || !ForwardsType(referencedReader, ns, name))
+                continue;
+
+            forwardedCandidates++;
+
+            var resolved = builder.TryResolveExternalTypeDefinition(handle);
+            Assert.True(
+                resolved is not null,
+                $"{ns}.{name} is a forwarder in {Path.GetFileName(referencedPath)}; the hop must follow it");
+
+            var definition = resolved!.Value;
+            Assert.Equal(name, definition.DefiningReader.GetString(
+                definition.DefiningReader.GetTypeDefinition(definition.Definition).Name));
+            Assert.NotEqual(
+                referencedReader.GetString(referencedReader.GetAssemblyDefinition().Name),
+                definition.DefiningReader.GetString(definition.DefiningReader.GetAssemblyDefinition().Name));
+            hopsFollowed++;
+        }
+
+        // Non-vacuity: an implementation layout always routes some framework types through a
+        // facade, so finding zero candidates means the selection above stopped working, not
+        // that the hop is unnecessary.
+        Assert.True(forwardedCandidates > 0, "expected at least one framework TypeRef that only a forwarder hop can resolve");
+        Assert.Equal(forwardedCandidates, hopsFollowed);
+    }
+
+    static bool DefinesTopLevelType(MetadataReader reader, string ns, string name)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if (!definition.IsNested
+                && reader.StringComparer.Equals(definition.Namespace, ns)
+                && reader.StringComparer.Equals(definition.Name, name))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool ForwardsType(MetadataReader reader, string ns, string name)
+    {
+        foreach (var handle in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(handle);
+            if (exported.IsForwarder
+                && exported.Implementation.Kind == HandleKind.AssemblyReference
+                && reader.StringComparer.Equals(exported.Namespace, ns)
+                && reader.StringComparer.Equals(exported.Name, name))
+                return true;
+        }
+
+        return false;
+    }
+
     [Fact]
     public void CrossAssemblyMetadataResolver_NullResolverFailsHonest()
     {
