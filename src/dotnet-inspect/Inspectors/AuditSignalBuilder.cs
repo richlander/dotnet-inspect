@@ -42,7 +42,8 @@ internal static class AuditSignalBuilder
 
             // Reuse the same session for the classified-methods scan rather than re-opening the file.
             if (inspection.ClassifiedMethodInspection is null)
-                LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, inspection, logger);
+                inspection.Apply(
+                    LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, logger));
         }
         catch (Exception ex)
         {
