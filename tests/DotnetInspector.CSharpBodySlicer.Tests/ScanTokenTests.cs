@@ -161,14 +161,22 @@ public class ScanTokenTests
             Render("var s = $$\"\"\"a{{{b}}}c\"\"\";"));
     }
 
+    /// <summary>
+    /// Both spellings of a verbatim interpolated literal open a hole.
+    /// </summary>
+    /// <remarks>
+    /// The input and the expected rendering are spelled out per row rather than derived from a
+    /// shared parameter. A theory that builds both sides from one value validates whatever it
+    /// is given: substituting the row silently moves the case to a different state and the
+    /// expectation follows it, leaving the suite green at the same test count while the state
+    /// the row existed for goes unscanned (adversarial review, GPT).
+    /// </remarks>
     [Theory]
-    [InlineData("$@")]
-    [InlineData("@$")]
-    public void VerbatimAndInterpolatedInEitherOrder_StillInterpolates(string prefix)
+    [InlineData("var s = $@\"a{b}c\";", "W:var W:s P:= S:$@\"a{ W:b S:}c\" P:;")]
+    [InlineData("var s = @$\"a{b}c\";", "W:var W:s P:= S:@$\"a{ W:b S:}c\" P:;")]
+    public void VerbatimAndInterpolatedInEitherOrder_StillInterpolates(string line, string expected)
     {
-        Assert.Equal(
-            $"W:var W:s P:= S:{prefix}\"a{{ W:b S:}}c\" P:;",
-            Render($"var s = {prefix}\"a{{b}}c\";"));
+        Assert.Equal(expected, Render(line));
     }
 
     /// <summary>
@@ -178,15 +186,19 @@ public class ScanTokenTests
     /// it, because it compares a bare scan against a wrapped one and both sides change
     /// together; only a rendering assertion can.
     /// </summary>
+    /// <remarks>
+    /// Each row spells out its own input and expectation, for the reason given on
+    /// <see cref="VerbatimAndInterpolatedInEitherOrder_StillInterpolates"/>. The first row is
+    /// the only non-verbatim case, and when both sides were derived from one prefix it could be
+    /// exchanged for a second verbatim spelling with the expectation following it.
+    /// </remarks>
     [Theory]
-    [InlineData("$")]
-    [InlineData("$@")]
-    [InlineData("@$")]
-    public void EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent(string prefix)
+    [InlineData("var s = $\"a{{b}}c\";", "W:var W:s P:= S:$\"a{{b}}c\" P:;")]
+    [InlineData("var s = $@\"a{{b}}c\";", "W:var W:s P:= S:$@\"a{{b}}c\" P:;")]
+    [InlineData("var s = @$\"a{{b}}c\";", "W:var W:s P:= S:@$\"a{{b}}c\" P:;")]
+    public void EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent(string line, string expected)
     {
-        Assert.Equal(
-            "W:var W:s P:= S:" + prefix + "\"a{{b}}c\" P:;",
-            Render("var s = " + prefix + "\"a{{b}}c\";"));
+        Assert.Equal(expected, Render(line));
     }
 
     [Fact]
