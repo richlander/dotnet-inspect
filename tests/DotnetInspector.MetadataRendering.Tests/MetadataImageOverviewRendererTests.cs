@@ -428,6 +428,10 @@ public class MetadataImageOverviewRendererTests
     [InlineData("String:0xFFFFFFFF", "not a heap address")]
     [InlineData("String:0x100000000", "not a heap address")]
     [InlineData("String:2147483648", "not a heap address")]
+    // Reported by adversarial review of #3497: a last-colon split handed the stray colon to the
+    // heap half and reported `unknown heap '#Strings:0x1a4'` -- blaming the half the caller got
+    // right. No accepted heap spelling contains a colon, so the first one is the separator.
+    [InlineData("#Strings:0x1a4:0x1b4", "not a heap address")]
     public void TryParseHeapLocation_NamesTheHalfThatIsWrong(string spec, string expected)
     {
         Assert.False(MetadataHeapCoordinate.TryParse(spec, out _, out _, out string? error));

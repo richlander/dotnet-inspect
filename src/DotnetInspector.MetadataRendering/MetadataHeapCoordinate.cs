@@ -110,7 +110,10 @@ public static class MetadataHeapCoordinate
     ///
     /// The two halves are validated separately so the diagnostic names the half that is wrong: a
     /// message that only says the whole coordinate is bad leaves a caller guessing which end to
-    /// fix. The split is on the *last* colon, so a heap spelling is never confused with an address.
+    /// fix. The split is on the *first* colon, because no accepted heap spelling contains one. A
+    /// last-colon split would hand a stray colon in the address to the heap half instead, so
+    /// <c>#Strings:0x1a4:0x1b4</c> would report <c>unknown heap '#Strings:0x1a4'</c> — blaming the
+    /// one half the caller got right.
     /// </summary>
     public static bool TryParse(string spec, out HeapKind heap, out int address, out string? error)
     {
@@ -119,7 +122,7 @@ public static class MetadataHeapCoordinate
         heap = default;
         address = 0;
 
-        int separator = spec.LastIndexOf(':');
+        int separator = spec.IndexOf(':');
         if (separator < 0)
         {
             error = $"'{spec}' is not a heap reference. Use Heap:Address, for example #Strings:0x1a4.";

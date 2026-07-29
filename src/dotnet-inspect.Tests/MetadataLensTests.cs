@@ -733,6 +733,30 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(discoverOutput));
     }
 
+    /// <summary>
+    /// A cached <c>-D</c> catalog must not short-circuit coordinate resolution. Reported by
+    /// adversarial review of #3497: the cache <em>write</em> sites were guarded by
+    /// <c>HasHeapCoordinate</c> but the <em>read</em> sites were not, so a warm cache returned a
+    /// stale catalog and exit 0 — silently skipping the resolution that would have rejected the
+    /// coordinate. Priming twice is what makes this a cache-hit test rather than a cold-path one.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_CachedDiscovery_DoesNotBypassHeapCoordinateResolution()
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            var (primeExit, _, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
+            Assert.Equal(0, primeExit);
+        }
+
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("999999999", error, StringComparison.Ordinal);
+    }
+
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
     private static string[] DiscoveryNames(string output) => output
         .Split('\n', StringSplitOptions.RemoveEmptyEntries)
