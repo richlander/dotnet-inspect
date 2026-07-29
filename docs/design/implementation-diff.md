@@ -1,5 +1,9 @@
 # Implementation Diff Boundary
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 `ImplementationDiff` is the product-side decompiled C# + IL/body + authored
 Source diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
