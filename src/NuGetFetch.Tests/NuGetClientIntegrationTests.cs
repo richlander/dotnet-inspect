@@ -8,6 +8,7 @@ namespace NuGetFetch.Tests;
 /// These validate the full client pipeline against nuget.org.
 /// </summary>
 [Collection("NuGet Integration")]
+[Trait("Network", "Live")]
 public class NuGetClientIntegrationTests : IDisposable
 {
     private readonly HttpClient _http = new();

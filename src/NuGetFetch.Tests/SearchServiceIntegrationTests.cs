@@ -7,6 +7,7 @@ namespace NuGetFetch.Tests;
 /// Integration tests for the Search API.
 /// </summary>
 [Collection("NuGet Integration")]
+[Trait("Network", "Live")]
 public class SearchServiceIntegrationTests : IDisposable
 {
     private readonly HttpClient _http = new();
