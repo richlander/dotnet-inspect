@@ -139,9 +139,9 @@ try
     // which is why no --rows gate remains here.
     var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
 
-    if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
+    if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
     {
-        CommandError.Write(staleDirectionError!);
+        CommandError.Write(staleArgumentError!);
         return 1;
     }
 

@@ -10,13 +10,13 @@ namespace DotnetInspector.Tests;
 /// <remarks>
 /// Every rendered surface in this tool contains what it shows: line terminators
 /// folded, rendering hazards rewritten as visible <c>\uXXXX</c>. A reviewer
-/// pointed at <c>package X --readme</c> emitting raw VT, ESC, bidi, and LS to
+/// pointed at the README payload emitting raw VT, ESC, bidi, and LS to
 /// stdout and read it as the containment work having missed a channel.
 ///
-/// It had not. <c>--readme</c> and <c>--content</c> are payload lenses: their
+/// It had not. The README payload and <c>--content</c> are payload lenses: their
 /// job is to hand over the bytes of a file the way <c>cat</c> does, and
 /// escaping those bytes would corrupt the payload and defeat the flag. Piping
-/// <c>--readme</c> to a file has to reproduce the README.
+/// that payload to a file has to reproduce the README.
 ///
 /// But "defensible" and "declared" are different things, and the gap the
 /// reviewer actually found was the second one: the behavior was correct,
@@ -59,6 +59,19 @@ public class PayloadLensContainmentTests
     /// Each hazard is followed by a distinct marker so a partial or reordered
     /// emission is a failure rather than a coincidence.
     /// </remarks>
+    /// <summary>
+    /// How a caller asks for the README payload.
+    /// </summary>
+    /// <remarks>
+    /// This was the <c>--readme</c> lens when these tests were written. #3448
+    /// retired that lens on the grounds that printing a document is a
+    /// projection over a declared section rather than a lens of its own, so
+    /// the spelling is now a section selection plus <c>--print</c>. The
+    /// contract these tests pin is about the payload stream, not the flag, so
+    /// the spelling lives in one place and the assertions did not change.
+    /// </remarks>
+    private static readonly string[] ReadmeLens = ["-S", "Package README file", "--print"];
+
     private const string HostileReadme =
         "intro" + Bidi + "MARKERBIDI\n"
         + "line" + Escape + "MARKERESC\n"
@@ -69,7 +82,7 @@ public class PayloadLensContainmentTests
     {
         using var package = HostilePackage.Create();
 
-        var (output, _) = RunCli([package.Path, "--readme"]);
+        var (output, _) = RunCli([package.Path, ..ReadmeLens]);
 
         AssertIsThePayload(output);
     }
@@ -82,19 +95,18 @@ public class PayloadLensContainmentTests
     /// hazards, or normalized line endings, would still satisfy a
     /// containment-style assertion while failing at the job the flag exists for.
     ///
-    /// The one transformation the writer does make is appending a single line
-    /// terminator, which was measured rather than assumed -- a payload ending
-    /// in zero, one, and two newlines comes back with exactly one more than it
-    /// went in with. So <c>--readme &gt; file</c> reproduces a README that ends
-    /// in a newline and adds one to a README that does not. That is a real
-    /// (small) departure from <c>cat</c>, and it is asserted here rather than
-    /// tolerated by a looser check, so that a future change to how the payload
-    /// is written has to come back through this test.
+    /// The retired <c>--readme</c> lens appended one line terminator, which was
+    /// measured rather than assumed. The <c>--print</c> path it was replaced by
+    /// appends nothing: re-measured against payloads ending in zero, one, and
+    /// two newlines, each comes back with exactly the count it went in with, so
+    /// the payload is now byte-identical to <c>cat</c> with no departure at
+    /// all. Equality is asserted rather than a looser check so that a future
+    /// change to how the payload is written has to come back through this test.
     /// </remarks>
     private static void AssertIsThePayload(string output)
     {
         Assert.Equal(
-            HostileReadme + "\n",
+            HostileReadme,
             output.Replace("\r\n", "\n", StringComparison.Ordinal));
     }
 
@@ -109,7 +121,7 @@ public class PayloadLensContainmentTests
 
         // --info is the mode that composes a real section alongside the lens,
         // so it is the one that can put framing and payload on one stream.
-        var (output, error) = RunCli([package.Path, "--readme", "--info"]);
+        var (output, error) = RunCli([package.Path, ..ReadmeLens, "--info"]);
 
         AssertIsThePayload(output);
 
@@ -151,7 +163,7 @@ public class PayloadLensContainmentTests
     {
         using var package = HostilePackage.Create();
 
-        var (output, _) = RunCli([package.Path, "--readme", "--jsonl"]);
+        var (output, _) = RunCli([package.Path, ..ReadmeLens, "--jsonl"]);
 
         HostileOutputAssert.NoRenderingHazard(output, "readme-jsonl");
         HostileOutputAssert.MarkersRendered(output, "readme-jsonl", "MARKERBIDI", "MARKERESC", "MARKERLS");

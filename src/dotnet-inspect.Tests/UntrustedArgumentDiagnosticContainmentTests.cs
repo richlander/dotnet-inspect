@@ -226,7 +226,7 @@ public class UntrustedArgumentDiagnosticContainmentTests
                 WriteEntry(archive, "lib/net8.0/Hostile.Readme.dll", "MZ");
             }
 
-            var (output, error) = RunCli(["package", package, "--readme", "--info"]);
+            var (output, error) = RunCli(["package", package, "-S", "Package README file", "--print", "--info"]);
             string combined = output + error;
 
             HostileOutputAssert.MarkersRendered(combined, "info-readme", "INJECTEDREADME");

@@ -185,6 +185,66 @@ public class RowSelectionNumberingTests
     }
 
     [Fact]
+    public async Task Print_AcquiresOnlyTheRowItEmits()
+    {
+        // One --print authorizes one payload fetch. Documents can be expensive to acquire, so a
+        // request that resolves to a single row must not read the rest of the section to find it.
+        var reads = new List<int>();
+        var rows = new List<PrintableRow>
+        {
+            new(1, "Docs", "alpha", "alpha.md", null),
+            new(2, "Docs", "beta", "beta.md", null),
+            new(3, "Docs", "gamma", "gamma.md", null)
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            PrintProjectionOutput.Write(
+                rows,
+                row => { reads.Add(row.Row); return row.Label; },
+                Print(RowSelector.FromIndex(2)))));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("beta", output);
+        Assert.Equal([2], reads);
+    }
+
+    [Fact]
+    public async Task Print_AcquiresNothingWhenTheRequestIsRefused()
+    {
+        // An ambiguous request is answered by guidance, not by a document, so it authorizes no
+        // fetch at all. Reading first and refusing afterwards would pay for work never emitted.
+        var reads = new List<int>();
+        var rows = new List<PrintableRow>
+        {
+            new(1, "Docs", "alpha", "alpha.md", null),
+            new(2, "Docs", "beta", "beta.md", null)
+        };
+
+        var (ambiguousExit, _, ambiguousError) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            PrintProjectionOutput.Write(
+                rows,
+                row => { reads.Add(row.Row); return row.Label; },
+                Print(null))));
+
+        Assert.Equal(1, ambiguousExit);
+        Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
+        Assert.Empty(reads);
+
+        var (missingExit, _, missingError) = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            PrintProjectionOutput.Write(
+                rows,
+                row => { reads.Add(row.Row); return row.Label; },
+                Print(RowSelector.FromIndex(9)))));
+
+        Assert.Equal(1, missingExit);
+        Assert.Contains("row 9 is not in this section", missingError, StringComparison.Ordinal);
+        Assert.Empty(reads);
+    }
+
+    private static PrintProjectionOptions Print(RowSelector? row) =>
+        new(row, JsonOutput: false, Jsonl: false, JsonArray: false, Bare: false, OutputPath: null);
+
+    [Fact]
     public void PrintSelection_ReportsEmptySection()
     {
         var selected = ApiCommand.SelectPrintableRow([], RowSelector.First, out var error);

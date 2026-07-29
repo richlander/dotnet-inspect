@@ -93,7 +93,7 @@
 | `--lib` scoping | 119f5d2 | 0.2.x | Filter to lib/ folder |
 | `--tools` scoping | 119f5d2 | 0.2.x | Filter to tools/ folder |
 | `--dependencies` flag | 9b7bc26 | 0.2.x | Package dependency tree |
-| `--readme` flag | 627a0a0 | 0.2.x | Show README.md content |
+| `--readme` flag | 627a0a0 | 0.2.x | Show README.md content (removed; use `-S "Package README file" --print`) |
 | `--tfms` flag | — | 0.2.x | List target frameworks |
 | Statistics section | 9a611a2 | 0.2.x | Package statistics |
 | `--prerelease` flag | — | 0.2.x | Include prerelease versions |
