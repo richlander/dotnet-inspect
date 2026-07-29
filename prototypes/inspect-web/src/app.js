@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -1995,11 +1995,11 @@ function renderAssemblyMetadataBlock(asm) {
   const heapRows = (asm.heaps || [])
     .filter(heap => heap.sizeInBytes > 0)
     .map(heap => `
-      <div class="meta-heap">
-        <span class="meta-heap-name">#${escapeHtml(heap.name)}</span>
+      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(asm.assembly)}|${escapeHtml(heap.name)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
+        <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
         <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
         <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
-      </div>`).join("");
+      </button>`).join("");
 
   const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
   const tableRows = tables.map(table => `
@@ -2091,16 +2091,40 @@ const EXPLORER_PAGE = 50;
 // directory comes from the already-loaded overview so the canvas can render immediately; each
 // card fetches its own row window.
 function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
+  const ex = buildBaseExplorer(assemblyFileName);
+  if (!ex) return;
+  ex.focusIndex = Number(tableIndex);
+  ex.highlight = rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null;
+  ex.detail = rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null;
+  state.explorer = ex;
+  render();
+}
+
+// Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
+function openExplorerHeap(assemblyFileName, heapName) {
+  const ex = buildBaseExplorer(assemblyFileName);
+  if (!ex) return;
+  ex.focusHeap = heapName;
+  state.explorer = ex;
+  render();
+}
+
+// The common explorer state: the table + heap directories drawn from the loaded overview, plus
+// empty window caches. Focus is set by the caller (openExplorer / openExplorerHeap).
+function buildBaseExplorer(assemblyFileName) {
   const data = state.packageMetadata;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
-  if (!asm) return;
+  if (!asm) return null;
   const isPlatform = Boolean(state.package?.isRuntimePack);
   const directory = (asm.tables || [])
     .slice()
     .sort((a, b) => a.index - b.index)
     .map(t => ({ index: t.index, name: t.name, rowCount: t.rowCount, isProjected: t.isProjected }));
-  state.explorer = {
+  const heaps = (asm.heaps || [])
+    .filter(h => h.sizeInBytes > 0)
+    .map(h => ({ name: h.name, streamName: heapStreamName(h.name), sizeInBytes: h.sizeInBytes, addressing: h.addressing }));
+  return {
     open: true,
     isPlatform,
     assemblyFileName: asm.assembly,
@@ -2109,12 +2133,25 @@ function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
     version: state.package.version,
     framework: state.package.activeFramework,
     directory,
+    heaps,
     windows: {},
-    focusIndex: Number(tableIndex),
-    highlight: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
-    detail: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
+    heapWindows: {},
+    focusIndex: directory[0]?.index ?? 0,
+    focusHeap: null,
+    highlight: null,
+    detail: null,
   };
-  render();
+}
+
+// ECMA-335 stream name for a HeapKind name, matching the product's spelling.
+function heapStreamName(name) {
+  switch (name) {
+    case "String": return "#Strings";
+    case "Blob": return "#Blob";
+    case "Guid": return "#GUID";
+    case "UserString": return "#US";
+    default: return `#${name}`;
+  }
 }
 
 function closeExplorer() {
@@ -2154,6 +2191,29 @@ async function loadExplorerWindow(index, startRowId = 1) {
   }
 }
 
+// Lists one heap's entries via the engine (referenced-only for #Strings/#Blob, complete for
+// #GUID, nothing for #US). Cached per heap name; coverage/truncation travel with the result.
+async function loadExplorerHeap(heapName) {
+  const ex = state.explorer;
+  if (!ex) return;
+  const existing = ex.heapWindows[heapName];
+  if (existing && (existing.loading || existing.data)) return;
+  ex.heapWindows[heapName] = { loading: true, error: "", data: null };
+  render();
+  try {
+    const request = { assemblyFileName: ex.assemblyFileName, heap: heapName };
+    const result = ex.isPlatform
+      ? await inspectPlatformHeapEntries({ ...request, targetFramework: ex.framework, pack: ex.pack })
+      : await inspectPackageHeapEntries({ ...request, packageId: ex.packageId, version: ex.version, framework: ex.framework });
+    if (state.explorer !== ex) return;
+    ex.heapWindows[heapName] = { loading: false, error: result.error || "", data: result };
+  } catch (error) {
+    if (state.explorer !== ex) return;
+    ex.heapWindows[heapName] = { loading: false, error: String(error?.message || error), data: null };
+  } finally {
+    if (state.explorer === ex) render();
+  }
+}
 // ref->def: transport to the target table+row, loading the window that contains it if needed
 // and highlighting the row. This is plain navigation — no history stack; "back" always
 // returns to the Metadata page.
@@ -2178,6 +2238,11 @@ function explorerScrollToFocus() {
   requestAnimationFrame(() => {
     const ex = state.explorer;
     if (!ex) return;
+    if (ex.focusHeap) {
+      const heapCard = document.querySelector(`.mde-heap-card[data-mde-heap="${cssEscape(ex.focusHeap)}"]`);
+      if (heapCard) heapCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     const card = document.querySelector(`.mde-card[data-mde-index="${ex.focusIndex}"]`);
     if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
     const row = ex.highlight && document.querySelector(`.mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
@@ -2185,14 +2250,26 @@ function explorerScrollToFocus() {
   });
 }
 
+// Attribute-selector-safe heap name (heap names are simple identifiers, but be defensive).
+function cssEscape(value) {
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
 function renderMetadataExplorer() {
   const ex = state.explorer;
   const chips = ex.directory.map(t => `
-    <button type="button" class="mde-chip ${t.index === ex.focusIndex ? "active" : ""} ${t.isProjected ? "" : "mde-chip-unprojected"}" data-mde-chip="${t.index}" title="${t.rowCount.toLocaleString()} rows${t.isProjected ? "" : " · not modeled"}">
+    <button type="button" class="mde-chip ${t.index === ex.focusIndex && !ex.focusHeap ? "active" : ""} ${t.isProjected ? "" : "mde-chip-unprojected"}" data-mde-chip="${t.index}" title="${t.rowCount.toLocaleString()} rows${t.isProjected ? "" : " · not modeled"}">
       ${escapeHtml(t.name)}<span class="mde-chip-count">${t.rowCount.toLocaleString()}</span>
+    </button>`).join("");
+  const heapChips = (ex.heaps || []).map(h => `
+    <button type="button" class="mde-chip mde-chip-heap ${ex.focusHeap === h.name ? "active" : ""}" data-mde-heap-chip="${escapeHtml(h.name)}" title="${escapeHtml(h.streamName)} · ${fmtBytes(h.sizeInBytes)}">
+      ${escapeHtml(h.streamName)}<span class="mde-chip-count">${fmtBytes(h.sizeInBytes)}</span>
     </button>`).join("");
 
   const cards = ex.directory.map(t => renderExplorerCard(t)).join("");
+  const heapCards = (ex.heaps || []).length
+    ? `<div class="mde-heap-divider"><span>heaps</span></div>` + ex.heaps.map(renderHeapCard).join("")
+    : "";
   const detail = renderExplorerDetail();
 
   app.innerHTML = `
@@ -2204,13 +2281,109 @@ function renderMetadataExplorer() {
           <span class="mde-title-note">metadata tables · ${ex.directory.length} populated · click a ref to jump</span>
         </div>
       </header>
-      <nav class="mde-chips">${chips}</nav>
+      <nav class="mde-chips">${chips}${heapChips ? `<span class="mde-chip-sep"></span>${heapChips}` : ""}</nav>
       <div class="mde-body">
-        <div class="mde-canvas" id="mde-canvas">${cards}</div>
+        <div class="mde-canvas" id="mde-canvas">${cards}${heapCards}</div>
         ${detail}
       </div>
     </div>`;
   bindMetadataExplorerEvents();
+}
+
+// A heap card: header (stream name, size, coverage badge), a coverage caveat banner, and the
+// listed entries (address · refs · value). The value reuses the same cell renderer as the grid,
+// so a listed #Strings entry and a Name cell pointing at it render identically.
+function renderHeapCard(h) {
+  const ex = state.explorer;
+  const win = ex.heapWindows[h.name];
+  const focused = ex.focusHeap === h.name;
+  let body;
+  if (win?.loading && !win.data) {
+    body = `<div class="mde-card-empty"><span class="loader"></span> Reading ${escapeHtml(h.streamName)}…</div>`;
+  } else if (win?.error) {
+    body = `<div class="mde-card-empty mde-card-error">△ ${escapeHtml(win.error)}</div>`;
+  } else if (win?.data) {
+    body = renderHeapListing(win.data);
+  } else {
+    body = `<div class="mde-card-empty mde-card-lazy" data-mde-heap-needs-load="${escapeHtml(h.name)}"><span class="loader"></span> Loading ${escapeHtml(h.streamName)}…</div>`;
+  }
+  const coverage = win?.data?.coverage;
+  const badge = coverage
+    ? `<span class="mde-cov-badge mde-cov-${coverage.toLowerCase()}">${escapeHtml(coverageLabel(coverage))}</span>`
+    : "";
+  return `
+    <section class="mde-heap-card ${focused ? "mde-card-focus" : ""}" data-mde-heap="${escapeHtml(h.name)}">
+      <div class="mde-card-head">
+        <h3>${escapeHtml(h.streamName)}</h3>
+        <span class="mde-card-meta">heap · ${fmtBytes(h.sizeInBytes)}${badge ? " · " : ""}</span>${badge}
+      </div>
+      ${body}
+    </section>`;
+}
+
+function coverageLabel(coverage) {
+  switch (coverage) {
+    case "Complete": return "every entry";
+    case "ReferencedOnly": return "referenced only";
+    case "NotEnumerable": return "not enumerable";
+    default: return coverage;
+  }
+}
+
+// The listing body: a coverage caveat line, then the entry rows. Coverage is stated as part of
+// the answer so a referenced-only or truncated list is never read as the whole heap.
+function renderHeapListing(data) {
+  const note = heapCoverageNote(data);
+  if (data.coverage === "NotEnumerable" || !(data.entries || []).length) {
+    return `<div class="mde-heap-note">${note}</div>`;
+  }
+  const isIndex = data.heap === "Guid";
+  const rows = data.entries.map(entry => {
+    const addr = isIndex ? `#${entry.offset}` : `0x${(entry.offset >>> 0).toString(16)}`;
+    return `<tr class="mde-heap-row">
+      <td class="mde-heap-addr" title="${isIndex ? "GUID index" : "heap byte offset"}">${addr}</td>
+      <td class="mde-heap-val">${renderHeapValueCell(entry.value)}</td>
+      <td class="mde-heap-refs" title="referenced by ${entry.referenceCount} projected cell${entry.referenceCount === 1 ? "" : "s"}">${entry.referenceCount.toLocaleString()}×</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="mde-heap-note">${note}</div>
+    <div class="mde-grid-scroll"><table class="mde-grid mde-heap-grid">
+      <thead><tr><th class="mde-heap-addr">addr</th><th>value</th><th class="mde-heap-refs" title="reference count">refs</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function heapCoverageNote(data) {
+  const parts = [];
+  switch (data.coverage) {
+    case "Complete":
+      parts.push(`Every entry in this heap is listed — the GUID heap is fixed-size records at consecutive indices, so it enumerates exactly.`);
+      break;
+    case "ReferencedOnly":
+      parts.push(`Only entries a projected table row points at are listed — the heap may hold values nothing references, still readable by address.`);
+      break;
+    case "NotEnumerable":
+      parts.push(`No entry can be listed: no ECMA-335 table column points into ${escapeHtml(data.streamName)} — its references are <code>ldstr</code> operands inside method bodies. An empty list here is a blind spot, not an empty heap.`);
+      break;
+    default:
+      break;
+  }
+  if (data.rowsTruncated) parts.push(`Reference scan did not cover every row of every table, so some references are uncounted.`);
+  if (data.entriesTruncated) parts.push(`The entry budget cut the listing short.`);
+  return parts.join(" ");
+}
+
+// A heap entry's value renders exactly like the same heap cell in a grid, minus the jump (a heap
+// value has no ref->def target). Falls back through the flat cell union defensively.
+function renderHeapValueCell(cell) {
+  if (!cell) return `<span class="mde-nil">·</span>`;
+  if (cell.kind === "heap") {
+    const val = cell.text != null ? cell.text : cell.preview;
+    const cls = `mde-cell-heap mde-heap-${(cell.heap || "").toLowerCase()}`;
+    return `<span class="${cls}" title="${cell.length} byte${cell.length === 1 ? "" : "s"}${cell.truncated ? " · truncated" : ""}">${escapeHtml(val ?? "")}${cell.truncated ? "…" : ""}</span>`;
+  }
+  return renderExplorerCell(cell, null);
 }
 
 function renderExplorerCard(t) {
@@ -2355,6 +2528,14 @@ function bindMetadataExplorerEvents() {
       const [index, start] = btn.dataset.mdePage.split(":").map(Number);
       loadExplorerWindow(index, start);
     }));
+  document.querySelectorAll("[data-mde-heap-chip]").forEach(chip =>
+    chip.addEventListener("click", () => {
+      const heapName = chip.dataset.mdeHeapChip;
+      state.explorer.focusHeap = heapName;
+      state.explorer.highlight = null;
+      loadExplorerHeap(heapName);
+      explorerScrollToFocus();
+    }));
   document.querySelector("[data-mde-detail-close]")?.addEventListener("click", () => {
     state.explorer.detail = null;
     render();
@@ -2365,16 +2546,23 @@ function bindMetadataExplorerEvents() {
   explorerObserver = new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
-        const index = Number(entry.target.dataset.mdeNeedsLoad);
-        loadExplorerWindow(index);
+        if (entry.target.dataset.mdeHeapNeedsLoad != null) {
+          loadExplorerHeap(entry.target.dataset.mdeHeapNeedsLoad);
+        } else {
+          loadExplorerWindow(Number(entry.target.dataset.mdeNeedsLoad));
+        }
       }
     }
   }, { root: document.querySelector("#mde-canvas"), rootMargin: "200px" });
-  document.querySelectorAll("[data-mde-needs-load]").forEach(el => explorerObserver.observe(el));
+  document.querySelectorAll("[data-mde-needs-load], [data-mde-heap-needs-load]").forEach(el => explorerObserver.observe(el));
 
-  // Always ensure the focused table is loaded and in view.
-  if (state.explorer && !state.explorer.windows[state.explorer.focusIndex]) {
-    loadExplorerWindow(state.explorer.focusIndex);
+  // Always ensure the focused table or heap is loaded and in view.
+  if (state.explorer) {
+    if (state.explorer.focusHeap && !state.explorer.heapWindows[state.explorer.focusHeap]) {
+      loadExplorerHeap(state.explorer.focusHeap);
+    } else if (!state.explorer.focusHeap && !state.explorer.windows[state.explorer.focusIndex]) {
+      loadExplorerWindow(state.explorer.focusIndex);
+    }
   }
   explorerScrollToFocus();
 }
@@ -3267,6 +3455,11 @@ function bindEvents() {
     btn.addEventListener("click", () => {
       const [assembly, tableIndex] = btn.dataset.mdeOpen.split("|");
       openExplorer(assembly, Number(tableIndex));
+    }));
+  document.querySelectorAll("[data-mde-open-heap]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const [assembly, heapName] = btn.dataset.mdeOpenHeap.split("|");
+      openExplorerHeap(assembly, heapName);
     }));
   bindCommandCompletionClicks(document);
 

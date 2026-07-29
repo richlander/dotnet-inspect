@@ -412,6 +412,28 @@ public sealed record BrowserMetadataCell(
     int? Token = null,
     string? Detail = null);
 
+// A listing of one metadata heap's entries with the coverage/limits of that listing attached.
+// Backed by ILInspector.Metadata.MetadataHeapEntries; the substrate for browsing #Strings/#Blob/
+// #GUID/#US in the spatial explorer alongside the tables. Coverage travels with the answer so a
+// referenced-only or truncated list is never read as a whole heap.
+public sealed record BrowserHeapListing(
+    string Assembly,
+    string Heap,          // HeapKind name: String | Blob | Guid | UserString
+    string StreamName,    // ECMA-335 stream name: #Strings | #Blob | #GUID | #US
+    int SizeInBytes,
+    string Coverage,      // Complete | ReferencedOnly | NotEnumerable
+    BrowserHeapEntry[] Entries,
+    bool EntriesTruncated,
+    bool RowsTruncated,
+    string? Error);
+
+// One heap entry: its heap address, how many projected cells pointed at it, and its value
+// (reusing the flat cell union — normally a "heap" cell carrying the decoded preview).
+public sealed record BrowserHeapEntry(
+    int Offset,
+    int ReferenceCount,
+    BrowserMetadataCell Value);
+
 public sealed record BrowserMetadataHeaders(
     string Machine,
     string Subsystem,
@@ -435,6 +457,7 @@ public sealed record BrowserMetadataHeaders(
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserPackageMetadata))]
 [JsonSerializable(typeof(BrowserMetadataWindow))]
+[JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -1966,6 +1989,71 @@ public static partial class BrowserInspectionEngine
         _ => new BrowserMetadataCell("nil"),
     };
 
+    // ECMA-335 stream name for a heap, matching how the product spells them (mdi/--heap).
+    static string HeapStreamName(HeapKind heap) => heap switch
+    {
+        HeapKind.String => "#Strings",
+        HeapKind.Blob => "#Blob",
+        HeapKind.Guid => "#GUID",
+        HeapKind.UserString => "#US",
+        _ => $"#{heap}",
+    };
+
+    // Lists one heap's entries via ILInspector.Metadata.MetadataHeapEntries, projecting each
+    // entry's value onto the same flat cell union the table windows use. Coverage, size, and both
+    // truncation flags travel with the result so a referenced-only or bounded listing is never
+    // read as a whole heap. Never throws into the caller: a bad heap name or missing image yields
+    // a listing carrying an Error rather than success-shaped empty entries.
+    static BrowserHeapListing BuildHeapListing(
+        byte[] image,
+        string assemblyName,
+        string provenance,
+        string heapName)
+    {
+        if (!Enum.TryParse<HeapKind>(heapName, ignoreCase: true, out var heap))
+            return EmptyHeap(assemblyName, heapName, $"'{heapName}' is not a metadata heap.");
+
+        try
+        {
+            var reference = new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                Path: null,
+                OpenRead: () => new MemoryStream(image, writable: false),
+                Provenance: provenance);
+            using var inspection = AssemblyInspectionSession.Open(reference);
+            if (!inspection.HasMetadata)
+                return EmptyHeap(assemblyName, heapName, "The image carries no metadata.");
+
+            var set = inspection.MetadataHeapEntries(heap);
+            if (set is null)
+                return EmptyHeap(assemblyName, heapName, "The image carries no metadata.");
+
+            var entries = set.Entries
+                .Select(entry => new BrowserHeapEntry(entry.Offset, entry.ReferenceCount, ProjectMetadataCell(entry.Value)))
+                .ToArray();
+
+            return new BrowserHeapListing(
+                assemblyName,
+                set.Heap.ToString(),
+                HeapStreamName(set.Heap),
+                set.SizeInBytes,
+                set.Coverage.ToString(),
+                entries,
+                set.EntriesTruncated,
+                set.RowsTruncated,
+                null);
+        }
+        catch (Exception exception)
+        {
+            return EmptyHeap(assemblyName, heapName, exception.Message);
+        }
+
+        static BrowserHeapListing EmptyHeap(string assembly, string name, string error) =>
+            new(assembly, name,
+                Enum.TryParse<HeapKind>(name, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{name}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false, error);
+    }
+
     // One NuGet-package assembly's table window. Re-acquires the package (session-cached) and
     // reads the named lib/{tfm} assembly's bytes, then projects the requested table page.
     [JSExport]
@@ -2035,6 +2123,71 @@ public static partial class BrowserInspectionEngine
             : BuildTableWindow(bytes, fileName, $"{packId}/{version}/{fileName}", tableIndex, startRowId, maxRows);
 
         return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
+    }
+
+    // One NuGet-package assembly's heap listing. Acquires the lib/{tfm} assembly bytes exactly as
+    // QueryPackageMetadataTable does, then lists the named heap's entries.
+    [JSExport]
+    public static async Task<string> QueryPackageHeapEntries(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        string heap)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        byte[]? image = null;
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var prefix = $"lib/{targetFramework}/";
+            var entry = archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(candidate.Name, assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            if (entry is not null)
+            {
+                using var assemblyStream = entry.Open();
+                using var buffer = new MemoryStream();
+                await assemblyStream.CopyToAsync(buffer);
+                image = buffer.ToArray();
+            }
+        }
+
+        BrowserHeapListing listing = image is null
+            ? new BrowserHeapListing(assemblyFileName, heap,
+                Enum.TryParse<HeapKind>(heap, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{heap}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false,
+                $"Could not find {assemblyFileName} in lib/{targetFramework}/.")
+            : BuildHeapListing(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", heap);
+
+        return JsonSerializer.Serialize(listing, BrowserJsonContext.Default.BrowserHeapListing);
+    }
+
+    // One .NET platform library's heap listing (runtime pseudo-package: no nupkg).
+    [JSExport]
+    public static async Task<string> QueryPlatformHeapEntries(
+        string targetFramework,
+        string assemblyFileName,
+        string pack,
+        string heap)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName);
+
+        BrowserHeapListing listing = bytes is null
+            ? new BrowserHeapListing(fileName, heap,
+                Enum.TryParse<HeapKind>(heap, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{heap}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false,
+                $"Could not acquire {fileName} from {packId} {version}.")
+            : BuildHeapListing(bytes, fileName, $"{packId}/{version}/{fileName}", heap);
+
+        return JsonSerializer.Serialize(listing, BrowserJsonContext.Default.BrowserHeapListing);
     }
 
     private static int RankConfidence(string confidence) => confidence?.ToLowerInvariant() switch
