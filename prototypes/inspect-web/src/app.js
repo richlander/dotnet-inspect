@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -733,11 +733,21 @@ function scope() {
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
-// package lenses that fetch one (Dependencies/Integrations/Opportunities/Analysis) would
-// 404. Only Overview renders purely from the already-loaded type surface. Restrict the
-// strip so navigating up to package scope in the runtime pack can't reach a broken lens.
+// package lenses that fetch one would 404 — except Integrations, which scans a single
+// platform library the engine acquires directly from the runtime pack (see
+// QueryPlatformIntegrations). Dependencies/Opportunities/Analysis stay package-only.
 function packageLensesFor(pkg) {
-  return pkg?.isRuntimePack ? packageLenses.filter(([id]) => id === "overview") : packageLenses;
+  if (!pkg?.isRuntimePack) return packageLenses;
+  return packageLenses.filter(([id]) => id === "overview" || id === "integrations");
+}
+
+// The single platform library the Integrations lens scans: whatever is currently scoped
+// (one library), else none — the lens then prompts the user to pick one. Identity is the
+// bare assembly key (no .dll), matching libraryScope and the platform roster.
+function scopedPlatformLibrary() {
+  if (!state.package?.isRuntimePack) return null;
+  if (state.libraryScope && state.libraryScope.size === 1) return [...state.libraryScope][0];
+  return null;
 }
 
 function activeLenses() {
@@ -1545,21 +1555,34 @@ async function ensureWorkspaceDependencies() {
 
 function packageIntegrationsSignature() {
   const pkg = state.package;
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+  const lib = scopedPlatformLibrary();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
 function renderPackageIntegrations() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  // On the Platform the scan targets one library at a time (the whole shared framework is
+  // ~160 assemblies). Offer a picker to switch libraries; when nothing is scoped yet, prompt
+  // for a choice instead of scanning.
+  const platformPicker = isPlatform
+    ? `<section class="document-section"><div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml({ dataAttr: "data-platform-integrations-library", selected: scopedLib || "" })}</div></section>`
+    : "";
+  if (isPlatform && !scopedLib) {
+    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to scan its public surface for DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting integration signals.</p></section>`;
+  }
+  const scanScope = isPlatform ? `${scopedLib} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
   const current = packageIntegrationsSignature();
   const fresh = state.packageIntegrationsKey === current;
   if (state.packageIntegrationsLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of each assembly for ecosystem signals.</p></section>`;
+    return `${platformPicker}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of ${isPlatform ? escapeHtml(scopedLib) : "each assembly"} for ecosystem signals.</p></section>`;
   }
   if (fresh && state.packageIntegrationsError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(state.packageIntegrationsError)}</p></section>`;
+    return `${platformPicker}<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(state.packageIntegrationsError)}</p></section>`;
   }
   const data = fresh ? state.packageIntegrations : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return `${platformPicker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
 
   const categories = data.categories || [];
@@ -1568,12 +1591,12 @@ function renderPackageIntegrations() {
     : "";
 
   if (!categories.length) {
-    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(state.package.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
+    return `${platformPicker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${isPlatform ? `${escapeHtml(scopedLib)}` : escapeHtml(state.package.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
   }
 
   const summary = `
     <section class="document-section">
-      <div class="section-title"><h2>Ecosystem integrations</h2><span>${categories.length} categor${categories.length === 1 ? "y" : "ies"} · ${data.totalSignals} signal${data.totalSignals === 1 ? "" : "s"} · ${escapeHtml(state.package.activeFramework)}</span></div>
+      <div class="section-title"><h2>Ecosystem integrations</h2><span>${categories.length} categor${categories.length === 1 ? "y" : "ies"} · ${data.totalSignals} signal${data.totalSignals === 1 ? "" : "s"} · ${scanScope}</span></div>
       <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.signals.length}</span></span>`).join("")}</div>
     </section>`;
 
@@ -1599,10 +1622,15 @@ function renderPackageIntegrations() {
     </section>`;
   }).join("");
 
-  return `${warning}${summary}${blocks}`;
+  return `${platformPicker}${warning}${summary}${blocks}`;
 }
 
 async function loadPackageIntegrations() {
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const scopedLib = scopedPlatformLibrary();
+  // The Platform lens needs a chosen library to scan; without one the render prompts for a
+  // selection, so there is nothing to fetch yet.
+  if (isPlatform && !scopedLib) return;
   const signature = packageIntegrationsSignature();
   if (state.packageIntegrationsKey === signature && (state.packageIntegrations || state.packageIntegrationsError)) {
     render();
@@ -1614,11 +1642,17 @@ async function loadPackageIntegrations() {
   state.packageIntegrationsLoading = true;
   render();
   try {
-    const result = await inspectPackageIntegrations({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework
-    });
+    const result = isPlatform
+      ? await inspectPlatformIntegrations({
+          targetFramework: state.package.activeFramework,
+          assemblyFileName: `${scopedLib}.dll`,
+          pack: platformPackForAssembly(scopedLib)
+        })
+      : await inspectPackageIntegrations({
+          packageId: state.package.id,
+          version: state.package.version,
+          framework: state.package.activeFramework
+        });
     if (state.packageIntegrationsKey === signature) state.packageIntegrations = result;
   } catch (error) {
     if (state.packageIntegrationsKey === signature) state.packageIntegrationsError = String(error?.message || error);
@@ -2698,6 +2732,22 @@ function bindEvents() {
     if (!name) return;
     const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
     openPlatformLibrary(name, pack);
+  }));
+  // The Integrations-lens library picker scopes the scan without leaving the lens: unlike the
+  // main platform selector it keeps package (platform) root + the Integrations lens, then
+  // rescans. Types are loaded too so switching to Types/Overview afterward isn't empty.
+  document.querySelectorAll("[data-platform-integrations-library]").forEach(select => select.addEventListener("change", async () => {
+    const name = select.value;
+    if (!name) return;
+    const key = name.replace(/\.dll$/i, "");
+    const pack = select.selectedOptions[0]?.dataset.pack || platformPackForAssembly(key);
+    const resident = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
+    if (!resident) await loadRuntimePackAssembly(platformScopeTfm(), `${key}.dll`, pack);
+    state.libraryScope = new Set([key]);
+    recordPlatformRecent(key, pack);
+    state.atPackageRoot = true;
+    state.packageLens = "integrations";
+    loadPackageIntegrations();
   }));
   bindCommandCompletionClicks(document);
 
@@ -6015,11 +6065,15 @@ function packageDisplayName(pkg) {
 // the workbench to it; picking one that is not yet loaded drills in (fetching just
 // that assembly). Rendered both in the nav pane (where the small-n chips live) and on
 // the overview page. Returns "" until the index is available.
-function platformLibrarySelectHtml() {
+function platformLibrarySelectHtml(options = {}) {
+  const dataAttr = options.dataAttr || "data-platform-library-select";
+  const selectedKey = options.selected;
   const roster = platformLibraryRoster("");
   if (!roster.length) return "";
   const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
-  const scoped = state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "";
+  const scoped = selectedKey !== undefined
+    ? String(selectedKey || "")
+    : (state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "");
   // Recent = the loaded/most-recently-accessed libraries: the explicit MRU first
   // (persisted across sessions), then any other currently-loaded libraries such as
   // System.Private.CoreLib, which is always resident but never explicitly "opened".
@@ -6050,7 +6104,7 @@ function platformLibrarySelectHtml() {
     const rows = roster.filter(lib => lib.pack === pack).map(option).join("");
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
-  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
+  return `<select class="scope-select platform-library-select" ${dataAttr} aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
       ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}

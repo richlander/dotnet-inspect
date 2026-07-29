@@ -1146,7 +1146,26 @@ public static partial class BrowserInspectionEngine
             }
         }
 
-        var categories = signals
+        var categories = BuildIntegrationCategories(signals);
+
+        var result = new BrowserPackageIntegrations(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Signals.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageIntegrations);
+    }
+
+    // Groups raw ecosystem signals into the category shape the Integrations lens renders,
+    // deduping identical (shape, kind, name) triples and splitting type vs API counts.
+    // Shared by the NuGet-package scan (nupkg lib/) and the platform-library scan (a single
+    // runtime-pack assembly) so both lenses produce byte-identical category output.
+    static BrowserIntegrationCategory[] BuildIntegrationCategories(
+        IEnumerable<EcosystemIntegrationSignalInfo> signals) =>
+        signals
             .GroupBy(signal => signal.Integration, StringComparer.Ordinal)
             .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group =>
@@ -1168,10 +1187,49 @@ public static partial class BrowserInspectionEngine
             })
             .ToArray();
 
+    // Integrations for a single .NET platform library. The runtime pseudo-package has no
+    // nupkg, so this acquires just the one runtime-pack assembly (session-cached, like the
+    // per-library type load in LoadRuntimePackAssembly) and scans it, rather than reading a
+    // lib/{tfm}/ layout. Scanning one assembly keeps the WASM scan bounded — the whole shared
+    // framework is ~160 assemblies.
+    [JSExport]
+    public static async Task<string> QueryPlatformIntegrations(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        var fileName = assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyFileName
+            : assemblyFileName + ".dll";
+
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        var failures = new List<string>();
+        try
+        {
+            using var buffer = new MemoryStream(bytes, writable: false);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
+            signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+
+        var categories = BuildIntegrationCategories(signals);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
         var result = new BrowserPackageIntegrations(
-            packageId,
+            Path.GetFileNameWithoutExtension(fileName),
             version,
-            targetFramework,
+            tfm,
             categories,
             categories.Sum(category => category.Signals.Length),
             failures.Count > 0 ? string.Join("; ", failures) : null);
