@@ -2113,7 +2113,6 @@ function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
     focusIndex: Number(tableIndex),
     highlight: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
     detail: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
-    history: [],
   };
   render();
 }
@@ -2121,22 +2120,6 @@ function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
 function closeExplorer() {
   state.explorer = null;
   render();
-}
-
-// Escape / back: pop the ref->def history, else close.
-function explorerBack() {
-  const ex = state.explorer;
-  if (!ex) return;
-  if (ex.history.length) {
-    const prev = ex.history.pop();
-    ex.focusIndex = prev.index;
-    ex.highlight = prev.rowId ? { index: prev.index, rowId: prev.rowId } : null;
-    ex.detail = prev.rowId ? { index: prev.index, rowId: prev.rowId } : null;
-    render();
-    explorerScrollToFocus();
-    return;
-  }
-  closeExplorer();
 }
 
 function explorerTableName(index) {
@@ -2171,12 +2154,12 @@ async function loadExplorerWindow(index, startRowId = 1) {
   }
 }
 
-// ref->def: push the current focus, then transport to the target table+row, loading the
-// window that contains it if needed and highlighting the row.
+// ref->def: transport to the target table+row, loading the window that contains it if needed
+// and highlighting the row. This is plain navigation — no history stack; "back" always
+// returns to the Metadata page.
 function explorerJump(index, rowId) {
   const ex = state.explorer;
   if (!ex) return;
-  ex.history.push({ index: ex.focusIndex, rowId: ex.highlight?.rowId || 0 });
   ex.focusIndex = index;
   ex.highlight = rowId ? { index, rowId } : null;
   ex.detail = rowId ? { index, rowId } : null;
@@ -2215,12 +2198,11 @@ function renderMetadataExplorer() {
   app.innerHTML = `
     <div class="metadata-explorer">
       <header class="mde-bar">
-        <button id="mde-back" class="mde-back" title="Back (Esc)">${ex.history.length ? "← back" : "← close"}</button>
+        <button id="mde-back" class="mde-back" title="Back to Metadata (Esc)">← back</button>
         <div class="mde-title">
           <span class="mde-title-asm">${escapeHtml(ex.assemblyFileName)}</span>
           <span class="mde-title-note">metadata tables · ${ex.directory.length} populated · click a ref to jump</span>
         </div>
-        <button id="mde-close" class="mde-close" title="Close (Esc to step back)">✕</button>
       </header>
       <nav class="mde-chips">${chips}</nav>
       <div class="mde-body">
@@ -2346,8 +2328,7 @@ function renderExplorerDetail() {
 
 let explorerObserver = null;
 function bindMetadataExplorerEvents() {
-  document.querySelector("#mde-back")?.addEventListener("click", explorerBack);
-  document.querySelector("#mde-close")?.addEventListener("click", closeExplorer);
+  document.querySelector("#mde-back")?.addEventListener("click", closeExplorer);
   document.querySelectorAll("[data-mde-chip]").forEach(chip =>
     chip.addEventListener("click", () => {
       const index = Number(chip.dataset.mdeChip);
@@ -7092,7 +7073,7 @@ document.addEventListener("keydown", event => {
   if (state.explorer?.open) {
     if (event.key === "Escape") {
       event.preventDefault();
-      explorerBack();
+      closeExplorer();
     }
     return;
   }

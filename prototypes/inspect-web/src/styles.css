@@ -886,8 +886,8 @@ kbd {
 /* ─── Metadata Explorer ─────────────────────────────────────────────────────── */
 .metadata-explorer { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); }
 .mde-bar { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.mde-back, .mde-close { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--dim); font: 11px var(--mono); padding: 5px 10px; cursor: pointer; }
-.mde-back:hover, .mde-close:hover { color: var(--text); border-color: var(--text); }
+.mde-back { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--dim); font: 11px var(--mono); padding: 5px 10px; cursor: pointer; }
+.mde-back:hover { color: var(--text); border-color: var(--text); }
 .mde-title { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .mde-title-asm { font: 13px var(--mono); color: var(--text); }
 .mde-title-note { font: 10px var(--mono); color: var(--dim); }
