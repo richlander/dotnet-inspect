@@ -24,4 +24,10 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- StorePath is internal; StorePathSegmentTests gates it against drifting away from
+         HardenedPath, the single owner of the path-component rule. -->
+    <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
+  </ItemGroup>
+
 </Project>

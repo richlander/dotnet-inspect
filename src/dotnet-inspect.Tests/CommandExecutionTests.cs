@@ -364,7 +364,7 @@ public class CommandExecutionTests
         string? ProjectText = null,
         bool OmitReadme = false);
 
-    private static (string ProjectPath, string TempDir) CreateProjectWithPackageDocs(params ProjectDocPackage[] packages)
+    private static (string ProjectPath, string TempDir, string PackagesRoot) CreateProjectWithPackageDocs(params ProjectDocPackage[] packages)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"project-doc-test-{Guid.NewGuid():N}");
         var projectDir = Path.Combine(tempDir, "App");
@@ -431,7 +431,8 @@ public class CommandExecutionTests
             files.AddRange((package.Skills ?? []).Select(skill => skill.Path.Replace('\\', '/')));
 
             var fileEntries = string.Join(", ", files.Select(JsonString));
-            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(packageRoot.Replace('\\', '/'))}, \"files\": [ {fileEntries} ] }}";
+            var relativePath = $"{package.Id.ToLowerInvariant()}/{package.Version.ToLowerInvariant()}";
+            return $"{JsonString($"{package.Id}/{package.Version}")}: {{ \"type\": \"package\", \"path\": {JsonString(relativePath)}, \"files\": [ {fileEntries} ] }}";
         }));
         var dependencyEntries = string.Join(",\n", packages.Select(package =>
             $"{JsonString(package.Id)}: {{ \"target\": \"Package\", \"version\": {JsonString($"[{package.Version}, )")} }}"));
@@ -457,7 +458,7 @@ public class CommandExecutionTests
             }
             """);
 
-        return (projectPath, tempDir);
+        return (projectPath, tempDir, Path.Combine(tempDir, "packages"));
     }
 
     private static string JsonString(string value) => JsonSerializer.Serialize(value);
@@ -526,6 +527,21 @@ public class CommandExecutionTests
     }
 
     private static Task<(int Exit, string Output, string Error)> RunAppAsync(params string[] args)
+        => RunAppCoreAsync(null, args);
+
+    /// <summary>
+    /// Runs the app with the NuGet package root pointed at a fixture directory. Needed by the
+    /// project-document tests: a package's "path" in project.assets.json is a relative coordinate
+    /// under the package root, so a fixture package has to live under a root the product accepts.
+    /// </summary>
+    private static Task<(int Exit, string Output, string Error)> RunAppUnderPackagesAsync(
+        string packagesRoot,
+        params string[] args)
+        => RunAppCoreAsync(packagesRoot, args);
+
+    private static Task<(int Exit, string Output, string Error)> RunAppCoreAsync(
+        string? packagesRoot,
+        string[] args)
     {
         return ConsoleCapture.RunAsync(async () =>
         {
@@ -566,7 +582,7 @@ public class CommandExecutionTests
                 Console.Error.WriteLine($"Error: {ex.Message}");
                 return 1;
             }
-        });
+        }, packagesRoot);
     }
 
     private static IEnumerable<string> JsonStrings(JsonElement element)
@@ -10907,13 +10923,13 @@ public class CommandExecutionTests
             ---
             # Body
             """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Agents", "1.2.3", "README.md", "readme", agents),
             new ProjectDocPackage("Test.Project.NoAgents", "4.5.6", "README.md", "readme"));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--agents-index", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -10950,12 +10966,12 @@ public class CommandExecutionTests
             ---
             # Body
             """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Folded", "1.0.0", "README.md", "readme", agents));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--agents-index", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -10989,7 +11005,7 @@ public class CommandExecutionTests
             ---
             # Source skill
             """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Skills.Query", "1.2.3", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/query/SKILL.md", querySkill)]),
             new ProjectDocPackage("Test.Project.Skills.Source", "4.5.6", "README.md", "readme", Skills:
@@ -10997,7 +11013,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11023,7 +11039,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPaths_EmitsSkillPaths()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one", Skills:
                 [new ProjectSkillDoc("skills/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "README.md", "two", Skills:
@@ -11031,7 +11047,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--paths");
 
             Assert.Equal(0, exit);
@@ -11047,13 +11063,13 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsValue_UsesSelectedField()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Value.One", "1.2.3", "README.md", "one", Skills:
                 [new ProjectSkillDoc("skills/value/SKILL.md", "one")]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--fields", "Version", "--value");
 
             Assert.Equal(0, exit);
@@ -11075,13 +11091,13 @@ public class CommandExecutionTests
             ---
             # Skill guidance
             """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print", "2.0.0", "README.md", "# README body", Skills:
                 [new ProjectSkillDoc("skills/selected/SKILL.md", skill)]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print", "--body");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11099,14 +11115,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrint_SkipsDependenciesWithoutSkills()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.HasSkills", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11122,12 +11138,12 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsSection_EmptyRendersNoSkillsNote()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11265,13 +11281,13 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrint_JsonlIsSingleCompactRecord()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.Jsonl", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/jsonl/SKILL.md", "selected")]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11290,7 +11306,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrint_RequiresRowWhenMultipleSkillDocuments()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
@@ -11298,7 +11314,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print");
 
             Assert.Equal(1, exit);
@@ -11314,7 +11330,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrint_RowSelectionPrintsSelectedDocument()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
@@ -11322,7 +11338,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print", "--row", "2");
 
             Assert.Equal(0, exit);
@@ -11338,7 +11354,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrint_RowSelectionCountsPrintableRowsOnly()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
@@ -11347,7 +11363,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print", "--row", "1");
 
             Assert.Equal(0, exit);
@@ -11363,7 +11379,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsPrintAll_IsNoLongerRecognized()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.PrintAll.Two", "1.0.0", "README.md", "readme", Skills:
@@ -11371,7 +11387,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--print-all");
 
             Assert.NotEqual(0, exit);
@@ -11387,13 +11403,13 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsBare_PrintsFirstSkillDocument()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Bare", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/bare/SKILL.md", "selected")]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--bare");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11409,7 +11425,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
@@ -11418,7 +11434,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--bare");
 
             Assert.Equal(0, exit);
@@ -11434,13 +11450,13 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_Columns_ReturnsClearUnsupportedError()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
                 [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--columns", "Package");
 
             Assert.Equal(1, exit);
@@ -11456,12 +11472,12 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_PrintRequiresSingleSelectedSection()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.Requires.Select", "1.0.0", "README.md", "readme"));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--print");
 
             Assert.Equal(1, exit);
@@ -11477,7 +11493,7 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsCount_CountsSkillFiles()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "readme", Skills:
                 [
                     new ProjectSkillDoc("skills/one/SKILL.md", "one"),
@@ -11487,7 +11503,7 @@ public class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "-S", "Skills", "--count");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11520,12 +11536,12 @@ public class CommandExecutionTests
             ---
             # Agent guidance
             """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Readme", "2.0.0", "README.md", "# README body", agents, ProjectText: "# PROJECT body"));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--readme", "Test.Project.Readme");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11543,12 +11559,12 @@ public class CommandExecutionTests
     [Fact]
     public async Task Project_Readme_FallsBackToProjectMd()
     {
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.ProjectMd", "2.0.0", "README.md", "", ProjectText: "# PROJECT body", OmitReadme: true));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--readme", "Test.Project.ProjectMd");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
@@ -11565,12 +11581,12 @@ public class CommandExecutionTests
     public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
     {
         const string readme = "See https://github.com/owner/repo/blob/main/docs/guide.md";
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+        var (projectPath, tempDir, packagesRoot) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.RawLinks", "1.0.0", "README.md", readme));
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunAppUnderPackagesAsync(packagesRoot, 
                 "project", projectPath, "--readme", "Test.Project.RawLinks");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");

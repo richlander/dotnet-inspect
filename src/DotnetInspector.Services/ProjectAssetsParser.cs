@@ -342,6 +342,18 @@ public static class ProjectAssetsParser
                     continue;
                 }
 
+                // PackagePath is null when the library's "path" failed validation. Emitting file
+                // entries anyway would list a README or skill whose PackagePath and FullPath are
+                // empty — output shaped like success for content that was refused and will never
+                // be read. Refuse the package and say why instead.
+                if (string.IsNullOrEmpty(packageReference.PackagePath))
+                {
+                    log?.Invoke(
+                        $"Warning: ignoring package '{packageKey}': its 'path' in project.assets.json " +
+                        "is not a valid package coordinate.");
+                    continue;
+                }
+
                 foreach (var file in files.EnumerateArray())
                 {
                     if (file.ValueKind != JsonValueKind.String)
@@ -496,10 +508,18 @@ public static class ProjectAssetsParser
         if (string.IsNullOrWhiteSpace(packagePath))
             return null;
 
-        var normalized = packagePath.Replace('/', Path.DirectorySeparatorChar);
-        return Path.IsPathRooted(normalized)
-            ? Path.GetFullPath(normalized)
-            : Path.GetFullPath(Path.Combine(NuGetCache.GetNuGetCachePath(), normalized));
+        // "path" is untrusted (threat model: project.assets.json and the paths within it), and it
+        // becomes the root that README/AGENTS/skill reads are resolved beneath, so a rooted value
+        // would relocate those reads anywhere on disk. Package libraries always spell it as a
+        // relative "id/version" coordinate under the NuGet cache. Both callers reject project
+        // libraries via IsProjectLibrary before reaching here, which is what makes refusing
+        // relative traversal correct: only project paths are legitimately "../Contoso".
+        if (!HardenedPath.IsSafeRelativePath(packagePath))
+            return null;
+
+        return Path.GetFullPath(Path.Combine(
+            NuGetCache.GetNuGetCachePath(),
+            packagePath.Replace('/', Path.DirectorySeparatorChar)));
     }
 
     private static string? ResolvePackageFilePath(string? packagePath, string packageRelativePath)

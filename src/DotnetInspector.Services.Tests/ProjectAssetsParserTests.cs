@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(NuGetCacheRootCollection.Name)]
 public class ProjectAssetsParserTests
 {
     [Fact]
@@ -229,13 +230,16 @@ public class ProjectAssetsParserTests
     [Fact]
     public void ParsePackageFileEntries_ReturnsDirectPackageFilesMatchingPattern()
     {
-        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        // library.path is a relative coordinate under the NuGet cache in every assets file NuGet
+        // writes, and ResolvePackagePath now refuses anything else, so this redirects the cache
+        // root rather than pointing library.path at an absolute temp directory.
+        var cacheRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(cacheRoot, "direct.package", "2.1.0");
         var skillPath = Path.Combine(packageRoot, "skills", "query", "SKILL.md");
         Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
         File.WriteAllText(skillPath, "# Skill");
 
-        var transitiveRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(Path.Combine(transitiveRoot, "skills", "transitive"));
+        Directory.CreateDirectory(Path.Combine(cacheRoot, "transitive.package", "1.0.0", "skills", "transitive"));
 
         var json = $$"""
         {
@@ -249,7 +253,7 @@ public class ProjectAssetsParserTests
             "libraries": {
                 "Direct.Package/2.1.0": {
                     "type": "package",
-                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "path": "direct.package/2.1.0",
                     "files": [
                         42,
                         "README.md",
@@ -258,7 +262,7 @@ public class ProjectAssetsParserTests
                 },
                 "Transitive.Package/1.0.0": {
                     "type": "package",
-                    "path": "{{transitiveRoot.Replace("\\", "/")}}",
+                    "path": "transitive.package/1.0.0",
                     "files": [
                         "skills/transitive/SKILL.md"
                     ]
@@ -287,6 +291,8 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
+        var previousCache = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", cacheRoot);
         try
         {
             var result = ProjectAssetsParser.ParsePackageFileEntries(
@@ -306,16 +312,17 @@ public class ProjectAssetsParserTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousCache);
             File.Delete(assetsPath);
-            Directory.Delete(packageRoot, recursive: true);
-            Directory.Delete(transitiveRoot, recursive: true);
+            Directory.Delete(cacheRoot, recursive: true);
         }
     }
 
     [Fact]
     public void ParsePackageFileEntries_CanMatchTopLevelSkillFile()
     {
-        var packageRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var cacheRoot = Path.Combine(Path.GetTempPath(), $"pa-files-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(cacheRoot, "direct.package", "1.0.0");
         var skillPath = Path.Combine(packageRoot, "skills", "SKILL.md");
         Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
         File.WriteAllText(skillPath, "# Skill");
@@ -330,7 +337,7 @@ public class ProjectAssetsParserTests
             "libraries": {
                 "Direct.Package/1.0.0": {
                     "type": "package",
-                    "path": "{{packageRoot.Replace("\\", "/")}}",
+                    "path": "direct.package/1.0.0",
                     "files": [
                         "skills/SKILL.md"
                     ]
@@ -352,6 +359,8 @@ public class ProjectAssetsParserTests
         """;
 
         var assetsPath = WriteTempFile(json);
+        var previousCache = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", cacheRoot);
         try
         {
             var entry = Assert.Single(ProjectAssetsParser.ParsePackageFileEntries(
@@ -365,8 +374,9 @@ public class ProjectAssetsParserTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousCache);
             File.Delete(assetsPath);
-            Directory.Delete(packageRoot, recursive: true);
+            Directory.Delete(cacheRoot, recursive: true);
         }
     }
 
@@ -723,65 +733,13 @@ public class ProjectAssetsParserTests
         }
     }
 
-    /// <summary>
-    /// The positive control: an ordinary package coordinate still resolves, so the guard above is
-    /// refusing traversal rather than refusing everything.
-    /// </summary>
-    [Fact]
-    public void Parse_WithOrdinaryLibraryPath_StillResolves()
-    {
-        var cacheRoot = DotnetInspector.Packages.NuGetCache.GetNuGetCachePath();
-        var packageRelative = $"legit.package/{Guid.NewGuid():N}";
-        var packageDirectory = Path.Combine(cacheRoot, packageRelative.Replace('/', Path.DirectorySeparatorChar), "lib", "net8.0");
-        Directory.CreateDirectory(packageDirectory);
-        File.WriteAllText(Path.Combine(packageDirectory, "Legit.dll"), "legit");
-
-        var assetsPath = CreateTempAssetsFile(new Dictionary<string, object>
-        {
-            ["version"] = 3,
-            ["targets"] = new Dictionary<string, object>
-            {
-                ["net8.0"] = new Dictionary<string, object>
-                {
-                    ["Legit.Package/1.0.0"] = new Dictionary<string, object>
-                    {
-                        ["type"] = "package",
-                        ["compile"] = new Dictionary<string, object>
-                        {
-                            ["lib/net8.0/Legit.dll"] = new Dictionary<string, object>()
-                        }
-                    }
-                }
-            },
-            ["libraries"] = new Dictionary<string, object>
-            {
-                ["Legit.Package/1.0.0"] = new Dictionary<string, object>
-                {
-                    ["type"] = "package",
-                    ["path"] = packageRelative
-                }
-            }
-        });
-
-        try
-        {
-            var results = ProjectAssetsParser.Parse(assetsPath, null, null);
-            Assert.Contains(results, r => r.Path.EndsWith("Legit.dll", StringComparison.Ordinal));
-        }
-        finally
-        {
-            File.Delete(assetsPath);
-            Directory.Delete(Path.Combine(cacheRoot, packageRelative.Split('/')[0], packageRelative.Split('/')[1]), recursive: true);
-        }
-    }
-
-    private static string CreateTempAssetsFile(object content)
+    internal static string CreateTempAssetsFile(object content)
     {
         var json = JsonSerializer.Serialize(content);
         return WriteTempFile(json);
     }
 
-    private static string WriteTempFile(string content)
+    internal static string WriteTempFile(string content)
     {
         var path = Path.Combine(Path.GetTempPath(), $"project-assets-test-{Guid.NewGuid():N}.json");
         File.WriteAllText(path, content);

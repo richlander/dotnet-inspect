@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using DotnetInspector.Core;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -594,6 +595,19 @@ public static class PlatformResolver
         bool useRuntimeAssemblies = false,
         string? platformVersion = null)
     {
+        // assemblyName reaches Path.Combine + File.Exists in FindAssemblyCaseInsensitive and in
+        // the runtime resolver, and callers pass names read straight out of untrusted assembly
+        // metadata — BuildTransitiveReferences forwards AssemblyRef.Name from the inspected PE.
+        // A reference named "../../../tmp/payload" therefore resolved to a file outside the
+        // framework directory and was reported as a platform assembly. Every caller passes a
+        // simple assembly name, never a path, so the rule is validated once here rather than at
+        // each of the twelve call sites: a per-caller guard is how this rule drifted into six
+        // divergent copies in the first place.
+        if (!HardenedPath.IsSafePathComponent(assemblyName))
+        {
+            return (null, null, null, $"'{assemblyName}' is not a valid assembly name.");
+        }
+
         // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
         // and provide a helpful error message
         var frameworkMatch = SharedFrameworkMappings
