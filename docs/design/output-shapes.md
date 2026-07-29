@@ -184,7 +184,14 @@ rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
 or an MSBuild comment is rewritten and the printed manifest silently stops
 matching the one the feed serves. Asking for a Markdown scope on a document that
 is not Markdown is refused, because both other answers -- the whole document, or
-an empty one -- report success for a question that was never answered.
+an empty one -- report success for a question that was never answered. The
+refusal belongs to the request, not to one flag, so `--content` refuses it on
+the same terms as `--print`.
+
+A document that receives no Markdown treatment is emitted verbatim, including
+any byte order mark it ships with. A caller printing a manifest in order to hash
+or diff it is asking for its bytes, and a document silently three bytes shorter
+than the one in the package is not that document.
 
 `-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not

@@ -1122,22 +1122,25 @@ public class PackageCommand
             return 1;
         }
 
-        var documents = new List<PrintableDocument>(rows.Count);
+        // Row identity is metadata, so the selection is resolved before any document is read and
+        // the payload of exactly one row is acquired -- one --print authorizes one fetch.
+        var printableRows = new List<PrintableRow>(rows.Count);
+        var sizeByPath = new Dictionary<string, long>(StringComparer.Ordinal);
         for (var i = 0; i < rows.Count; i++)
         {
-            var row = rows[i];
-            var file = ReadPackageFileContent(
-                extractPath,
-                result.PackageName ?? string.Empty,
-                result.Version ?? string.Empty,
-                new PackageFile(row.Path, row.Size),
-                options.ContentScope,
-                normalizeGithubLinksToRaw: !options.BrowsableUrls);
-            documents.Add(new PrintableDocument(i + 1, section, row.Path, row.Path, null, file.Content));
+            printableRows.Add(new PrintableRow(i + 1, section, rows[i].Path, rows[i].Path, null));
+            sizeByPath[rows[i].Path] = rows[i].Size;
         }
 
         return PrintProjectionOutput.Write(
-            documents,
+            printableRows,
+            row => ReadPackageFileContent(
+                extractPath,
+                result.PackageName ?? string.Empty,
+                result.Version ?? string.Empty,
+                new PackageFile(row.Path!, sizeByPath[row.Path!]),
+                options.ContentScope,
+                normalizeGithubLinksToRaw: !options.BrowsableUrls).Content,
             new PrintProjectionOptions(
                 options.PrintRow,
                 options.JsonOutput,
@@ -1615,24 +1618,56 @@ public class PackageCommand
         bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
-        var content = File.ReadAllText(fullPath);
 
         // Scoping and link rewriting are Markdown conventions. Applied to anything else they
         // corrupt the document the package shipped rather than presenting it, and the caller
-        // has no way to see that it happened.
-        if (MarkdownContent.IsMarkdown(file.Path))
-        {
-            content = MarkdownContent.ApplyScope(content, scope);
-            if (normalizeGithubLinksToRaw)
-                content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
-        }
+        // has no way to see that it happened. So Markdown documents are presented, and every
+        // other kind is passed through exactly as shipped -- including its byte order mark,
+        // which ReadAllText would otherwise consume and silently shorten the document by.
+        if (!MarkdownContent.IsMarkdown(file.Path))
+            return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, ReadTextPreservingPreamble(fullPath));
+
+        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        if (normalizeGithubLinksToRaw)
+            content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
+    }
+
+    /// <summary>
+    /// Reads text while keeping any byte order mark the file starts with. Decoding still detects
+    /// the encoding from that mark, so the text is decoded correctly; the mark is then restored
+    /// as a character so a verbatim document round-trips through the text pipeline with the same
+    /// bytes it shipped with rather than three fewer.
+    /// </summary>
+    private static string ReadTextPreservingPreamble(string fullPath)
+    {
+        var content = File.ReadAllText(fullPath);
+
+        Span<byte> head = stackalloc byte[3];
+        using var stream = File.OpenRead(fullPath);
+        var read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        var hasUtf8Preamble = read == 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
+
+        return hasUtf8Preamble ? '\uFEFF' + content : content;
     }
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+
+        // Same rule the print projection applies: a Markdown scope names a Markdown construct,
+        // and non-Markdown documents are passed through verbatim. Without this the scope would
+        // be accepted and then silently ignored, answering a --frontmatter request with the
+        // whole document -- a projection answered from a different payload than the one asked
+        // for, which is the defect class this command is being kept clear of.
+        if (options.ContentScope != PackageFileContentScope.Full
+            && rows.FirstOrDefault(row => row.Found && !MarkdownContent.IsMarkdown(row.Path)) is { } nonMarkdown)
+        {
+            Console.Error.WriteLine(
+                $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");
+            return 1;
+        }
 
         // A path that matches nothing still yields one row so the render can show it as absent.
         // Counting that row would answer "one file matched" when none did, so count found files,

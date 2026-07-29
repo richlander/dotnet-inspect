@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
@@ -11137,8 +11138,60 @@ public class CommandExecutionTests
 
             using var archive = ZipFile.OpenRead(packagePath);
             var entry = Assert.Single(archive.Entries, e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
-            using var reader = new StreamReader(entry.Open());
-            Assert.Equal(reader.ReadToEnd(), output);
+            using var entryStream = entry.Open();
+            using var shipped = new MemoryStream();
+            entryStream.CopyTo(shipped);
+
+            // Compare bytes, not decoded text. A StreamReader would strip a byte order mark from
+            // both sides and agree that a document three bytes shorter than the shipped one was
+            // identical to it, which is the assertion failing to test what the name claims.
+            Assert.Equal(shipped.ToArray(), Encoding.UTF8.GetBytes(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_KeepsAByteOrderMarkThePackageShipped()
+    {
+        // ReadAllText consumes a byte order mark, so a document that ships with one would be
+        // printed three bytes shorter than it exists in the package -- silently, and invisibly
+        // in any text comparison, because a StreamReader strips it from the expectation too.
+        // Real packages ship BOM'd manifests (EntityFramework does), and a caller printing a
+        // manifest to hash or diff it is asking for the bytes, not for an equivalent document.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        var nuspec = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.Bom.Nuspec</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+              </metadata>
+            </package>
+            """;
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var shipped = (byte[])[.. encoding.GetPreamble(), .. encoding.GetBytes(nuspec)];
+        File.WriteAllBytes(Path.Combine(packageRoot, "Test.Bom.Nuspec.nuspec"), shipped);
+        var packagePath = Path.Combine(tempDir, "Test.Bom.Nuspec.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            Assert.Equal(0xEF, shipped[0]);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(shipped, Encoding.UTF8.GetBytes(output));
+            Assert.StartsWith("\uFEFF", output, StringComparison.Ordinal);
         }
         finally
         {
