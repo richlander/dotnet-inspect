@@ -3,6 +3,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
+using ILInspector.CSharp;
 using Markout;
 
 // Parse --offline early (before command parsing) to configure HttpClientFactory
@@ -199,6 +200,11 @@ if (showInfo)
     MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
 }
 
+// Parse diagnostics quote argv, which an agent may have composed from a
+// hostile package or type name, so the quoted fragment is untrusted even
+// though the surrounding sentence is not.
+static string Contain(string text) => CSharpIdentifier.ContainRenderedText(text);
+
 static string FormatParseError(string message)
 {
     if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
@@ -209,12 +215,12 @@ static string FormatParseError(string message)
             "System.Int32" or "System.Nullable`1[System.Int32]" => "an integer",
             _ => "a valid value",
         };
-        return $"Error: Cannot parse value '{value}' for option '{option}' as {expected}.";
+        return $"Error: Cannot parse value '{Contain(value)}' for option '{Contain(option)}' as {expected}.";
     }
 
     return message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-        ? message
-        : $"Error: {message}";
+        ? $"Error: {Contain(message["Error:".Length..].TrimStart())}"
+        : $"Error: {Contain(message)}";
 }
 
 static bool TryParseCannotParseArgument(string message, out string value, out string option, out string type)

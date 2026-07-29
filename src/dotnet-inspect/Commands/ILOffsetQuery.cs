@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -63,7 +64,7 @@ internal static class ILOffsetQuery
     {
         if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
         {
-            WriteError(writeErrors, $"Error: Invalid --il-offset value '{options.ILOffsetParameter}'.");
+            WriteError(writeErrors, $"Error: Invalid --il-offset value '{CSharpIdentifier.ContainRenderedText(options.ILOffsetParameter ?? string.Empty)}'.");
             WriteError(writeErrors, "Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }

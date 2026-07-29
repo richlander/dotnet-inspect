@@ -1105,15 +1105,33 @@ public record AsyncMethodRow(
 [MarkoutSkipNull]
 public class ILOffsetSection
 {
-    public string? Method { get; init; }
-    public string? Token { get; init; }
+    private readonly string? _method;
+    private readonly string? _token;
+    private readonly string? _iLOffset;
+    private readonly string? _matchedOffset;
+    private readonly string? _file;
+    private readonly string? _url;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    /// <remarks>
+    /// <see cref="File"/> and <see cref="Url"/> are the two properties here
+    /// that a hostile assembly controls outright: both are reconstructed from
+    /// the PDB's document table and its SourceLink map, neither of which any
+    /// compiler validates. This section sits between two neighbours that
+    /// already contain every string they render, and was the one that did not,
+    /// which is the shape issue #3319 keeps rediscovering -- an obligation
+    /// spelled once per class disagrees with itself at the class nobody
+    /// revisited.
+    /// </remarks>
+    public string? Method { get => _method; init => _method = LibraryViewText.Contain(value); }
+    public string? Token { get => _token; init => _token = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("IL Offset")]
-    public string? ILOffset { get; init; }
+    public string? ILOffset { get => _iLOffset; init => _iLOffset = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Matched Offset")]
-    public string? MatchedOffset { get; init; }
-    public string? File { get; init; }
+    public string? MatchedOffset { get => _matchedOffset; init => _matchedOffset = LibraryViewText.Contain(value); }
+    public string? File { get => _file; init => _file = LibraryViewText.Contain(value); }
     public int? Line { get; init; }
-    public string? Url { get; init; }
+    public string? Url { get => _url; init => _url = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

@@ -365,6 +365,19 @@ public class UntrustedILOffsetContainmentTests
             FileName = "hostile.dll",
             ILOffset = new ILOffsetProjection
             {
+                // The Source Location section itself. It was the one class in
+                // this family that rendered its strings raw, and this gate --
+                // which enumerated every sibling below -- did not name it, so
+                // a hostile PDB document path and SourceLink URL reached the
+                // table uncontained while the gate stayed green. Enumerating
+                // by hand is what failed; the fields are listed here so the
+                // omission cannot repeat silently.
+                Method = H("METHOD"),
+                Token = H("TOKEN"),
+                ILOffset = H("ILOFFSET"),
+                MatchedOffset = H("MATCHEDOFFSET"),
+                File = H("FILE"),
+                Url = H("URL"),
                 MemberContext = new ILOffsetMemberContext
                 {
                     Type = H("TYPE"),
@@ -394,6 +407,8 @@ public class UntrustedILOffsetContainmentTests
                      "INJECTEDTYPE", "INJECTEDMEMBER", "INJECTEDSIG", "INJECTEDOPERAND",
                      "INJECTEDCAUGHT", "INJECTEDCALLEE", "INJECTEDRETCALLEE",
                      "INJECTEDALLOC", "INJECTEDCHURN", "INJECTEDSAFETY", "INJECTEDCOST",
+                     "INJECTEDMETHOD", "INJECTEDTOKEN", "INJECTEDILOFFSET",
+                     "INJECTEDMATCHEDOFFSET", "INJECTEDFILE", "INJECTEDURL",
                  })
         {
             Assert.Contains(marker, output, StringComparison.Ordinal);

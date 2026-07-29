@@ -27,6 +27,21 @@ public class CommandErrorOwnershipTests
     private static readonly Regex ErrorWrite =
         new(@"Console\s*\.\s*Error\s*\.\s*(WriteLine|Write)\s*\(\s*\$?@?""Error: ", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Catches a diagnostic whose severity is interpolated rather than spelled,
+    /// such as <c>$"{prefix}: Select value '{value}' not found."</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is not a hypothetical bypass. <c>SelectOutput</c> chose
+    /// <c>"Error"</c> or <c>"Warning"</c> into a local and interpolated it, so
+    /// it emitted a real <c>Error:</c> line that neither
+    /// <see cref="ErrorWrite"/> nor <c>CommandError</c> ever saw, and the
+    /// argument it quoted reached stderr uncontained. Severity now belongs to
+    /// the writer, and a call site that reaches for the old shape fails here.
+    /// </remarks>
+    private static readonly Regex ComposedPrefixWrite =
+        new(@"Console\s*\.\s*Error\s*\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
+
     [Fact]
     public void CommandError_IsTheOnlyWriterOfTheErrorPrefix()
     {
@@ -47,7 +62,7 @@ public class CommandErrorOwnershipTests
             string[] lines = File.ReadAllLines(path);
             for (int i = 0; i < lines.Length; i++)
             {
-                if (ErrorWrite.IsMatch(lines[i]))
+                if (ErrorWrite.IsMatch(lines[i]) || ComposedPrefixWrite.IsMatch(lines[i]))
                 {
                     offenders.Add($"{Path.GetRelativePath(root, path)}:{i + 1}: {lines[i].Trim()}");
                 }
@@ -73,6 +88,10 @@ public class CommandErrorOwnershipTests
         Assert.Matches(ErrorWrite, "Console . Error . Write ( $\"Error: spaced.\");");
         Assert.DoesNotMatch(ErrorWrite, "Console.Error.WriteLine(\"Note: not an error line.\");");
         Assert.DoesNotMatch(ErrorWrite, "CommandError.Write($\"Error: already routed.\");");
+
+        Assert.Matches(ComposedPrefixWrite, "Console.Error.WriteLine($\"{prefix}: Select value '{v}' not found.\");");
+        Assert.DoesNotMatch(ComposedPrefixWrite, "Console.Error.WriteLine($\"  {suggestion}\");");
+        Assert.DoesNotMatch(ComposedPrefixWrite, "CommandError.WriteWarning($\"{prefix}: routed.\");");
     }
 
     private static string RepositoryRoot()

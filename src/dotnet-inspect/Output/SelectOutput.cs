@@ -38,13 +38,24 @@ public static class SelectOutput
         if (result.Unresolved.Count == 0) return false;
 
         bool totalFailure = result.Sections is null or { Count: 0 };
-        string prefix = totalFailure ? "Error" : "Warning";
+
+        void WriteDiagnostic(string message)
+        {
+            if (totalFailure)
+            {
+                CommandError.Write(message);
+            }
+            else
+            {
+                CommandError.WriteWarning(message);
+            }
+        }
 
         foreach (var miss in result.Unresolved)
         {
             if (miss.IsGlob)
             {
-                Console.Error.WriteLine($"{prefix}: No sections match '{miss.Value}'.");
+                WriteDiagnostic($"No sections match '{miss.Value}'.");
                 if (totalFailure && miss.Suggestions.Count > 0)
                 {
                     Console.Error.WriteLine();
@@ -55,7 +66,7 @@ public static class SelectOutput
             }
             else
             {
-                Console.Error.WriteLine($"{prefix}: Select value '{miss.Value}' not found.");
+                WriteDiagnostic($"Select value '{miss.Value}' not found.");
                 if (miss.Suggestions.Count > 0)
                 {
                     Console.Error.WriteLine();

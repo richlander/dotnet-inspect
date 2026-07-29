@@ -30,6 +30,27 @@ internal static class CommandError
     public static void Write(Exception ex) => Write(ex.Message);
 
     /// <inheritdoc cref="Write(Exception)"/>
-    public static void Write(string message)
-        => Console.Error.WriteLine($"Error: {CSharpIdentifier.ContainRenderedText(message)}");
+    public static void Write(string message) => WriteDiagnostic("Error", message);
+
+    /// <summary>
+    /// Writes <c>Warning: &lt;message&gt;</c> to stderr with the message
+    /// contained.
+    /// </summary>
+    /// <remarks>
+    /// Severity belongs here rather than at the call site because a caller that
+    /// picks a severity tends to compose the whole prefix to do it. One such
+    /// site wrote <c>$"{prefix}: Select value '{value}' not found."</c>, which
+    /// never spells the literal <c>Error:</c> and so escaped both this writer
+    /// and the source gate that pins it, while still emitting a line the reader
+    /// cannot distinguish from a real diagnostic.
+    /// </remarks>
+    public static void WriteWarning(string message) => WriteDiagnostic("Warning", message);
+
+    /// <summary>
+    /// Writes <c>&lt;severity&gt;: &lt;message&gt;</c> with the message
+    /// contained. The severity is chosen from a closed set by the callers
+    /// above, never composed from caller text.
+    /// </summary>
+    private static void WriteDiagnostic(string severity, string message)
+        => Console.Error.WriteLine($"{severity}: {CSharpIdentifier.ContainRenderedText(message)}");
 }
