@@ -143,14 +143,6 @@ public sealed class CallGraphProjection
         _ => throw new NotSupportedException($"Unknown {nameof(GraphRowUnit)}: {RowUnit}."),
     };
 
-    /// <summary>
-    /// The row numbers of this graph's lowering, in lowering order. Row numbers are 1-based
-    /// and assigned by the projection, so a row keeps its number under filtering instead of
-    /// being re-derived from a position — the property <see cref="RowCount"/> alone cannot
-    /// carry (see the row-addressing contract established in #3404).
-    /// </summary>
-    public IReadOnlyList<int> RowNumbers => Enumerable.Range(1, RowCount).ToArray();
-
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
 
