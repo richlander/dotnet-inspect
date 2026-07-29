@@ -1302,7 +1302,35 @@ public class OutputFormatterTests
         Assert.True(output.IndexOf("## Beta", StringComparison.Ordinal) < output.IndexOf("## Alpha", StringComparison.Ordinal));
         Assert.True(output.IndexOf("## Alpha", StringComparison.Ordinal) < output.IndexOf("## Zebra", StringComparison.Ordinal));
         Assert.Contains("## Not a section", output);
-        Assert.Contains("B\n\n## Alpha", output);
+        // This claim is about which lines end up adjacent, so it is asserted against
+        // normalized text. Line endings are the separate claim below; a raw string
+        // literal carries whatever ending this source file is checked out with, so
+        // spelling "\n" here would silently assert the platform rather than the shape.
+        Assert.Contains("B\n\n## Alpha", output.ReplaceLineEndings("\n"));
+    }
+
+    /// <summary>
+    /// This is the gate for line-ending preservation in <c>MarkdownSectionOrderer</c>.
+    /// Reordering selects the order sections appear in; it is not licensed to rewrite CRLF
+    /// to LF, for the same reason row limiting is not — the same document would otherwise
+    /// differ byte for byte depending on whether a section order was supplied. The orderer
+    /// used to rejoin on a hardcoded '\n', which on Windows silently converted the whole
+    /// document and broke every caller that split it on <see cref="Environment.NewLine"/>.
+    /// </summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void MarkdownSectionOrderer_PreservesDocumentLineEndings(string newline)
+    {
+        string markdown = string.Join(newline, ["# Title", "", "intro", "", "## Zebra", "", "Z", "", "## Alpha", "", "A"]);
+
+        var output = MarkdownSectionOrderer.Apply(markdown, ["Alpha", "Zebra"]);
+
+        Assert.True(output.IndexOf("## Alpha", StringComparison.Ordinal) < output.IndexOf("## Zebra", StringComparison.Ordinal));
+        Assert.Equal(newline, MarkdownScan.DetectNewline(output));
+        Assert.Equal(
+            output.Split('\n').Length - 1,
+            output.Split(newline).Length - 1);
     }
 
     [Fact]
