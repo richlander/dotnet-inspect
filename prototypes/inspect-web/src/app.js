@@ -4457,6 +4457,28 @@ async function openRuntimePackFromHome() {
   loadSelectionData();
 }
 
+// The inspector-bot mascot series shown on interstitial (loading) screens. Each entry is a
+// color variant of the same dotnet-bot-inspector character living in /assets/bots/. To grow
+// the series, drop a new PNG in that folder and add its basename here — nothing else needed.
+const BOT_ART = [
+  "dotnet-inspect-bot-violet",
+  "dotnet-inspect-bot-teal",
+  "dotnet-inspect-bot-azure",
+  "dotnet-inspect-bot-magenta",
+  "dotnet-inspect-bot-crimson",
+  "dotnet-inspect-bot-amber"
+];
+
+// Picks a bot from the series deterministically from a key (the package/target being loaded),
+// so a given interstitial keeps ONE bot across its re-renders (the loading message ticks) while
+// different targets show different bots — the whole series surfaces as the user moves around.
+function botArtForKey(key) {
+  const text = String(key || "dotnet-inspect");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  return `/assets/bots/${BOT_ART[hash % BOT_ART.length]}.png`;
+}
+
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
@@ -4475,7 +4497,7 @@ function renderLoading() {
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
-        : `<div class="load-progress"><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
+        : `<div class="load-progress"><img class="loading-bot" src="${botArtForKey(state.loadingSubtitle || state.requestedPackage)}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {

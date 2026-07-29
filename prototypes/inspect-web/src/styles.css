@@ -995,6 +995,14 @@ kbd {
 .loading-brand { position: fixed; top: 20px; left: 22px; color: var(--muted); font: 13px var(--mono); }
 .loading-brand span { color: var(--accent); font-size: 19px; }
 .load-progress { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.loading-bot {
+  width: 200px; height: 200px; object-fit: contain;
+  margin-bottom: 6px;
+  animation: bot-bob 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 12px 22px rgba(76, 44, 168, .16));
+}
+@keyframes bot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+@media (prefers-reduced-motion: reduce) { .loading-bot { animation: none; } }
 .load-progress strong { font: 13px var(--mono); font-weight: 500; }
 .load-progress small { color: var(--dim); font: 11px var(--mono); }
 .loader { width: 26px; height: 26px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
