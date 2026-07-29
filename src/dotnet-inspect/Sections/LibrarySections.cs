@@ -520,10 +520,13 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
-        // The transitive closure grows without a meaningful bound, and building it resolves and
-        // reads every referenced assembly recursively, so the tree is declared Verbose/Unbounded:
-        // reachable by explicit selection, never auto-run by a verbosity the caller did not ask
-        // for. It also restates what References already shows, plus the closure.
+        // The transitive closure grows without a meaningful bound, so it is Verbose/Unbounded:
+        // no verbosity roots it, including -v:d. It deliberately does NOT set ExplicitOnly,
+        // unlike Unsafe Members and Top Leverage: under the current model @All membership and
+        // -D listing are the same predicate (SectionPipeline.IsAllMember), so ExplicitOnly
+        // would drop the section from discovery — and discovery listing a section that -S
+        // could not deliver is the defect this change exists to fix. The cost of that choice
+        // is that -S @All, an explicit request for every listed section, now includes it.
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => ScannerTransitiveRefs;

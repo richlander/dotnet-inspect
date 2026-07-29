@@ -6873,11 +6873,18 @@ public class CommandExecutionTests
             "library", "System.Text.Json", "-v:d", "--tips", "q");
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-D", "--tips", "q");
+        var (allExit, allOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@All", "--tips", "q");
 
         Assert.Equal(0, detailExit);
         Assert.DoesNotContain("## Dependencies", detailOutput);
         Assert.Equal(0, discoverExit);
         Assert.Contains("| Dependencies | section", discoverOutput);
+        // @All membership and -D listing are the same predicate today
+        // (SectionPipeline.IsAllMember), so keeping the section discoverable necessarily
+        // roots it under @All. Pinned so the coupling is a decision, not a surprise.
+        Assert.Equal(0, allExit);
+        Assert.Contains("## Dependencies", allOutput);
     }
 
     [Fact]
