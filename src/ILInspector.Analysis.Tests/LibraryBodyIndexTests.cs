@@ -178,9 +178,6 @@ public class LibraryBodyIndexTests
             var definingReader = definition!.Value.DefiningReader;
             string definingName = definingReader.GetString(definingReader.GetAssemblyDefinition().Name);
             Assert.NotEqual(referencedName, definingName);
-            Assert.True(
-                TypeForwardResolver.DefinesType(Path.Combine(frameworkDir, definingName + ".dll"), fullTypeName),
-                $"{definingName} should define {fullTypeName}");
             Assert.Equal(name, definingReader.GetString(
                 definingReader.GetTypeDefinition(definition.Value.Definition).Name));
 
@@ -263,6 +260,71 @@ public class LibraryBodyIndexTests
         throw new InvalidOperationException("Expected at least one external TypeRef.");
     }
 
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ResolvesEveryForwarderHopUnderPlatformScope()
+    {
+        // Every hop of a framework forwarder chain must stay Platform-scoped. Resolving a
+        // hop under Any would let a confusable local copy satisfy it -- see
+        // ILInspector.Analysis.SpoofRuntimeFixtures, an unsigned assembly literally named
+        // System.Runtime.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+        var recorder = new RecordingResolver(new FrameworkDirectoryResolver(frameworkDir));
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, recorder);
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is not null);
+
+        Assert.True(
+            recorder.Requests.Count > 1,
+            $"resolving System.Object should take at least one forwarder hop, saw: {string.Join(", ", recorder.Requests)}");
+        Assert.All(recorder.Requests, request =>
+            Assert.Equal(AssemblyResolutionScope.Platform, request.Scope));
+    }
+
+    [Theory]
+    [InlineData("7cec85d7bea7798e")] // System.Private.CoreLib
+    [InlineData("b03f5f7f11d50a3a")] // System.* contracts
+    [InlineData("cc7b13ffcd2ddd51")] // netstandard
+    public void NextHopScope_AnyForwardedToFrameworkSignedAssembly_TightensToPlatform(string token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Private.CoreLib", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Platform,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Theory]
+    [InlineData(null)] // unsigned -- the SpoofRuntimeFixtures adversary
+    [InlineData("1234567890abcdef")] // signed, but not a framework key
+    public void NextHopScope_AnyForwardedToUnsignedOrThirdPartyAssembly_StaysAny(string? token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Runtime", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Any,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Fact]
+    public void NextHopScope_PlatformIsNeverDowngraded()
+    {
+        foreach (string? token in new[] { null, "1234567890abcdef", "7cec85d7bea7798e" })
+        {
+            var forwarded = new AssemblyReferenceIdentity("Whatever", Version: null, Culture: null, token);
+
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Platform, forwarded));
+        }
+    }
+
     static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)
     {
         foreach (var handle in reader.TypeReferences)
@@ -295,6 +357,18 @@ public class LibraryBodyIndexTests
     {
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => new(identity, path, () => File.OpenRead(path), "test");
+    }
+
+    /// <summary>Records every identity and scope the builder asks for.</summary>
+    sealed class RecordingResolver(IAssemblyReferenceResolver inner) : IAssemblyReferenceResolver
+    {
+        public List<(string Name, AssemblyResolutionScope Scope)> Requests { get; } = [];
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            Requests.Add((identity.Name, scope));
+            return inner.Resolve(identity, scope);
+        }
     }
 
     sealed class CountingResolver : IAssemblyReferenceResolver

@@ -2160,10 +2160,25 @@ public sealed class LibraryBodyIndex
                 if (!visited.Add(forwarded))
                     return null;
                 identity = forwarded;
+                scope = NextHopScope(scope, forwarded);
             }
 
             return null;
         }
+
+        /// <summary>
+        /// Scope for the next forwarder hop. A forwarder must not launder a platform
+        /// assembly into an unconstrained lookup: an <see cref="AssemblyResolutionScope.Any"/>
+        /// reference can forward into a framework-signed assembly, and resolving that hop
+        /// under <c>Any</c> would let a confusable local copy satisfy it. Scope only ever
+        /// tightens, never the reverse. Gated by <c>NextHopScope_*</c> tests.
+        /// </summary>
+        internal static AssemblyResolutionScope NextHopScope(
+            AssemblyResolutionScope current, AssemblyReferenceIdentity forwarded)
+            => current == AssemblyResolutionScope.Any
+                && FrameworkAssemblyKeys.IsFrameworkToken(forwarded.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : current;
 
         static TypeDefinitionHandle? FindTopLevelTypeDefinition(MetadataReader reader, string ns, string name)
         {
