@@ -221,7 +221,11 @@ public class PackageCommand
 
                         var unlistedVector = PackageVersionVector.CreateListingAware(
                             range!, rangeListings, options.IncludePrerelease);
-                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue);
+                        // Materialized once: counting a lazy sequence and then re-enumerating it
+                        // for the render is how a count starts to disagree with its payload.
+                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
+                        if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
+                            return rangeListingExit;
                         OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
                         return 0;
                     }
@@ -369,6 +373,8 @@ public class PackageCommand
                     return 1;
                 }
 
+                if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
+                    return listingExit;
                 OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }

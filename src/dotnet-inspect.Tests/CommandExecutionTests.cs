@@ -3991,6 +3991,25 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Versions_IncludeUnlisted_Count_MatchesTheListingItRenders()
+    {
+        // --include-unlisted renders through a separate listing path, so it needs its own
+        // projection dispatch; without one the count is dropped and the audit fails the run.
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--count", "--tips", "q");
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+
+        var rendered = rowsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        Assert.True(rendered > 0, "the probe must render rows, or it proves nothing.");
+        Assert.Equal(rendered, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task Discover_Print_RefusesInsteadOfPrintingTheGroundingDocument()
     {
         // The grounding branch sat ahead of the discovery branch, so --print fell into it and
