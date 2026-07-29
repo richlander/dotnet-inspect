@@ -214,8 +214,8 @@ public class ScanTokenTests
     public void VerbatimLiteral_EndingALineOnAnEscapedQuote_StaysOpen()
     {
         Assert.Equal(
-            "W:var W:s P:= S:@\"ends with quote\"\" S:still literal\" P:;",
-            Render("var s = @\"ends with quote\"\"", "still literal\";"));
+            "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:@\"ends with quote\"\":d0:b0 S:still literal\":d0:b0 P:;:d0:b0",
+            RenderState("var s = @\"ends with quote\"\"", "still literal\";"));
     }
 
     [Theory]
@@ -562,6 +562,7 @@ public class ScanTokenTests
         char[] alphabet = ['$', '@', '"', '{', '}', '\\', ' ', 'a'];
         var buffer = new char[6];
         var sweptChars = new HashSet<char>();
+        var sweptInputs = new HashSet<string>();
         int checkedCount = 0;
 
         void Walk(int at, int length)
@@ -574,6 +575,8 @@ public class ScanTokenTests
 
                 foreach (char swept in lines[0])
                     sweptChars.Add(swept);
+
+                sweptInputs.Add(lines[0]);
 
                 if (gap is not null)
                     Assert.Fail($"input \"{lines[0]}\": {gap}");
@@ -601,6 +604,31 @@ public class ScanTokenTests
         // and by the value the scanner actually received rather than the one declared above, so
         // that a substitution between the declaration and the sweep is visible too.
         Assert.Equal(" \"$@\\a{}", string.Concat(sweptChars.Order()));
+
+        // Nor is the character set the input set. Substituting one swept string for another of
+        // the same length over the same characters leaves every count and the set above intact
+        // while dropping that string's state, so pin the strings themselves, derived from the
+        // pinned alphabet rather than read back from the walk that produced them.
+        Assert.Equal(AllStringsOver(" \"$@\\a{}", 6), sweptInputs);
+    }
+
+    /// <summary>
+    /// Every string of length 1..<paramref name="upTo"/> over <paramref name="alphabet"/>, built
+    /// from the pinned literal its caller passes rather than read back from the generator that
+    /// produced the sweep. A sweep that pins only its size, its character set and its result
+    /// totals does not pin the strings it scanned: one input can be exchanged for another that
+    /// is the same length and draws on the same characters, leaving every count identical while
+    /// the state that input existed for is never reached (adversarial review, GPT).
+    /// </summary>
+    private static HashSet<string> AllStringsOver(string alphabet, int upTo)
+    {
+        var singles = alphabet.Select(c => c.ToString()).ToArray();
+        var byLength = new List<string[]> { singles };
+
+        for (int n = 1; n < upTo; n++)
+            byLength.Add([.. byLength[n - 1].SelectMany(_ => singles, (prefix, next) => prefix + next)]);
+
+        return byLength.SelectMany(x => x).ToHashSet();
     }
 
     /// <summary>
@@ -626,6 +654,7 @@ public class ScanTokenTests
         char[] alphabet = ['$', '@', '"', '{', '}', '\\', '/', '*', 'a'];
         var buffer = new char[4];
         var sweptChars = new HashSet<char>();
+        var sweptInputs = new HashSet<string>();
         int known = 0, unknown = 0, inputsWithUnknown = 0, inputs = 0;
 
         void Walk(int at, int length)
@@ -638,6 +667,8 @@ public class ScanTokenTests
 
                 foreach (char swept in lines[0])
                     sweptChars.Add(swept);
+
+                sweptInputs.Add(lines[0]);
 
                 int lost = tokens.Count(t => !t.DepthKnown);
                 unknown += lost;
@@ -662,8 +693,10 @@ public class ScanTokenTests
         // Both readings are pinned, so the field cannot be moved in either direction: pinning
         // only the unknown tokens would let every token become knowable, and pinning only the
         // known ones would let every token lose its place.
+        Assert.Equal(4, buffer.Length);
         Assert.Equal(9 + 81 + 729 + 6561, inputs);
         Assert.Equal("\"$*/@\\a{}", string.Concat(sweptChars.Order()));
+        Assert.Equal(AllStringsOver("\"$*/@\\a{}", 4), sweptInputs);
         Assert.Equal(17_602, known);
         Assert.Equal(4_452, unknown);
         Assert.Equal(1_996, inputsWithUnknown);
@@ -719,8 +752,7 @@ public class ScanTokenTests
     }
 
     /// <summary>
-    /// Gates every <c>[Theory]</c> in this file against having a row exchanged for a copy of one
-    /// of its siblings.
+    /// Pins the rows of every <c>[Theory]</c> in this file by value.
     /// <para>
     /// xUnit counts rows, not distinct rows, so replacing one <c>[InlineData]</c> with a
     /// duplicate of another leaves the reported test count unchanged and every assertion
@@ -732,16 +764,26 @@ public class ScanTokenTests
     /// (adversarial review, Gemini).
     /// </para>
     /// <para>
-    /// This is checked here rather than by splitting that one theory into facts, because the
-    /// weakness belongs to the shape and not to the theory that happened to expose it: any
-    /// theory in this file, including ones not yet written, is open to the same substitution.
-    /// The totals are pinned so the gate cannot go quiet by finding nothing to check.
+    /// Requiring the rows merely to be <em>distinct</em> does not close that: the same two rows
+    /// can be replaced by two different variations of the verbatim row, which are distinct
+    /// strings and drop exactly as much (adversarial review, Gemini, again). Distinctness is a
+    /// property of the spelling and the coverage that matters is a property of the state each
+    /// row reaches, and no mechanical check of the rows can bridge that. So the rows are pinned
+    /// the way this file pins every other hand-written list it depends on — the delimiter
+    /// alphabet, the carried-construct openers — by value.
+    /// </para>
+    /// <para>
+    /// This is checked here rather than by splitting the theory that exposed it into facts,
+    /// because the weakness belongs to the shape and not to that theory: every theory in this
+    /// file, including ones not yet written, is open to the same substitution. The totals are
+    /// pinned as well, so the gate cannot go quiet by finding nothing to check.
     /// </para>
     /// </summary>
     [Fact]
     public void EveryTheoryRow_DiffersFromItsSiblings()
     {
         int theories = 0, rows = 0;
+        var pinned = new List<string>();
 
         foreach (var method in typeof(ScanTokenTests).GetMethods().OrderBy(m => m.Name))
         {
@@ -758,13 +800,40 @@ public class ScanTokenTests
             theories++;
             rows += data.Count;
 
-            Assert.Equal(
-                (method.Name, data.Count),
-                (method.Name, data.Distinct().Count()));
+            foreach (var row in data)
+                pinned.Add($"{method.Name}\u001f{row}");
         }
 
         Assert.Equal(6, theories);
         Assert.Equal(24, rows);
+        Assert.Equal(
+            [
+                "CommentOpenerInsideALiteral_IsLiteralText\u001fvar s = \"/* not a comment */\";\u001fW:var W:s P:= S:\"/* not a comment */\" P:;",
+                "CommentOpenerInsideALiteral_IsLiteralText\u001fvar s = \"http://not/a/comment\";\u001fW:var W:s P:= S:\"http://not/a/comment\" P:;",
+                "EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent\u001fvar s = @$\"a{{b}}c\";\u001fW:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:@$\"a{{b}}c\":d0:b0 P:;:d0:b0",
+                "EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent\u001fvar s = $\"a{{b}}c\";\u001fW:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:$\"a{{b}}c\":d0:b0 P:;:d0:b0",
+                "EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent\u001fvar s = $@\"a{{b}}c\";\u001fW:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:$@\"a{{b}}c\":d0:b0 P:;:d0:b0",
+                "EveryCharacterOfALine_IsAccountedFor\u001f[A] void M() { }",
+                "EveryCharacterOfALine_IsAccountedFor\u001f#if DEBUG",
+                "EveryCharacterOfALine_IsAccountedFor\u001fchar c = '\\\\';",
+                "EveryCharacterOfALine_IsAccountedFor\u001ff(a => a.B<C>(1_000, 0xFF, 1.5e3));",
+                "EveryCharacterOfALine_IsAccountedFor\u001fint /**/ x;",
+                "EveryCharacterOfALine_IsAccountedFor\u001fint x; // c",
+                "EveryCharacterOfALine_IsAccountedFor\u001fvar s = \"unterminated",
+                "EveryCharacterOfALine_IsAccountedFor\u001fvar s = @\"a\"\"b\";",
+                "EveryCharacterOfALine_IsAccountedFor\u001fvar s = $\"a{b}c\";",
+                "EveryCharacterOfALine_IsAccountedFor\u001fvar s = $$\"\"\"a{{b}}c\"\"\";",
+                "EveryCharacterOfALine_IsAccountedFor\u001fvar v = @;",
+                "EveryCharacterOfALine_IsAccountedFor\u001fx = y is not null ? 1 : 2;",
+                "LiteralsWithoutEscapes_TreatABackslashAsContent\u001fvar s = \"\"\"{\\\"\"\"; int after = 1;\u001fW:var W:s P:= S:\"\"\"{\\\"\"\" P:; W:int W:after P:= W:1 P:;",
+                "LiteralsWithoutEscapes_TreatABackslashAsContent\u001fvar s = @\"{\\\"; int after = 1;\u001fW:var W:s P:= S:@\"{\\\" P:; W:int W:after P:= W:1 P:;",
+                "LiteralsWithoutEscapes_TreatABackslashAsContent\u001fvar s = $\"\"\"{b}\\\"\"\";\u001fW:var W:s P:= S:$\"\"\"{ W:b S:}\\\"\"\" P:;",
+                "QuoteInsideAComment_DoesNotOpenALiteral\u001f/* a \" quote */ int x;\u001fC:/* a \" quote */ W:int W:x P:;",
+                "QuoteInsideAComment_DoesNotOpenALiteral\u001f// a \" quote in a comment\u001fC:// a \" quote in a comment",
+                "VerbatimAndInterpolatedInEitherOrder_StillInterpolates\u001fvar s = @$\"a{b}c\";\u001fW:var W:s P:= S:@$\"a{ W:b S:}c\" P:;",
+                "VerbatimAndInterpolatedInEitherOrder_StillInterpolates\u001fvar s = $@\"a{b}c\";\u001fW:var W:s P:= S:$@\"a{ W:b S:}c\" P:;",
+            ],
+            pinned.Order());
 
         static IEnumerable<string> Flatten(CustomAttributeTypedArgument argument) =>
             argument.Value is IReadOnlyCollection<CustomAttributeTypedArgument> nested
@@ -945,8 +1014,8 @@ public class ScanTokenTests
     public void EscapedQuoteInsideALiteral_DoesNotCloseIt()
     {
         Assert.Equal(
-            "W:var W:s P:= S:\"a\\\"b\" P:; W:int W:y P:;",
-            Render("var s = \"a\\\"b\"; int y;"));
+            "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:\"a\\\"b\":d0:b0 P:;:d0:b0 W:int:d0:b0 W:y:d0:b0 P:;:d0:b0",
+            RenderState("var s = \"a\\\"b\"; int y;"));
     }
 
     /// <summary>
