@@ -930,9 +930,12 @@ public class ScanTokenTests
     {
         const string Alphabet = "#/*'\"@$\\{}a";
         int checked_ = 0;
+        var opened = new HashSet<string>();
 
         void Check(string[] content)
         {
+            opened.Add(content[0]);
+
             var bare = BodySlicer.ScanTokens(content);
             string[] wrapped = ["{", "[", .. content];
             var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
@@ -1016,6 +1019,13 @@ public class ScanTokenTests
 
         // The sweep is only as good as its size; pin it so a shrunken alphabet is visible.
         Assert.Equal(16_104 + (132 * 132) + (9 * 12 * 132), checked_);
+
+        // Size and seed quality are still not the same as reach. A seed only does its work
+        // when it opens the *first* line, because scanner state runs forward: swapping the two
+        // lines preserves every pairing and every assertion above while removing the carried
+        // raw literal entirely (adversarial review, GPT). Pin that each opener was actually
+        // scanned in the position that carries.
+        Assert.All(openers, opener => Assert.Contains(opener, opened));
     }
 
 
