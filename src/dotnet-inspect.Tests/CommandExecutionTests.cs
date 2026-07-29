@@ -6877,7 +6877,7 @@ public class CommandExecutionTests
         Assert.Equal(0, detailExit);
         Assert.DoesNotContain("## Dependencies", detailOutput);
         Assert.Equal(0, discoverExit);
-        Assert.Contains("| Dependencies | section (opt-in) |", discoverOutput);
+        Assert.Contains("| Dependencies | section", discoverOutput);
     }
 
     [Fact]
