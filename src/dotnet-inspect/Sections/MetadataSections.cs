@@ -1,3 +1,4 @@
+using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 
 namespace DotnetInspector.Sections;
@@ -58,8 +59,53 @@ public static class MetadataSections
             CanRender = HasMetadata,
         });
 
-        foreach (var table in ILInspector.Metadata.MetadataTableProjector.ProjectedTables)
+        // The coordinate-scoped section. Applicable exactly when --heap supplied a coordinate, so
+        // it is listed by -D only then — the same discipline the IL-offset coordinate sections
+        // follow, and for the same reason: a section with no coordinate has nothing to render, and
+        // listing it would advertise a view the command cannot produce.
+        pipeline.Add(new SectionEntry<LibraryInspection>
         {
+            Name = MetadataSectionNames.Heap,
+            IsExpensive = false,
+            ExplicitOnly = true,
+            ListedInCatalog = false,
+            // One value at one address: a fixed shape, and cheap — the read is by address and
+            // touches no table.
+            SizeClass = SectionSizeClass.Fixed,
+            Cost = SectionCost.NetworkFree,
+            ScannerKey = LibrarySections.ScannerMetadata,
+            HasExplicitApplicability = true,
+            IsApplicable = static model => model.MetadataHeap is not null,
+            CanRender = static model => model.MetadataHeap is not null,
+        });
+
+        foreach (var heap in MetadataHeapCoordinate.Heaps)
+        {
+            var kind = heap;
+
+            pipeline.Add(new SectionEntry<LibraryInspection>
+            {
+                Name = MetadataSectionNames.ForHeap(kind),
+                IsExpensive = false,
+                ExplicitOnly = true,
+                ListedInCatalog = false,
+                SizeClass = SectionSizeClass.Verbose,
+                // Listing a heap costs a projection of every table — an entry is referenced by the
+                // image, not by a subset of it — and a string heap can hold tens of thousands of
+                // entries. Unbounded is the honest classification.
+                Cost = SectionCost.Unbounded,
+                ScannerKey = LibrarySections.ScannerMetadata,
+                // Effectiveness follows the heap's size from the cheap image scan. Probing by
+                // rendering would project every table during discovery, paying the section's whole
+                // cost just to decide whether to list it.
+                ProbeEffectiveness = false,
+                HasExplicitApplicability = true,
+                IsApplicable = model => HasHeapBytes(model, kind),
+                CanRender = model => HasHeapBytes(model, kind),
+            });
+        }
+
+        foreach (var table in ILInspector.Metadata.MetadataTableProjector.ProjectedTables)        {
             // Captured per iteration so each entry's predicate closes over its own table rather
             // than the loop's final value.
             var index = table;
@@ -90,6 +136,28 @@ public static class MetadataSections
     }
 
     static bool HasMetadata(LibraryInspection model) => model.MetadataOverview is not null;
+
+    /// <summary>
+    /// True when <paramref name="heap"/> holds any bytes in this image. Heap sizes come from the
+    /// cheap image scan, so this never lists entries.
+    ///
+    /// Size, not listability, is the applicability test — including for <c>#US</c>, which cannot
+    /// be enumerated at all. An image that stores user strings has a <c>#US</c> heap worth naming,
+    /// and its section says why its entries cannot be listed and how to read one by address. An
+    /// image with no user strings has a zero-byte heap and no section, which is the honest answer
+    /// in both directions.
+    /// </summary>
+    static bool HasHeapBytes(LibraryInspection model, ILInspector.Metadata.HeapKind heap)
+    {
+        if (model.MetadataOverview is not { } overview)
+            return false;
+
+        foreach (var summary in overview.Heaps)
+            if (summary.Heap == heap)
+                return summary.SizeInBytes > 0;
+
+        return false;
+    }
 
     /// <summary>
     /// True when <paramref name="table"/> has at least one row in this image. Row counts come from

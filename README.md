@@ -115,7 +115,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
-| Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
+| Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
 ## Command inventory
@@ -377,6 +377,31 @@ dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --rows 20
 dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --columns Name --tsv
 dotnet-inspect library MyLib.dll -S "Metadata: MethodDef" --tsv --rows 100..199
 ```
+
+### Heaps
+
+The four ECMA-335 heaps get sections of their own (`Metadata: #Strings`,
+`Metadata: #Blob`, `Metadata: #GUID`, `Metadata: #US`), and a single address is
+addressable with the `--heap` coordinate carrier:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Metadata: #Strings" --rows 20
+dotnet-inspect library MyLib.dll --heap "#Strings:0x1a4"
+```
+
+A heap name may be written with or without its `#`, and an address is decimal
+unless it carries an explicit `0x` — a bare `1a4` is rejected rather than
+guessed at.
+
+A heap is not a table, and the listings say so rather than implying a
+completeness they cannot deliver. `#Strings` and `#Blob` are length-prefixed
+byte soup with no index, so what a listing shows is the distinct values the
+projected table rows point at, address-ordered, with a `Refs` count. `#GUID` is
+listed completely, because its entries are fixed 16-byte records. `#US` lists
+nothing at all — no table column points into it, since its references are
+`ldstr` operands inside method bodies — but it keeps its section so its size
+stays visible and any address in it stays readable with `--heap`. Every listing
+renders its coverage as a caveat.
 
 ## Output and querying
 
