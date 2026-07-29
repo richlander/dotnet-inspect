@@ -1015,6 +1015,10 @@ function updateCommandSuggestions() {
 }
 
 function render() {
+  // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
+  // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
+  const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
+  if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
     return;
@@ -4469,14 +4473,16 @@ const BOT_ART = [
   "dotnet-inspect-bot-amber"
 ];
 
-// Picks a bot from the series deterministically from a key (the package/target being loaded),
-// so a given interstitial keeps ONE bot across its re-renders (the loading message ticks) while
-// different targets show different bots — the whole series surfaces as the user moves around.
-function botArtForKey(key) {
-  const text = String(key || "dotnet-inspect");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  return `/assets/bots/${BOT_ART[hash % BOT_ART.length]}.png`;
+// One random bot is chosen per interstitial *appearance* and held for the life of that
+// appearance (the loading message ticks re-render, but the bot must not flicker). It is reset
+// to null whenever a non-loading view renders (see render()), so the NEXT loading screen picks
+// a fresh random bot.
+let loadingBotSrc = null;
+function interstitialBotSrc() {
+  if (!loadingBotSrc) {
+    loadingBotSrc = `/assets/bots/${BOT_ART[Math.floor(Math.random() * BOT_ART.length)]}.png`;
+  }
+  return loadingBotSrc;
 }
 
 function renderLoading() {
@@ -4497,7 +4503,7 @@ function renderLoading() {
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
-        : `<div class="load-progress"><img class="loading-bot" src="${botArtForKey(state.loadingSubtitle || state.requestedPackage)}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
+        : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {
