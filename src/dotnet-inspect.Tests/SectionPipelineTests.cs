@@ -3326,9 +3326,37 @@ public class SectionPipelineTests
 
         var resolved = nodes.Where(n => n.Path is not null).ToList();
 
+        // The expectation is computed HERE, from roots this test enumerates itself, rather than by
+        // calling the classifier again. Asking ProvenanceOf for both sides compared the classifier
+        // with itself: `return "platform";` satisfied it, because both sides moved together. An
+        // independent oracle is what makes the two comparable.
+        var platformRoots = PlatformResolver.GetAllSharedDirectories()
+            .Concat(PlatformResolver.GetAllPacksDirectories())
+            .Where(Directory.Exists)
+            .Select(d => Path.TrimEndingDirectorySeparator(Path.GetFullPath(d)) + Path.DirectorySeparatorChar)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(platformRoots);
+
+        var comparison = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        // Deliberately no anonymous type here. Anonymous types are emitted ahead of the declared
+        // ones, so introducing one anywhere in this project displaces MethodDef 0x06000001 -- and
+        // LibraryCommand_IlOffsetsFile_* hard-code that token against this very assembly, so they
+        // failed with an unrelated member. Tracked separately; this local function keeps the
+        // trap from being re-sprung here.
+        string ExpectedFor(string path) =>
+            platformRoots.Any(r => Path.GetFullPath(path).StartsWith(r, comparison))
+                ? "platform"
+                : "local";
+
         var disagreements = resolved
-            .Where(n => n.ResolvedFrom != LibraryMetadataService.ProvenanceOf(n.Path!))
-            .Select(n => $"{n.Name} (depth {n.Depth}) reported {n.ResolvedFrom} for {n.Path}")
+            .Where(n => n.ResolvedFrom != ExpectedFor(n.Path!))
+            .Select(n => $"{n.Name} (depth {n.Depth}) reported {n.ResolvedFrom}, "
+                + $"but its path implies {ExpectedFor(n.Path!)}: {n.Path}")
             .ToList();
 
         Assert.True(

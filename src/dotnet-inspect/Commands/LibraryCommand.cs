@@ -1692,8 +1692,7 @@ public class LibraryCommand
     /// </remarks>
     internal static void WarnDiscoveryWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
-        => WarnSelectedSectionsWithoutRowProjection(options.Discover, pipeline,
-            "Render it with -S instead.");
+        => WarnResolvedDiscoveryWithoutRowProjection(options, pipeline, pipeline.AllSectionNames);
 
     /// <inheritdoc cref="WarnDiscoveryWithoutRowProjection(LibraryOptions, SectionPipeline{LibraryInspection})"/>
     /// <param name="effective">
@@ -1702,16 +1701,30 @@ public class LibraryCommand
     internal static void WarnDiscoveryWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, IReadOnlyCollection<string> effective)
     {
-        // Resolved through SelectResolver, the same matcher DiscoverOutput uses to turn a
-        // selector into section names. Comparing the raw selectors against `effective` by name
-        // silently skipped every glob: `-D Dependencies` warned, while `-D 'Depend*'` -- which
-        // discovery resolves to exactly the same section -- printed nothing at all and exited 0,
-        // which is the success-shaped empty output this note exists to prevent. Matching here the
-        // way discovery matches is what keeps the two from disagreeing again.
+        WarnResolvedDiscoveryWithoutRowProjection(options, pipeline, effective);
+    }
+
+    /// <summary>
+    /// Resolves the discovery selectors against <paramref name="candidates"/> before asking which
+    /// of them are tree-shaped.
+    /// </summary>
+    /// <remarks>
+    /// Resolution goes through <see cref="SelectResolver"/>, the same matcher
+    /// <c>DiscoverOutput</c> uses to turn a selector into section names. Comparing the raw
+    /// selectors by name silently skipped every glob: <c>-D Dependencies</c> warned, while
+    /// <c>-D 'Depend*'</c> -- which discovery resolves to exactly the same section -- printed
+    /// nothing at all and exited 0, the success-shaped empty output this note exists to prevent.
+    /// Both call sites match the way discovery matches, so the two cannot disagree again; they
+    /// differ only in the candidate set, because static schema discovery lists the whole catalog
+    /// while effective discovery is narrowed by <c>-S</c>.
+    /// </remarks>
+    private static void WarnResolvedDiscoveryWithoutRowProjection(LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline, IReadOnlyCollection<string> candidates)
+    {
         List<string>? discovered = null;
         if (options.Discover is { Length: > 0 })
         {
-            var names = effective.ToArray();
+            var names = candidates.ToArray();
             discovered = options.Discover
                 .SelectMany(selector => SelectResolver.ResolveSingle(selector, names, singleGlob: true).Matches)
                 .Distinct(StringComparer.OrdinalIgnoreCase)

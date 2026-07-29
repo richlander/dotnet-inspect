@@ -7725,15 +7725,24 @@ public partial class CommandExecutionTests
         // -- the same success-shaped empty output, reachable by a spelling the note did not
         // recognise. It now resolves selectors through SelectResolver, the matcher discovery
         // itself uses, so the two cannot disagree about what a selector matched.
-        var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "Depend*", "--tips", "q");
+        // --schema is covered too because it is a SEPARATE call site: static schema discovery
+        // returns before the effective path is ever built, and it was still comparing raw
+        // selectors after the effective path had been fixed. Both now resolve the same way,
+        // differing only in the candidate set -- the whole catalog here, the -S-narrowed set
+        // there -- because static discovery ignores -S.
+        foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
+        {
+            string[] args = ["library", "System.Text.Json", "-D", "Depend*", .. extra, "--tips", "q"];
+            var (exit, output, error) = await RunAppAsync(args);
 
-        Assert.Equal(0, exit);
-        Assert.Contains("not row-shaped", error, StringComparison.Ordinal);
-        Assert.Contains("Dependencies", error, StringComparison.Ordinal);
-        Assert.True(
-            error.Length > 0 || output.Length > 0,
-            "A glob that matches a tree-shaped section must explain itself rather than exit 0 silently.");
+            Assert.Equal(0, exit);
+            Assert.Contains("not row-shaped", error, StringComparison.Ordinal);
+            Assert.Contains("Dependencies", error, StringComparison.Ordinal);
+            Assert.True(
+                error.Length > 0 || output.Length > 0,
+                "A glob that matches a tree-shaped section must explain itself rather than exit 0 "
+                    + $"silently (args: {string.Join(" ", args)}).");
+        }
     }
 
     [Fact]
@@ -7743,12 +7752,15 @@ public partial class CommandExecutionTests
         // SelectResolver would also "fix" the case above by firing for everything effective, so
         // a glob that matches only row-shaped sections has to stay quiet for the fix to mean
         // what it claims.
-        var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "Referenc*", "--tips", "q");
+        foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
+        {
+            string[] args = ["library", "System.Text.Json", "-D", "Referenc*", .. extra, "--tips", "q"];
+            var (exit, output, error) = await RunAppAsync(args);
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("not row-shaped", error, StringComparison.Ordinal);
-        Assert.NotEmpty(output);
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("not row-shaped", error, StringComparison.Ordinal);
+            Assert.NotEmpty(output);
+        }
     }
 
     [Fact]
