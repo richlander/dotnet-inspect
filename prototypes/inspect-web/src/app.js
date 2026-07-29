@@ -3335,7 +3335,7 @@ function spotlightRowHtml(result, index) {
   </button>`;
 }
 
-const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "platform-lib": "Libraries", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
+const SPOTLIGHT_GROUP_LABELS = { "pkg-recent": "Recent", "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "platform-lib": "Libraries", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
 
 function spotlightResultsHtml(results) {
   if (!results.length) {
@@ -3350,7 +3350,7 @@ function spotlightResultsHtml(results) {
   results.forEach((result, index) => {
     if (grouped) {
       const group = SPOTLIGHT_GROUP_LABELS[result.kind];
-      if (group !== lastGroup) {
+      if (group && group !== lastGroup) {
         html += `<div class="spotlight-group">${group}</div>`;
         lastGroup = group;
       }
