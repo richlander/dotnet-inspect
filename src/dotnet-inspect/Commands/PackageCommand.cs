@@ -168,6 +168,31 @@ public class PackageCommand
             {
                 try
                 {
+                    if (options.IncludeUnlisted)
+                    {
+                        // Listing-aware range: resolve the vector from the full listing (unlisted
+                        // included) so unlisted endpoints are found rather than reported as missing,
+                        // then emit each in-range version tagged with its listed status.
+                        // Mirror ResolveAsync: fetch prereleases whenever the range endpoints are
+                        // prerelease (even without --preview), otherwise a prerelease-endpoint range
+                        // fails because its endpoints were filtered out of the listing.
+                        var rangeListings = await PackageExtractor.GetVersionListingsAsync(
+                            context.HttpClient, range!.PackageId,
+                            range!.IncludesPrerelease || options.IncludePrerelease,
+                            includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
+                        if (rangeListings == null)
+                        {
+                            Console.Error.WriteLine($"Error: Package '{range.PackageId}' not found on nuget.org");
+                            return 1;
+                        }
+
+                        var unlistedVector = PackageVersionVector.CreateListingAware(
+                            range!, rangeListings, options.IncludePrerelease);
+                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue);
+                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        return 0;
+                    }
+
                     var vector = await PackageVersionVector.ResolveAsync(
                         context.HttpClient,
                         range!,
@@ -203,24 +228,34 @@ public class PackageCommand
                 && options.Limit == 1
                 && !options.ForceLatest)
             {
-                if (NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                if (!options.IncludeUnlisted
+                    && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
                 {
                     Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
 
-                var knownVersions = await PackageExtractor.GetVersionsAsync(
+                // Include unlisted versions here: a pinned version query verifies a specific,
+                // explicitly named version, and an unlisted version is still a valid coordinate
+                // (NuGet restores known unlisted versions). Discovery hiding must not make an
+                // explicitly requested unlisted version look "not found".
+                var knownVersions = await PackageExtractor.GetVersionListingsAsync(
                     context.HttpClient,
                     normalizedName,
                     includePrerelease: true,
+                    includeUnlisted: true,
                     limit: null,
                     log: logger.Log,
                     sourceOptions: options.SourceOptions);
 
-                if (knownVersions != null
-                    && knownVersions.Any(v => string.Equals(v, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
+                var pinnedMatch = knownVersions?.FirstOrDefault(
+                    v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase));
+                if (pinnedMatch != null)
                 {
-                    Console.WriteLine(versionQueryPinned);
+                    if (options.IncludeUnlisted)
+                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                    else
+                        Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
 
@@ -233,7 +268,10 @@ public class PackageCommand
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease)
+            // Skipped under --include-unlisted: that flag requires the listing-aware path below
+            // (a locally-cached single version carries no listed/unlisted status column).
+            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
+                && !options.IncludeUnlisted)
             {
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
@@ -259,7 +297,32 @@ public class PackageCommand
                     return 1;
                 }
 
+                if (options.IncludeUnlisted)
+                {
+                    // Latest resolution is listing-aware (#3388), so the version it returns is
+                    // listed by construction. Emit it as a one-row listing so the flag still
+                    // produces the tagged column the user asked for.
+                    OutputFormatter.WriteVersionListings(
+                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                    return 0;
+                }
+
                 Console.WriteLine(latest);
+                return 0;
+            }
+
+            if (options.IncludeUnlisted)
+            {
+                var listings = await PackageExtractor.GetVersionListingsAsync(
+                    context.HttpClient, normalizedName, options.IncludePrerelease,
+                    includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
+                if (listings == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }
 

@@ -100,6 +100,12 @@ public record InspectionOptions
     public bool IncludePrerelease { get; init; }
 
     /// <summary>
+    /// Include unlisted versions in <c>--versions</c> output, marked as unlisted, instead of hiding
+    /// them. Discovery hides unlisted versions by default; this opt-in reveals them flagged.
+    /// </summary>
+    public bool IncludeUnlisted { get; init; }
+
+    /// <summary>
     /// Show the README.md content from the package.
     /// </summary>
     public bool ShowReadme { get; init; }

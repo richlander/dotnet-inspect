@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../ILInspector.Text/ILInspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
