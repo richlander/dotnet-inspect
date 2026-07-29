@@ -9339,6 +9339,60 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_DependenciesLens_CountAnswersTheGraphsRowLowering()
+    {
+        // #3406. --dependencies used to exit 1 telling the caller to select a section, which did
+        // not describe what they asked for. Its payload is a graph, and a graph's row lowering is
+        // one row per dependency edge -- which is exactly the set of lines the rendered tree
+        // prints below its root line. Derive the expectation from the rendering rather than
+        // pinning a literal, so the count and the tree cannot drift apart.
+        string[] baseArgs = ["package", "Microsoft.Extensions.Logging@9.0.0", "--dependencies", "--tips", "q"];
+
+        var (treeExit, treeOutput, treeError) = await RunAppAsync(baseArgs);
+        if (treeExit != 0)
+        {
+            Assert.Skip($"Microsoft.Extensions.Logging@9.0.0 not available offline: {treeError}");
+            return;
+        }
+
+        var treeLines = treeOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.Contains('\u251c') || line.Contains('\u2514'))
+            .Count();
+        Assert.True(treeLines > 0, "fixture package must render a non-empty dependency tree");
+
+        var (countExit, countOutput, _) = await RunAppAsync([.. baseArgs, "--count"]);
+        Assert.Equal(0, countExit);
+        Assert.Equal(treeLines, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+
+        // The transitive graph is deeper than its first tier, so this must not be the root count.
+        Assert.True(treeLines > treeOutput
+            .Split('\n')
+            .Count(line => line.StartsWith('\u251c') || line.StartsWith('\u2514')));
+    }
+
+    [Fact]
+    public async Task PackageCommand_DependenciesLens_CountIsSeparateFromTheDependenciesSection()
+    {
+        // The flat Dependencies section lists declared dependencies across every TFM group; the
+        // lens resolves the transitive graph of one group. They are different questions, so their
+        // counts are allowed to differ and neither may be answered with the other's number.
+        var (lensExit, lensOutput, lensError) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Logging@9.0.0", "--dependencies", "--count", "--tips", "q");
+        if (lensExit != 0)
+        {
+            Assert.Skip($"Microsoft.Extensions.Logging@9.0.0 not available offline: {lensError}");
+            return;
+        }
+
+        var (sectionExit, sectionOutput, _) = await RunAppAsync(
+            "package", "Microsoft.Extensions.Logging@9.0.0", "-S", "Dependencies", "--count", "--tips", "q");
+        Assert.Equal(0, sectionExit);
+
+        Assert.NotEqual(sectionOutput.Trim(), lensOutput.Trim());
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_RendersLibraryInfoPerHighestTfmLibrary()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

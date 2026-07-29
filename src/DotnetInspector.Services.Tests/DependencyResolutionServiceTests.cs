@@ -296,4 +296,46 @@ public class DependencyResolutionServiceTests
         Assert.Single(node.Children);
         Assert.Equal("ChildPkg", node.Children[0].PackageId);
     }
+
+    // A dependency graph's row lowering is one row per dependency edge, over the whole resolved
+    // forest. The rendered tree prints one line per edge below its root line, so these numbers are
+    // the lines a reader counts -- see #3406.
+    [Fact]
+    public void DependencyGraphRows_CountsEveryEdge_NotJustTheTopLevel()
+    {
+        // Mirrors Microsoft.Extensions.Logging 9.0.0: three roots, two of which have one child.
+        List<DependencyNode> roots =
+        [
+            new("Microsoft.Extensions.DependencyInjection", "9.0.0", "Microsoft",
+                [new("Microsoft.Extensions.DependencyInjection.Abstractions", "9.0.0", "Microsoft", [])]),
+            new("Microsoft.Extensions.Logging.Abstractions", "9.0.0", "Microsoft", []),
+            new("Microsoft.Extensions.Options", "9.0.0", "Microsoft",
+                [new("Microsoft.Extensions.Primitives", "9.0.0", "Microsoft", [])]),
+        ];
+
+        // Five, not three: counting the top level would answer a question about the rendering's
+        // first tier rather than about the payload.
+        Assert.Equal(5, DependencyGraphRows.CountRows(roots));
+        Assert.Equal(3, roots.Count);
+    }
+
+    [Fact]
+    public void DependencyGraphRows_CountsDeepChains_OncePerEdge()
+    {
+        DependencyNode chain = new("A", "1.0.0", null,
+            [new("B", "1.0.0", null,
+                [new("C", "1.0.0", null,
+                    [new("D", "1.0.0", null, [])])])]);
+
+        Assert.Equal(4, DependencyGraphRows.CountRows([chain]));
+    }
+
+    // An empty graph lowers to zero rows. That is a real answer, not an absence, so the count path
+    // must not treat it as "nothing to report".
+    [Fact]
+    public void DependencyGraphRows_EmptyGraph_IsZeroRows()
+    {
+        Assert.Equal(0, DependencyGraphRows.CountRows([]));
+        Assert.Equal(0, DependencyGraphRows.CountRows(null));
+    }
 }

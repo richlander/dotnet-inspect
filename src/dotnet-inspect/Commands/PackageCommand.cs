@@ -66,7 +66,10 @@ public class PackageCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
 
-            if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            // A lens that declares its own row lowering answers --count from that lowering, so it
+            // does not need -S to name a section. --dependencies is such a lens: its payload is a
+            // graph whose rows are dependency edges (#3406).
+            if (options.Count && !options.ShowDependencies && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -2620,6 +2623,13 @@ public class PackageCommand
 
         if (group.Dependencies.Count == 0)
         {
+            // An empty graph lowers to zero rows, which is a real answer rather than an absence.
+            if (options.Count)
+            {
+                CountOutput.WriteCount(0);
+                return 0;
+            }
+
             var emptyView = new EmptyDepsView
             {
                 Title = $"{result.PackageName} ({result.Version})",
@@ -2633,6 +2643,16 @@ public class PackageCommand
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
             client, group.Dependencies, tfm, globalSeen, logger.Log);
+
+        // --count answers the graph's declared row lowering, not the lines used to render it
+        // (#3405, #3406). One row is one dependency edge, so this is the whole resolved forest
+        // rather than its top level, and it is computed from the model before any rendering.
+        if (options.Count)
+        {
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+            CountOutput.WriteCount(DependencyGraphRows.CountRows(depNodes));
+            return 0;
+        }
 
         var view = new PackageDependenciesView
         {
