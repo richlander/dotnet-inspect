@@ -91,7 +91,7 @@ public class InspectionResult
     public string? ReadmeFile { get; set; }
 
     /// <summary>
-    /// Best package README path: AGENTS.md, README.md, PACKAGE.md, then the declared readme fallback.
+    /// Best package README path: README.md, PACKAGE.md, then the declared readme fallback.
     /// </summary>
     [JsonIgnore]
     public string? PackageReadmeFile { get; set; }
@@ -256,7 +256,10 @@ public sealed record PackageFileContent(
     string Path,
     long Size,
     bool Found,
-    string Content);
+    string Content,
+    // Carried so consumers can tell a document's kind by role rather than by extension: the
+    // package readme is Markdown because the manifest declared it as the readme.
+    [property: JsonIgnore] bool IsReadme = false);
 
 public sealed record PackageSourceFileInfo(
     string Library,

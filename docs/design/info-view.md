@@ -23,7 +23,7 @@ Sections are stable content units. Presets decide where those sections appear. T
 
 | Command/context | Bullseye question | Sections | Why these sections |
 | --- | --- | --- | --- |
-| `package X` | What is this package, and what does it ship? | `Package Info`, `Library Files` | Identity/metadata plus asset shape answer most package triage questions without a dependency inventory. |
+| `package X` | What is this package, and what does it ship? | the network-free `Fixed` sections: `Manifest`, `Package Info`, `Package nuspec file`, `Package README file`, `Signature` | Every one has a row set that does not vary with the package, so the overview is the same shape for a one-assembly package and a 47-assembly one. `Package Info`'s `Content` field already summarizes the asset shape. |
 | `library X` | What is this assembly, and what dense metadata signals are present? | `Library Info` | Library Info includes identity plus counts for large metadata lists, avoiding noisy inventories while signaling what exists. |
 | selected `member Type.Member:N` | What is this overload, and what does it do? | `Signature`, `Decompiled Source` | Contract plus readable raised C# usually answers the first implementation question without IL or SourceLink source. |
 | `type Type` or broad `member Type` list view | What API member groups are in this type space? | Member summary sections (`Constructors`, `Properties`, `Method Groups`, etc.) | Compact per-member-kind summaries show return types and overload counts without full signatures. |

@@ -56,10 +56,9 @@ of the ladder families contributes in one of three ways:
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
-exist to be selected. The IL coordinate is the family's one implemented
-currency; `--heap` (see
-[metadata-table-projection.md](metadata-table-projection.md)) is designed to be
-the second.
+exist to be selected. The family has two currencies: the IL coordinate, and the
+heap coordinate `--heap` carries (see
+[metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not flags, because one currency can have
 more than one spelling. The IL coordinate has two: `--il-offset` takes a single
@@ -176,6 +175,47 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
+A printed document is the document the package shipped. Markdown conventions --
+YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
+`blob` links to `raw` so the target is fetchable -- apply only to Markdown. A
+document's kind comes from its extension, except for the package README, whose
+kind comes from its role: the manifest declared it as the readme and NuGet
+renders it as Markdown, so an extensionless or unconventionally named README is
+still Markdown. That role follows the manifest declaration, not the file the
+README section displays. A package that ships `README.md` and also declares a
+different file has declared both readmes, and the declared one keeps its kind
+even though the section shows the conventional name. The role answers only where
+the extension is silent: a manifest can declare anything, and
+`<readme>logo.png</readme>` is malformed but shippable, so a declaration never
+overrides a name that says what the document is. Any dot in the file name counts
+as saying something: `logo.png` names a suffix, `logo.png.` names one with a
+stray dot after it, and `.png` spells one as a hidden basename. Telling a hidden
+suffix from a hidden word like `.README` would take a list of known suffixes that
+goes stale and still guesses wrong at the edges, so the tie goes to the
+conservative reading -- refusing a scope on `.README` is loud and leaves the
+document readable, while handing a declared PNG to the link rewriter returns a
+corrupted file and exit 0.
+Applied to anything else they are corruption rather than presentation: the link
+rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
+or an MSBuild comment is rewritten and the printed manifest silently stops
+matching the one the feed serves. Asking for a Markdown scope on a document that
+is not Markdown is refused, because both other answers -- the whole document, or
+an empty one -- report success for a question that was never answered. The
+refusal belongs to the request, not to one flag, so `--content` refuses it on
+the same terms as `--print`.
+
+The refusal covers the whole request rather than skipping the documents it does
+not apply to. A selection that matches Markdown and non-Markdown alike --
+`--path "*" --frontmatter` -- is one request, and answering part of it while
+dropping the rest reports success for files that were never scoped. The refusal
+names the first such document so the selection can be narrowed, for example with
+`--path "*.md"`.
+
+A document that receives no Markdown treatment is emitted verbatim, including
+any byte order mark it ships with. A caller printing a manifest in order to hash
+or diff it is asking for its bytes, and a document silently three bytes shorter
+than the one in the package is not that document.
+
 `-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
@@ -256,8 +296,8 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few flags select a *lens* rather than a section of the normal document:
-`package --versions`, `--layout`, `--tfms`, `--content`, and `--readme`, along
-with `library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
 
@@ -268,12 +308,8 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.
-- `--count` is refused by `--readme`, whose payload is a single document rather
-  than a list. A README is a Scalar in the shape model, and `--count` collapses
-  a Vector, so counting it could only ever report that one document was asked
-  for. `--content` is *not* in this category despite also rendering text: it
-  yields one structured row per matched file, so its count is the number of
-  files matched.
+- `--content` yields one structured row per matched file despite rendering
+  text, so its count is the number of files matched.
 - A `--content` path that matches nothing in a package still renders a
   per-package placeholder — `(absent)` in the block render, a `found:false` row
   in `--jsonl` — and that placeholder is **not** counted. The count answers *how
@@ -285,14 +321,18 @@ unchanged. Because the lens owns the shape, its answers are fixed:
 - `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
   not approximated. They address a cell or a column of a selected section, and a
   lens payload has neither; answering anyway would require inferring structure
-  from rendered text. The one exception is `--readme --print`, where the lens
-  renders exactly the printable document `--print` asks for, so it prints it
-  without needing a selection to name it.
+  from rendered text.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
-  and silently honoring the lens hides that the selection did nothing. The
-  refusal is unconditional: excusing it for `--print` would let `-S <other
-  section> --readme --print` pass while ignoring the selection.
+  and silently honoring the lens hides that the selection did nothing.
+
+There is deliberately no lens for printing a document. A flag that renders one
+document is a second answer to *which document*, competing with the section the
+caller selected, and the two can disagree — which is exactly how a lens that
+printed the package README came to print the XML manifest through the README's
+Markdown pipeline. Printable documents are therefore reached only by selecting
+the section that lists them, and `--print` projects that section's rows like
+every other payload projection.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
@@ -531,10 +571,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
-  that has no other expression and gate the sections it makes meaningful. They
-  do not narrow a shape, and a flag qualifies for this family only if its input
-  is a new currency. Both spell the same currency, so they are one member;
-  `--heap` is the designed second.
+- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
+  an input that has no other expression and gate the sections it makes
+  meaningful. They do not narrow a shape, and a flag qualifies for this family
+  only if its input is a new currency. The first two spell the same currency, so
+  they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.

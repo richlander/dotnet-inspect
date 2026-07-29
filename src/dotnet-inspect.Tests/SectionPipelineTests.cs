@@ -6,6 +6,8 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -299,7 +301,11 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(53, pipeline.AllSectionNames.Length);
+        // The non-metadata sections stay pinned to a literal, so an accidental addition still
+        // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
+        // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
+        // otherwise adding a table to the projector would fail an unrelated test.
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -400,7 +406,17 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
+            ? registered
+                .Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
+                // Coordinate-gated like the Context: sections above: without --heap there is no
+                // value to show, so the section is legitimately not discoverable.
+                .Except([MetadataSectionNames.Heap], StringComparer.OrdinalIgnoreCase)
+                // @Metadata table and heap sections are data-gated: a table with no rows or a heap
+                // with no bytes in this image is legitimately not discoverable, and listing it
+                // would advertise an empty section. Derived from the fixture image rather than
+                // hard-coded, so one that gains or loses content moves the exclusion with it and
+                // every non-empty one stays required.
+                .Except(EmptyMetadataSectionsInFixtureImage(), StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -408,6 +424,30 @@ public class SectionPipelineTests
 
         Assert.True(missing.Length == 0,
             $"{command} -D missed selectable section(s): {string.Join(", ", missing)}");
+    }
+
+    /// <summary>
+    /// The <c>@Metadata</c> sections with no content in the image
+    /// <see cref="DiscoverablePipelineCases"/> seeds the library fixture from: tables with no rows
+    /// and heaps with no bytes. These are the only data-gated metadata sections allowed to be
+    /// absent from discovery.
+    /// </summary>
+    private static string[] EmptyMetadataSectionsInFixtureImage()
+    {
+        using var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location);
+        var overview = session.MetadataImage();
+        if (overview is null)
+            return [];
+
+        return
+        [
+            .. overview.Tables
+                .Where(table => table.RowCount == 0)
+                .Select(table => MetadataSectionNames.ForTable(table.Index)),
+            .. overview.Heaps
+                .Where(heap => heap.SizeInBytes == 0)
+                .Select(heap => MetadataSectionNames.ForHeap(heap.Heap)),
+        ];
     }
 
     [Fact]
@@ -990,6 +1030,33 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Non-vacuity gate for the Cost/@All consistency check in
+    /// <see cref="SectionPipeline{TModel}.Add(SectionEntry{TModel})"/>. Membership in the
+    /// <c>@All</c> pole is computed from <c>IsExpensive</c>/<c>ExplicitOnly</c>, not from
+    /// <c>Cost</c>, so the two axes could otherwise drift and let a section costing unbounded
+    /// work be rendered by <c>-S @All</c>. This test is what proves that check is still wired.
+    /// </summary>
+    [Fact]
+    public void SectionPipeline_Add_UnboundedCostSectionThatWouldJoinAll_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            new SectionPipeline<InspectionResult>().Add(new SectionEntry<InspectionResult>
+            {
+                Name = "Bogus Unbounded",
+                IsExpensive = false,
+                ExplicitOnly = false,
+                Cost = SectionCost.Unbounded,
+                ScannerKey = null,
+                HasExplicitApplicability = true,
+                IsApplicable = static _ => true,
+                CanRender = static _ => true,
+            }));
+
+        Assert.Contains("Bogus Unbounded", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Cost=Unbounded", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Every declared category member must resolve to a registered section in every pipeline that
     /// declares categories. Complements the constructor-time check by covering pipelines this
     /// suite would not otherwise build.
@@ -1055,6 +1122,147 @@ public class SectionPipelineTests
                 .Where(n => n.StartsWith("SourceLink:", StringComparison.Ordinal))
                 .OrderBy(n => n, StringComparer.Ordinal),
             sections.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The package file family and the <c>@Files</c> door are two halves of one claim.
+    /// These sections read as noun phrases rather than carrying a <c>Group: Leaf</c> prefix,
+    /// so the family is identified by the trailing "file"/"files" noun: every registered
+    /// section named that way must either be behind the door or be the one deliberate
+    /// exception, plain <c>Package files</c>, which is the unfiltered superset. A section
+    /// carrying a <c>Group: Leaf</c> prefix is claimed by that group's door instead.
+    ///
+    /// The membership list is not restated here. It is derived from the section names on one
+    /// side and from <see cref="PackageFileFamily.SectionNames"/> on the other, so adding a
+    /// "Package X files" section without wiring the door fails rather than quietly opening a
+    /// discoverability hole.
+    /// </summary>
+    [Fact]
+    public void PackageFilesCategory_ContainsEverySectionNamedAsAFileListing()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(SectionCategoryNames.Files, out var sections));
+        Assert.Equal(
+            PackageFileFamily.SectionNames.OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+
+        var namedAsFiles = pipeline.AllSectionNames
+            .Where(n => n.EndsWith(" file", StringComparison.OrdinalIgnoreCase)
+                        || n.EndsWith(" files", StringComparison.OrdinalIgnoreCase))
+            // A "Group: Leaf" prefix claims the section for that group's door instead:
+            // "SourceLink: Files" is SourceLink data, not a package file listing.
+            .Where(n => !n.Contains(':'))
+            .ToArray();
+        Assert.NotEmpty(namedAsFiles);
+
+        var expected = namedAsFiles
+            .Where(n => !n.Equals(PackageSections.Files, StringComparison.Ordinal))
+            .OrderBy(n => n, StringComparer.Ordinal);
+        Assert.Equal(expected, sections.OrderBy(n => n, StringComparer.Ordinal));
+
+        // The superset is named like the family but is deliberately outside the door.
+        Assert.Contains(PackageSections.Files, namedAsFiles);
+        Assert.DoesNotContain(PackageSections.Files, sections);
+    }
+
+    /// <summary>
+    /// Every family member declares a predicate, and every predicate reaches a registered section.
+    /// This is what lets the view, the descriptors, and the command all read membership from one
+    /// place instead of keeping three copies of the same path rules in sync.
+    /// </summary>
+    [Fact]
+    public void PackageFileFamily_Members_AreAllRegisteredSections()
+    {
+        var all = PackageSectionDescriptors.CreatePipeline().AllSectionNames.ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(PackageFileFamily.Members);
+        foreach (var (section, predicate) in PackageFileFamily.Members)
+        {
+            Assert.Contains(section, all);
+            Assert.NotNull(predicate);
+            Assert.Same(predicate, PackageFileFamily.PredicateFor(section));
+            Assert.True(PackageFileFamily.IsFamilySection(section));
+        }
+
+        // Plain "Files" is deliberately outside the family: it is the unfiltered superset.
+        Assert.False(PackageFileFamily.IsFamilySection(PackageSections.Files));
+    }
+
+    /// <summary>
+    /// The package and library commands surface the same SourceLink data from the same
+    /// collector, so they must spell it the same way. This pins the agreement: renaming one
+    /// side without the other fails here rather than silently reintroducing the split where
+    /// package called it "Source Files" and library called it "SourceLink: Files".
+    /// </summary>
+    [Fact]
+    public void PackageAndLibraryPipelines_AgreeOnTheSourceLinkFilesSectionName()
+    {
+        Assert.Equal(SectionNames.SourceLinkFiles, PackageSections.SourceLinkFiles);
+
+        var package = PackageSectionDescriptors.CreatePipeline();
+        Assert.Contains(SectionNames.SourceLinkFiles, package.AllSectionNames);
+
+        // The prefix advertises a door, so the package command has to root it too.
+        var categories = package.GetCategoryMap();
+        Assert.True(categories.TryGetValue(SectionCategoryNames.SourceLink, out var sections));
+        Assert.Equal(
+            package.AllSectionNames
+                .Where(n => n.StartsWith("SourceLink:", StringComparison.Ordinal))
+                .OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Every family member must reach a real view projection. Membership is declared in one
+    /// place, but the <see cref="InspectionResultView"/> property and the command's projection
+    /// switch are separate hand-edited sites, so a member can be declared and still render
+    /// nothing. This drives the check from the declaration: it feeds a model containing one
+    /// matching file per member and asserts each section produces rows.
+    ///
+    /// This is a non-vacuity gate, not a formatting test — it caught <c>Package skill files</c>
+    /// returning zero rows for a package that ships four of them.
+    /// </summary>
+    [Fact]
+    public void PackageFileFamily_EveryMember_ProducesRowsThroughTheView()
+    {
+        var model = new InspectionResult
+        {
+            PackageName = "Test",
+            PackageFiles =
+            [
+                new PackageFile("lib/net8.0/Test.dll", 1),
+                new PackageFile("ref/net8.0/Test.dll", 1),
+                new PackageFile("runtimes/win-x64/native/test.txt", 1),
+                new PackageFile("README.md", 1, IsReadme: true),
+                new PackageFile("Test.nuspec", 1),
+                new PackageFile("skills/demo/SKILL.md", 1),
+                new PackageFile("skills/demo/SKILL.md", 1)
+            ]
+        };
+        model.Files = model.PackageFiles;
+
+        var view = new InspectionResultView(model);
+        var properties = typeof(InspectionResultView).GetProperties();
+
+        foreach (var section in PackageFileFamily.SectionNames)
+        {
+            var property = properties.SingleOrDefault(p =>
+                p.GetCustomAttributesData().Any(a =>
+                    a.AttributeType.Name == nameof(MarkoutSectionAttribute)
+                    && a.NamedArguments.Any(n =>
+                        n.MemberName == nameof(MarkoutSectionAttribute.Name)
+                        && (string?)n.TypedValue.Value == section)));
+
+            Assert.True(property != null, $"No view projection is attributed for section '{section}'.");
+
+            var rows = property!.GetValue(view) as System.Collections.IEnumerable;
+            Assert.True(rows != null, $"Section '{section}' projected null rows.");
+            Assert.True(
+                rows!.Cast<object>().Any(),
+                $"Section '{section}' produced no rows for a model that contains a matching file.");
+        }
     }
 
     [Fact]
@@ -1424,14 +1632,14 @@ public class SectionPipelineTests
 
         Assert.Contains("Summary", names);
         Assert.Contains("Package Info", names);
-        Assert.Contains("Grounding", names);
+        Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
-        Assert.Contains("Library Files", names);
-        Assert.Contains("Markdown Files", names);
+        Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Dependencies", names);
-        Assert.Contains("Files", names);
+        Assert.Contains("Package files", names);
+        Assert.Contains("Package skill files", names);
         Assert.Contains("Vulnerabilities", names);
         Assert.Contains("Manifest", names);
         Assert.Contains("Runtime Dependencies", names);
@@ -1469,7 +1677,7 @@ public class SectionPipelineTests
         // Vulnerabilities is Detailed
         Assert.DoesNotContain("Vulnerabilities", effective);
         // Files is Detailed
-        Assert.DoesNotContain("Files", effective);
+        Assert.DoesNotContain("Package files", effective);
     }
 
     [Fact]
@@ -1629,7 +1837,9 @@ public class SectionPipelineTests
 
         var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package Info" });
 
-        Assert.Equal(Verbosity.Quiet, required);
+        // Curated ladder: Quiet renders only the headless Summary preamble, so the identity
+        // table first becomes available at Minimal.
+        Assert.Equal(Verbosity.Minimal, required);
     }
 
     [Fact]
@@ -1652,11 +1862,14 @@ public class SectionPipelineTests
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
         };
 
-        // At Detailed with all default-renderable data populated, explicit-only Signals stays filtered.
+        // At Detailed with all default-renderable data populated, Unbounded-cost sections stay
+        // filtered: the whole-package listing and the PDB-backed SourceLink listing are reachable
+        // only by exact name or their category door, never by turning verbosity up.
         var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
 
         Assert.NotNull(include);
-        Assert.DoesNotContain("Signals", include);
+        Assert.DoesNotContain("Package files", include);
+        Assert.DoesNotContain("SourceLink: Files", include);
     }
 
     [Fact]
@@ -1678,7 +1891,9 @@ public class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Source Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+        // SourceLink: Files and Package files are reached through their door or by exact name,
+        // so they are not members of the visible @All pole.
+        Assert.Equal(["Dependencies", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
     [Fact]
@@ -1686,7 +1901,7 @@ public class SectionPipelineTests
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
 
-        Assert.Equal(["Package Info", "Library Files"], pipeline.InfoSectionNames);
+        Assert.Equal(["Package Info"], pipeline.InfoSectionNames);
     }
 
     public static IEnumerable<object[]> DiscoverablePipelineCases()
@@ -1793,6 +2008,12 @@ public class SectionPipelineTests
                 extensionMembers,
                 FindingTestData.Subject),
             extensionMembers);
+        // The @Metadata lens gates on real per-table row counts rather than a Has* flag, so this
+        // fixture seeds them from an actual image. A hand-built overview would have to restate the
+        // projector's table list, which is exactly the drift MetadataSectionNames exists to
+        // prevent; reading a real assembly keeps the fixture correct as tables are added.
+        using (var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location))
+            library.MetadataOverview = session.MetadataImage();
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();
@@ -1805,7 +2026,11 @@ public class SectionPipelineTests
             [
                 new PackageFile("README.md", 1, IsReadme: true),
                 new PackageFile("docs/guide.md", 1),
-                new PackageFile("lib/net8.0/Test.dll", 1)
+                new PackageFile("lib/net8.0/Test.dll", 1),
+                new PackageFile("ref/net8.0/Test.dll", 1),
+                new PackageFile("runtimes/win-x64/native/Test.dll", 1),
+                new PackageFile("Test.nuspec", 1),
+                new PackageFile("skills/demo/SKILL.md", 1)
             ],
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
             TotalDownloads = 1,

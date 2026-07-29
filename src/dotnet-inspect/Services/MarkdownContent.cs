@@ -4,6 +4,19 @@ namespace DotnetInspector.Services;
 
 public static class MarkdownContent
 {
+    /// <summary>
+    /// Whether a document is Markdown, judged by extension. Frontmatter scoping and
+    /// blob-to-raw link rewriting are Markdown conventions, so they may only be applied to
+    /// Markdown. Packages ship XML manifests, MSBuild props/targets, and plain-text licenses
+    /// through the same readers, and treating those as Markdown rewrites authored bytes:
+    /// the link normalizer matches bare URLs anywhere in the text, so a URL inside an XML
+    /// element or comment is silently rewritten and the document no longer matches the one
+    /// the package shipped.
+    /// </summary>
+    public static bool IsMarkdown(string path)
+        => path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
+
     public static string ApplyScope(string content, PackageFileContentScope scope)
     {
         if (scope == PackageFileContentScope.Full)

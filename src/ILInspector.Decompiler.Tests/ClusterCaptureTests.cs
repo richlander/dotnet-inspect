@@ -34,10 +34,10 @@ public class ClusterCaptureTests
     {
         string assembly = typeof(CfgSampleClass).Assembly.Location;
 
-        var whole = FidelityCheck.Evaluate(assembly, lowered: false, FidelityCheck.ClusterMode.Off)
+        var whole = FidelityCheck.Evaluate(assembly, lowered: false, FidelityCheck.ClusterMode.Off, type => type == FixtureType)
             .Where(r => r.Type == FixtureType)
             .ToDictionary(r => (r.Method, r.Overload), r => r.Status);
-        var forced = FidelityCheck.Evaluate(assembly, lowered: false, FidelityCheck.ClusterMode.ForceAll)
+        var forced = FidelityCheck.Evaluate(assembly, lowered: false, FidelityCheck.ClusterMode.ForceAll, type => type == FixtureType)
             .Where(r => r.Type == FixtureType)
             .ToList();
 
