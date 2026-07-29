@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <!-- The parse-validity gate compiles each slice to prove it is syntactically
+         valid C#. Roslyn is a test-only oracle; the product stays Roslyn-free. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
+    <!-- The corpus gate drives PdbContext end to end over real assemblies. -->
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <!-- Fixture assemblies land in the test output directory, which is what
+         SliceCorpus() scans. They are corpus inputs, not references in code;
+         LastMemberOfAType_ExtractsThroughItsOwnClosingBraceOnly names a member
+         of DiffAsmFixtures.Target directly. -->
+    <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+  </ItemGroup>
+
+</Project>
