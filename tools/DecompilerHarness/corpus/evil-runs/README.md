@@ -508,8 +508,10 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   is not enough either: that selects the historical `invalid == 0` contract,
   which this corpus cannot satisfy, so the job would still fail every week and
   file a scheduled-failure issue each time. `--integrity-only` is how the lane
-  says what it actually claims. Pinning the pool — which would let this lane
-  ratchet for real — is tracked separately. Note this limitation is not new:
+  says what it actually claims. Pinning the pool — which is what lets this lane
+  ratchet for real — landed with the `nuget-top-packages.lock.json` pin; once two
+  pinned runs are in the trend store this lane can drop `--integrity-only`.
+  Note this limitation is not new:
   the first comparability key was loose enough to compare across a drifted pool,
   which is a false green, and identifying the pool is what turned that silent
   wrong answer into a visible refusal.

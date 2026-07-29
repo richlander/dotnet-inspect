@@ -802,8 +802,16 @@ static string? Malformed(PackagePinFile pinFile)
     // Required, not optional. An entry that may omit the hash is an entry that can
     // opt out of the check by omitting it, which is what a null TFM did before it was
     // made to match null.
+    if (pinFile.Packages.Any(pin => pin.Status is not ("pinned" or "no-library")))
+        return "pins a package with a status this sweep does not know";
     if (pinFile.Packages.Any(pin => pin.Status == "pinned" && !IsSha256(pin.Sha256)))
         return "pins a package without the sha256 of its assembly";
+    // A no-library entry has no assembly, so a hash on one describes bytes that are not
+    // supposed to exist. Nothing downstream reads it, which is the problem: the entry
+    // reads as pinning something while contributing nothing, and the contradiction
+    // survives every later check. EvilPoolPinTests refuses it; so must the sweep.
+    if (pinFile.Packages.Any(pin => pin.Status == "no-library" && pin.Sha256 is not null))
+        return "pins a package as no-library but states an assembly hash";
     if (pinFile.Packages.Select(pin => pin.Package)
             .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count)
         return "pins the same package twice";
