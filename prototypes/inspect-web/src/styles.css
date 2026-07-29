@@ -910,8 +910,11 @@ kbd {
 .mde-wall .mde-grid-scroll, .mde-wall .mde-pager, .mde-wall .mde-heap-note, .mde-wall .mde-card-empty { pointer-events: none; }
 .mde-wall .mde-card-head { cursor: pointer; }
 .mde-wall .mde-card-head:hover { background: var(--panel-hover, var(--panel-active)); }
-/* The focus lightbox: the active table blown up front-and-center, wall peeking around the edges. */
-.mde-focus { position: absolute; top: 14px; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(1120px, 82%); display: flex; min-height: 0; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 24px 90px rgba(0,0,0,0.55); overflow: hidden; }
+/* The focus lightbox: the active table blown up front-and-center, wall peeking around the edges.
+   .mde-focus is just the positioning box (no clip) so the corner ✕ can hang off the outer edge
+   over the wall margin; .mde-focus-inner carries the panel chrome and clips the content. */
+.mde-focus { position: absolute; top: 14px; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(1120px, 82%); display: flex; min-height: 0; }
+.mde-focus-inner { flex: 1; min-height: 0; display: flex; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 24px 90px rgba(0,0,0,0.55); overflow: hidden; }
 .mde-focus-card { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mde-focus .mde-card, .mde-focus .mde-heap-card { flex: 1; min-height: 0; max-height: none; border: none; border-radius: 0; background: transparent; }
 .mde-focus .mde-grid-scroll { max-height: none; flex: 1; }
@@ -920,11 +923,12 @@ kbd {
 .mde-wall-open { opacity: 1; }
 .mde-wall-open .mde-grid-scroll, .mde-wall-open .mde-pager, .mde-wall-open .mde-heap-note, .mde-wall-open .mde-card-empty { pointer-events: auto; }
 .mde-wall-open .mde-card-head:hover { background: color-mix(in srgb, var(--accent, #4c9) 14%, var(--panel-active)); }
-/* Corner ✕ buttons that zoom the focus lightbox back out to the all-tables wall. */
-.mde-focus-x { position: absolute; right: 8px; z-index: 3; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--dim); font: 12px var(--mono); cursor: pointer; }
+/* Corner ✕ buttons float in the wall margin just outside the panel's right edge (top + bottom),
+   fully clear of the card meta and pager buttons inside. */
+.mde-focus-x { position: absolute; right: -34px; z-index: 3; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--dim); font: 12px var(--mono); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
 .mde-focus-x:hover { color: var(--text); border-color: var(--text); background: var(--panel-active); }
-.mde-focus-x-top { top: 8px; }
-.mde-focus-x-bottom { bottom: 8px; }
+.mde-focus-x-top { top: 6px; }
+.mde-focus-x-bottom { bottom: 6px; }
 .mde-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; max-height: 460px; }
 .mde-card-focus { border-color: var(--accent, var(--line-strong)); box-shadow: 0 0 0 1px var(--accent, transparent); }
 .mde-card-dim { opacity: 0.72; }

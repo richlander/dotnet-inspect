@@ -2309,23 +2309,33 @@ function applyExplorerFocus() {
     if (onScreen) render();
     else loadExplorerWindow(entry.index, start);
   }
+  ex.pendingScroll = true;
   explorerScrollToFocus();
 }
 
-// Center the active card in the dim wall behind the lightbox (spatial context peeking around the
-// edges), and scroll the highlighted row into view inside the focus panel's own grid.
+// Center the active card in the dim wall behind the lightbox, and scroll the highlighted row into
+// view in the focus panel's grid — but ONLY for a real navigation (pendingScroll), so ordinary
+// re-renders (row selection, a background card hydrating) never nudge the wall. If the target
+// window is still loading, the flag stays set and the loader's finally completes the scroll.
 function explorerScrollToFocus() {
   requestAnimationFrame(() => {
     const ex = state.explorer;
-    if (!ex) return;
+    if (!ex || !ex.pendingScroll || ex.overview) return;
     const wallCard = ex.focusHeap
       ? document.querySelector(`.mde-wall .mde-heap-card[data-mde-heap="${cssEscape(ex.focusHeap)}"]`)
       : document.querySelector(`.mde-wall .mde-card[data-mde-index="${ex.focusIndex}"]`);
     if (wallCard) wallCard.scrollIntoView({ behavior: "smooth", block: "center" });
-    const focusGrid = document.querySelector(".mde-focus .mde-grid-scroll");
-    if (focusGrid && !ex.highlight) focusGrid.scrollTop = 0;
-    const row = ex.highlight && document.querySelector(`.mde-focus .mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
-    if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!ex.highlight) {
+      const focusGrid = document.querySelector(".mde-focus .mde-grid-scroll");
+      if (focusGrid) focusGrid.scrollTop = 0;
+      ex.pendingScroll = false;
+      return;
+    }
+    const row = document.querySelector(`.mde-focus .mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      ex.pendingScroll = false;
+    }
   });
 }
 
@@ -2391,10 +2401,12 @@ function renderExplorerFocusPanel() {
   const detail = renderExplorerDetail();
   return `
     <div class="mde-focus">
+      <div class="mde-focus-inner">
+        <div class="mde-focus-card">${card}</div>
+        ${detail}
+      </div>
       <button type="button" class="mde-focus-x mde-focus-x-top" data-mde-overview="1" title="Back to all tables (Esc)">✕</button>
       <button type="button" class="mde-focus-x mde-focus-x-bottom" data-mde-overview="1" title="Back to all tables (Esc)">✕</button>
-      <div class="mde-focus-card">${card}</div>
-      ${detail}
     </div>`;
 }
 
@@ -2682,7 +2694,7 @@ function bindMetadataExplorerEvents() {
   }, { root: document.querySelector("#mde-canvas"), rootMargin: "200px" });
   document.querySelectorAll("[data-mde-needs-load], [data-mde-heap-needs-load]").forEach(el => explorerObserver.observe(el));
 
-  // Always ensure the focused table or heap is loaded and in view.
+  // Always ensure the focused table or heap is loaded (its window backs the focus panel).
   if (state.explorer) {
     if (state.explorer.focusHeap && !state.explorer.heapWindows[state.explorer.focusHeap]) {
       loadExplorerHeap(state.explorer.focusHeap);
@@ -2690,7 +2702,6 @@ function bindMetadataExplorerEvents() {
       loadExplorerWindow(state.explorer.focusIndex);
     }
   }
-  explorerScrollToFocus();
 }
 
 
