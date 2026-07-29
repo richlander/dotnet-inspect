@@ -2313,12 +2313,19 @@ static class FidelityCheck
         int remaining = cap - total;
         if (remaining <= 0)
             return;
+        // CB_TYPE is the documented "focus one type" switch, so it has to be
+        // applied before CollectType renders a type's methods -- focusing should
+        // cost one type's work, not the whole assembly's. Tested against the same
+        // full type name the discarding check below used, so the selected set is
+        // unchanged.
+        Func<string, bool>? typeFilter =
+            Environment.GetEnvironmentVariable("CB_TYPE") is { } filter
+                ? name => name.Contains(filter, StringComparison.Ordinal)
+                : null;
         var collected = timings is null
-            ? CollectType(reader, pe, source, typeHandle, render, remaining)
-            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining));
+            ? CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter)
+            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter));
         if (collected is not var (fullType, entries) || entries.Count == 0)
-            return;
-        if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
 
         var results = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
