@@ -941,9 +941,21 @@ public static class PackageExtractor
         {
             if (!item.TryGetProperty("catalogEntry", out var entry))
                 continue;
-            if (!entry.TryGetProperty("listed", out var listedElement)
-                || listedElement.ValueKind != System.Text.Json.JsonValueKind.False)
-                continue;
+            if (!entry.TryGetProperty("listed", out var listedElement))
+                continue; // absent -> listed by default (matches NuGet's own default)
+            if (listedElement.ValueKind == System.Text.Json.JsonValueKind.True)
+                continue; // explicitly listed
+            if (listedElement.ValueKind != System.Text.Json.JsonValueKind.False)
+            {
+                // A present-but-non-boolean `listed` (e.g. the string "false") is a schema
+                // violation. Rather than silently treating the entry as listed — which would let a
+                // hostile or buggy feed smuggle an unlisted version through as "latest" — fail the
+                // whole parse. The caller catches this and returns no filter (non-authoritative),
+                // so enumeration fails open and auto-selecting callers fail closed, consistent with
+                // how every other malformed registration shape is handled.
+                throw new InvalidOperationException(
+                    $"Unexpected 'listed' value kind '{listedElement.ValueKind}' in registration entry");
+            }
             if (entry.TryGetProperty("version", out var versionElement)
                 && versionElement.GetString() is string version
                 && NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))

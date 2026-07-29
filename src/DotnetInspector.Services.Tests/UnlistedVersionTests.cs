@@ -131,6 +131,30 @@ public class UnlistedVersionTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLatestVersion_ReturnsNull_WhenListedValueIsMalformed()
+    {
+        // A present-but-non-boolean `listed` ("false" as a JSON string, not the boolean false) is a
+        // schema violation. Parsing must fail open (non-authoritative) so latest resolution fails
+        // closed rather than silently treating the malformed entry as listed and surfacing the
+        // unlisted 3.0.0-beta.1 as prerelease "latest". (Pre-fix code returned 3.0.0-beta.1.)
+        const string malformed =
+            "{\"items\":[{\"items\":["
+            + "{\"catalogEntry\":{\"version\":\"1.0.0\",\"listed\":true}},"
+            + "{\"catalogEntry\":{\"version\":\"1.5.0\",\"listed\":true}},"
+            + "{\"catalogEntry\":{\"version\":\"2.0.0\",\"listed\":false}},"
+            + "{\"catalogEntry\":{\"version\":\"2.0.0-beta.1\",\"listed\":true}},"
+            + "{\"catalogEntry\":{\"version\":\"3.0.0-beta.1\",\"listed\":\"false\"}}"
+            + "]}]}";
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg", Registry, registrationBodyOverride: malformed));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task GetVersions_FailOpenResult_IsNotCached()
     {
         // When registration is unavailable the returned list is an unfiltered fail-open snapshot;
