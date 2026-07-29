@@ -1096,6 +1096,24 @@ public class ScanTokenTests
 
         Assert.Equal([0, 0, 0, 0, 1, 1, 1, 2, 3], openers.Select(MinBraceRun).Order());
 
+        // The same argument applies to the quote run a raw literal needs in order to close
+        // (`frame.QuoteRun`): four raw seeds can all be spelled with runs of five, seven, nine
+        // and eleven, satisfying every pin above while leaving no carried frame with a run of
+        // three (adversarial review, GPT). Pin the closing run each seed actually needs, for the
+        // same reason and in the same way as the brace run.
+        int MinCloseRun(string opener)
+        {
+            for (int run = 1; run <= 5; run++)
+            {
+                if (CodeOnSecondLine(opener, new string('"', run) + "a"))
+                    return run;
+            }
+
+            return 0;
+        }
+
+        Assert.Equal([0, 1, 1, 1, 1, 3, 3, 3, 4], openers.Select(MinCloseRun).Order());
+
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
         // disturbing any of them, which drops one interpolation-order path and keeps the suite
