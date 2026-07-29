@@ -791,9 +791,14 @@ static string? Malformed(PackagePinFile pinFile)
 
 // A version reaches the extractor, which validates it as a path component and throws.
 // '../bad' exited 134 that way. NuGet versions are digits, dots, and the pre-release
-// and build separators.
+// and build separators, and SemVer requires a numeric major -- so a leading digit and
+// no '..' rule out the traversal spellings that survive the character set alone. '..'
+// itself is all dots: the extractor does reject it, but as an acquisition failure
+// (exit 1, "the pool is not reproducible") rather than as the malformed pin it is.
 static bool IsBareVersion(string? version) =>
     !string.IsNullOrWhiteSpace(version)
+    && char.IsAsciiDigit(version[0])
+    && !version.Contains("..", StringComparison.Ordinal)
     && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+');
 
 static bool IsSha256(string? value) =>
