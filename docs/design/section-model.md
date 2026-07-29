@@ -261,7 +261,10 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Recursive expansion (Dependencies) | `Verbose` | `Unbounded` | never (exact name, or the door that roots it) | `@Dependencies` |
 
 Dependencies is the transitive expansion of References over the same assembly
-references, so it renders the facts References already shows plus their closure.
+references: it walks the identities References lists and reports their closure.
+The two are different views rather than one containing the other — References
+carries the public key token of each direct reference, while Dependencies
+carries resolution and company information for every node it reaches.
 That closure is built by resolving and reading every referenced assembly
 recursively, which is both unbounded and duplicative of References, so it is
 declared `Verbose`/`Unbounded`, and `ExplicitOnly` besides: never auto-run by a

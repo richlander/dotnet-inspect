@@ -31,16 +31,11 @@ internal static class LibraryMetadataService
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This set is also what <see cref="SharedReadScannerKeys"/> publishes to
-    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>, so a key
-    /// counts as honored by the read exactly when the read consults it. That identity is the
-    /// point, not an optimization: an earlier revision maintained a second literal listing the
-    /// keys the read "satisfies", and a key added to that literal and to a section — but not
-    /// here — passed the gate while nothing collected it. That is the silence #3453 found and
-    /// this PR exists to remove, reintroduced one level up. Do not split these apart again; the
-    /// union the gate computes is identical either way, because
-    /// <c>ScannerTransitiveRefs</c> is a registered scanner and is already in the registry's
-    /// keys, so the second literal bought nothing and cost a ghost state.
+    /// This set is the single source of truth for what the read consults. An earlier revision
+    /// maintained a second, free-standing literal listing the keys the read "satisfies", and a key
+    /// added to that literal and to a section — but not here — passed the gate while nothing
+    /// collected it. That is the silence #3453 found, reintroduced one level up. Anything the gate
+    /// needs is therefore <em>derived</em> from this set rather than restated alongside it.
     /// </para>
     /// <para>
     /// <c>ScannerTransitiveRefs</c> is listed because the transitive scan consumes the reference
@@ -54,11 +49,34 @@ internal static class LibraryMetadataService
     ];
 
     /// <summary>
-    /// The keys the shared metadata read honors, unioned with the registry's registered keys to
-    /// form the set a section is allowed to declare. This is <see cref="ReferenceReadingScannerKeys"/>
-    /// itself — the set the read actually consults — so it cannot claim a key the read ignores.
+    /// The keys in <see cref="ReferenceReadingScannerKeys"/> that the read only <em>feeds</em>:
+    /// it extracts their input, but a registered scanner still does the work the key names.
     /// </summary>
-    internal static IReadOnlySet<string> SharedReadScannerKeys => ReferenceReadingScannerKeys;
+    /// <remarks>
+    /// These are excluded from <see cref="SharedReadScannerKeys"/> because a section declaring one
+    /// is not satisfied by the read alone. Counting them as satisfied made the registration gate
+    /// blind in one direction: <c>ScannerTransitiveRefs</c> reached the gate's union from both the
+    /// registry and the read, so <em>deleting</em> its registration left the union unchanged and
+    /// the gate still passed while <c>Dependencies</c> silently stopped producing its tree. An
+    /// earlier revision argued the two sets were interchangeable "because the union is identical
+    /// either way" — that identity was the defect, not the justification.
+    /// <see cref="SectionPipelineTests"/> pins the property that makes the exclusion safe: every
+    /// declared key the read does not satisfy must have a registered scanner.
+    /// </remarks>
+    private static readonly HashSet<string> KeysTheReadOnlyFeeds =
+    [
+        LibrarySections.ScannerTransitiveRefs
+    ];
+
+    /// <summary>
+    /// The keys the shared metadata read fully honors, unioned with the registry's registered keys
+    /// to form the set a section is allowed to declare. Derived from
+    /// <see cref="ReferenceReadingScannerKeys"/> so it cannot claim a key the read ignores.
+    /// </summary>
+    internal static IReadOnlySet<string> SharedReadScannerKeys { get; } =
+        ReferenceReadingScannerKeys
+            .Where(k => !KeysTheReadOnlyFeeds.Contains(k))
+            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.

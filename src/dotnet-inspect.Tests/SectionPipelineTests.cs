@@ -1147,6 +1147,53 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Proves the two sources the registration gate unions are disjoint.
+    /// </summary>
+    /// <remarks>
+    /// This is the invariant that makes <see cref="LibraryScannerRegistry_RegistrationMatchesDeclaration"/>
+    /// able to see a deletion at all. That gate asserts equality against a *union*, and a union
+    /// cannot detect the loss of a key that reaches it from both sides.
+    /// <c>ScannerTransitiveRefs</c> was such a key — registered as a scanner *and* named by the
+    /// shared read — so deleting its registration left the union unchanged, the gate passed, and
+    /// <c>Dependencies</c> silently stopped producing its transitive tree. Keeping the two sides
+    /// disjoint is what makes each side's contribution observable, so re-conflating them fails
+    /// here rather than going quiet until someone reads the output.
+    /// </remarks>
+    [Fact]
+    public void TheRegistrationGatesTwoSourcesOfHonor_AreDisjoint()
+    {
+        var registry = LibrarySections.CreateScannerRegistry();
+
+        var reachableFromBothSides = registry.RegisteredKeys
+            .Intersect(LibraryMetadataService.SharedReadScannerKeys, StringComparer.Ordinal);
+
+        Assert.Empty(reachableFromBothSides);
+    }
+
+    /// <summary>
+    /// Proves every declared key the shared read does not satisfy has a registered scanner.
+    /// </summary>
+    /// <remarks>
+    /// The complement of <see cref="TheRegistrationGatesTwoSourcesOfHonor_AreDisjoint"/>: that test
+    /// says the two sources do not overlap, this one says together they still cover everything
+    /// declared, so excluding a key from the read's published set cannot quietly leave it
+    /// uncollected.
+    /// </remarks>
+    [Fact]
+    public void EveryDeclaredKeyTheReadDoesNotSatisfy_HasARegisteredScanner()
+    {
+        var registry = LibrarySections.CreateScannerRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var needsARegisteredScanner = pipeline.DeclaredScannerKeys
+            .Where(k => !LibraryMetadataService.SharedReadScannerKeys.Contains(k))
+            .ToList();
+
+        Assert.NotEmpty(needsARegisteredScanner);
+        Assert.All(needsARegisteredScanner, key => Assert.Contains(key, registry.RegisteredKeys));
+    }
+
+    /// <summary>
     /// Proves every key <see cref="LibraryMetadataService.SharedReadScannerKeys"/> publishes is
     /// one the shared metadata read actually acts on, by requesting each key alone and checking
     /// that references were extracted.
