@@ -38,7 +38,10 @@ documentation.
 - Before requesting review, fetch `origin/main` and incorporate it into the
   feature branch. Rebase only before the branch's first push. Once a branch is
   public or under review, merge `origin/main`; never amend, rebase, or
-  force-push reviewed history.
+  force-push reviewed history. A slice in a stack is the standing exception:
+  restacking rebases and force-pushes a public branch by design — see
+  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues) for
+  the discipline that replaces this rule there.
 - After updating from main or resolving conflicts, re-read `AGENTS.md` and
   task-relevant docs before continuing.
 - Do not mix unrelated changes into one commit or sweep another contributor's
@@ -448,19 +451,48 @@ worse.
 - **Target the parent branch** so the PR diff shows only its own slice:
   `gh pr create --base <parent-branch>`.
 - **Merge bottom-up, one at a time.** After each merge, confirm the next PR
-  retargeted to `main` and that its diff is still only its own slice.
-- **Propagate updates down the stack by merging**, parent branch into child.
-  Never rebase or force-push a pushed slice: the no-rewrite rule applies to
-  every branch in a stack, and rewriting a parent invalidates every review
-  beneath it.
+  retargeted to `main` and that its diff is still only its own slice. When the
+  diff shows work already in `main`, that is the signal to restack, not a defect.
+- **Restacking is normal, it is usually a button, and it force-pushes.** GitHub's
+  *Update with rebase* rebases the slice onto its base and force-pushes the head
+  branch; a stacking tool's restack does the same for every slice at once. Either
+  way the rewrite does not stop at the slice you pressed it on — every slice above
+  now sits on a base that no longer exists and has to be restacked too. One
+  gesture, several branches rewritten, most of which you were not looking at. That
+  cascade is the stack's defining operational fact. The mechanism requires it:
+  once a parent lands by squash or rebase merge its commits get new identities, so
+  the child still carries the pre-merge originals and double-reports the parent's
+  work. Merging cannot repair that; rebasing onto the new base can.
+
+  So force-push is the norm inside a stack rather than the violation it would be
+  on a standalone PR. The manual equivalent of the button, when you need it:
+
+  ```bash
+  git fetch origin main
+  git rebase --onto origin/main <old-parent-tip> <slice-branch>
+  git push --force-with-lease origin <slice-branch>
+  ```
+
+  Always `--force-with-lease`, never bare `--force`; it declines when the remote
+  moved under you instead of destroying whatever arrived. Restack only your own
+  slices, and land a parent before disturbing what sits above it rather than
+  rewriting under a reviewer mid-read.
+- **A restack must change the base and nothing else.** Prove that rather than
+  assuming it — `git range-diff <old-base>..<old-head> <new-base>..<new-head>`
+  reports exactly what the rebase altered, and an unchanged report is the claim.
+  A restack that also changes content is a rewrite wearing maintenance clothing;
+  say so in the PR instead of letting it pass as routine.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's total
   size. A long stack does not make a trivial slice risky, and a small slice in a
   risky area still earns the two-model tier.
-- **A slice's head moves for reasons other than findings** — a parent merged
-  down into it, or a retarget after the parent lands. The fixed-head rule
-  applies to those the same way: a reviewed slice whose head has moved is not
-  ready until a review is clean at the *new* head. Sequence the stack so this is
-  rare, by landing a reviewed slice before disturbing the ones above it.
+- **A slice's head moves for reasons other than findings** — a restack, or a
+  retarget after the parent lands. The fixed-head rule applies to those the same
+  way: a reviewed slice whose head has moved is not ready until a review is clean
+  at the *new* head. Because one restack can move every head above it, a single
+  press can invalidate several reviews at once; that is the cost of the button,
+  and it is paid per slice. A posted `range-diff` is what keeps each of those
+  re-reviews a confirmation rather than a second full pass — without one, a
+  reviewer cannot tell a restack from a rewrite.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
 
