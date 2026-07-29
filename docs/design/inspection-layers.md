@@ -85,7 +85,7 @@ categories; it does not compute facts and does not decide what a section costs.
 
 ## Vocabulary
 
-Four nouns, four axes. They are not synonyms and must not be used
+Five nouns, five axes. They are not synonyms and must not be used
 interchangeably.
 
 | Noun | Meaning | Values | Owner |
@@ -125,14 +125,27 @@ graph, and all of them are still "one section". Trees and tables are siblings
 `--jsonl` are presentation modifiers: they change how a selected payload is
 rendered without changing the shape.
 
-**Query** generalizes a pattern already present — `TypeQuery`,
-`OriginalTypeQuery`, `MetadataDeclarationQuery`, `MemberSourceQuery`,
-`SourceDocumentQuery`, `ILOffsetQuery`, `PlatformPrefixQuery` are all typed
-inspection requests that produce data. Two other senses exist on different axes
-and always keep their qualifier: **schema query** (`-D` catalog discovery, see
-[schema-query.md](schema-query.md)) and **row query** (field predicates within a
-section, see [row-query-order.md](row-query-order.md)). Unqualified "query" means
-the L1 inspection query.
+**Query** has a typed precedent and two senses to keep clear of. The typed
+precedent is small but exact:
+[`SourceDocumentQuery`](../../src/ILInspector.Metadata/MetadataFindings.Source.cs)
+and `MemberSourceQuery` are records in `ILInspector.Metadata` that carry a typed
+request a producer runs — precisely the L1 shape. `MetadataDeclarationQuery` is
+the same concept in utility form. The browser prototype independently named its
+entire exported surface `Query*`.
+
+Three other uses of the word are *not* precedent and must not be confused with
+the L1 noun:
+
+- **schema query** — `-D` catalog discovery, see [schema-query.md](schema-query.md). L2.
+- **row query** — field predicates within a section, see
+  [row-query-order.md](row-query-order.md). L2.
+- **a user's search string** — CLI option names such as `OriginalTypeQuery` and
+  `PlatformPrefixQuery` in `ApiOptions`, and the `ILOffsetQuery` helper. These
+  are inputs typed by a user, not typed requests. L3.
+
+Unqualified "query" means the L1 inspection query. The other three always keep
+their qualifier, and a new L1 query type is named for what it returns, never for
+the text a user typed.
 
 **Scanner** stays with the passes that genuinely scan —
 `MethodClassificationScanner`, `AssemblyDetailScanner`, `ResourceScanner`,
