@@ -1541,7 +1541,37 @@ public class SectionPipelineTests
     [Fact]
     public async Task OnlyTheDeclaredKeys_DriveTheSharedRead()
     {
-        var path = typeof(SectionPipelineTests).Assembly.Location;
+        // Quantified over the inspected assembly as well as over the request. Every earlier
+        // version of this gate inspected only the test assembly, so a condition keyed on which
+        // assembly is being read escaped it entirely: adding
+        // `|| (!path.Contains("dotnet-inspect.Tests") && scanners is { Count: > 0 })` makes real
+        // assemblies extract references for sections that never declared the key, and leaves all
+        // 2556 tests green. The second fixture is a real framework assembly from the shared
+        // framework, so neither its name nor its location resembles the first, and no predicate
+        // over the inspected path can tell "the fixture" from "a real assembly".
+        //
+        // Read at Quiet verbosity. A real framework assembly carries SourceLink, so at Normal and
+        // above the source plan authorizes a cache-first PDB read, which reaches a disk cache only
+        // the CLI entry point initializes -- the inspection then returns null and the gate observes
+        // nothing. Calling CoreCache.Initialize here instead does work, but it is process-global
+        // and resets the base path other tests in this assembly rely on: it made two
+        // PackageAcquisitionConcurrencyTests fail in a full run while passing in isolation.
+        // Quiet keeps the read cache-free and network-free, and does not touch what is under test,
+        // since the condition being gated is keyed on the requested scanners alone.
+        var (platformPath, _, _, platformError) = PlatformResolver.ResolveAssembly(
+            "System.Text.Json",
+            useRuntimeAssemblies: true);
+        Assert.True(
+            platformError is null && platformPath is not null,
+            $"Could not resolve a framework assembly, so the gate would only ever see the test "
+                + $"assembly and a condition keyed on the inspected path would escape it: {platformError}");
+
+        await AssertOnlyDeclaredKeysDriveTheSharedRead(
+            [typeof(SectionPipelineTests).Assembly.Location, platformPath!]);
+    }
+
+    private static async Task AssertOnlyDeclaredKeysDriveTheSharedRead(IReadOnlyList<string> paths)
+    {
         using var httpClient = new HttpClient();
         var logger = new DotnetInspector.Output.VerboseLogger(false);
         var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys.ToList();
@@ -1586,27 +1616,31 @@ public class SectionPipelineTests
         var unexpected = new List<string>();
         var missing = new List<string>();
 
-        foreach (var request in requests)
+        foreach (var path in paths)
         {
-            var inspection = await LibraryMetadataService.InspectAsync(
-                path,
-                new LibraryOptions(),
-                logger,
-                null,
-                null,
-                httpClient,
-                scanners: new HashSet<string>(request, StringComparer.Ordinal),
-                scannerRegistry: LibrarySections.CreateScannerRegistry());
+            foreach (var request in requests)
+            {
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    path,
+                    new LibraryOptions { UserVerbosityOverride = Verbosity.Quiet },
+                    logger,
+                    null,
+                    null,
+                    httpClient,
+                    scanners: new HashSet<string>(request, StringComparer.Ordinal),
+                    scannerRegistry: LibrarySections.CreateScannerRegistry());
 
-            Assert.NotNull(inspection);
+                Assert.NotNull(inspection);
 
-            var readReferences = inspection!.AssemblyReferenceInspection.HasFindings();
-            var shouldRead = request.Any(LibraryMetadataService.ReferenceReadingScannerKeys.Contains);
+                var readReferences = inspection!.AssemblyReferenceInspection.HasFindings();
+                var shouldRead = request.Any(LibraryMetadataService.ReferenceReadingScannerKeys.Contains);
 
-            if (readReferences && !shouldRead)
-                unexpected.Add(string.Join("+", request));
-            else if (!readReferences && shouldRead)
-                missing.Add(string.Join("+", request));
+                var label = $"{Path.GetFileName(path)}: {string.Join("+", request)}";
+                if (readReferences && !shouldRead)
+                    unexpected.Add(label);
+                else if (!readReferences && shouldRead)
+                    missing.Add(label);
+            }
         }
 
         Assert.True(
