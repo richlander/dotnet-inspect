@@ -368,6 +368,69 @@ public partial class CommandExecutionTests
         Assert.Equal(markdownRows, tsvRows);
     }
 
+    /// <summary>
+    /// Replacing an assembly's bytes invalidates its cached discovery catalog, even when the
+    /// replacement is exactly the same size.
+    ///
+    /// The effective-section cache is keyed by identity, not content, so size alone was not
+    /// enough: rebuilding in place or copying a different assembly over the same path routinely
+    /// produces a same-sized file, and the stale entry then answered for the new bytes. This is
+    /// the gate for the write-time component of that key — it fails if the key drops back to
+    /// path + size.
+    ///
+    /// Bare <c>-D</c> is used deliberately: the cache is only consulted when <c>Discover</c> is
+    /// empty, so a category drill-in such as <c>-D @Metadata</c> would recompute and pass
+    /// vacuously.
+    /// </summary>
+    [Fact]
+    public async Task LibraryCommand_DiscoverEffective_SameSizeReplacement_InvalidatesCache()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"effcache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // Two assemblies whose discovery catalogs differ, the smaller padded to the larger's
+            // length so the pair collides on every non-content component of the old key.
+            var large = TestAssemblyPath;
+            var small = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+            var largeBytes = File.ReadAllBytes(large);
+            var smallBytes = File.ReadAllBytes(small);
+            if (smallBytes.Length >= largeBytes.Length)
+                return; // padding only works one way; skip rather than assert a fixture accident
+
+            var probe = Path.Combine(dir, "Probe.dll");
+            File.WriteAllBytes(probe, largeBytes);
+            var (firstExit, firstOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+
+            var padded = new byte[largeBytes.Length];
+            smallBytes.CopyTo(padded, 0);
+            File.WriteAllBytes(probe, padded);
+            var (secondExit, secondOutput, _) = await RunAppAsync("library", probe, "-D", "--tsv", "--tips", "q");
+
+            // Ground truth: the same bytes at a path the cache has never seen.
+            var fresh = Path.Combine(dir, "Fresh.dll");
+            File.WriteAllBytes(fresh, padded);
+            var (truthExit, truthOutput, _) = await RunAppAsync("library", fresh, "-D", "--tsv", "--tips", "q");
+
+            Assert.Equal(0, firstExit);
+            Assert.Equal(0, secondExit);
+            Assert.Equal(0, truthExit);
+            Assert.Equal(new FileInfo(probe).Length, largeBytes.Length);
+
+            // Only meaningful if the two assemblies really do disagree.
+            Assert.NotEqual(Normalize(firstOutput), Normalize(truthOutput));
+            Assert.Equal(Normalize(truthOutput), Normalize(secondOutput));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+
+        static string Normalize(string output) => string.Join(
+            '\n',
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')));
+    }
+
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
     private static string[] DiscoveryNames(string output) => output
         .Split('\n', StringSplitOptions.RemoveEmptyEntries)

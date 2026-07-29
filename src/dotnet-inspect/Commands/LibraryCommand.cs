@@ -1473,17 +1473,24 @@ public class LibraryCommand
 
     private static string GetEffectiveCacheKey(string assemblyPath, bool hasSourceLink)
     {
-        // Include file size for invalidation when local files change, and a network-free
-        // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
-        // the SourceLink section family is effective) busts a stale -D catalog.
+        // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
+        // (which flips whether the SourceLink section family is effective) busts a stale -D
+        // catalog.
         //
         // The path is resolved because the key is built from whatever the caller typed. A
         // relative path names different files from different working directories, so two
         // same-sized assemblies at the same relative path — the normal case for one repository
         // and its worktrees — otherwise share a key and serve each other's catalog.
+        //
+        // Size alone does not identify content. Rebuilding in place, or copying a different
+        // assembly over the same path, routinely produces a same-sized file with a different
+        // section catalog, and that collision served the previous file's answer. The write time
+        // is included so replacing the bytes invalidates the entry; together with size it is the
+        // same identity test the rest of the tool's file caches use, and it costs one stat rather
+        // than a full content hash on every discovery run.
         var fullPath = Path.GetFullPath(assemblyPath);
-        var size = new FileInfo(fullPath).Length;
-        return $"{fullPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
+        var info = new FileInfo(fullPath);
+        return $"{fullPath}#{info.Length}#{info.LastWriteTimeUtc.Ticks}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)
