@@ -221,4 +221,37 @@ public class SpilledReceiverCoalesceInliningTests
         var leftTuple = Assert.IsType<TupleExpression>(tupleBinary.Left);
         Assert.IsType<Call>(leftTuple.Elements[1]);
     }
+
+    // `receiver with { P = fallback }` clones the receiver (a possibly effectful /
+    // throwing copy constructor) BEFORE evaluating any initializer value. The
+    // receiver is pure, so PrecedingEvaluationIsPure alone would accept folding a
+    // non-pure spill into the initializer — moving it past the clone.
+    // ChildFollowsHiddenOperation rejects any non-receiver child of a
+    // WithExpression, so the store survives (#3500 adversarial review, GPT).
+    [Fact]
+    public void NonPureSpill_InWithExpressionInitializer_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Rec");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return receiver with { P = S_0 };
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new WithExpression(
+            new LoadArgument(0, "receiver", holder),
+            [new InitializerEntry("P", [new LoadStackSlot(0, intType)])])));
+        var signature = new MethodSignature(holder,
+            [new Parameter("receiver", holder)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var with = function.Descendants.OfType<WithExpression>().Single();
+        Assert.IsType<LoadStackSlot>(with.Entries[0].Arguments[0]);
+    }
 }

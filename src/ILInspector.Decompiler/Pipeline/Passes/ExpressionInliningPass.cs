@@ -582,9 +582,11 @@ public sealed class ExpressionInliningPass : IIrPass
     /// <paramref name="statement"/> is pure — effect-free and non-throwing.
     /// Walks the path from the statement root down to the load; at each level the
     /// children before the path-child are its left siblings, fully evaluated
-    /// before the load, so each must be pure. The operations ON the path sit
-    /// above the load and execute AFTER their operands, so they are not part of
-    /// the preceding evaluation.
+    /// before the load, so each must be pure. The operations ON the path normally
+    /// sit above the load and execute AFTER their operands, so they are not part
+    /// of the preceding evaluation — EXCEPT for nodes that perform a hidden
+    /// operation partway through their children (a record clone, an object
+    /// construction), which <see cref="ChildFollowsHiddenOperation"/> rejects.
     /// </summary>
     static bool PrecedingEvaluationIsPure(
         IrNode load,
@@ -609,10 +611,32 @@ public sealed class ExpressionInliningPass : IIrPass
             }
             if (onPath is null)
                 return false;
+            if (ChildFollowsHiddenOperation(node, onPath))
+                return false;
             node = onPath;
         }
         return true;
     }
+
+    /// <summary>
+    /// True when <paramref name="parent"/> performs an observable operation
+    /// between an earlier child and <paramref name="child"/>, so a value moved
+    /// into <paramref name="child"/> crosses that operation even though every
+    /// left sibling is pure. <c>receiver with { M = v }</c> clones the receiver
+    /// (a possibly effectful or throwing copy constructor) before evaluating any
+    /// initializer value, so only the receiver is preceding-operation-free;
+    /// <c>new T(args) { M = v }</c> runs the constructor before the initializers
+    /// (the creation is itself non-pure, so the left-sibling-pure check already
+    /// blocks this, but reject explicitly so the guard does not depend on that).
+    /// Every other expression's own operation runs strictly after all of its
+    /// operands, so the default is <c>false</c> (#3500 adversarial review, GPT).
+    /// </summary>
+    static bool ChildFollowsHiddenOperation(IrNode parent, IrNode child) => parent switch
+    {
+        WithExpression w => !ReferenceEquals(child, w.Receiver),
+        ObjectInitializerExpression o => !ReferenceEquals(child, o.Creation),
+        _ => false,
+    };
 
     /// <summary>
     /// True when <paramref name="load"/> is evaluated on every execution of
