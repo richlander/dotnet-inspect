@@ -53,9 +53,12 @@ namespace ILInspector.Analysis;
 /// the scope. Ruling out on unread metadata would drop callers the matcher would have found.</para>
 ///
 /// Wider type forwarding — a candidate reaching the target only through a facade outside the
-/// core-library alias set — is not modelled here for the same reason
-/// <see cref="CallerScopeFilter"/> does not model it: the matcher already misses those callers, so
-/// this filter stays exactly as permissive as the behavior it guards.
+/// core-library alias set — is modelled by <see cref="ForwardedTypeAliases"/>, which both this
+/// filter and <see cref="MemberPattern.MatchesCrossAssembly"/> consult through the same
+/// <see cref="ForwardedTypeAliases.DenotesSameType"/> call. Passing a null or empty alias set
+/// gives exactly the identity-only behavior this filter had before #3419; passing one the matcher
+/// does not also receive would make this filter narrower than the matcher, which is the one
+/// arrangement that loses callers.
 /// </summary>
 public static class CallerScopeTypeFilter
 {
@@ -78,13 +81,25 @@ public static class CallerScopeTypeFilter
         Undecidable,
     }
 
+    /// <summary>Classifies a candidate image with no forwarding aliases (identity comparison only).</summary>
+    public static TypeReferenceState Classify(MetadataReader reader, TypeRef openDeclaringType)
+        => Classify(reader, openDeclaringType, aliases: null);
+
     /// <summary>
     /// Classifies one candidate image against the open declaring type of the target member.
     /// <paramref name="openDeclaringType"/> must be the same value
     /// <see cref="MemberPattern.MatchesCrossAssembly"/> compares against — see
     /// <see cref="GenericMemberIdentity.OpenDeclaringType"/>.
+    ///
+    /// <paramref name="aliases"/> must be the same instance the matcher is given. The two are
+    /// required to be equally permissive, and this is the seam where that is arranged rather than
+    /// argued: a row is kept when it decodes to the target <em>or</em> to a facade spelling of it,
+    /// which is precisely the disjunction the matcher applies.
     /// </summary>
-    public static TypeReferenceState Classify(MetadataReader reader, TypeRef openDeclaringType)
+    public static TypeReferenceState Classify(
+        MetadataReader reader,
+        TypeRef openDeclaringType,
+        ForwardedTypeAliases? aliases)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(openDeclaringType);
@@ -125,7 +140,7 @@ public static class CallerScopeTypeFilter
                 if (decoded.Kind == TypeRefKind.Unsupported)
                     return TypeReferenceState.Undecidable;
 
-                if (decoded.Equals(openDeclaringType))
+                if (ForwardedTypeAliases.DenotesSameType(decoded, openDeclaringType, aliases))
                     return TypeReferenceState.Names;
             }
         }
@@ -145,6 +160,16 @@ public static class CallerScopeTypeFilter
     /// it could not have contributed edges either.
     /// </summary>
     public static TypeReferenceState Classify(string path, TypeRef openDeclaringType)
+        => Classify(path, openDeclaringType, aliases: null);
+
+    /// <summary>
+    /// Classifies an image on disk against the target type and the same
+    /// <see cref="ForwardedTypeAliases"/> instance the matcher is given.
+    /// </summary>
+    public static TypeReferenceState Classify(
+        string path,
+        TypeRef openDeclaringType,
+        ForwardedTypeAliases? aliases)
     {
         try
         {
@@ -153,7 +178,7 @@ public static class CallerScopeTypeFilter
             if (!peReader.HasMetadata)
                 return TypeReferenceState.DoesNotName;
 
-            return Classify(peReader.GetMetadataReader(), openDeclaringType);
+            return Classify(peReader.GetMetadataReader(), openDeclaringType, aliases);
         }
         catch (Exception ex) when (ex is BadImageFormatException
                                       or IOException

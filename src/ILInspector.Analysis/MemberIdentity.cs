@@ -364,12 +364,19 @@ public sealed class MemberPattern
     /// matches its open definition, and a generic target is compared on parameter arity
     /// rather than exact instantiated signature (#1339). Non-generic members fall back
     /// to the same exact comparison as <see cref="Matches"/>.
+    ///
+    /// <paramref name="aliases"/> supplies the facade spellings that denote the target's
+    /// declaring type once type forwarding is followed, so a caller that names the type
+    /// through a facade outside <see cref="TypeRef"/>'s core-library alias set is still
+    /// matched (#3419). It defaults to <see cref="ForwardedTypeAliases.None"/>, which is
+    /// exactly the pre-#3419 comparison. <see cref="CallerScopeTypeFilter"/> must be given
+    /// the same instance, or it will rule out assemblies this would have matched.
     /// </summary>
-    public bool MatchesCrossAssembly(MemberRef member)
+    public bool MatchesCrossAssembly(MemberRef member, ForwardedTypeAliases? aliases = null)
     {
         var candidateDeclaring = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType);
         bool declaringMatches = _openDeclaringType is not null
-            ? candidateDeclaring.Equals(_openDeclaringType)
+            ? ForwardedTypeAliases.DenotesSameType(candidateDeclaring, _openDeclaringType, aliases)
             : string.Equals(candidateDeclaring.ToQualifiedDisplayString(), _declaringTypeName, StringComparison.Ordinal);
         if (!declaringMatches || !string.Equals(member.Name, Name, StringComparison.Ordinal))
         {

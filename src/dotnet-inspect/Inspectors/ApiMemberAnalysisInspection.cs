@@ -27,8 +27,13 @@ internal sealed class ApiMemberAnalysisInspection
     string? _targetAssemblyName;
     bool _targetAssemblyNameResolved;
     IReadOnlyList<string>? _selectedScopePaths;
+    IReadOnlyList<string>? _aliasEvidencePaths;
+    IReadOnlySet<string>? _aliasSeedSpellings;
+    bool _aliasSeedSpellingsResolved;
+    Analysis.CallerScopeFilter.Candidate[]? _scopeIdentities;
     bool _ruledOutScopeIsOpenable;
     readonly Dictionary<Analysis.TypeRef, List<MethodBodyInspectionSession>> _directCallerScopes = [];
+    readonly Dictionary<Analysis.TypeRef, Analysis.ForwardedTypeAliases> _directCallerAliases = [];
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -71,7 +76,28 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     internal ImmutableArray<CallerEdge> CallerEdges(int methodToken)
-        => Session.CallerEdges(methodToken, DirectCallerScopes(methodToken));
+    {
+        var scopes = DirectCallerScopes(methodToken);
+        return Session.CallerEdges(methodToken, scopes, DirectCallerAliasesFor(methodToken));
+    }
+
+    /// <summary>
+    /// The alias set used to prefilter this target's direct caller scope, so the matcher compares
+    /// on exactly the terms the scope was selected on. Empty unless <see cref="DirectCallerScopes"/>
+    /// computed one, which is the same condition under which the scope was narrowed.
+    /// </summary>
+    Analysis.ForwardedTypeAliases DirectCallerAliasesFor(int methodToken)
+    {
+        var declaringType = Session.BodyIndex.Methods
+            .FirstOrDefault(m => m.MetadataToken == methodToken)?.DeclaringType;
+        if (declaringType is null)
+            return Analysis.ForwardedTypeAliases.None;
+
+        var openDeclaringType = Analysis.GenericMemberIdentity.OpenDeclaringType(declaringType);
+        return _directCallerAliases.TryGetValue(openDeclaringType, out var aliases)
+            ? aliases
+            : Analysis.ForwardedTypeAliases.None;
+    }
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken)
         => BodyIndex.BuildCallTree(methodToken);
@@ -225,10 +251,24 @@ internal sealed class ApiMemberAnalysisInspection
         if (_directCallerScopes.TryGetValue(openDeclaringType, out var cached))
             return cached;
 
+        // Computed once per target, before any candidate is classified, because both prefilters and
+        // the matcher have to be given the same instance. Reads only ExportedType tables.
+        var aliases = Analysis.ForwardedTypeAliases.ForTarget(
+            openDeclaringType, AliasEvidencePaths(), AliasSeedSpellings());
+        _directCallerAliases[openDeclaringType] = aliases;
+
+        // SelectedScopePaths() is called unconditionally so its side effects — the shared cache and
+        // the builder-routing evidence — happen exactly as they do today. When there are no aliases
+        // the widened selection would return the same list anyway, so the ordinary path keeps using
+        // the shared one and stays byte-identical.
+        var scopePaths = SelectedScopePaths();
+        if (!aliases.IsEmpty)
+            scopePaths = ScopePathsWideningForAliases(scopePaths, aliases);
+
         var opened = new List<MethodBodyInspectionSession>();
-        foreach (string scopePath in SelectedScopePaths())
+        foreach (string scopePath in scopePaths)
         {
-            if (Analysis.CallerScopeTypeFilter.Classify(scopePath, openDeclaringType)
+            if (Analysis.CallerScopeTypeFilter.Classify(scopePath, openDeclaringType, aliases)
                 is Analysis.CallerScopeTypeFilter.TypeReferenceState.DoesNotName)
             {
                 continue;
@@ -253,6 +293,185 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     /// <summary>
+    /// Where to look for evidence that a facade forwards the target type: the scope, plus the
+    /// assemblies shipped beside the target library.
+    ///
+    /// <para>The scope alone is the wrong place to look, and measurably so. A facade forwards a
+    /// type <em>to its definer</em>, so it ships beside the definer — <c>System.Xml.ReaderWriter</c>
+    /// sits next to <c>System.Private.Xml</c> in the shared framework, not in the caller's output
+    /// directory. A framework-dependent build output, which is the ordinary <c>--bin</c> argument,
+    /// contains no facades at all, so deriving aliases from the scope would leave the common case
+    /// exactly as broken as it is today.</para>
+    ///
+    /// <para>This stays evidence-based: every path here is read for a real <c>ExportedType</c>
+    /// forwarder row. Widening where the evidence is looked for is not the same as guessing that a
+    /// facade exists.</para>
+    /// </summary>
+    IReadOnlyList<string> AliasEvidencePaths()
+    {
+        if (_aliasEvidencePaths is not null)
+            return _aliasEvidencePaths;
+
+        // The raw scope, deliberately, not the prefiltered one: the selection this evidence feeds
+        // cannot also be its input.
+        var paths = new List<string>(_callerScopeAssemblies ?? []);
+        var seen = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(Path.GetFullPath(_assemblyPath));
+            if (directory is not null)
+            {
+                foreach (string sibling in Directory.EnumerateFiles(directory, "*.dll"))
+                {
+                    if (seen.Add(sibling))
+                        paths.Add(sibling);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Best-effort: an unreadable directory contributes no aliases, which leaves the
+            // matcher exactly where it was before this evidence source existed.
+        }
+
+        _aliasEvidencePaths = paths;
+        return paths;
+    }
+
+    /// <summary>
+    /// Every assembly spelling the scope could name — the seeds the alias walk starts from — or
+    /// null when that cannot be enumerated and the walk must read every candidate file.
+    ///
+    /// <para>A candidate whose references are unreadable might name anything, so it forces the
+    /// unrestricted walk rather than being skipped — the same soundness rule the identity prefilter
+    /// follows, for the same reason.</para>
+    /// </summary>
+    IReadOnlySet<string>? AliasSeedSpellings()
+    {
+        if (_aliasSeedSpellingsResolved)
+            return _aliasSeedSpellings;
+
+        _aliasSeedSpellingsResolved = true;
+        _aliasSeedSpellings = SpellingsTheScopeCanName();
+        return _aliasSeedSpellings;
+    }
+
+    HashSet<string>? SpellingsTheScopeCanName()
+    {
+        if (_callerScopeAssemblies is not { Count: > 0 })
+            return null;
+
+        var nameable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in ScopeIdentitiesCached())
+        {
+            switch (candidate.Kind)
+            {
+                case Analysis.CallerScopeFilter.CandidateIdentity.Unopenable:
+                    continue;
+
+                case Analysis.CallerScopeFilter.CandidateIdentity.Known
+                    when candidate.References is not null:
+                    foreach (string reference in candidate.References)
+                        nameable.Add(reference);
+                    continue;
+
+                default:
+                    return null;
+            }
+        }
+
+        return nameable;
+    }
+
+    /// <summary>
+    /// The scope candidates a facade spelling brings back in, added to the shared selection rather
+    /// than replacing it.
+    ///
+    /// <para>A caller that reaches the target's type only through a facade names the <em>facade</em>
+    /// in its <c>AssemblyRef</c> table and never names the target, so the reverse-reference closure
+    /// rules it out before any type-level filter can see it. All three gates — this one, the
+    /// type-level prefilter, and the matcher — have to widen together, or widening the matcher just
+    /// moves where the caller is silently dropped (#3419).</para>
+    ///
+    /// <para><b>A direct test, not a re-seeded closure.</b> Re-seeding the transitive closure with
+    /// the alias spellings selects the entire scope whenever a core-library facade forwards the
+    /// type: <c>netstandard</c> forwards a great many types and canonicalizes to <c>corelib</c>,
+    /// which every managed assembly references. Measured on the shared framework, that turned a
+    /// 2.8s request into 4.0s and re-opened all 182 assemblies — undoing the prefilter this sits
+    /// inside. Matching raw <c>AssemblyRef</c> spellings against the names the facades actually
+    /// carry is precise, and only <em>adds</em> candidates, so nothing the shared selection already
+    /// found can be lost here.</para>
+    ///
+    /// <para>Direct naming is the right test because <c>CallerEdges</c> is single-hop: an assembly
+    /// holding a direct call into the target must reference the target or a facade for it.</para>
+    ///
+    /// <para><b>Why the transitive <c>Call Graph</c> is deliberately not widened.</b> That path does
+    /// not share this comparison at all. <c>LibraryBodyIndex.BuildCallerTree</c> joins callers to
+    /// callees on <c>CallerGraphKey</c>, a string whose declaring-type fragment is
+    /// <c>{Assembly}|{Namespace}.{Name}</c> (<see cref="Analysis.GenericMemberIdentity.KeyFragment"/>),
+    /// and it never asks <see cref="Analysis.ForwardedTypeAliases.DenotesSameType"/>. A forwarded
+    /// caller's callee key names the facade and the definition's key names the definer, so the two
+    /// do not join — the edge is lost at the key, not at the prefilter. Widening
+    /// <see cref="Analysis.CallerScopeFilter"/> would therefore open more assemblies and change no
+    /// answer, which is the worst of both. Teaching that key about forwarding is a separate change
+    /// with a wider blast radius (it moves every structural join, including <c>Fanout</c>), and it
+    /// belongs with the other defects in that key: #3340 and #3351.</para>
+    /// </summary>
+    IReadOnlyList<string> ScopePathsWideningForAliases(
+        IReadOnlyList<string> selected,
+        Analysis.ForwardedTypeAliases aliases)
+    {
+        var scopePaths = _callerScopeAssemblies!;
+        var identities = ScopeIdentitiesCached();
+        var widened = new List<string>(selected);
+        var already = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < scopePaths.Count; i++)
+        {
+            if (already.Contains(scopePaths[i]))
+                continue;
+
+            var candidate = identities[i];
+            if (candidate.Kind is not Analysis.CallerScopeFilter.CandidateIdentity.Known
+                || candidate.References is null)
+            {
+                // Undecidable candidates are already selected by the shared closure, which widens
+                // to everything openable when it cannot decide.
+                continue;
+            }
+
+            bool namesFacade = candidate.Name is not null && aliases.IncludesRawSpelling(candidate.Name);
+            if (!namesFacade)
+            {
+                foreach (string reference in candidate.References)
+                {
+                    if (aliases.IncludesRawSpelling(reference))
+                    {
+                        namesFacade = true;
+                        break;
+                    }
+                }
+            }
+
+            if (namesFacade)
+                widened.Add(scopePaths[i]);
+        }
+
+        return widened;
+    }
+
+    /// <summary>
+    /// The identity scan of <see cref="_callerScopeAssemblies"/>, run at most once per request.
+    /// Both the shared selection and the alias widening read it, so widening costs no extra
+    /// metadata scan. It takes no parameter on purpose: the result is index-aligned with
+    /// <see cref="_callerScopeAssemblies"/> and <see cref="ScopePathsWideningForAliases"/> indexes
+    /// it that way, so a cache that appeared to be keyed by an argument would be a trap.
+    /// </summary>
+    Analysis.CallerScopeFilter.Candidate[] ScopeIdentitiesCached()
+        => _scopeIdentities ??= ScopeIdentities(_callerScopeAssemblies!);
+
+    /// <summary>
     /// The scope assemblies that survive prefiltering, resolved once. The two lenses open separate
     /// sessions because they decode different things, but they ask the same identity question, and
     /// the scan is the whole cost of prefiltering — running it twice for a request that renders
@@ -264,7 +483,7 @@ internal sealed class ApiMemberAnalysisInspection
             return _selectedScopePaths;
 
         var scopePaths = _callerScopeAssemblies!;
-        var identities = ScopeIdentities(scopePaths);
+        var identities = ScopeIdentitiesCached();
 
         var selected = Analysis.CallerScopeFilter.SelectCouldReach(TargetAssemblyName, identities);
 

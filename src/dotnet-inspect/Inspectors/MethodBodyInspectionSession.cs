@@ -131,10 +131,16 @@ public sealed class MethodBodyInspectionSession
     /// a pattern is available, each scope session is scanned for cross-assembly callers using
     /// generic-normalized matching (operand tokens are assembly-local, so only the pattern applies).
     /// Results are unsorted and undeduplicated; the caller owns presentation ordering.
+    ///
+    /// <paramref name="aliases"/> carries the facade spellings that denote the target's declaring
+    /// type once type forwarding is followed (#3419). It must be the same instance used to
+    /// prefilter <paramref name="scopes"/>, or the scope will have been narrowed more aggressively
+    /// than the matcher here is willing to compare.
     /// </summary>
     public ImmutableArray<CallerEdge> CallerEdges(
         int targetToken,
-        IReadOnlyList<MethodBodyInspectionSession>? scopes = null)
+        IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
+        Analysis.ForwardedTypeAliases? aliases = null)
     {
         var selected = BodyIndex.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
         var pattern = selected is { } identity
@@ -155,7 +161,7 @@ public sealed class MethodBodyInspectionSession
             {
                 foreach (var call in scope.BodyIndex.DirectCalls)
                 {
-                    if (pattern.MatchesCrossAssembly(call.Callee))
+                    if (pattern.MatchesCrossAssembly(call.Callee, aliases))
                         edges.Add(new CallerEdge(scope.SourceName, call));
                 }
             }
