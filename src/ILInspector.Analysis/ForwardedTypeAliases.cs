@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -33,25 +34,33 @@ public sealed class ForwardedTypeAliases
     // Matches TypeForwardResolver.DefaultMaxHops: the same bound on the same kind of chain.
     const int MaxHops = 8;
 
+    // An evidence token is 8 bytes, so a one-byte value cannot collide with a real one. This marks
+    // a spelling two different assemblies claim: it can never be verified against either.
+    static readonly byte[] AmbiguousSpelling = [0];
+
     readonly HashSet<string> _aliases;
     readonly HashSet<string> _rawSpellings;
     readonly Dictionary<string, byte[]> _spellingTokens;
+    readonly Dictionary<string, string> _canonicalByRaw;
 
     ForwardedTypeAliases(
         HashSet<string> aliases,
         HashSet<string> rawSpellings,
-        Dictionary<string, byte[]> spellingTokens)
+        Dictionary<string, byte[]> spellingTokens,
+        Dictionary<string, string> canonicalByRaw)
     {
         _aliases = aliases;
         _rawSpellings = rawSpellings;
         _spellingTokens = spellingTokens;
+        _canonicalByRaw = canonicalByRaw;
     }
 
     /// <summary>No aliases: every comparison falls back to plain identity.</summary>
     public static ForwardedTypeAliases None { get; } = new(
         new HashSet<string>(StringComparer.Ordinal),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-        new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase));
+        new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
     public bool IsEmpty => _aliases.Count == 0;
 
@@ -76,35 +85,131 @@ public sealed class ForwardedTypeAliases
     public bool IncludesRawSpelling(string assembly) => _rawSpellings.Contains(assembly);
 
     /// <summary>
-    /// Whether a reference to <paramref name="rawSpelling"/> carrying
-    /// <paramref name="referenceToken"/> is a reference to the very assembly that supplied the
-    /// forwarder evidence for this alias.
+    /// The aliases that are actually applicable to one caller image: those whose facade the image
+    /// references under a strong-name identity matching the assembly that supplied the forwarder
+    /// evidence. Returns <see cref="None"/> when the image verifies none of them.
     ///
-    /// <para><b>Why this exists.</b> An alias is a bare assembly <em>name</em>, because that is all
-    /// a <see cref="TypeRef"/> records. Two different assemblies can share a simple name and differ
-    /// in strong-name identity, and without this check a forwarder read from one of them is applied
-    /// to a caller that bound against the other — reporting a call to an unrelated type as a call to
-    /// the target. That is a fabricated caller, which is worse than a missing one, and it is a
-    /// regression this change would otherwise introduce (found in review of #3419).</para>
+    /// <para><b>Why per image, and why here.</b> An alias is a bare assembly <em>name</em>, because
+    /// that is all a <see cref="TypeRef"/> records. Two different assemblies can share a simple name
+    /// and differ in strong-name identity, so a forwarder read from one of them must not be applied
+    /// to a caller that bound against the other: that reports a call to an unrelated type as a call
+    /// to the target — a fabricated caller, which is worse than a missing one.</para>
     ///
-    /// <para>Unrecorded spellings answer <see langword="true"/>: there is no evidence to contradict,
-    /// and this must never be the reason a candidate is ruled out.</para>
+    /// <para>Whether an alias applies is therefore a property of the <em>caller image</em>, not of
+    /// the call site, and the image's <c>AssemblyRef</c> table is the only place the identity still
+    /// exists. Restricting once per image is what lets the prefilter and the matcher enforce the
+    /// same rule from the same primitive: an earlier revision checked identity inside
+    /// <see cref="CallerScopeTypeFilter"/> alone, which left every path that reaches the matcher
+    /// without passing the prefilter — a reused shared scope, most of all — able to fabricate a
+    /// caller (found in review of #3419).</para>
     ///
-    /// <para>An absent token on <em>either</em> side also answers <see langword="true"/>. Only a
-    /// present-and-different token is evidence of a different assembly; a missing one is merely
-    /// unknown, and narrowing on unknown input is how a prefilter silently drops real callers. This
-    /// check exists to reject a demonstrated collision, not to require strong naming.</para>
+    /// <para><b>An alias fires only when identity is verified.</b> That is the opposite of the rule
+    /// for ordinary identity matching, and deliberately so. Aliasing is additive: declining to
+    /// apply one restores the behavior callers had before #3419, which is a display gap. Applying
+    /// one wrongly invents an edge. So unknown, unverifiable, or ambiguous identity declines.</para>
     /// </summary>
-    public bool EvidenceIdentityAgrees(string rawSpelling, ReadOnlySpan<byte> referenceToken)
+    public ForwardedTypeAliases RestrictedTo(MetadataReader reader)
     {
-        if (referenceToken.IsEmpty)
-            return true;
+        ArgumentNullException.ThrowIfNull(reader);
 
-        if (!_spellingTokens.TryGetValue(rawSpelling, out byte[]? evidenceToken)
-            || evidenceToken.Length == 0)
+        if (_aliases.Count == 0)
+            return this;
+
+        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var handle in reader.AssemblyReferences)
         {
-            return true;
+            var reference = reader.GetAssemblyReference(handle);
+            string name = reader.GetString(reference.Name);
+            if (!_rawSpellings.Contains(name) || verified.Contains(name))
+                continue;
+
+            if (EvidenceIdentityVerified(
+                    name,
+                    reader.GetBlobContent(reference.PublicKeyOrToken).AsSpan(),
+                    reference.Flags))
+            {
+                verified.Add(name);
+            }
         }
+
+        if (verified.Count == _rawSpellings.Count)
+            return this;
+        if (verified.Count == 0)
+            return None;
+
+        var aliases = new HashSet<string>(StringComparer.Ordinal);
+        var spellingTokens = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string raw in verified)
+        {
+            if (!_canonicalByRaw.TryGetValue(raw, out string? canonical))
+                continue;
+            aliases.Add(canonical);
+            canonicalByRaw[raw] = canonical;
+            if (_spellingTokens.TryGetValue(raw, out byte[]? token))
+                spellingTokens[raw] = token;
+        }
+
+        return aliases.Count == 0
+            ? None
+            : new ForwardedTypeAliases(aliases, verified, spellingTokens, canonicalByRaw);
+    }
+
+    /// <summary>
+    /// <see cref="RestrictedTo(MetadataReader)"/> for an image on disk, opened for metadata only.
+    /// An image that cannot be opened or read declines every alias: an alias may only be applied on
+    /// positive evidence, and there is none here.
+    /// </summary>
+    public ForwardedTypeAliases RestrictedTo(string assemblyPath)
+    {
+        if (_aliases.Count == 0)
+            return this;
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            return peReader.HasMetadata ? RestrictedTo(peReader.GetMetadataReader()) : None;
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            return None;
+        }
+    }
+
+    /// <summary>
+    /// Whether an <c>AssemblyRef</c> to <paramref name="rawSpelling"/> denotes the very assembly
+    /// that supplied this alias's forwarder evidence.
+    ///
+    /// <para>The reference blob is a full public key rather than a token when
+    /// <see cref="AssemblyFlags.PublicKey"/> is set, and is reduced before comparison — comparing a
+    /// 160-byte key against an 8-byte token would reject every reference that spells its identity
+    /// that way, dropping genuine callers.</para>
+    ///
+    /// <para>Each of the remaining answers is a decline, and each is the safe direction. An
+    /// unrecorded spelling has no evidence to verify against. A retargetable reference declares its
+    /// identity substitutable, so its token is not the definition's and cannot confirm anything. An
+    /// ambiguous spelling was claimed by two differently signed assemblies, so neither can be
+    /// confirmed. An unsigned evidence assembly can only answer a reference that is itself
+    /// unsigned: a reference carrying a token could not have bound to it.</para>
+    /// </summary>
+    bool EvidenceIdentityVerified(
+        string rawSpelling,
+        ReadOnlySpan<byte> referenceKeyOrToken,
+        AssemblyFlags flags)
+    {
+        if (!_spellingTokens.TryGetValue(rawSpelling, out byte[]? evidenceToken))
+            return false;
+
+        if (evidenceToken.AsSpan().SequenceEqual(AmbiguousSpelling))
+            return false;
+
+        if ((flags & AssemblyFlags.Retargetable) != 0)
+            return false;
+
+        ReadOnlySpan<byte> referenceToken = (flags & AssemblyFlags.PublicKey) != 0
+            ? PublicKeyTokenOf(referenceKeyOrToken)
+            : referenceKeyOrToken;
 
         return referenceToken.SequenceEqual(evidenceToken);
     }
@@ -263,7 +368,7 @@ public sealed class ForwardedTypeAliases
                 if (tokensBySpelling.TryGetValue(edge.Assembly, out byte[]? seen)
                     && !seen.AsSpan().SequenceEqual(edge.Token))
                 {
-                    tokensBySpelling[edge.Assembly] = [0];
+                    tokensBySpelling[edge.Assembly] = AmbiguousSpelling;
                 }
                 else
                 {
@@ -288,6 +393,7 @@ public sealed class ForwardedTypeAliases
         var aliases = new HashSet<string>(StringComparer.Ordinal);
         var rawSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var spellingTokens = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string spelling in forwardsTo.Keys)
         {
             // A spelling that already equals the target is not an alias; identity answers it.
@@ -298,6 +404,7 @@ public sealed class ForwardedTypeAliases
                 foreach (string raw in rawByCanonical[spelling])
                 {
                     rawSpellings.Add(raw);
+                    canonicalByRaw[raw] = spelling;
                     if (tokensBySpelling.TryGetValue(raw, out byte[]? token))
                         spellingTokens[raw] = token;
                 }
@@ -306,7 +413,7 @@ public sealed class ForwardedTypeAliases
 
         return aliases.Count == 0
             ? None
-            : new ForwardedTypeAliases(aliases, rawSpellings, spellingTokens);
+            : new ForwardedTypeAliases(aliases, rawSpellings, spellingTokens, canonicalByRaw);
     }
 
     /// <summary>

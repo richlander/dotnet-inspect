@@ -38,6 +38,25 @@ public sealed class MethodBodyInspectionSession
     public string SourceName { get; }
 
     /// <summary>
+    /// The subset of <paramref name="aliases"/> this image's own <c>AssemblyRef</c> identities
+    /// verify, memoized because a command may ask for edges more than once while the answer depends
+    /// only on this image.
+    /// </summary>
+    internal Analysis.ForwardedTypeAliases ApplicableAliases(Analysis.ForwardedTypeAliases aliases)
+    {
+        if (!ReferenceEquals(_restrictedFrom, aliases))
+        {
+            _restricted = aliases.RestrictedTo(BodyIndex.Path);
+            _restrictedFrom = aliases;
+        }
+
+        return _restricted!;
+    }
+
+    Analysis.ForwardedTypeAliases? _restrictedFrom;
+    Analysis.ForwardedTypeAliases? _restricted;
+
+    /// <summary>
     /// Test-only counter of index builds (one per <see cref="Open"/>). The "build the index once
     /// per command" invariant (#2139 perf: PRs #2187/#2199/#2210) is guarded by asserting this
     /// stays at 1 across a multi-section render; a new section that opens its own session would
@@ -159,9 +178,16 @@ public sealed class MethodBodyInspectionSession
         {
             foreach (var scope in scopes)
             {
+                // Which aliases apply is a property of the caller image, and is decided from its
+                // own AssemblyRef identities rather than assumed from the prefilter. A scope
+                // carried over from an earlier lens never passed that filter at all.
+                var applicable = aliases is null || aliases.IsEmpty
+                    ? aliases
+                    : scope.ApplicableAliases(aliases);
+
                 foreach (var call in scope.BodyIndex.DirectCalls)
                 {
-                    if (pattern.MatchesCrossAssembly(call.Callee, aliases))
+                    if (pattern.MatchesCrossAssembly(call.Callee, applicable))
                         edges.Add(new CallerEdge(scope.SourceName, call));
                 }
             }

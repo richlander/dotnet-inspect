@@ -24,6 +24,16 @@ public class ForwardedTypeAliasesTests
 
     static TypeRef XmlReader => TypeRef.Definition("System.Private.Xml", "System.Xml", "XmlReader");
 
+    /// <summary>
+    /// The public key token a real compiler stamps on a reference to <paramref name="assembly"/>,
+    /// read from the shipped file through the BCL rather than through the product's own reduction,
+    /// so these fixtures cannot agree with a wrong implementation of it.
+    /// </summary>
+    static byte[] TokenOfFrameworkAssembly(string assembly)
+        => System.Reflection.AssemblyName
+            .GetAssemblyName(Path.Combine(FrameworkDirectory, assembly + ".dll"))
+            .GetPublicKeyToken()!;
+
     [Fact]
     public void ForTarget_FollowsAMultiHopFrameworkFacadeChain()
     {
@@ -127,7 +137,11 @@ public class ForwardedTypeAliasesTests
     [Fact]
     public void PrefilterKeepsAnImageThatNamesTheTargetOnlyThroughAFacade()
     {
-        using var provider = BuildCallerNaming("System.Xml.ReaderWriter", "System.Xml", "XmlReader");
+        using var provider = BuildCallerNaming(
+            "System.Xml.ReaderWriter",
+            "System.Xml",
+            "XmlReader",
+            TokenOfFrameworkAssembly("System.Xml.ReaderWriter"));
         var reader = provider.GetMetadataReader();
         var aliases = ForwardedTypeAliases.ForTarget(XmlReader, FrameworkAssemblies);
 
@@ -150,7 +164,11 @@ public class ForwardedTypeAliasesTests
     [Fact]
     public void PrefilterStillRulesOutAnImageThatNamesADifferentType()
     {
-        using var provider = BuildCallerNaming("System.Xml.ReaderWriter", "System.Xml", "XmlWriter");
+        using var provider = BuildCallerNaming(
+            "System.Xml.ReaderWriter",
+            "System.Xml",
+            "XmlWriter",
+            TokenOfFrameworkAssembly("System.Xml.ReaderWriter"));
         var reader = provider.GetMetadataReader();
         var aliases = ForwardedTypeAliases.ForTarget(XmlReader, FrameworkAssemblies);
 
@@ -284,6 +302,123 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// The rule the review of <c>cfd71e37</c> corrected. An alias fires only on <em>verified</em>
+    /// identity, which is the opposite of the rule for ordinary identity matching and deliberately
+    /// so: aliasing is additive, so declining one restores pre-#3419 behavior — a caller that is
+    /// not listed — while applying one wrongly invents an edge that never existed.
+    ///
+    /// <para>Each case here was an admitted fabrication under the earlier
+    /// "only a present-and-different token rejects" rule. Two independent reviewers reached three
+    /// of them by different routes, which is why the rule was inverted rather than patched.</para>
+    /// </summary>
+    [Theory]
+    // A tokenless reference cannot have bound to strong-named evidence; a real compiler stamps the
+    // token. Admitting it let any caller claim any signed facade.
+    [InlineData("tokenless reference, signed evidence")]
+    // An unsigned facade cannot answer for a reference that carries a token.
+    [InlineData("signed reference, unsigned evidence")]
+    // Two differently signed assemblies claim the spelling, so neither can be confirmed. The
+    // poisoning was previously skipped entirely for a tokenless reference.
+    [InlineData("ambiguous spelling")]
+    // A retargetable reference declares its identity substitutable, so its token is not the
+    // definition's and confirms nothing.
+    [InlineData("retargetable reference")]
+    public void PrefilterDeclinesAnAliasItCannotVerify(string shape)
+    {
+        byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory,
+            "Contoso.Facade",
+            "Contoso.Definer",
+            "Contoso",
+            "Widget",
+            shape == "signed reference, unsigned evidence" ? null : evidenceKey);
+
+        if (shape == "ambiguous spelling")
+        {
+            // A second file claiming the same assembly name under a different key. Its own file
+            // name has to differ, but the assembly identity inside it is what the walk records.
+            WriteForwarder(
+                directory,
+                "Contoso.Facade",
+                "Contoso.Definer",
+                "Contoso",
+                "Widget",
+                rivalKey,
+                fileName: "Contoso.Facade.Rival");
+        }
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+        Assert.False(aliases.IsEmpty);
+
+        (byte[]? token, AssemblyFlags flags) = shape switch
+        {
+            "tokenless reference, signed evidence" => (null, default(AssemblyFlags)),
+            "signed reference, unsigned evidence" => (TokenOf(evidenceKey), default),
+            "ambiguous spelling" => (null, default),
+            "retargetable reference" => (TokenOf(evidenceKey), AssemblyFlags.Retargetable),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget", token, flags);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// The negative control for the rule above: declining unverifiable identity must not collapse
+    /// into declining everything. A reference that stores a full public key rather than a token
+    /// (<see cref="AssemblyFlags.PublicKey"/>, ECMA-335 II.22.5) is a legal shape naming the very
+    /// same assembly, and comparing that 160-byte blob against an 8-byte token would reject every
+    /// caller that spells its identity that way. Both reviewers found this one.
+    /// </summary>
+    [Fact]
+    public void PrefilterAcceptsAReferenceThatStoresAFullPublicKeyRatherThanAToken()
+    {
+        byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", evidenceKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", evidenceKey, AssemblyFlags.PublicKey);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// The other half of that control: an unsigned reference to unsigned evidence is verified, not
+    /// merely unrefuted. A simple name is the whole of both identities, so they agree.
+    /// </summary>
+    [Fact]
+    public void PrefilterAcceptsAnUnsignedReferenceToUnsignedEvidence()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget", null);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
     /// The public key token for a public key, restated from ECMA-335 II.6.3 rather than shared with
     /// the product code, so this is an independent oracle rather than the same computation twice.
     /// </summary>
@@ -314,6 +449,20 @@ public class ForwardedTypeAliasesTests
         string ns,
         string typeName,
         byte[]? publicKey)
+        => WriteForwarder(directory, name, target, ns, typeName, publicKey, fileName: name);
+
+    /// <summary>
+    /// The same, with the file name held apart from the assembly name, so a test can place two
+    /// files that claim one assembly identity in a single directory.
+    /// </summary>
+    static void WriteForwarder(
+        string directory,
+        string name,
+        string target,
+        string ns,
+        string typeName,
+        byte[]? publicKey,
+        string fileName)
     {
         var metadata = NewAssembly(name, publicKey);
         var targetReference = metadata.AddAssemblyReference(
@@ -331,7 +480,7 @@ public class ForwardedTypeAliasesTests
             targetReference,
             typeDefinitionId: 0);
 
-        File.WriteAllBytes(Path.Combine(directory, name + ".dll"), SerializePE(metadata));
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
     }
 
     /// <summary>Metadata for an image whose only TypeRef names one type in one assembly.</summary>
@@ -347,6 +496,19 @@ public class ForwardedTypeAliasesTests
         string ns,
         string typeName,
         byte[]? publicKeyOrToken)
+        => BuildCallerNaming(assembly, ns, typeName, publicKeyOrToken, flags: default);
+
+    /// <summary>
+    /// The same, with explicit <see cref="AssemblyFlags"/> on the reference, so a test can build the
+    /// two shapes that are not a plain token: a reference that stores a full public key
+    /// (<see cref="AssemblyFlags.PublicKey"/>) and one that declares itself retargetable.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNaming(
+        string assembly,
+        string ns,
+        string typeName,
+        byte[]? publicKeyOrToken,
+        AssemblyFlags flags)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var reference = metadata.AddAssemblyReference(
@@ -356,7 +518,7 @@ public class ForwardedTypeAliasesTests
             publicKeyOrToken: publicKeyOrToken is null
                 ? default
                 : metadata.GetOrAddBlob(publicKeyOrToken),
-            flags: default,
+            flags: flags,
             hashValue: default);
         metadata.AddTypeReference(
             reference,

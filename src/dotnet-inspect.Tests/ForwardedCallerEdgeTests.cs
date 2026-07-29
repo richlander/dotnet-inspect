@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Xml;
 
@@ -174,5 +175,118 @@ public class ForwardedCallerEdgeTests
         var edges = inspection.CallerEdges(CreateFromUriToken(target!));
 
         Assert.Contains(edges, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+    }
+
+    /// <summary>
+    /// Alias applicability is decided per caller image, from that image's own <c>AssemblyRef</c>
+    /// identities — not assumed from the prefilter that selected it.
+    ///
+    /// <para>The distinction is the whole fix. An earlier revision checked strong-name identity
+    /// inside <see cref="ILInspector.Analysis.CallerScopeTypeFilter"/> alone, which guards only the
+    /// paths that run it. A scope carried over from an earlier lens is handed to the matcher
+    /// without ever passing that filter, so a facade signed by one publisher could vouch for a
+    /// caller that bound against a different assembly of the same name — a fabricated edge. Both
+    /// reviewers of <c>4a811076</c> reached that hole independently.</para>
+    ///
+    /// <para>The caller here is real: this assembly's own call site, naming
+    /// <c>System.Xml.ReaderWriter</c> with the token a compiler stamped on it. Only the
+    /// <em>evidence</em> is synthetic — a same-named facade under a different key — so the test
+    /// asks the question the attack asks: does a forwarder from the wrong assembly vouch for this
+    /// caller? The scope is passed straight to <see cref="ILInspector.Analysis.MemberPattern"/> via
+    /// <c>CallerEdges</c>, which is exactly the reused-shared-scope shape.</para>
+    /// </summary>
+    [Fact]
+    public void CallerEdges_DoNotApplyAForwarderFromADifferentlySignedAssemblyOfTheSameName()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), "fwd-impostor-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            WriteImpostorFacade(directory);
+
+            var xmlReader = ILInspector.Analysis.TypeRef.Definition(
+                "System.Private.Xml", "System.Xml", "XmlReader");
+            var impostorAliases = ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
+                xmlReader, Directory.GetFiles(directory, "*.dll"));
+
+            // Premise: the impostor really does supply an alias for the facade spelling, so the
+            // rejection below is the identity check and not an empty alias set.
+            Assert.True(impostorAliases.IncludesRawSpelling("System.Xml.ReaderWriter"));
+
+            var targetSession = MethodBodyInspectionSession.Open(target!);
+            var callerSession = MethodBodyInspectionSession.Open(SelfPath);
+
+            var fabricated = targetSession.CallerEdges(
+                CreateFromUriToken(target!), [callerSession], impostorAliases);
+
+            Assert.DoesNotContain(
+                fabricated, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+
+            // The control: the same call, the same wiring, with the genuine framework evidence.
+            // Without it, "reports nothing" would satisfy this test.
+            var genuineAliases = ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
+                xmlReader, Directory.GetFiles(FrameworkDirectory, "*.dll"));
+
+            var real = targetSession.CallerEdges(
+                CreateFromUriToken(target!), [callerSession], genuineAliases);
+
+            Assert.Contains(real, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A strong-named assembly calling itself <c>System.Xml.ReaderWriter</c> and forwarding
+    /// <c>System.Xml.XmlReader</c> to <c>System.Private.Xml</c>, exactly as the real facade does.
+    /// Everything about it matches the genuine article except the key it is signed with.
+    /// </summary>
+    static void WriteImpostorFacade(string directory)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("System.Xml.ReaderWriter.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("System.Xml.ReaderWriter"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: metadata.GetOrAddBlob(Enumerable.Repeat((byte)0xC3, 16).ToArray()),
+            flags: System.Reflection.AssemblyFlags.PublicKey,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        var definer = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.Xml"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            // tdForwarder (ECMA-335 II.23.1.15); not named in System.Reflection.TypeAttributes.
+            (System.Reflection.TypeAttributes)0x00200000,
+            metadata.GetOrAddString("System.Xml"),
+            metadata.GetOrAddString("XmlReader"),
+            definer,
+            typeDefinitionId: 0);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(
+            Path.Combine(directory, "System.Xml.ReaderWriter.dll"), image.ToArray());
     }
 }
