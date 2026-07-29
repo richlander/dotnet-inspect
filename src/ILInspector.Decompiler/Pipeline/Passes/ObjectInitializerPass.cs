@@ -1050,6 +1050,15 @@ public sealed class ObjectInitializerPass : IIrPass
         // and mutate it, so moving the read across the members is observable. Admit it
         // only before the first entry, keeping the read ahead of every member value in
         // both the original and the folded order — the same rule as a field/local read.
+        //
+        // Unlike the `this`-field arm this does NOT require constructorEffectFree: a
+        // parameterless ctor (and the `.cctor` newobj triggers) receives no reference to
+        // the caller's argument/local slots, so it cannot reach them — UNDER THE
+        // ROSLYN-FAITHFUL THREAT MODEL. Reaching a caller slot needs a prior address
+        // escape (`ldarga`/`ldloca` -> `conv.u` -> `stsfld`) the ctor later writes
+        // through; that is unverifiable unsafe IL Roslyn never emits, the same accepted
+        // arbitrary-IL boundary as the null-`this` receiver read documented on
+        // MethodRef.ConstructorEffectFree. Not gated here by deliberate scope decision.
         LoadArgument => beforeFirstEntry,
         LoadLocal => beforeFirstEntry,
         _ => false,

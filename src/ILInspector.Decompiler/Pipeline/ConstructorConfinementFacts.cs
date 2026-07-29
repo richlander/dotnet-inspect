@@ -27,13 +27,17 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </code>
 ///
 /// <para>A body of exactly that shape performs no field write, no static read/write,
-/// no call other than the benign <c>System.Object::.ctor</c>, no branch, and carries no
-/// exception region — so it cannot reach or mutate anything the receiver read observes.
-/// Chaining directly to <c>System.Object::.ctor</c> further proves the declaring type
-/// derives directly from <c>Object</c> (a non-<c>Object</c> base would be constructed by
-/// a <c>call</c> to <em>its</em> ctor), so no intermediate base <c>.cctor</c> exists; the
-/// only remaining type-initializer is the declaring type's own <c>.cctor</c>, which the
-/// gate rejects by requiring the type to declare none.</para>
+/// no call other than the base <c>.ctor</c>, no branch, and carries no exception region
+/// — so it cannot reach or mutate anything the receiver read observes. Chaining to the
+/// declaring type's direct base ctor, together with the base resolving (by TYPED
+/// core-library identity, not spelling — see <see cref="Stamp"/>) to the real
+/// <c>System.Object</c>, proves the declaring type derives directly from <c>Object</c>
+/// (a non-<c>Object</c> base would be constructed by a <c>call</c> to <em>its</em> ctor),
+/// so no intermediate base <c>.cctor</c> exists; the only remaining type-initializer is
+/// the declaring type's own <c>.cctor</c>, which the gate rejects by requiring the type
+/// to declare none. A crafted assembly cannot substitute a side-effecting base by
+/// planting a sibling type spelled <c>System.Object</c>: the base is identified by its
+/// resolved <see cref="TypeRef.CoreLibrary"/> assembly, which a lookalike cannot forge.</para>
 ///
 /// <para>The proof is <em>Roslyn-faithful</em>, not arbitrary-IL-sound: it assumes a
 /// non-null <c>this</c> (a hand-crafted <c>call</c> to an instance method with a null
@@ -66,6 +70,19 @@ internal static class ConstructorConfinementFacts
 
             var declaringType = method.GetDeclaringType();
             if (DeclaresStaticConstructor(reader, declaringType))
+                return ctor;
+
+            // Anchor the direct-Object-derivation lemma on the pipeline's TYPED core-
+            // library identity, not on the base-call token's namespace/name spelling.
+            // A crafted assembly can name its own base type `System.Object` (a
+            // cross-assembly MemberReference to a planted `[Evil]System.Object::.ctor`
+            // passes a namespace+name check), so proving the ctor chains to a type
+            // *spelled* Object does NOT prove it derives from the real Object. Resolving
+            // the declaring type's actual base through the importer yields a TypeRef
+            // whose Assembly is the resolved core library (TypeRef.CoreLibrary) only for
+            // the genuine Object; a lookalike resolves to its own defining assembly and
+            // is rejected. This is the "typed identity over display text" rule.
+            if (!MemberIdentity.IsCoreLibraryType(source.ResolveBaseType(ctor.DeclaringType), "System", "Object"))
                 return ctor;
 
             if (!BodyIsTrivialObjectCtorChain(source, method))
@@ -133,12 +150,18 @@ internal static class ConstructorConfinementFacts
     }
 
     /// <summary>
-    /// Whether <paramref name="target"/> is the core-library
-    /// <c>System.Object::.ctor</c>. Anchored to the exact namespace/name of the
-    /// referenced type, not merely a type spelled "Object" — a planted lookalike must
-    /// not pass. The base ctor is emitted as a <c>MemberReference</c> in every real
-    /// assembly (<c>System.Object</c> lives in the core library, never the one being
-    /// decompiled).
+    /// Whether <paramref name="target"/> is structurally a base-constructor chain to a
+    /// type <em>spelled</em> <c>System.Object</c> — a cross-assembly
+    /// <c>MemberReference</c> named <c>.ctor</c> whose parent <c>TypeReference</c> is
+    /// namespace <c>System</c>, name <c>Object</c>. This is a NECESSARY shape check, not
+    /// a sufficient identity proof: a crafted assembly can plant its own
+    /// <c>System.Object</c> in a sibling assembly, and that cross-assembly lookalike
+    /// passes this spelling check. The AUTHORITATIVE core-library identity is enforced
+    /// in <see cref="Stamp"/> via <see cref="MetadataSource.ResolveBaseType"/> +
+    /// <see cref="MemberIdentity.IsCoreLibraryType"/> (typed <see cref="TypeRef.CoreLibrary"/>
+    /// identity a lookalike cannot forge). This check remains to confirm the trivial
+    /// body's single call really is a base <c>.ctor</c> chain rather than an arbitrary
+    /// method invocation of matching shape.
     /// </summary>
     static bool IsObjectConstructor(MetadataReader reader, EntityHandle target)
     {
