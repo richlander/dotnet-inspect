@@ -35,7 +35,8 @@ internal static class LibraryMetadataService
         HttpClient httpClient,
         bool isPlatformAssembly = false,
         HashSet<string>? scanners = null,
-        ScannerRegistry? scannerRegistry = null)
+        ScannerRegistry? scannerRegistry = null,
+        bool discoveryOnly = false)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -200,9 +201,20 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            var sourcePlan = LibrarySourcePlans.For(
-                options.UserVerbosity,
-                options.IncludeSections);
+            // Effective-section discovery (-D) must be network-free regardless of
+            // verbosity or -S filters. The SourceLink family is listed from the
+            // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
+            // runs no network-capable source stage: no PDB download, no source-URL
+            // HEAD audit, no integrity GET, and no source-file collection. (For an
+            // embedded/adjacent PDB the local audit stages would otherwise fire.)
+            // This keeps -D listings verbosity-independent and keeps the effective
+            // cache token (probe-driven) consistent with what the inspection records
+            // for HasSourceLink.
+            var sourcePlan = discoveryOnly
+                ? default
+                : LibrarySourcePlans.For(
+                    options.UserVerbosity,
+                    options.IncludeSections);
 
             await AuditAsync(
                 service,
@@ -213,7 +225,8 @@ internal static class LibraryMetadataService
                 logger,
                 httpClient,
                 isPlatformAssembly,
-                allowPdbDownload: sourcePlan.AllowPdbDownload);
+                allowPdbDownload: sourcePlan.AllowPdbDownload,
+                readCachedPdb: sourcePlan.ReadCachedPdb);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
@@ -305,7 +318,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool allowPdbDownload = false)
+        bool allowPdbDownload = false,
+        bool readCachedPdb = false)
     {
         var pdbContext = service.Context;
 
@@ -328,6 +342,30 @@ internal static class LibraryMetadataService
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
             await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+
+            if (pdbContext.HasPdb)
+            {
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.SymbolServer = pdbContext.SymbolServer;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
+            }
+            else if (pdbContext.WindowsPdbDetected)
+            {
+                inspection.WindowsPdbDetected = true;
+                inspection.PdbFormat = "Windows";
+            }
+        }
+
+        // No embedded/adjacent PDB and download not authorized (Normal / bare-`S`): try a
+        // network-free cache-only read so symbol-dependent sections (Symbols, Signals, SourceLink
+        // provenance) can reflect an already-cached PDB. cacheOnly never touches the network.
+        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !allowPdbDownload && readCachedPdb)
+        {
+            await SourceEnricher.AcquirePdbAsync(
+                pdbContext, httpClient, packageName, packageVersion,
+                isPlatformAssembly, logger.Log, cacheOnly: true);
 
             if (pdbContext.HasPdb)
             {
@@ -374,6 +412,42 @@ internal static class LibraryMetadataService
         }
 
         inspection.Builder = InferBuilder(inspection);
+    }
+
+    /// <summary>
+    /// Network-free probe: does this assembly resolve a PDB (embedded, adjacent, or already in
+    /// the symbol cache) that exposes a SourceLink document? Used by <c>-D</c> discovery to decide
+    /// whether the SourceLink section family is effective without touching the network. The symbol
+    /// cache is consulted read-only (no download); rendering a selected SourceLink section still
+    /// performs its network work on demand.
+    /// </summary>
+    public static async Task<bool> ProbeLocalSourceLinkAsync(
+        string assemblyPath,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly = false,
+        string? packageName = null,
+        string? packageVersion = null)
+    {
+        try
+        {
+            using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+            var context = service.Context;
+
+            if (!context.HasPdb && !context.WindowsPdbDetected && context.NeedsPdb)
+            {
+                await SourceEnricher.AcquirePdbAsync(
+                    context, httpClient, packageName, packageVersion,
+                    isPlatformAssembly, logger.Log, cacheOnly: true);
+            }
+
+            return context.HasPdb && service.HasSourceLink;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"SourceLink discovery probe failed for {assemblyPath}: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>

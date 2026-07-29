@@ -76,8 +76,8 @@ public class PerformanceKindsTests
     public void KindLabel_StripsPerformancePrefix_ForFlattenedTabularColumn()
     {
         Assert.Equal("Boxing", PerformanceKinds.KindLabel(SectionNames.PerformanceBoxing));
-        Assert.Equal("Closures and delegates", PerformanceKinds.KindLabel(SectionNames.PerformanceClosures));
-        Assert.Equal("Allocation hotspots", PerformanceKinds.KindLabel(SectionNames.PerformanceHotspots));
+        Assert.Equal("Closures and Delegates", PerformanceKinds.KindLabel(SectionNames.PerformanceClosures));
+        Assert.Equal("Allocation Hotspots", PerformanceKinds.KindLabel(SectionNames.PerformanceHotspots));
         // A label for every section, and none retains the "Performance: " prefix.
         foreach (var section in PerformanceKinds.Sections)
         {

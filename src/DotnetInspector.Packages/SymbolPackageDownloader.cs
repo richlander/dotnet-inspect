@@ -77,7 +77,8 @@ public class SymbolPackageDownloader
         string? packageName = null,
         string? packageVersion = null,
         Action<string>? log = null,
-        bool isPlatformAssembly = false)
+        bool isPlatformAssembly = false,
+        bool cacheOnly = false)
     {
         bool windowsPdbDetected = false;
 
@@ -102,7 +103,7 @@ public class SymbolPackageDownloader
         if (isMicrosoftPackage && pdbFileNameUsable)
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
-            var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
+            var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log, cacheOnly).ConfigureAwait(false);
             if (msdlResult.PdbFilePath != null)
                 return msdlResult;
             if (msdlResult.WindowsPdbDetected)
@@ -113,7 +114,7 @@ public class SymbolPackageDownloader
         if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
-                packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log).ConfigureAwait(false);
+                packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly).ConfigureAwait(false);
             if (snupkgResult.PdbFilePath != null)
                 return snupkgResult;
             if (snupkgResult.WindowsPdbDetected)
@@ -123,19 +124,19 @@ public class SymbolPackageDownloader
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
         if (!isMicrosoftPackage && pdbFileNameUsable)
         {
-            var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
+            var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log, cacheOnly).ConfigureAwait(false);
             if (symbolResult.PdbFilePath != null)
                 return symbolResult;
             if (symbolResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
         }
 
-        log?.Invoke("No Portable PDB available");
+        log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PdbDownloadResult(null, windowsPdbDetected);
     }
 
     private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(
-        string pdbFileName, string symbolKey, Action<string>? log)
+        string pdbFileName, string symbolKey, Action<string>? log, bool cacheOnly = false)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
@@ -149,6 +150,9 @@ public class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
+
+        if (cacheOnly)
+            return new PdbDownloadResult(null, windowsPdbDetected);
 
         var url = $"https://msdl.microsoft.com/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
         if (IsCachedMiss(url, log, "MSDL symbol server"))
@@ -195,7 +199,7 @@ public class SymbolPackageDownloader
     }
 
     private async Task<PdbDownloadResult> TryLocateFromSymbolPackageAsync(
-        string packageName, string packageVersion, string assemblyPath, string symbolKey, Guid pdbGuid, Action<string>? log)
+        string packageName, string packageVersion, string assemblyPath, string symbolKey, Guid pdbGuid, Action<string>? log, bool cacheOnly = false)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         var normalizedName = packageName.ToLowerInvariant();
@@ -212,6 +216,9 @@ public class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
+
+        if (cacheOnly)
+            return new PdbDownloadResult(null, windowsPdbDetected);
 
         // Try NuGet global CDN first
         var snupkgUrls = new[]
@@ -288,7 +295,7 @@ public class SymbolPackageDownloader
     }
 
     private async Task<PdbDownloadResult> TryLocateFromSymbolServerAsync(
-        string pdbFileName, string symbolKey, Action<string>? log)
+        string pdbFileName, string symbolKey, Action<string>? log, bool cacheOnly = false)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
@@ -303,6 +310,9 @@ public class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
+
+        if (cacheOnly)
+            return new PdbDownloadResult(null, windowsPdbDetected);
 
         var symbolServers = new[]
         {

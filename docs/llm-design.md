@@ -62,7 +62,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 Serialize
 ```bash
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S Signals
-dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 ```
 
 Package signals describe NuGet artifacts: metadata, dependencies, vulnerabilities, package shape, symbol availability, and SourceLink coverage.

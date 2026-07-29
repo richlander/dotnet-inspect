@@ -1,37 +1,36 @@
 # Integrations
 
-The `Integrations` library section is a roll-up of ecosystem support discovered
-from assembly metadata. It answers:
+The `@Integrations` library category is a set of focused sections describing
+ecosystem support discovered from assembly metadata. It answers:
 
 ```text
 Which .NET ecosystem integration surfaces can a caller use from this library?
 ```
 
 It is intentionally different from `Signals`. `Signals` is an evidence report.
-`Integrations` is a usability index: it points to APIs that are useful currency
-for wiring the library into common .NET application systems.
+Integration sections form a usability index: they point to APIs that are useful
+currency for wiring the library into common .NET application systems.
+
+Each focused integration section is named with an `Integration:` prefix (for
+example `Integration: Logging`, `Integration: OpenTelemetry`) so alphabetical
+section ordering clusters the whole family together.
 
 ## User model
 
-Start with the roll-up:
+Discover the family, then select a focused section:
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI --library -S Integrations
+dotnet-inspect package Microsoft.Extensions.AI --library -D @Integrations
+dotnet-inspect package Microsoft.Extensions.AI --library -S "Integration: Dependency Injection"
+dotnet-inspect package Microsoft.Extensions.AI --library -S "Integration: OpenTelemetry"
 ```
 
-Then select a focused section:
+Select the whole category, or add `--count` to see per-integration API counts:
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI --library -S "Dependency Injection"
-dotnet-inspect package Microsoft.Extensions.AI --library -S OpenTelemetry
+dotnet-inspect package Microsoft.Extensions.AI --library -S @Integrations
+dotnet-inspect package Microsoft.Extensions.AI --library --count -S @Integrations
 ```
-
-The roll-up reports one row per detected integration:
-
-| Column | Meaning |
-| ------ | ------- |
-| Integration | Ecosystem area, such as Logging or OpenTelemetry. |
-| APIs | Count of actionable APIs, support types, and telemetry controls in the focused section. |
 
 `Library Info` also includes an `Integrations` field. That field counts detected
 integration categories, not example rows. It is computed from cheap metadata
@@ -112,8 +111,8 @@ Detection reads metadata only:
 3. Public package-owned telemetry control APIs such as `DisableTracing` and
    `DisableMetrics` are OpenTelemetry currency because they reveal emitted
    telemetry kinds and how callers configure them.
-4. The roll-up includes categories with at least one actionable type or starter
-   API.
+4. The `@Integrations` category lists every focused section with at least one
+   actionable type or starter API.
 5. Focused sections sort rows by `Kind`, then by the displayed `Type` or `API`.
 
 The model is deliberately curated. It should avoid claiming complete support
@@ -122,17 +121,17 @@ metadata inventory.
 
 ## Relationship to sections and categories
 
-`Integrations` is both a roll-up section and part of the `@Integrations`
-section category. Categories are section-selection macros, not a new filtering
+The focused `Integration:` sections are members of the `@Integrations` section
+category. Categories are section-selection macros, not a new filtering
 axis. They expand to command-local section sets and then normal section
 renderability still applies.
 
 Use:
 
 ```bash
--S Integrations
--S "<focused integration>"
 -S @Integrations
+-S "Integration: <focused integration>"
+--count -S @Integrations
 ```
 
 This keeps integrations aligned with section backpressure and schema discovery.
