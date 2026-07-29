@@ -85,7 +85,7 @@ public class LibraryCommand
         var normalized = NormalizeILOffsetSelection(options);
         if (normalized.Error is not null)
         {
-            Console.Error.WriteLine(normalized.Error);
+            CommandError.Write(normalized.Error);
             return 1;
         }
         options = normalized.Options;
@@ -487,7 +487,7 @@ public class LibraryCommand
 
         if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var readErrors, out var error))
         {
-            Console.Error.WriteLine(error);
+            CommandError.Write(error!);
             return 1;
         }
 
@@ -572,7 +572,7 @@ public class LibraryCommand
 
         if (coordinates.Count == 0 && readErrors.Count == 0)
         {
-            error = $"Error: {path} did not contain any IL coordinates.";
+            error = $"{path} did not contain any IL coordinates.";
             return false;
         }
 
@@ -686,7 +686,7 @@ public class LibraryCommand
         {
             var value = select[i].Trim();
             if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                return (options, $"Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
+                return (options, $"IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -888,7 +888,7 @@ public class LibraryCommand
         };
         if (projection.Error is not null)
         {
-            Console.Error.WriteLine(projection.Error);
+            CommandError.Write(projection.Error);
             return 1;
         }
 
@@ -937,12 +937,12 @@ public class LibraryCommand
     {
         if (result.Line is not { } line || line < 1)
         {
-            return (null, "Error: Source Location row has no source line to print.");
+            return (null, "Source Location row has no source line to print.");
         }
 
         if (string.IsNullOrWhiteSpace(result.Url))
         {
-            return (null, "Error: Source Location row has no printable source body. Use --urls or --paths to inspect available payloads.");
+            return (null, "Source Location row has no printable source body. Use --urls or --paths to inspect available payloads.");
         }
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
@@ -950,7 +950,7 @@ public class LibraryCommand
         var source = await fetcher.FetchSourceAsync(rawUrl);
         if (source is null)
         {
-            return (null, $"Error: Could not fetch SourceLink source for {rawUrl}.");
+            return (null, $"Could not fetch SourceLink source for {rawUrl}.");
         }
 
         return ReadLine(source.ReplaceLineEndings("\n").Split('\n'), line);
@@ -961,7 +961,7 @@ public class LibraryCommand
         var value = lines.Skip(line - 1).FirstOrDefault();
         if (value is null)
         {
-            return (null, $"Error: Source line {line} is out of range.");
+            return (null, $"Source line {line} is out of range.");
         }
 
         return (value, null);
@@ -1481,8 +1481,8 @@ public class LibraryCommand
             .ToList() ?? [];
         foreach (var failure in relevantFailures)
         {
-            Console.Error.WriteLine(
-                $"Warning: {failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+            CommandError.WriteWarning(
+                $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
@@ -1492,8 +1492,8 @@ public class LibraryCommand
         if (unexplained.Count > 0 && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
-            Console.Error.WriteLine(
-                $"Note: {unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
+            CommandError.WriteNote(
+                $"{unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
         }
     }
 
@@ -1623,7 +1623,7 @@ public class LibraryCommand
 
             if (payload.Error != null)
             {
-                Console.Error.WriteLine(payload.Error);
+                CommandError.Write(payload.Error);
                 DeleteTempDir(tempDir);
                 return null;
             }
@@ -1727,7 +1727,7 @@ public class LibraryCommand
 
         var version = package.Version ?? GetNuspecVersion(package.ExtractPath);
         if (version == null)
-            return new(null, $"Error: Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
+            return new(null, $"Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
 
         var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
         var payloadOutcome = localPayload != null
@@ -1736,7 +1736,7 @@ public class LibraryCommand
                 httpClient, payloadId, logger.Log, sourceOptions: sourceOptions, version: version).ConfigureAwait(false);
 
         if (!payloadOutcome.IsSuccess)
-            return new(null, $"Error: Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
+            return new(null, $"Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
 
         var payload = payloadOutcome.Result!;
         var dlls = Directory.GetFiles(payload.ExtractPath, "*.dll", SearchOption.AllDirectories)
@@ -1745,7 +1745,7 @@ public class LibraryCommand
         if (dlls.Count == 0)
         {
             DeleteTempDir(payload.TempDir);
-            return new(null, $"Error: Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
+            return new(null, $"Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
         }
 
         logger.Log($"Tool package has no DLLs; inspecting payload package: {payload.PackageName} {payload.Version}");

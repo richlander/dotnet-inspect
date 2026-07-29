@@ -1126,16 +1126,29 @@ public static class ApiOutputFormatter
     /// not be fully decoded. The default member tables no longer carry a Decode column, so
     /// this keeps signature-decode failures visible without cluttering successful output.
     /// </summary>
-    internal static void WriteSignatureDecodeWarning(TypeView view, TextWriter error)
+    /// <summary>
+    /// Warns that some signatures could not be fully decoded, listing them.
+    /// </summary>
+    /// <remarks>
+    /// The listed signatures come from the inspected assembly, so they are
+    /// untrusted. This wrote them to a <see cref="TextWriter"/> parameter that
+    /// every caller filled with <c>Console.Error</c>; the alias hid a real
+    /// <c>Warning:</c> line from the CLI's single writer and from the source
+    /// scan that pins it, and the signatures reached stderr uncontained
+    /// (issue #3319).
+    /// </remarks>
+    internal static void WriteSignatureDecodeWarning(TypeView view)
     {
         if (view.DegradedSignatureMembers is not { Count: > 0 } degraded)
             return;
 
-        error.WriteLine(
-            $"Warning: {degraded.Count} member signature(s) could not be fully decoded from " +
+        var message = new StringBuilder(
+            $"{degraded.Count} member signature(s) could not be fully decoded from " +
             "metadata; the displayed signature(s) may be incomplete or approximate:");
         foreach (var signature in degraded)
-            error.WriteLine($"  - {signature}");
+            message.AppendLine().Append($"- {signature}");
+
+        CommandError.WriteWarning(message.ToString());
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)

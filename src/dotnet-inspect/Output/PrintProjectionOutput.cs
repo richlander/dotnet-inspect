@@ -41,8 +41,8 @@ public static class PrintProjectionOutput
             var position = RowNumbering.IndexOf(rowNumbers, row);
             if (position < 0)
             {
-                Console.Error.WriteLine(
-                    $"Error: row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
+                CommandError.Write(
+                    $"row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
                 return 1;
             }
 

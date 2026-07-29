@@ -79,7 +79,7 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
-                lookupResult.WriteNotFoundError(Console.Error);
+                lookupResult.WriteNotFoundError();
                 return 1;
             }
 
@@ -139,7 +139,7 @@ public static class MemberCommand
                         }
                     }
 
-                    memberValidation.WriteError(Console.Error);
+                    memberValidation.WriteError();
                     return 1;
                 }
             }
@@ -172,9 +172,9 @@ public static class MemberCommand
             {
                 if (effectiveOptions.MemberFilter.Count != 1)
                 {
-                    Console.Error.WriteLine(string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                        ? "Error: --index/Name:N requires exactly one member name."
-                        : "Error: Name~digest requires exactly one member name.");
+                    CommandError.Write(string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                        ? "--index/Name:N requires exactly one member name."
+                        : "Name~digest requires exactly one member name.");
                     return 1;
                 }
 
@@ -188,7 +188,7 @@ public static class MemberCommand
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
-                    diagnostic.WriteError(Console.Error);
+                    CommandError.Write(diagnostic.FormatMessage());
                     return 1;
                 }
 

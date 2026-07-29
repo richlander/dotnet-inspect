@@ -122,13 +122,13 @@ internal static class SourceEnricher
                 Console.Error.WriteLine();
                 if (context.WindowsPdbDetected)
                 {
-                    Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
+                    CommandError.WriteWarning("PDB could not be read (Windows PDB format is not supported).");
                     Console.Error.WriteLine("         Only Portable PDBs are supported. Consider asking the maintainer");
                     Console.Error.WriteLine("         to publish Portable PDBs (embedded or in .snupkg).");
                 }
                 else
                 {
-                    Console.Error.WriteLine("Warning: No readable PDB found.");
+                    CommandError.WriteWarning("No readable PDB found.");
                 }
                 Console.Error.WriteLine("         Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
                 Console.Error.WriteLine();
@@ -283,7 +283,7 @@ internal static class SourceEnricher
             if (context.WindowsPdbDetected)
             {
                 Console.Error.WriteLine();
-                Console.Error.WriteLine("Warning: PDB could not be read (Windows PDB format is not supported).");
+                CommandError.WriteWarning("PDB could not be read (Windows PDB format is not supported).");
                 Console.Error.WriteLine("         Only Portable PDBs are supported.");
                 Console.Error.WriteLine();
             }

@@ -303,9 +303,9 @@ public class ApiCommand
         var suffix = filtersActive ? " after filters" : "";
 
         if (empty.Count == 1)
-            Console.Error.WriteLine($"Note: section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+            CommandError.WriteNote($"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
         else
-            Console.Error.WriteLine($"Note: {empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+            CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
@@ -497,8 +497,8 @@ public class ApiCommand
                 || options.Tabular
                 || options.Verbosity < Verbosity.Normal))
         {
-            Console.Error.WriteLine(
-                $"Warning: API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
+            CommandError.WriteWarning(
+                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
                 + "use normal verbosity or JSON for failure details.");
         }
 
@@ -893,7 +893,7 @@ public class ApiCommand
         {
             if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(error);
+                CommandError.Write(error);
                 return 1;
             }
             sink.WriteLine(raw.TrimEnd());
@@ -959,7 +959,7 @@ public class ApiCommand
                 sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         return 0;
     }
 
@@ -1138,13 +1138,13 @@ public class ApiCommand
         error = "";
         if (rows.Count == 0)
         {
-            error = "Error: selected section has no rows.";
+            error = "selected section has no rows.";
             return null;
         }
 
         if (selector is null && rows.Count != 1)
         {
-            error = $"Error: selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
+            error = $"selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
             return null;
         }
 
@@ -1153,14 +1153,14 @@ public class ApiCommand
         var position = RowNumbering.IndexOf(rowNumbers, targetRow);
         if (position < 0)
         {
-            error = $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
+            error = $"row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
             return null;
         }
 
         var selected = rows[position];
         if (string.IsNullOrWhiteSpace(selected.Url))
         {
-            error = $"Error: row {targetRow} has no printable document.";
+            error = $"row {targetRow} has no printable document.";
             return null;
         }
 
@@ -1175,7 +1175,7 @@ public class ApiCommand
         var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
         if (selection is not { } selectedRow)
         {
-            Console.Error.WriteLine(selectionError);
+            CommandError.Write(selectionError);
             return 1;
         }
 
@@ -1214,7 +1214,7 @@ public class ApiCommand
 
         if (options.IncludeSections is not { Count: 1 } included)
         {
-            error = "Error: --bare requires exactly one -S section.";
+            error = "--bare requires exactly one -S section.";
             return false;
         }
 
@@ -1237,7 +1237,7 @@ public class ApiCommand
             return true;
 
         if (error.Length == 0)
-            error = "Error: --bare requires a single selected payload with content.";
+            error = "--bare requires a single selected payload with content.";
         return false;
     }
 
@@ -1252,7 +1252,7 @@ public class ApiCommand
         if (values.Count > 0)
             return string.Join('\n', values);
 
-        error = $"Error: --bare found no URL in section '{section}'.";
+        error = $"--bare found no URL in section '{section}'.";
         return "";
     }
 

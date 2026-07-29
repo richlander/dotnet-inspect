@@ -161,7 +161,7 @@ public class PackageCommand
                 && PackageVersionRange.TryParse(packageArgs[0], out range, out rangeError);
             if (rangeError is not null)
             {
-                Console.Error.WriteLine(rangeError);
+                CommandError.Write(rangeError);
                 return 1;
             }
 
@@ -280,13 +280,13 @@ public class PackageCommand
         if (!File.Exists(packageArgs[0])
             && PackageVersionRange.TryParse(packageArgs[0], out _, out packageRangeError))
         {
-            Console.Error.WriteLine(
-                $"Error: Package range '{packageArgs[0]}' requires --versions for package inspection.");
+            CommandError.Write(
+                $"Package range '{packageArgs[0]}' requires --versions for package inspection.");
             return 1;
         }
         if (packageRangeError is not null)
         {
-            Console.Error.WriteLine(packageRangeError);
+            CommandError.Write(packageRangeError);
             return 1;
         }
 
@@ -1448,9 +1448,9 @@ public class PackageCommand
         var found = rows.Where(row => row.Found).ToList();
         if (found.Count != 1)
         {
-            Console.Error.WriteLine(found.Count == 0
-                ? "Error: --bare found no selected package content."
-                : $"Error: --bare requires exactly one selected package content file; found {found.Count}.");
+            CommandError.Write(found.Count == 0
+                ? "--bare found no selected package content."
+                : $"--bare requires exactly one selected package content file; found {found.Count}.");
             return 1;
         }
 
@@ -1649,9 +1649,9 @@ public class PackageCommand
     {
         if (files.Count != 1)
         {
-            Console.Error.WriteLine(files.Count == 0
-                ? $"Error: --bare found no package file in section '{section}'."
-                : $"Error: --bare requires section '{section}' to resolve exactly one package file; found {files.Count}.");
+            CommandError.Write(files.Count == 0
+                ? $"--bare found no package file in section '{section}'."
+                : $"--bare requires section '{section}' to resolve exactly one package file; found {files.Count}.");
             return 1;
         }
 
@@ -1914,7 +1914,7 @@ public class PackageCommand
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
         if (sections.Count == 0)
         {
-            Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            CommandError.WriteNote("matched sections have no data across all libraries.");
             return 0;
         }
 
@@ -1991,9 +1991,9 @@ public class PackageCommand
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
         else
-            Console.Error.WriteLine(resolution.Tfm == null
-                ? $"Error: Package '{packageName}' contains multiple libraries."
-                : $"Error: Package '{packageName}' contains multiple libraries for {resolution.Tfm}.");
+            CommandError.Write(resolution.Tfm == null
+                ? $"Package '{packageName}' contains multiple libraries."
+                : $"Package '{packageName}' contains multiple libraries for {resolution.Tfm}.");
 
         if (resolution.Status != TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
             WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
@@ -2088,7 +2088,7 @@ public class PackageCommand
 
         if (table.Rows.Length == 0)
         {
-            Console.Error.WriteLine("Note: matched section has no row data across all libraries.");
+            CommandError.WriteNote("matched section has no row data across all libraries.");
             return true;
         }
 
@@ -2497,7 +2497,7 @@ public class PackageCommand
         if (empty.Count > 0 && empty.Count == requested)
         {
             var label = empty.Count == 1 ? "section has" : "sections have";
-            Console.Error.WriteLine($"Note: {empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
+            CommandError.WriteNote($"{empty.Count} matched {label} no data: {string.Join(", ", empty)}.");
         }
     }
 
@@ -2546,7 +2546,7 @@ public class PackageCommand
             var (resolved, error) = ResolveScopedPath(extractPath, options);
             if (error != null)
             {
-                Console.Error.WriteLine(error);
+                CommandError.Write(error);
                 return;
             }
             searchPath = resolved;

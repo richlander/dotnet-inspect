@@ -45,7 +45,7 @@ internal static class ApiSourceResolver
             bool isRange = PackageVersionRange.TryParse(packagePath, out var range, out var rangeError);
             if (rangeError is not null)
             {
-                Console.Error.WriteLine(rangeError);
+                CommandError.Write(rangeError);
                 return (null!, 1);
             }
 
@@ -53,8 +53,8 @@ internal static class ApiSourceResolver
             {
                 if (string.IsNullOrWhiteSpace(options.PackageRangeAddress))
                 {
-                    Console.Error.WriteLine(
-                        $"Error: Package range '{packagePath}' requires --at <version|#N|first|last>.");
+                    CommandError.Write(
+                        $"Package range '{packagePath}' requires --at <version|#N|first|last>.");
                     Console.Error.WriteLine(
                         $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
                     return (null!, 1);
@@ -251,7 +251,7 @@ internal static class ApiSourceResolver
 
                         if (foundElsewhere != null)
                         {
-                            Console.Error.WriteLine($"Note: '{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
+                            CommandError.WriteNote($"'{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
                             searchPath = foundElsewhere.AssemblyPath;
                             apiSource = SourceKind.Platform;
                             apiVersion = foundElsewhere.Version;

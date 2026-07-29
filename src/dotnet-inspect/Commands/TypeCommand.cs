@@ -168,7 +168,7 @@ public static class TypeCommand
                         var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
                         if (!memberValidation.IsValid)
                         {
-                            memberValidation.WriteError(Console.Error);
+                            memberValidation.WriteError();
                             return 1;
                         }
                     }
@@ -213,7 +213,7 @@ public static class TypeCommand
                     // Explicit --shape cannot honor a section/projection query; warn rather than
                     // silently dropping the selection.
                     if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false })
-                        Console.Error.WriteLine("Warning: --shape does not support -S/--columns/--fields; selection was ignored.");
+                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields; selection was ignored.");
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -352,13 +352,13 @@ public static class TypeCommand
                         }
                         else
                         {
-                            lookupResult.WriteNotFoundError(Console.Error);
+                            lookupResult.WriteNotFoundError();
                             return 1;
                         }
                     }
                     else
                     {
-                        lookupResult.WriteNotFoundError(Console.Error);
+                        lookupResult.WriteNotFoundError();
                         return 1;
                     }
                 }
@@ -441,7 +441,7 @@ public static class TypeCommand
         if (resolution.Status == TypeFindIfMissStatus.Found)
         {
             var match = resolution.Match!;
-            Console.Error.WriteLine($"Note: Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
+            CommandError.WriteNote($"Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
             return await ExecuteAsync(resolution.ApplyTo(options));
         }
 
@@ -476,8 +476,8 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        Console.Error.WriteLine($"Note: Showing best-effort platform prefix matches for '{query}'.");
-        Console.Error.WriteLine($"Note: Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
+        CommandError.WriteNote($"Showing best-effort platform prefix matches for '{query}'.");
+        CommandError.WriteNote($"Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
 
         if (browseOptions.EffectiveDiscovery)
         {
@@ -627,7 +627,7 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        Console.Error.WriteLine($"Note: Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
+        CommandError.WriteNote($"Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
         ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
         return true;
     }

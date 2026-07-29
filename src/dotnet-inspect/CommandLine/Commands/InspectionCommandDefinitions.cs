@@ -120,8 +120,8 @@ public static class InspectionCommandDefinitions
             string? explicitFinding = parseResult.GetValue(findingOption);
             if (aliases.Count > 1 || (aliases.Count == 1 && explicitFinding is not null))
             {
-                Console.Error.WriteLine(
-                    "Error: specify only one of --finding, --members, --type-presence, or --attributes.");
+                CommandError.Write(
+                    "specify only one of --finding, --members, --type-presence, or --attributes.");
                 return 1;
             }
 
@@ -387,7 +387,7 @@ public static class InspectionCommandDefinitions
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
-                Console.Error.WriteLine(triageShapeError);
+                CommandError.Write(triageShapeError);
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))

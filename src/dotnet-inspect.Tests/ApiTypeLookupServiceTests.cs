@@ -3,6 +3,8 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
+// Captures Console.Error, which is process-wide state.
+[Collection("Console")]
 public class ApiTypeLookupServiceTests
 {
     [Fact]
@@ -137,9 +139,7 @@ public class ApiTypeLookupServiceTests
         var result = new MemberFilterValidationResult(
             ["SerializeObjectInternal"], [], ["SerializeObjectInternal"]);
 
-        var writer = new StringWriter();
-        result.WriteError(writer);
-        var output = writer.ToString();
+        var output = CaptureError(result.WriteError);
 
         Assert.Contains("No members matched filter 'SerializeObjectInternal'", output);
         Assert.Contains("Member 'SerializeObjectInternal' is non-public; pass --all to include it.", output);
@@ -150,9 +150,7 @@ public class ApiTypeLookupServiceTests
     {
         var result = new MemberFilterValidationResult(["Bogus"], ["Serialize"]);
 
-        var writer = new StringWriter();
-        result.WriteError(writer);
-        var output = writer.ToString();
+        var output = CaptureError(result.WriteError);
 
         Assert.DoesNotContain("pass --all", output);
         Assert.Contains("Did you mean:", output);
@@ -182,5 +180,27 @@ public class ApiTypeLookupServiceTests
                 }
             ]
         };
+    }
+
+    /// <summary>
+    /// Captures stderr. These diagnostics now go to <c>CommandError</c>, which
+    /// owns the severity prefix and the containment, so the test can no longer
+    /// hand in a writer of its own.
+    /// </summary>
+    private static string CaptureError(Action action)
+    {
+        var original = Console.Error;
+        var captured = new StringWriter();
+        Console.SetError(captured);
+        try
+        {
+            action();
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        return captured.ToString();
     }
 }

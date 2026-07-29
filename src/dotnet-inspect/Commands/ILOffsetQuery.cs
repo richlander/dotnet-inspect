@@ -64,8 +64,14 @@ internal static class ILOffsetQuery
     {
         if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
         {
-            WriteError(writeErrors, $"Error: Invalid --il-offset value '{CSharpIdentifier.ContainRenderedText(options.ILOffsetParameter ?? string.Empty)}'.");
-            WriteError(writeErrors, "Expected format: 0x6000001+0x5 (method token + IL offset)");
+            // One diagnostic, not two: the hint is a continuation of the
+            // error, so CommandError indents it rather than prefixing it a
+            // second time. Containment belongs to that writer, so the value is
+            // interpolated raw here.
+            WriteError(
+                writeErrors,
+                $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'."
+                    + $"{Environment.NewLine}Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }
 
@@ -102,7 +108,7 @@ internal static class ILOffsetQuery
             }
             else
             {
-                WriteError(writeErrors, $"Error: {failure.Message}");
+                WriteError(writeErrors, $"{failure.Message}");
                 if (failure.Detail is { Length: > 0 } detail)
                     WriteError(writeErrors, detail);
             }
@@ -137,7 +143,7 @@ internal static class ILOffsetQuery
     static void WriteError(bool enabled, string message)
     {
         if (enabled)
-            Console.Error.WriteLine(message);
+            CommandError.Write(message);
     }
 
     static bool RequiresSourceLocation(LibraryOptions options)

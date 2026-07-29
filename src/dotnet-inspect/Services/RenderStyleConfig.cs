@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DotnetInspector.Output;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Services;
@@ -250,16 +251,30 @@ internal sealed class RenderConfigWarningSink
     public RenderConfigWarningSink(IReadOnlyList<string> warnings) => _warnings = warnings;
 
     /// <summary>Emits the pending warnings to stderr the first time it is called; a no-op thereafter.</summary>
-    public void EmitOnce() => EmitOnce(Console.Error);
+    public void EmitOnce()
+    {
+        foreach (var message in TakePending())
+            CommandError.WriteWarning(message);
+    }
 
-    /// <summary>Test seam: emits to <paramref name="writer"/> so the latch and format are checkable without touching global console state.</summary>
-    internal void EmitOnce(TextWriter writer)
+    /// <summary>
+    /// Test seam: applies the latch and returns the messages that
+    /// <see cref="EmitOnce"/> would write, without touching global console
+    /// state.
+    /// </summary>
+    /// <remarks>
+    /// The seam used to be an overload taking a <see cref="TextWriter"/>, which
+    /// meant the warning was spelled -- prefix and all -- outside
+    /// <c>CommandError</c>, and a config-supplied message reached stderr
+    /// uncontained. Handing back the messages keeps the latch checkable while
+    /// leaving exactly one place that writes them (issue #3319).
+    /// </remarks>
+    internal IReadOnlyList<string> TakePending()
     {
         if (_emitted || _warnings.Count == 0)
-            return;
+            return [];
 
         _emitted = true;
-        foreach (var warning in _warnings)
-            writer.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
+        return [.. _warnings.Select(warning => $"{RenderStyleConfig.FileName}: {warning}")];
     }
 }

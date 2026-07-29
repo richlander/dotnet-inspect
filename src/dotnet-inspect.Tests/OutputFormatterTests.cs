@@ -15,6 +15,8 @@ using Markout;
 
 namespace DotnetInspector.Tests;
 
+// Captures Console.Error, which is process-wide state.
+[Collection("Console")]
 public class OutputFormatterTests
 {
     [Fact]
@@ -1037,9 +1039,7 @@ public class OutputFormatterTests
         Assert.Contains("Run", degraded);
         Assert.DoesNotContain("Ok", degraded);
 
-        var writer = new StringWriter();
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, writer);
-        var warning = writer.ToString();
+        var warning = CaptureError(() => ApiOutputFormatter.WriteSignatureDecodeWarning(view));
         Assert.Contains("could not be fully decoded", warning);
         Assert.Contains("Run", warning);
     }
@@ -1047,9 +1047,7 @@ public class OutputFormatterTests
     [Fact]
     public void WriteSignatureDecodeWarning_EmitsNothingWhenNoMemberDegraded()
     {
-        var writer = new StringWriter();
-        ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView(), writer);
-        Assert.Empty(writer.ToString());
+        Assert.Empty(CaptureError(() => ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView())));
     }
 
     [Fact]
@@ -2490,5 +2488,27 @@ public class OutputFormatterTests
         Assert.Contains("Size", platformFields);
         Assert.Contains("Source", platformFields);
         Assert.Contains("Modified", platformFields);
+    }
+
+    /// <summary>
+    /// Captures stderr. These diagnostics now go to <c>CommandError</c>, which
+    /// owns the severity prefix and the containment, so the test can no longer
+    /// hand in a writer of its own.
+    /// </summary>
+    private static string CaptureError(Action action)
+    {
+        var original = Console.Error;
+        var captured = new StringWriter();
+        Console.SetError(captured);
+        try
+        {
+            action();
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        return captured.ToString();
     }
 }

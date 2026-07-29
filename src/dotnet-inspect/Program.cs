@@ -147,7 +147,7 @@ var result = rootCommand.Parse(args);
 if (result.Errors.Count > 0)
 {
     foreach (var error in result.Errors)
-        Console.Error.WriteLine(FormatParseError(error.Message));
+        CommandError.Write(FormatParseError(error.Message));
     return 1;
 }
 int exitCode;
@@ -215,12 +215,15 @@ static string FormatParseError(string message)
             "System.Int32" or "System.Nullable`1[System.Int32]" => "an integer",
             _ => "a valid value",
         };
-        return $"Error: Cannot parse value '{Contain(value)}' for option '{Contain(option)}' as {expected}.";
+        return $"Cannot parse value '{Contain(value)}' for option '{Contain(option)}' as {expected}.";
     }
 
+    // Some validators still hand back a message that carries its own prefix.
+    // CommandError owns the prefix now, so drop theirs rather than emit
+    // "Error: Error: ...".
     return message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-        ? $"Error: {Contain(message["Error:".Length..].TrimStart())}"
-        : $"Error: {Contain(message)}";
+        ? Contain(message["Error:".Length..].TrimStart())
+        : Contain(message);
 }
 
 static bool TryParseCannotParseArgument(string message, out string value, out string option, out string type)

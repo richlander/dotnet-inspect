@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -173,14 +174,25 @@ public sealed record MemberTargetDiagnostic(
     string Message,
     IReadOnlyList<MemberTargetCandidate> Candidates)
 {
-    public void WriteError(TextWriter error)
+    /// <summary>
+    /// Composes the diagnostic, candidate list included, as one message.
+    /// </summary>
+    /// <remarks>
+    /// This layer owns metadata facts, not presentation, so it formats rather
+    /// than writes. The previous shape took a <see cref="TextWriter"/> and
+    /// wrote to it, which put a stderr diagnostic outside the CLI's single
+    /// writer and outside the source scan that pins it (issue #3319).
+    /// </remarks>
+    public string FormatMessage()
     {
-        error.WriteLine(Message);
         if (Candidates.Count == 0)
-            return;
+            return Message;
 
+        var message = new StringBuilder(Message);
         foreach (var candidate in Candidates)
-            error.WriteLine($"  {candidate.StableSelector}  {candidate.CanonicalSignature}");
+            message.AppendLine().Append($"  {candidate.StableSelector}  {candidate.CanonicalSignature}");
+
+        return message.ToString();
     }
 }
 

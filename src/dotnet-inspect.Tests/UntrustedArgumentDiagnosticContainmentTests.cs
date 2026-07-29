@@ -61,6 +61,12 @@ public class UntrustedArgumentDiagnosticContainmentTests
             data.Add("il-offset", ["library", library, "--il-offset", hostile]);
             data.Add("order-by", ["library", library, "--order-by", hostile]);
             data.Add("where", ["library", library, "--where", hostile]);
+
+            // A validator that composes its own message and hands it back as a
+            // value, rather than writing it. The message travelled to stderr
+            // through a bare Console.Error.WriteLine(error.Message) and so was
+            // never contained by anything.
+            data.Add("version-error", ["type", "mypackage", $"1.2.3{hazard}INJECTEDARG"]);
         }
 
         return data;
@@ -80,6 +86,43 @@ public class UntrustedArgumentDiagnosticContainmentTests
         HostileOutputAssert.MarkersRendered(combined, channel, "INJECTEDARG");
         HostileOutputAssert.NoRenderingHazard(combined, channel);
         HostileOutputAssert.NoLineSplit(combined, "INJECTEDARG");
+    }
+
+    /// <summary>
+    /// Pins the shape that makes an injected line terminator harmless: a
+    /// diagnostic keeps the composer's line breaks, but every continuation line
+    /// is indented, so only this writer can produce an unindented, non-empty
+    /// line.
+    /// </summary>
+    /// <remarks>
+    /// The first fix for this channel folded every message onto one line, which
+    /// is safe but destroys the messages that deliberately list alternatives
+    /// underneath. Structure and forgery-resistance are both required, so the
+    /// test asserts both: the alternatives still appear on their own lines, and
+    /// none of them starts at column zero.
+    /// </remarks>
+    [Fact]
+    public void MultiLineDiagnostic_KeepsItsBlockAndIndentsContinuationLines()
+    {
+        var (_, error) = RunCli(["library", ProductAssemblyPath(), "--order-by", $"NoSuchField{Bidi}INJECTEDARG"]);
+
+        string[] lines = error.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+
+        Assert.StartsWith("Error: ", lines[0], StringComparison.Ordinal);
+        HostileOutputAssert.MarkersRendered(error, "order-by-multiline", "INJECTEDARG");
+        HostileOutputAssert.NoRenderingHazard(error, "order-by-multiline");
+
+        // The block survived the fix for the injection, not just the injection.
+        Assert.True(
+            lines.Length > 1,
+            $"Expected the sortable-field list to stay on its own lines, got: {error}");
+        Assert.Contains(lines, l => l.Contains("Did you mean:", StringComparison.Ordinal));
+
+        string[] unindented = [.. lines.Skip(1).Where(l => l.Length > 0 && !l.StartsWith("  ", StringComparison.Ordinal))];
+        Assert.True(
+            unindented.Length == 0,
+            "Every continuation line must be indented so injected text cannot forge a diagnostic. "
+                + $"Unindented: {string.Join(" | ", unindented)}");
     }
 
     private static (string Output, string Error) RunCli(string[] args)

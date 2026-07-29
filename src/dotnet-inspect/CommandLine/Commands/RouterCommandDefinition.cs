@@ -53,7 +53,7 @@ public static class RouterCommandDefinition
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
             {
-                Console.Error.WriteLine($"Note: interpreting bare token '{tokens[0]}' as a package or platform target.");
+                CommandError.WriteNote($"interpreting bare token '{tokens[0]}' as a package or platform target.");
                 Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
                 Console.Error.WriteLine();
             }
@@ -239,7 +239,7 @@ public static class RouterCommandDefinition
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;
-                Console.Error.WriteLine($"Note: Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
+                CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
                 return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
             }
 

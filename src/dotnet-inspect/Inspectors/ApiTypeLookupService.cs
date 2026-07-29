@@ -1,4 +1,5 @@
-using ILInspector.CSharp;
+using System.Text;
+using DotnetInspector.Output;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -9,16 +10,34 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     public string? Match => Lookup.Match;
     public IReadOnlyList<string> Suggestions => Lookup.Suggestions;
 
-    public void WriteNotFoundError(TextWriter error)
+    /// <summary>
+    /// Writes the not-found diagnostic, suggestions included, as one message.
+    /// </summary>
+    /// <remarks>
+    /// This used to take a <see cref="TextWriter"/> and write line by line.
+    /// Every caller passed <c>Console.Error</c>, so the parameter bought no
+    /// flexibility while putting the write outside what
+    /// <c>CommandErrorOwnershipTests</c> can see -- the scan looks for
+    /// <c>Console.Error</c>, and an aliased writer is exactly the shape that
+    /// slips past it. Composing the message and handing it to
+    /// <see cref="CommandError"/> puts the prefix, the containment, and the
+    /// continuation indent all in one place.
+    /// </remarks>
+    public void WriteNotFoundError()
     {
-        error.WriteLine($"Error: Type '{CSharpIdentifier.ContainRenderedText(Query)}' not found.");
-        if (Suggestions.Count == 0)
+        var message = new StringBuilder($"Type '{Query}' not found.");
+        AppendSuggestions(message, Suggestions);
+        CommandError.Write(message.ToString());
+    }
+
+    internal static void AppendSuggestions(StringBuilder message, IReadOnlyList<string> suggestions)
+    {
+        if (suggestions.Count == 0)
             return;
 
-        error.WriteLine();
-        error.WriteLine("Did you mean:");
-        foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {CSharpIdentifier.ContainRenderedText(suggestion)}");
+        message.AppendLine().AppendLine().Append("Did you mean:");
+        foreach (var suggestion in suggestions)
+            message.AppendLine().Append($"  {suggestion}");
     }
 }
 
@@ -34,32 +53,27 @@ internal sealed record MemberFilterValidationResult(
 
     public bool IsValid => MissedFilters.Count == 0;
 
-    public void WriteError(TextWriter error)
+    /// <inheritdoc cref="ApiTypeLookupResult.WriteNotFoundError"/>
+    public void WriteError()
     {
         if (IsValid)
             return;
 
-        error.WriteLine(
-            $"Error: No members matched filter '{string.Join(", ", MissedFilters.Select(CSharpIdentifier.ContainRenderedText))}'");
+        var message = new StringBuilder(
+            $"No members matched filter '{string.Join(", ", MissedFilters)}'");
 
         // The ranking/graph surfaces (Top Leverage, Call Graph) walk the full
         // IL index, so they surface non-public members that member selection hides without
         // --all. Point the user at the flag instead of a dead end.
         if (NonPublicMatches.Count > 0)
         {
-            error.WriteLine();
+            message.AppendLine();
             foreach (var name in NonPublicMatches)
-                error.WriteLine(
-                    $"Member '{CSharpIdentifier.ContainRenderedText(name)}' is non-public; pass --all to include it.");
+                message.AppendLine().Append($"Member '{name}' is non-public; pass --all to include it.");
         }
 
-        if (Suggestions.Count == 0)
-            return;
-
-        error.WriteLine();
-        error.WriteLine("Did you mean:");
-        foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {CSharpIdentifier.ContainRenderedText(suggestion)}");
+        ApiTypeLookupResult.AppendSuggestions(message, Suggestions);
+        CommandError.Write(message.ToString());
     }
 }
 

@@ -92,7 +92,7 @@ public static class TypeOptionsParser
         }
 
         if (hasProjectSource && hasNonProjectSource)
-            return new VersionError("Error: --project cannot be combined with --package, --library, or --platform.");
+            return new VersionError("--project cannot be combined with --package, --library, or --platform.");
 
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));

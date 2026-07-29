@@ -4,7 +4,8 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Pins <see cref="DotnetInspector.Output.CommandError"/> as the sole writer of
-/// the CLI's <c>Error:</c> line.
+/// the CLI's severity-prefixed stderr lines (<c>Error:</c>, <c>Warning:</c>,
+/// <c>Note:</c>).
 /// </summary>
 /// <remarks>
 /// This is the gate for the containment property that
@@ -21,11 +22,31 @@ namespace DotnetInspector.Tests;
 /// exempting it would put the author back in the business of judging, per site,
 /// whether an interpolated fragment is trusted, which is the judgement that has
 /// been wrong repeatedly here.
+///
+/// The scan reads whole file text rather than lines. Its first version matched
+/// per line and so was blind to the wrapped form, where
+/// <c>Console.Error.WriteLine(</c> and the string sit on different lines --
+/// fourteen real call sites in this repository. A gate that a reformatter can
+/// switch off is not a gate, and it reads green while doing it.
 /// </remarks>
 public class CommandErrorOwnershipTests
 {
+    /// <summary>
+    /// Matches a severity-prefixed write on <em>any</em> receiver, not just
+    /// <c>Console.Error</c>.
+    /// </summary>
+    /// <remarks>
+    /// Naming <c>Console.Error</c> was too narrow twice over. Three product
+    /// helpers took a <c>TextWriter error</c> parameter that every caller
+    /// filled with <c>Console.Error</c>, so the write was spelled
+    /// <c>error.WriteLine($"Warning: ...")</c> and the scan never saw it -- one
+    /// of them listed undecodable signatures from the inspected assembly
+    /// straight to stderr. The parameter bought no flexibility and cost the
+    /// gate its reach, so the receiver is no longer part of the pattern: only
+    /// <c>CommandError</c> may spell a severity prefix, whatever it writes to.
+    /// </remarks>
     private static readonly Regex ErrorWrite =
-        new(@"Console\s*\.\s*Error\s*\.\s*(WriteLine|Write)\s*\(\s*\$?@?""Error: ", RegexOptions.Compiled);
+        new(@"\.\s*(WriteLine|Write)\s*\(\s*\$?@?""(Error|Warning|Note): ", RegexOptions.Compiled);
 
     /// <summary>
     /// Catches a diagnostic whose severity is interpolated rather than spelled,
@@ -40,7 +61,7 @@ public class CommandErrorOwnershipTests
     /// the writer, and a call site that reaches for the old shape fails here.
     /// </remarks>
     private static readonly Regex ComposedPrefixWrite =
-        new(@"Console\s*\.\s*Error\s*\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
+        new(@"\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
 
     [Fact]
     public void CommandError_IsTheOnlyWriterOfTheErrorPrefix()
@@ -59,20 +80,18 @@ public class CommandErrorOwnershipTests
                 continue;
             }
 
-            string[] lines = File.ReadAllLines(path);
-            for (int i = 0; i < lines.Length; i++)
+            string text = File.ReadAllText(path);
+            foreach (Match match in ErrorWrite.Matches(text).Concat(ComposedPrefixWrite.Matches(text)))
             {
-                if (ErrorWrite.IsMatch(lines[i]) || ComposedPrefixWrite.IsMatch(lines[i]))
-                {
-                    offenders.Add($"{Path.GetRelativePath(root, path)}:{i + 1}: {lines[i].Trim()}");
-                }
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Replace('\n', ' ').Trim()}");
             }
         }
 
         Assert.True(
             offenders.Count == 0,
-            "The 'Error:' prefix must only be written by CommandError, which contains the message. "
-                + $"Replace these with CommandError.Write(...):{Environment.NewLine}"
+            "A severity prefix must only be written by CommandError, which contains the message. "
+                + $"Replace these with CommandError.Write/WriteWarning/WriteNote:{Environment.NewLine}"
                 + string.Join(Environment.NewLine, offenders));
     }
 
@@ -86,12 +105,24 @@ public class CommandErrorOwnershipTests
         Assert.Matches(ErrorWrite, "            Console.Error.WriteLine(\"Error: plain.\");");
         Assert.Matches(ErrorWrite, "Console.Error.WriteLine($\"Error: {value} interpolated.\");");
         Assert.Matches(ErrorWrite, "Console . Error . Write ( $\"Error: spaced.\");");
-        Assert.DoesNotMatch(ErrorWrite, "Console.Error.WriteLine(\"Note: not an error line.\");");
-        Assert.DoesNotMatch(ErrorWrite, "CommandError.Write($\"Error: already routed.\");");
+
+        // The aliased-writer shape: same diagnostic, different receiver.
+        Assert.Matches(ErrorWrite, "            error.WriteLine($\"Warning: {count} signatures.\");");
+        Assert.Matches(ErrorWrite, "            writer.WriteLine(\"Note: aliased.\");");
+        Assert.Matches(ErrorWrite, "Console.Error.WriteLine(\"Warning: plain.\");");
+        Assert.Matches(ErrorWrite, "Console.Error.WriteLine(\"Note: plain.\");");
+        Assert.DoesNotMatch(ErrorWrite, "Console.Error.WriteLine(\"Errors: not a prefix.\");");
+        // Composed messages that merely quote a prefix are not writes.
+        Assert.DoesNotMatch(ErrorWrite, "var text = $\"Error: {value}\";");
+
+        // The wrapped form the line-based version of this scan could not see.
+        Assert.Matches(
+            ErrorWrite,
+            "Console.Error.WriteLine(\n                    $\"Error: wrapped {value}.\");");
 
         Assert.Matches(ComposedPrefixWrite, "Console.Error.WriteLine($\"{prefix}: Select value '{v}' not found.\");");
         Assert.DoesNotMatch(ComposedPrefixWrite, "Console.Error.WriteLine($\"  {suggestion}\");");
-        Assert.DoesNotMatch(ComposedPrefixWrite, "CommandError.WriteWarning($\"{prefix}: routed.\");");
+        Assert.DoesNotMatch(ComposedPrefixWrite, "Console.Error.WriteLine($\"{count} rows.\");");
     }
 
     private static string RepositoryRoot()

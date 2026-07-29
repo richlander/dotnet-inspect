@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 
@@ -11,7 +12,7 @@ internal static class NamespacePrefixHints
             return;
 
         var shown = CSharpIdentifier.ContainRenderedText(value);
-        Console.Error.WriteLine($"Note: '{shown}' looks like a namespace prefix. Use `type {shown}` to browse matching platform types, or `find \"{shown}*\" --platform` to see source libraries.");
+        CommandError.WriteNote($"'{shown}' looks like a namespace prefix. Use `type {shown}` to browse matching platform types, or `find \"{shown}*\" --platform` to see source libraries.");
     }
 
     public static void WriteIfLikelyBareTypeName(string value)
@@ -20,7 +21,7 @@ internal static class NamespacePrefixHints
             return;
 
         var shown = CSharpIdentifier.ContainRenderedText(value);
-        Console.Error.WriteLine($"Note: If '{shown}' is a type name, use `find {shown} --platform` to locate its library, or add --package/--library/--platform.");
+        CommandError.WriteNote($"If '{shown}' is a type name, use `find {shown} --platform` to locate its library, or add --package/--library/--platform.");
     }
 
     // The predicates below match the raw value: they are identity questions

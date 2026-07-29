@@ -184,7 +184,7 @@ public sealed record PerformanceTriageOptions
                 else
                 {
                     orderTerms = [];
-                    error = $"Error: Invalid --order-by direction '{Contain(directionText)}'. Valid directions: asc, desc.";
+                    error = $"Invalid --order-by direction '{Contain(directionText)}'. Valid directions: asc, desc.";
                     return false;
                 }
             }
@@ -195,12 +195,12 @@ public sealed record PerformanceTriageOptions
         orderTerms = [.. terms];
         if (orderTerms.Length == 0)
         {
-            error = "Error: --order-by requires at least one field.";
+            error = "--order-by requires at least one field.";
             return false;
         }
         if (orderTerms.Length > 1 && orderTerms.Any(term => term.Field == "Triage"))
         {
-            error = "Error: Triage is a composite order and must be used alone, e.g. --order-by \"Triage desc\".";
+            error = "Triage is a composite order and must be used alone, e.g. --order-by \"Triage desc\".";
             return false;
         }
         error = "";
@@ -237,7 +237,7 @@ public sealed record PerformanceTriageOptions
         }
 
         var quotedInvalid = string.Join(", ", invalid.Select(shape => $"'{shape}'"));
-        error = $"Error: Unknown Performance Triage shape{(invalid.Length == 1 ? "" : "s")} {Contain(quotedInvalid)}. Valid shapes: {string.Join(", ", KnownShapes)}.";
+        error = $"Unknown Performance Triage shape{(invalid.Length == 1 ? "" : "s")} {Contain(quotedInvalid)}. Valid shapes: {string.Join(", ", KnownShapes)}.";
         return false;
     }
 
@@ -258,7 +258,7 @@ public sealed record PerformanceTriageOptions
         expression = expression.Trim();
         if (expression.Length == 0)
         {
-            error = "Error: Empty --where predicate.";
+            error = "Empty --where predicate.";
             return false;
         }
 
@@ -277,7 +277,7 @@ public sealed record PerformanceTriageOptions
             var value = expression[(index + token.Length)..].Trim();
             if (value.Length == 0)
             {
-                error = $"Error: Missing value in --where predicate '{Contain(expression)}'.";
+                error = $"Missing value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
 
@@ -285,18 +285,18 @@ public sealed record PerformanceTriageOptions
                 && !IsNumericField(field)
                 && field is not ("Confidence" or "Weight"))
             {
-                error = $"Error: Field '{Contain(field)}' supports only = and != predicates.";
+                error = $"Field '{Contain(field)}' supports only = and != predicates.";
                 return false;
             }
             if (IsNumericField(field)
                 && !long.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
-                error = $"Error: Field '{Contain(field)}' expects an integer value in --where predicate '{Contain(expression)}'.";
+                error = $"Field '{Contain(field)}' expects an integer value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
             if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))
             {
-                error = $"Error: Field '{Contain(field)}' expects one of low, medium, high in --where predicate '{Contain(expression)}'.";
+                error = $"Field '{Contain(field)}' expects one of low, medium, high in --where predicate '{Contain(expression)}'.";
                 return false;
             }
 
@@ -305,7 +305,7 @@ public sealed record PerformanceTriageOptions
             return true;
         }
 
-        error = $"Error: Invalid --where predicate '{Contain(expression)}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
+        error = $"Invalid --where predicate '{Contain(expression)}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
         return false;
     }
 
@@ -370,8 +370,8 @@ public sealed record PerformanceTriageOptions
             .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
         return suggestion is null
-            ? $"Error: Field '{Contain(field)}' is not {kind} in section 'Performance Triage'."
-            : $"Error: Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.{Environment.NewLine}{Environment.NewLine}Did you mean:{Environment.NewLine}  {Contain(suggestion)}";
+            ? $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'."
+            : $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.{Environment.NewLine}{Environment.NewLine}Did you mean:{Environment.NewLine}  {Contain(suggestion)}";
     }
 
     static int EditDistance(string left, string right)

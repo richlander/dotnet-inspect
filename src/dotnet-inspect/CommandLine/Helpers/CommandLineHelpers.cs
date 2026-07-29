@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Packages;
@@ -70,7 +71,7 @@ public static class CommandLineHelpers
 
         if (results.Count == 0)
         {
-            Console.Error.WriteLine($"Warning: No packages found matching prefix \"{prefix}\"");
+            CommandError.WriteWarning($"No packages found matching prefix \"{prefix}\"");
             return [];
         }
 

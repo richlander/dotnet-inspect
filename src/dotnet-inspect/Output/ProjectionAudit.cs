@@ -197,8 +197,8 @@ public static class ProjectionAudit
         if (dropped.Count == 0)
             return exitCode;
 
-        Console.Error.WriteLine(
-            $"Error: {string.Join(", ", dropped.Select(flag => $"'{flag}'"))} " +
+        CommandError.Write(
+            $"{string.Join(", ", dropped.Select(flag => $"'{flag}'"))} " +
             "was accepted but this command path produced unprojected output. " +
             "This is a bug in dotnet-inspect; please report it.");
         return 1;
