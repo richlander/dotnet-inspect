@@ -888,4 +888,112 @@ public class ScanTokenTests
             RenderState("int x;", "var s = \"unterminated"));
     }
 
+
+    /// <summary>
+    /// Enclosing any content in a block and an attribute list shifts every token's structural
+    /// depth and bracket depth by exactly one, and changes nothing else about it.
+    /// <para>
+    /// This is the self-policing form of the two rounds of findings that preceded it. Gating
+    /// depth by naming the emission paths and writing a fixture for each failed twice: first
+    /// because the helper could not show the field, then because every fixture that showed it
+    /// sat at depth zero. Both times the fix covered the paths that had been named and left the
+    /// ones that had not (adversarial review, GPT). A path does not have to be known to this
+    /// test to be covered by it: any emission site reachable from the alphabet that hardcodes a
+    /// depth, or that reads the wrong one, breaks the shift.
+    /// </para>
+    /// <para>
+    /// The alphabet is chosen so the shift is exact rather than approximate. It spells a
+    /// directive, a comment in both forms, a character literal, every string-literal form and
+    /// its escape, an interpolation hole, and the brace that closes one. It excludes "]" alone:
+    /// bracket depth clamps at zero, so an unmatched "]" leaves the bare and enclosed runs at
+    /// depths that differ by less than one. That clamp is a rule in its own right, gated by
+    /// <see cref="ClosingBracketWithoutAnOpener_DoesNotDriveTheBracketDepthNegative"/>.
+    /// Structural depth has no such clamp -- it is allowed to go negative when a slice begins
+    /// below the brace that opened its block -- so "}" keeps the shift exact and is included.
+    /// </para>
+    /// <para>
+    /// Two literal-content emission sites survive this gate, and are inert rather than
+    /// unreachable: both always follow literal content, so coalescing fuses their fragment into
+    /// the preceding StringLiteral, which keeps the *first* fragment's depth. A wrong depth
+    /// there cannot reach an observer. Both carry a comment saying so. This is the same
+    /// inertness class as the hole-closer's Math.Min. The hole closer at the brace that *ends*
+    /// a hole is not in that class -- it begins a literal token, because the token before it is
+    /// code -- and is gated by
+    /// <see cref="BraceClosingAHole_ReportsTheDepthOutsideIt"/>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EnclosingContent_ShiftsEveryTokensDepthByExactlyOne()
+    {
+        const string Alphabet = "#/*'\"@$\\{}a";
+        int checked_ = 0;
+
+        void Check(string[] content)
+        {
+            var bare = BodySlicer.ScanTokens(content);
+            string[] wrapped = ["{", "[", .. content];
+            var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
+
+            Assert.Equal(bare.Count, enclosed.Count);
+
+            for (int i = 0; i < bare.Count; i++)
+            {
+                var b = bare[i];
+                var e = enclosed[i];
+                var where = $"[{string.Join("\\n", content)}] token {i}";
+
+                Assert.Equal((b.Kind, b.Line + 2, b.Column, b.Length, b.DepthKnown), (e.Kind, e.Line, e.Column, e.Length, e.DepthKnown));
+                Assert.True(b.Depth + 1 == e.Depth, $"{where}: depth {b.Depth} -> {e.Depth}");
+                Assert.True(b.BracketDepth + 1 == e.BracketDepth, $"{where}: bracket depth {b.BracketDepth} -> {e.BracketDepth}");
+            }
+
+            checked_++;
+        }
+
+        void Walk(char[] buffer, int depth, int limit, Action<string> body)
+        {
+            for (int i = 0; i < Alphabet.Length; i++)
+            {
+                buffer[depth] = Alphabet[i];
+                body(new string(buffer, 0, depth + 1));
+
+                if (depth + 1 < limit)
+                    Walk(buffer, depth + 1, limit, body);
+            }
+        }
+
+        // One line reaches every path that opens a construct.
+        Walk(new char[4], 0, 4, line => Check([line]));
+
+        // Two lines reach the paths that continue one carried in from the line above, which no
+        // single-line input can: a literal's later lines, and a block comment's.
+        var seconds = new List<string>();
+        Walk(new char[2], 0, 2, seconds.Add);
+
+        foreach (var first in seconds)
+        {
+            foreach (var second in seconds)
+                Check([first, second]);
+        }
+
+        // The sweep is only as good as its size; pin it so a shrunken alphabet is visible.
+        Assert.Equal(16_104 + (132 * 132), checked_);
+    }
+
+
+    /// <summary>
+    /// The brace that closes an interpolation hole reports the depth and bracket depth in effect
+    /// outside the hole, which is why it is emitted with the values captured before the hole was
+    /// left rather than with the current ones. It begins a literal token rather than joining one,
+    /// so unlike the fragment paths its own depth survives coalescing and is observable.
+    /// </summary>
+    [Fact]
+    public void BraceClosingAHole_ReportsTheDepthOutsideIt()
+    {
+        Assert.Equal(
+            "P:{:d0:b0 P:[:d1:b0 W:var:d1:b1 W:s:d1:b1 P:=:d1:b1 S:$\"{:d1:b1 W:a:d1:b1 " +
+            "S:}\":d1:b1 P:;:d1:b1",
+            RenderState("{", "[", "var s = $\"{a}\";"));
+    }
+
 }

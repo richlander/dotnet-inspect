@@ -1345,7 +1345,10 @@ public static class BodySlicer
 
                     if (run < frame.DollarRun)
                     {
-                        // Too short to delimit a hole.
+                        // Too short to delimit a hole. The depth passed here is inert: this
+                        // fragment always follows literal content, so coalescing fuses it into
+                        // the preceding StringLiteral, which keeps the first fragment's depth.
+                        // A wrong value here cannot reach an observer, so no test gates it.
                         Emit(depth, ScanTokenKind.StringLiteral, i, run);
                         i += run;
                         continue;
@@ -1409,7 +1412,8 @@ public static class BodySlicer
                         continue;
                     }
 
-                    // A shorter run inside a raw literal is content.
+                    // A shorter run inside a raw literal is content. As above, the depth is
+                    // inert: the fragment is always coalesced into a preceding StringLiteral.
                     Emit(depth, ScanTokenKind.StringLiteral, i, run);
                     i += run;
                     continue;

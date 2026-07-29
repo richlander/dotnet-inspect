@@ -1131,4 +1131,75 @@ public class ExtractMethodBodyTests
         Assert.DoesNotContain("set {", body);
     }
 
+
+    /// <summary>
+    /// The backward signature scan reads trivia off each line above the slice. A line that ends
+    /// in a lone "/" has no character after it to classify, and reading one throws rather than
+    /// deciding the line is not a comment (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void SignatureScanOverALineEndingInASlash_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    public /",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// The same shape one character later: a declaration line ending in "=" is asked whether an
+    /// expression body ("=>") follows the member's name, and the ">" it would read is past the
+    /// end of the line (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void SignatureScanOverALineEndingInAnEquals_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    int Target =",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        // DeclaresMember only ever examines the slice's own first line, so the declaration
+        // under test has to be that line.
+        // The scan must reach a decision. Declining is a decision; throwing is not.
+        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 3, 6, "get_Target"));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// A destructor's declaring type is matched against the source a character at a time, and a
+    /// unicode escape is two characters. A name ending in a lone backslash has no second one
+    /// (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void DestructorMatchOverANameEndingInABackslash_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    ~\\",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        var thrown = Record.Exception(
+            () => BodySlicer.ExtractMethodBody(source, 5, 6, "Finalize", isDestructor: true, destructorTypeName: "C"));
+
+        Assert.Null(thrown);
+    }
+
 }
