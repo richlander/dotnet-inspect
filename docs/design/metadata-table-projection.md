@@ -483,6 +483,25 @@ table with a `## <Name> (rows)` heading over a pipe table; TSV and JSONL carry a
 leading `Table` column so every row self-identifies, keeping those outputs pure
 machine-readable streams (one `WriteTable` block per table).
 
+Containment is inherited, not reimplemented. `mdi` performs no escaping of its
+own: metadata names are untrusted input, and `MetadataTableProjector` already
+neutralizes every control character before a value leaves the projection, so
+each view hands the renderer text that is safe by construction. That is what
+makes `mdi` the reference example of consuming the projection — a consumer
+should render `MetadataValue` cases and add nothing, rather than defend itself.
+
+It is also why the property needs its own gate. Because `mdi` contains nothing
+explicitly, nothing in `mdi` would fail if the projection began emitting raw
+heap text; the safety is invisible at the call site.
+`MdiContainmentTests` closes that gap by splicing a live `ESC [ 3 1 m` sequence
+into a real `#Strings` entry and rendering the patched assembly through every
+view and format, asserting both that no raw control character survives and that
+the neutralized form is present, so the test cannot pass by rendering nothing.
+Its coverage is driven from `MetadataTableFormat` itself, so a new format is
+gated on arrival. Two views — `--references` and `--overview` — render only
+coordinates and counts, so they are held as regression nets rather than
+payload-carrying cases, and the file says so.
+
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be
 human-friendly without weakening the oracle. Supported-table coverage is kept in
