@@ -259,6 +259,42 @@ public class EvilPoolPinTests
     }
 
     /// <summary>
+    /// The list ranks 1 through N with no gaps, so a rank range names a package set.
+    ///
+    /// <para>The sweep takes a window as "start rank, count", and a count is not a
+    /// window: ranks need only be positive and distinct, so a list missing rank 2
+    /// answers a request for ranks 1-2 with ranks 1 and 3. That is the right number of
+    /// packages, every one of them pinned, and a pool that is not the one the caller
+    /// named -- the same shape as #3245's shortened denominator, and as this change's
+    /// own <c>Take()</c> defect.</para>
+    ///
+    /// <para>The sweep refuses a gap in the window it was asked for. This test says the
+    /// committed list has none anywhere, so the refusal never fires in normal use and
+    /// the top hundred is actually a hundred.</para>
+    /// </summary>
+    [Fact]
+    public void TheRankedListRanksOneThroughNWithNoGaps()
+    {
+        var ranks = ReadRankedRanks();
+
+        Assert.NotEmpty(ranks);
+        Assert.Equal(Enumerable.Range(1, ranks.Count).ToArray(), ranks.Order().ToArray());
+    }
+
+    /// <summary>
+    /// Reads the ranks preserving cardinality, so a caller can see a repeated rank.
+    /// </summary>
+    static IReadOnlyList<int> ReadRankedRanks()
+    {
+        string path = Path.Combine(AuthoredCorpusRatchetTests.FindRepositoryRoot(), ListRelativePath);
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement
+            .EnumerateArray()
+            .Select(element => element.GetProperty("rank").GetInt32())
+            .ToArray();
+    }
+
+    /// <summary>
     /// Reads the ranked list preserving cardinality, so a caller can see a repeat.
     /// Callers that want set semantics say so themselves.
     /// </summary>

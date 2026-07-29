@@ -255,6 +255,25 @@ if (selected.Length != packageCount)
     return;
 }
 
+// A count is not a window. Ranks are required to be positive and distinct, not
+// contiguous, so a list missing rank 2 answered a request for ranks 1-2 with ranks 1
+// and 3 -- the right number of packages, every one of them pinned, and a pool that is
+// not the one the caller named. The caller asks for a rank range; the range is what
+// must arrive.
+var gap = Enumerable.Range(0, selected.Length)
+    .Where(index => selected[index].Rank != startRank + index)
+    .Select(index => (Expected: startRank + index, Got: selected[index].Rank))
+    .FirstOrDefault();
+if (gap != default)
+{
+    Console.Error.WriteLine(
+        $"The list does not rank {gap.Expected}; ranks {startRank}-"
+        + $"{startRank + packageCount - 1} were requested and rank {gap.Got} arrived "
+        + "in its place.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 // Every selected package is checked against its pin at the end, and a package whose
 // pin the sweep does not understand can reach no outcome there -- it would simply
 // never be accounted for, failing the run after a hundred acquisitions with a message
@@ -443,10 +462,6 @@ foreach (var entry in selected)
         // not -- both change the assemblies measured, which is what the pool identity
         // is for.
         string source = selection.Paths[0];
-        // The identity the pool is actually measured over. A version and a TFM describe
-        // the request; only the hash describes the file, and a NuGet cache entry whose
-        // contents were replaced satisfies both of the other two.
-        string assemblySha = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(source)));
 
         if (honorPin && pin is not null)
         {
@@ -459,9 +474,7 @@ foreach (var entry in selected)
                     // genuinely select no TFM, and null matches null.
                     : !string.Equals(selection.Tfm, pin.Tfm, StringComparison.OrdinalIgnoreCase)
                         ? $"pinned TFM {pin.Tfm ?? "none"}, got {selection.Tfm ?? "none"}"
-                        : !string.Equals(assemblySha, pin.Sha256, StringComparison.Ordinal)
-                            ? $"pinned sha256 {pin.Sha256}, got {assemblySha}"
-                            : null;
+                        : null;
             if (mismatch is not null)
             {
                 results.Add(Failed(
@@ -482,6 +495,31 @@ foreach (var entry in selected)
             Path.GetFileName(source));
         File.Copy(source, destination, overwrite: true);
         destination = Path.GetFullPath(destination);
+
+        // Hashed after the copy, over the copy. A version and a TFM describe the
+        // request; only the hash describes the file, and a NuGet cache entry whose
+        // contents were replaced satisfies both of the other two. Hashing the source
+        // and then copying it leaves an interval a cache writer can land in, and the
+        // file in the pool is the one that gets measured -- so that is the one whose
+        // bytes must match.
+        string assemblySha = Convert.ToHexStringLower(
+            SHA256.HashData(File.ReadAllBytes(destination)));
+        if (honorPin && pin is not null
+            && !string.Equals(assemblySha, pin.Sha256, StringComparison.Ordinal))
+        {
+            // Removed rather than left behind. assemblies.txt is written from the
+            // in-memory list so a stray file cannot enter the pool, but leaving a
+            // rejected assembly in packages/ invites a reader to measure it by hand.
+            File.Delete(destination);
+            results.Add(Failed(
+                entry, "pin-mismatch", $"pinned sha256 {pin.Sha256}, got {assemblySha}",
+                resolvedPackage, package.Version, selection.Tfm, package.FromCache));
+            Console.Error.WriteLine(
+                $"rank {entry.Rank}: {entry.Package}: pinned sha256 {pin.Sha256}, "
+                + $"got {assemblySha}");
+            continue;
+        }
+
         assemblies.Add(destination);
         accountedFor++;
         results.Add(new SweepPackageResult(
