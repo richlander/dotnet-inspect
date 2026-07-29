@@ -188,7 +188,9 @@ different file has declared both readmes, and the declared one keeps its kind
 even though the section shows the conventional name. The role answers only where
 the extension is silent: a manifest can declare anything, and
 `<readme>logo.png</readme>` is malformed but shippable, so a declaration never
-overrides an extension that names the document something else.
+overrides an extension that names the document something else. A name states an
+extension when a dot has a name on both sides of it, so `.README` is a hidden
+readme rather than a file suffixed `.README`.
 Applied to anything else they are corruption rather than presentation: the link
 rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
 or an MSBuild comment is rewritten and the printed manifest silently stops

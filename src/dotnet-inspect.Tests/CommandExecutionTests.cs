@@ -11357,8 +11357,15 @@ public class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_ExtensionlessReadme_IsStillTreatedAsMarkdown()
+    [Theory]
+    // A bare name states no suffix. A leading dot marks a hidden basename rather than a suffix,
+    // so it states none either -- Path.HasExtension disagrees, which is why it is not the question
+    // this asks. A trailing dot names an empty suffix and so states none.
+    [InlineData("README")]
+    [InlineData(".README")]
+    [InlineData("README.")]
+    [InlineData("docs/GUIDE")]
+    public async Task Package_ExtensionlessReadme_IsStillTreatedAsMarkdown(string readmePath)
     {
         // The readme's kind comes from its role, not its extension: the manifest declared this
         // file as the readme, and NuGet renders it as Markdown. Keying only on the extension
@@ -11367,10 +11374,12 @@ public class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
+        var readmeFullPath = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(readmeFullPath)!);
         File.WriteAllText(
-            Path.Combine(packageRoot, "README"),
+            readmeFullPath,
             "---\ntitle: Demo\n---\n\nSee https://github.com/owner/repo/blob/main/x.md for more.\n");
-        File.WriteAllText(Path.Combine(packageRoot, "Test.Extensionless.nuspec"), """
+        File.WriteAllText(Path.Combine(packageRoot, "Test.Extensionless.nuspec"), $"""
             <?xml version="1.0" encoding="utf-8"?>
             <package>
               <metadata>
@@ -11378,7 +11387,7 @@ public class CommandExecutionTests
                 <version>1.0.0</version>
                 <authors>tests</authors>
                 <description>test package</description>
-                <readme>README</readme>
+                <readme>{readmePath}</readme>
               </metadata>
             </package>
             """);
@@ -11407,7 +11416,7 @@ public class CommandExecutionTests
                 "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
 
             Assert.Equal(0, nuspecExit);
-            Assert.Contains("<readme>README</readme>", nuspecOutput, StringComparison.Ordinal);
+            Assert.Contains($"<readme>{readmePath}</readme>", nuspecOutput, StringComparison.Ordinal);
         }
         finally
         {

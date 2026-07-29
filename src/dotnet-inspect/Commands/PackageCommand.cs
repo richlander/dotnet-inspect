@@ -1657,7 +1657,21 @@ public class PackageCommand
     /// </summary>
     private static bool IsMarkdownDocument(string path, bool isReadme)
         => MarkdownContent.IsMarkdown(path)
-            || (isReadme && !Path.HasExtension(path));
+            || (isReadme && !NamesASuffix(path));
+
+    /// <summary>
+    /// Whether a file name states a suffix. <see cref="Path.HasExtension(string)"/> is the wrong
+    /// question here: it reads a whole dotfile name as an extension, so <c>.README</c> would be
+    /// said to name one. A leading dot marks a hidden basename rather than a suffix, and a
+    /// trailing dot names an empty one, so the suffix is the part after a dot that has a name on
+    /// both sides of it.
+    /// </summary>
+    private static bool NamesASuffix(string path)
+    {
+        var name = Path.GetFileName(path.AsSpan());
+        var dot = name.LastIndexOf('.');
+        return dot > 0 && dot < name.Length - 1;
+    }
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,
