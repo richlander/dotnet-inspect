@@ -887,8 +887,12 @@ kbd {
 /* ─── Metadata Explorer ─────────────────────────────────────────────────────── */
 .metadata-explorer { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); }
 .mde-bar { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.mde-back { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--dim); font: 11px var(--mono); padding: 5px 10px; cursor: pointer; }
-.mde-back:hover { color: var(--text); border-color: var(--text); }
+.mde-nav { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.mde-navbtn { border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--dim); font: 11px var(--mono); padding: 5px 10px; cursor: pointer; }
+.mde-navbtn:hover:not(:disabled) { color: var(--text); border-color: var(--text); }
+.mde-navbtn:disabled { opacity: 0.35; cursor: default; }
+.mde-nav-exit { color: var(--text); }
+.mde-nav-exit:hover { border-color: #d9a066; color: #d9a066; }
 .mde-title { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .mde-title-asm { font: 13px var(--mono); color: var(--text); }
 .mde-title-note { font: 10px var(--mono); color: var(--dim); }
@@ -898,8 +902,20 @@ kbd {
 .mde-chip.active { color: var(--text); border-color: var(--accent, var(--line-strong)); background: var(--panel-active); }
 .mde-chip-count { font-size: 9px; color: var(--muted); }
 .mde-chip-unprojected { border-style: dashed; opacity: 0.7; }
-.mde-body { flex: 1; display: flex; min-height: 0; }
+.mde-body { flex: 1; display: flex; min-height: 0; position: relative; }
 .mde-canvas { flex: 1; overflow: auto; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); grid-auto-rows: min-content; gap: 14px; align-content: start; }
+/* The wall: every table laid out spatially, dimmed as the backdrop behind the focus lightbox.
+   Card interiors are inert; clicking a card head pulls that table into focus. */
+.mde-wall { opacity: 0.4; }
+.mde-wall .mde-grid-scroll, .mde-wall .mde-pager, .mde-wall .mde-heap-note, .mde-wall .mde-card-empty { pointer-events: none; }
+.mde-wall .mde-card-head { cursor: pointer; }
+.mde-wall .mde-card-head:hover { background: var(--panel-hover, var(--panel-active)); }
+/* The focus lightbox: the active table blown up front-and-center, wall peeking around the edges. */
+.mde-focus { position: absolute; top: 14px; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(1120px, 82%); display: flex; min-height: 0; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 24px 90px rgba(0,0,0,0.55); overflow: hidden; }
+.mde-focus-card { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mde-focus .mde-card, .mde-focus .mde-heap-card { flex: 1; min-height: 0; max-height: none; border: none; border-radius: 0; background: transparent; }
+.mde-focus .mde-grid-scroll { max-height: none; flex: 1; }
+.mde-focus .mde-detail { border-left: 1px solid var(--line); border-radius: 0; }
 .mde-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; max-height: 460px; }
 .mde-card-focus { border-color: var(--accent, var(--line-strong)); box-shadow: 0 0 0 1px var(--accent, transparent); }
 .mde-card-dim { opacity: 0.72; }

@@ -2093,20 +2093,20 @@ const EXPLORER_PAGE = 50;
 function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
-  ex.focusIndex = Number(tableIndex);
-  ex.highlight = rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null;
-  ex.detail = rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null;
+  ex.history = [{ index: Number(tableIndex), rowId: Number(rowId) || 0 }];
+  ex.historyPos = 0;
   state.explorer = ex;
-  render();
+  applyExplorerFocus();
 }
 
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
 function openExplorerHeap(assemblyFileName, heapName) {
   const ex = buildBaseExplorer(assemblyFileName);
   if (!ex) return;
-  ex.focusHeap = heapName;
+  ex.history = [{ heap: heapName }];
+  ex.historyPos = 0;
   state.explorer = ex;
-  render();
+  applyExplorerFocus();
 }
 
 // The common explorer state: the table + heap directories drawn from the loaded overview, plus
@@ -2140,6 +2140,8 @@ function buildBaseExplorer(assemblyFileName) {
     focusHeap: null,
     highlight: null,
     detail: null,
+    history: [],
+    historyPos: -1,
   };
 }
 
@@ -2187,7 +2189,10 @@ async function loadExplorerWindow(index, startRowId = 1) {
     if (state.explorer !== ex) return;
     ex.windows[index] = { loading: false, error: String(error?.message || error), data: null, startRowId };
   } finally {
-    if (state.explorer === ex) render();
+    if (state.explorer === ex) {
+      render();
+      if (index === ex.focusIndex && !ex.focusHeap) explorerScrollToFocus();
+    }
   }
 }
 
@@ -2211,41 +2216,97 @@ async function loadExplorerHeap(heapName) {
     if (state.explorer !== ex) return;
     ex.heapWindows[heapName] = { loading: false, error: String(error?.message || error), data: null };
   } finally {
-    if (state.explorer === ex) render();
+    if (state.explorer === ex) {
+      render();
+      if (ex.focusHeap === heapName) explorerScrollToFocus();
+    }
   }
 }
-// ref->def: transport to the target table+row, loading the window that contains it if needed
-// and highlighting the row. This is plain navigation — no history stack; "back" always
-// returns to the Metadata page.
+// ref->def: transport to the target table+row. Every jump pushes a focus entry onto the
+// history stack so Back/Forward can walk the journey — essential once the focus panel hides
+// the table you came from (including intra-table hops like TypeDef.Extends -> another TypeDef,
+// which otherwise look like "you didn't move").
 function explorerJump(index, rowId) {
+  pushExplorerFocus({ index, rowId: rowId || 0 });
+}
+
+// A focus entry is either { index, rowId } (rowId 0 = table, no highlighted row) or { heap }.
+function sameFocus(a, b) {
+  if (!a || !b) return false;
+  if (a.heap != null || b.heap != null) return a.heap === b.heap;
+  return a.index === b.index;
+}
+
+// Move focus to a new entry, truncating any forward history (a fresh branch). Re-selecting the
+// current table just updates its row in place rather than stacking a duplicate.
+function pushExplorerFocus(entry) {
   const ex = state.explorer;
   if (!ex) return;
-  ex.focusIndex = index;
-  ex.highlight = rowId ? { index, rowId } : null;
-  ex.detail = rowId ? { index, rowId } : null;
-  // Page the target window so the row is on-screen: align the window start to the row's page.
-  const start = rowId ? Math.max(1, Math.floor((rowId - 1) / EXPLORER_PAGE) * EXPLORER_PAGE + 1) : 1;
-  const win = ex.windows[index];
-  if (!win || !win.data || rowId < win.data.startRowId || rowId >= win.data.startRowId + (win.data.rows?.length || 0)) {
-    loadExplorerWindow(index, start);
+  const cur = ex.history[ex.historyPos];
+  if (sameFocus(cur, entry)) {
+    ex.history[ex.historyPos] = entry;
   } else {
-    render();
+    ex.history = ex.history.slice(0, ex.historyPos + 1);
+    ex.history.push(entry);
+    ex.historyPos = ex.history.length - 1;
+  }
+  applyExplorerFocus();
+}
+
+function explorerHistoryBack() {
+  const ex = state.explorer;
+  if (!ex || ex.historyPos <= 0) return;
+  ex.historyPos--;
+  applyExplorerFocus();
+}
+
+function explorerHistoryForward() {
+  const ex = state.explorer;
+  if (!ex || ex.historyPos >= ex.history.length - 1) return;
+  ex.historyPos++;
+  applyExplorerFocus();
+}
+
+// Realize the current history entry: set focus + highlight + detail, load the window/heap that
+// backs it, render, and scroll it into place. The single source of truth for "where am I".
+function applyExplorerFocus() {
+  const ex = state.explorer;
+  const entry = ex?.history[ex.historyPos];
+  if (!entry) return;
+  if (entry.heap != null) {
+    ex.focusHeap = entry.heap;
+    ex.highlight = null;
+    ex.detail = null;
+    if (!ex.heapWindows[entry.heap]) loadExplorerHeap(entry.heap);
+    else render();
+  } else {
+    ex.focusHeap = null;
+    ex.focusIndex = entry.index;
+    ex.highlight = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
+    ex.detail = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
+    const start = entry.rowId ? Math.max(1, Math.floor((entry.rowId - 1) / EXPLORER_PAGE) * EXPLORER_PAGE + 1) : 1;
+    const win = ex.windows[entry.index];
+    const onScreen = win?.data && (!entry.rowId
+      || (entry.rowId >= win.data.startRowId && entry.rowId < win.data.startRowId + (win.data.rows?.length || 0)));
+    if (onScreen) render();
+    else loadExplorerWindow(entry.index, start);
   }
   explorerScrollToFocus();
 }
 
+// Center the active card in the dim wall behind the lightbox (spatial context peeking around the
+// edges), and scroll the highlighted row into view inside the focus panel's own grid.
 function explorerScrollToFocus() {
   requestAnimationFrame(() => {
     const ex = state.explorer;
     if (!ex) return;
-    if (ex.focusHeap) {
-      const heapCard = document.querySelector(`.mde-heap-card[data-mde-heap="${cssEscape(ex.focusHeap)}"]`);
-      if (heapCard) heapCard.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    const card = document.querySelector(`.mde-card[data-mde-index="${ex.focusIndex}"]`);
-    if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
-    const row = ex.highlight && document.querySelector(`.mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
+    const wallCard = ex.focusHeap
+      ? document.querySelector(`.mde-wall .mde-heap-card[data-mde-heap="${cssEscape(ex.focusHeap)}"]`)
+      : document.querySelector(`.mde-wall .mde-card[data-mde-index="${ex.focusIndex}"]`);
+    if (wallCard) wallCard.scrollIntoView({ behavior: "smooth", block: "center" });
+    const focusGrid = document.querySelector(".mde-focus .mde-grid-scroll");
+    if (focusGrid && !ex.highlight) focusGrid.scrollTop = 0;
+    const row = ex.highlight && document.querySelector(`.mde-focus .mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
     if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 }
@@ -2270,12 +2331,19 @@ function renderMetadataExplorer() {
   const heapCards = (ex.heaps || []).length
     ? `<div class="mde-heap-divider"><span>heaps</span></div>` + ex.heaps.map(renderHeapCard).join("")
     : "";
-  const detail = renderExplorerDetail();
+
+  const canBack = ex.historyPos > 0;
+  const canForward = ex.historyPos < ex.history.length - 1;
+  const focusPanel = renderExplorerFocusPanel();
 
   app.innerHTML = `
     <div class="metadata-explorer">
       <header class="mde-bar">
-        <button id="mde-back" class="mde-back" title="Back to Metadata (Esc)">← back</button>
+        <div class="mde-nav" role="group" aria-label="Explorer navigation">
+          <button id="mde-exit" class="mde-navbtn mde-nav-exit" title="Exit the explorer (Esc at the start)">✕ Exit</button>
+          <button id="mde-hist-back" class="mde-navbtn" ${canBack ? "" : "disabled"} title="Back (Backspace)">← Back</button>
+          <button id="mde-hist-fwd" class="mde-navbtn" ${canForward ? "" : "disabled"} title="Forward (Shift+Backspace)">Forward →</button>
+        </div>
         <div class="mde-title">
           <span class="mde-title-asm">${escapeHtml(ex.assemblyFileName)}</span>
           <span class="mde-title-note">metadata tables · ${ex.directory.length} populated · click a ref to jump</span>
@@ -2283,11 +2351,27 @@ function renderMetadataExplorer() {
       </header>
       <nav class="mde-chips">${chips}${heapChips ? `<span class="mde-chip-sep"></span>${heapChips}` : ""}</nav>
       <div class="mde-body">
-        <div class="mde-canvas" id="mde-canvas">${cards}${heapCards}</div>
-        ${detail}
+        <div class="mde-canvas mde-wall" id="mde-canvas">${cards}${heapCards}</div>
+        ${focusPanel}
       </div>
     </div>`;
   bindMetadataExplorerEvents();
+}
+
+// The focus lightbox: the current table (or heap) blown up front-and-center over the dim wall,
+// with the row inspector docked on its right. Auto-focus (every ref->def jump lands here) means
+// this is the primary reading surface — the wall behind is spatial context you can click into.
+function renderExplorerFocusPanel() {
+  const ex = state.explorer;
+  const card = ex.focusHeap
+    ? renderHeapCard(ex.heaps.find(h => h.name === ex.focusHeap) || {})
+    : renderExplorerCard(ex.directory.find(t => t.index === ex.focusIndex) || {});
+  const detail = renderExplorerDetail();
+  return `
+    <div class="mde-focus">
+      <div class="mde-focus-card">${card}</div>
+      ${detail}
+    </div>`;
 }
 
 // A heap card: header (stream name, size, coverage badge), a coverage caveat banner, and the
@@ -2338,9 +2422,11 @@ function renderHeapListing(data) {
     return `<div class="mde-heap-note">${note}</div>`;
   }
   const isIndex = data.heap === "Guid";
+  const sel = state.explorer?.detail;
   const rows = data.entries.map(entry => {
     const addr = isIndex ? `#${entry.offset}` : `0x${(entry.offset >>> 0).toString(16)}`;
-    return `<tr class="mde-heap-row">
+    const isSel = sel && sel.heap === data.heap && sel.offset === entry.offset;
+    return `<tr class="mde-heap-row ${isSel ? "mde-heap-row-sel" : ""}" data-mde-heap-row="${escapeHtml(data.heap)}:${entry.offset}">
       <td class="mde-heap-addr" title="${isIndex ? "GUID index" : "heap byte offset"}">${addr}</td>
       <td class="mde-heap-val">${renderHeapValueCell(entry.value)}</td>
       <td class="mde-heap-refs" title="referenced by ${entry.referenceCount} projected cell${entry.referenceCount === 1 ? "" : "s"}">${entry.referenceCount.toLocaleString()}×</td>
@@ -2501,26 +2587,38 @@ function renderExplorerDetail() {
 
 let explorerObserver = null;
 function bindMetadataExplorerEvents() {
-  document.querySelector("#mde-back")?.addEventListener("click", closeExplorer);
+  document.querySelector("#mde-exit")?.addEventListener("click", closeExplorer);
+  document.querySelector("#mde-hist-back")?.addEventListener("click", explorerHistoryBack);
+  document.querySelector("#mde-hist-fwd")?.addEventListener("click", explorerHistoryForward);
   document.querySelectorAll("[data-mde-chip]").forEach(chip =>
-    chip.addEventListener("click", () => {
-      const index = Number(chip.dataset.mdeChip);
-      state.explorer.focusIndex = index;
-      state.explorer.highlight = null;
-      loadExplorerWindow(index);
-      explorerScrollToFocus();
-    }));
+    chip.addEventListener("click", () => pushExplorerFocus({ index: Number(chip.dataset.mdeChip), rowId: 0 })));
   document.querySelectorAll("[data-mde-jump]").forEach(btn =>
     btn.addEventListener("click", event => {
       event.stopPropagation();
       const [index, rowId] = btn.dataset.mdeJump.split(":").map(Number);
       explorerJump(index, rowId);
     }));
-  document.querySelectorAll(".mde-row[data-mde-row]").forEach(tr =>
+  // Clicking a card in the dim wall pulls that table into the focus panel (a spatial jump).
+  document.querySelectorAll(".mde-wall .mde-card[data-mde-index] .mde-card-head").forEach(head =>
+    head.addEventListener("click", () => {
+      const card = head.closest(".mde-card");
+      if (card) pushExplorerFocus({ index: Number(card.dataset.mdeIndex), rowId: 0 });
+    }));
+  document.querySelectorAll(".mde-wall .mde-heap-card[data-mde-heap] .mde-card-head").forEach(head =>
+    head.addEventListener("click", () => {
+      const card = head.closest(".mde-heap-card");
+      if (card) pushExplorerFocus({ heap: card.dataset.mdeHeap });
+    }));
+  // Selecting a row in the focus panel updates the inspector in place — it refines the current
+  // position (remembered for Back/Forward) rather than stacking a new history entry.
+  document.querySelectorAll(".mde-focus .mde-row[data-mde-row]").forEach(tr =>
     tr.addEventListener("click", () => {
       const [index, rowId] = tr.dataset.mdeRow.split(":").map(Number);
-      state.explorer.detail = { index, rowId };
-      state.explorer.highlight = { index, rowId };
+      const ex = state.explorer;
+      ex.detail = { index, rowId };
+      ex.highlight = { index, rowId };
+      const cur = ex.history[ex.historyPos];
+      if (cur && cur.index === index) cur.rowId = rowId;
       render();
     }));
   document.querySelectorAll("[data-mde-page]").forEach(btn =>
@@ -2529,15 +2627,12 @@ function bindMetadataExplorerEvents() {
       loadExplorerWindow(index, start);
     }));
   document.querySelectorAll("[data-mde-heap-chip]").forEach(chip =>
-    chip.addEventListener("click", () => {
-      const heapName = chip.dataset.mdeHeapChip;
-      state.explorer.focusHeap = heapName;
-      state.explorer.highlight = null;
-      loadExplorerHeap(heapName);
-      explorerScrollToFocus();
-    }));
+    chip.addEventListener("click", () => pushExplorerFocus({ heap: chip.dataset.mdeHeapChip })));
   document.querySelector("[data-mde-detail-close]")?.addEventListener("click", () => {
-    state.explorer.detail = null;
+    const ex = state.explorer;
+    ex.detail = null;
+    const cur = ex.history[ex.historyPos];
+    if (cur && cur.index != null) cur.rowId = 0;
     render();
   });
 
@@ -7261,12 +7356,17 @@ function fmtBytes(bytes) {
 }
 
 document.addEventListener("keydown", event => {
-  // The Metadata Explorer is a full-screen modal-style view; Escape steps back through
-  // ref->def jumps and finally closes it. Handle before everything else.
+  // The Metadata Explorer is a full-screen modal-style view. Backspace walks the ref->def
+  // history (Shift+Backspace forward); Escape steps back through it and finally exits.
   if (state.explorer?.open) {
     if (event.key === "Escape") {
       event.preventDefault();
-      closeExplorer();
+      if (state.explorer.historyPos > 0) explorerHistoryBack();
+      else closeExplorer();
+    } else if (event.key === "Backspace") {
+      event.preventDefault();
+      if (event.shiftKey) explorerHistoryForward();
+      else explorerHistoryBack();
     }
     return;
   }
