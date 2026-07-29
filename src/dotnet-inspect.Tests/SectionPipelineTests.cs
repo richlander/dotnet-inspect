@@ -1460,6 +1460,24 @@ public class SectionPipelineTests
         Assert.Equal(registered, registry.ExpandRequired(registered));
     }
 
+    [Fact]
+    public void IntegrationOpportunities_DeclaresIntegrationsPrerequisite()
+    {
+        // This pins the declaration, not the behavior, and that is a deliberate weakening.
+        // LibrarySections_RenderIdenticallyAloneAndTogether covers every other prerequisite
+        // behaviorally, but it cannot cover this one: "Integration: Opportunities" renders for no
+        // assembly available offline, and the failure mode is extra rows rather than missing ones
+        // (without Integrations, the existing-integration set is empty, so already-integrated
+        // categories stop being suppressed). Closing that gap properly needs a fixture assembly
+        // carrying both an existing integration and a gap in the same category. Until then this
+        // catches the realistic failure — someone deleting the declaration — and nothing more.
+        var registry = LibrarySections.CreateScannerRegistry();
+
+        Assert.Contains(
+            LibrarySections.ScannerIntegrations,
+            registry.RequirementsOf(LibrarySections.ScannerIntegrationOpportunities));
+    }
+
     private static ScannerContext NullScannerContext() => new()
     {
         AssemblyPath = "unused.dll",
