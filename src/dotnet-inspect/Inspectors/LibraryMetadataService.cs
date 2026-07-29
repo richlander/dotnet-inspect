@@ -42,7 +42,7 @@ internal static class LibraryMetadataService
     /// list this read extracts; a registered scanner still performs the transitive walk itself.
     /// </para>
     /// </remarks>
-    private static readonly HashSet<string> ReferenceReadingScannerKeys =
+    internal static readonly HashSet<string> ReferenceReadingScannerKeys =
     [
         LibrarySections.ScannerReferences,
         LibrarySections.ScannerTransitiveRefs
@@ -61,12 +61,16 @@ internal static class LibraryMetadataService
     /// earlier revision argued the two sets were interchangeable "because the union is identical
     /// either way" — that identity was the defect, not the justification.
     /// <see cref="SectionPipelineTests"/> pins the property that makes the exclusion safe: every
-    /// declared key the read does not satisfy must have a registered scanner.
+    /// declared key the read does not satisfy must have a registered scanner, and this set names
+    /// only keys the read actually reads — a member outside
+    /// <see cref="ReferenceReadingScannerKeys"/> would be a silent no-op, since the exclusion
+    /// filters that set.
     /// </remarks>
-    private static readonly HashSet<string> KeysTheReadOnlyFeeds =
-    [
-        LibrarySections.ScannerTransitiveRefs
-    ];
+    internal static readonly IReadOnlySet<string> KeysTheReadOnlyFeeds =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            LibrarySections.ScannerTransitiveRefs
+        };
 
     /// <summary>
     /// The keys the shared metadata read fully honors, unioned with the registry's registered keys

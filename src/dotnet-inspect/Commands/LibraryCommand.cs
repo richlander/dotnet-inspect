@@ -45,6 +45,7 @@ public class LibraryCommand
             }
             else
             {
+                WarnDiscoveryWithoutRowProjection(options, pipeline);
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
@@ -1371,6 +1372,7 @@ public class LibraryCommand
         var effective = FilterEffective(allEffective, options);
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
+        WarnDiscoveryWithoutRowProjection(options, pipeline);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
@@ -1447,6 +1449,7 @@ public class LibraryCommand
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
         Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
     {
+        WarnDiscoveryWithoutRowProjection(options, LibrarySections.CreatePipeline());
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
@@ -1536,17 +1539,41 @@ public class LibraryCommand
         if (!options.ConsumesRowProjection)
             return;
 
-        if (options.IncludeSections is not { Count: > 0 })
+        WarnSelectedSectionsWithoutRowProjection(options.IncludeSections, pipeline,
+            "Use the default Markdown output.");
+    }
+
+    /// <summary>
+    /// The discovery counterpart. <c>-D &lt;section&gt;</c> asks what rows a section has, so a
+    /// tree-shaped section answers with nothing at all -- exit 0, no stdout, no stderr, which is
+    /// indistinguishable from a section that simply has no fields.
+    /// </summary>
+    /// <remarks>
+    /// Discovery cannot share <see cref="WarnSectionsWithoutRowProjection"/>'s entry conditions:
+    /// it returns before that call on every path, and it selects through <c>Discover</c> rather
+    /// than <c>IncludeSections</c>, so neither the projection test nor the explicit-selection test
+    /// ever sees it. Bare <c>-D</c> carries an empty array and stays silent; only a named section
+    /// warrants the note, on the same principle that keeps the row-mode note off unnamed output.
+    /// </remarks>
+    internal static void WarnDiscoveryWithoutRowProjection(LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+        => WarnSelectedSectionsWithoutRowProjection(options.Discover, pipeline,
+            "Render it with -S instead.");
+
+    private static void WarnSelectedSectionsWithoutRowProjection(IReadOnlyCollection<string>? selected,
+        SectionPipeline<LibraryInspection> pipeline, string remedy)
+    {
+        if (selected is not { Count: > 0 })
             return;
 
-        var unprojectable = pipeline.GetSectionsWithoutRowProjection(options.IncludeSections).ToList();
+        var unprojectable = pipeline.GetSectionsWithoutRowProjection(selected).ToList();
         if (unprojectable.Count == 0)
             return;
 
         var label = unprojectable.Count == 1 ? "section is" : "sections are";
         Console.Error.WriteLine(
             $"Note: {unprojectable.Count} matched {label} not row-shaped and cannot be projected to "
-            + $"rows: {string.Join(", ", unprojectable)}. Use the default Markdown output.");
+            + $"rows: {string.Join(", ", unprojectable)}. {remedy}");
     }
 
     internal static bool FailureAffectsSection(string failureSection, string section)

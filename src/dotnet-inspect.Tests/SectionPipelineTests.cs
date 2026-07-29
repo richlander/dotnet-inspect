@@ -1171,6 +1171,26 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Proves every member of <see cref="LibraryMetadataService.KeysTheReadOnlyFeeds"/> is a key
+    /// the read actually reads.
+    /// </summary>
+    /// <remarks>
+    /// The set exists only to be subtracted from <see cref="LibraryMetadataService.ReferenceReadingScannerKeys"/>,
+    /// so a member outside that set subtracts nothing. Such an entry is not merely useless: it
+    /// reads as a declaration that some key is fed-but-not-honored when no such key exists, which
+    /// is the same "declaration that does not describe reality" this whole area exists to prevent.
+    /// A review found the previous revision accepted a bogus member with every test still green.
+    /// </remarks>
+    [Fact]
+    public void EveryKeyTheReadOnlyFeeds_IsAKeyTheReadReads()
+    {
+        Assert.NotEmpty(LibraryMetadataService.KeysTheReadOnlyFeeds);
+        Assert.All(
+            LibraryMetadataService.KeysTheReadOnlyFeeds,
+            key => Assert.Contains(key, LibraryMetadataService.ReferenceReadingScannerKeys));
+    }
+
+    /// <summary>
     /// Proves every declared key the shared read does not satisfy has a registered scanner.
     /// </summary>
     /// <remarks>

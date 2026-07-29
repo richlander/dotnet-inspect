@@ -7586,6 +7586,46 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverTreeShapedSection_ExplainsTheEmptySchema()
+    {
+        // Regression: -D asks what rows a section has, and a tree-shaped section answered with
+        // nothing at all -- exit 0, no stdout, no stderr -- which reads exactly like a section
+        // that has no fields. Both discovery paths return before the row-projection note, and
+        // discovery selects through Discover rather than IncludeSections, so neither the
+        // projection test nor the explicit-selection test reached it.
+        foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
+        {
+            string[] args = ["library", "System.Text.Json", "-D", "Dependencies", .. extra, "--tips", "q"];
+            var (exit, _, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("not row-shaped", error, StringComparison.Ordinal);
+            Assert.Contains("Dependencies", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverRowShapedSection_StaysQuiet()
+    {
+        // Positive control for the note above: a section that does have rows must not draw it,
+        // and neither must bare -D, which names no section at all. Without these the note could
+        // fire unconditionally and the test above would still pass.
+        var (rowExit, rowOutput, rowError) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "References", "--tips", "q");
+
+        Assert.Equal(0, rowExit);
+        Assert.NotEmpty(rowOutput);
+        Assert.DoesNotContain("not row-shaped", rowError, StringComparison.Ordinal);
+
+        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "--tips", "q");
+
+        Assert.Equal(0, bareExit);
+        Assert.NotEmpty(bareOutput);
+        Assert.DoesNotContain("not row-shaped", bareError, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectDependenciesAndReferences_RendersBoth()
     {
         // The flat list and the tree are independent lenses. References used to blank itself
