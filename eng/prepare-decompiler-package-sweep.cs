@@ -25,7 +25,25 @@ string[] positional = args
 const string UsageText =
     "Usage: dotnet run eng/prepare-decompiler-package-sweep.cs -- "
     + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]"
-    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>...";
+    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>..."
+    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules";
+
+// The names of the shape rules above, one per line, so that the suite holding them can
+// ask which rules exist instead of keeping its own list of them. Round fourteen added a
+// rule to PinRules with no tampered pin file behind it and the suite stayed green: a
+// check no input ever reached, gated by nothing. Coverage is now a set equality against
+// what this prints, so both directions fail -- a rule with no case, and a case naming a
+// rule that is gone. It reads nothing and acquires nothing.
+if (args is ["--list-pin-rules"])
+{
+    // Prefixed, like the verdicts are, because `dotnet run` puts build diagnostics on
+    // stdout: a bare word per line would let a new compiler warning read as a rule.
+    foreach (var (name, _) in PinRules())
+        Console.Out.WriteLine($"Pin rule '{name}'.");
+
+    Environment.ExitCode = 0;
+    return;
+}
 
 // Rounds nine, ten and eleven each found the same thing: a rule EvilPoolPinTests
 // enforced on the pin file that this sweep did not, so a file the suite refused ran
@@ -928,43 +946,72 @@ static byte[]? ReadAtMost(string path, int maxBytes)
     return read > maxBytes ? null : buffer[..read];
 }
 
-static string? Malformed(PackagePinFile pinFile)
-{
+/// <summary>
+/// Every way this sweep refuses a pin file's shape, in the order it applies them, each
+/// under the name it is known by.
+///
+/// <para>A table rather than a run of <c>if</c>s so that the names are <em>derived from</em>
+/// the rules rather than listed beside them. EvilPoolPinTests holds each rule with a
+/// tampered pin file, and round fourteen found that a rule added here with no such file
+/// was gated by nothing at all -- the suite stayed green over a check no input ever
+/// reached. It now asks this sweep which rules exist (<c>--list-pin-rules</c>) and
+/// requires a case per name, so a rule added without one fails and a name whose rule is
+/// gone fails too. A separate array of names would drift from the checks exactly the way
+/// the suite's copy of the rules drifted before <c>--validate-pin</c> replaced it.</para>
+///
+/// <para>Order is load-bearing: a null <c>packages</c> must be refused before anything
+/// enumerates it, and a null entry before anything reads a field off one.</para>
+/// </summary>
+static (string Name, Func<PackagePinFile, string?> Refuse)[] PinRules() =>
+[
     // The sweep writes 1 and reads 1. Ignoring the number meant a file written to a
     // later schema would be read with this schema's meaning -- fields silently absent
     // rather than refused, which is how a pin stops describing the pool without saying
     // so.
-    if (pinFile.SchemaVersion != 1)
-        return $"states schema version {pinFile.SchemaVersion}, which this sweep cannot read";
-    if (pinFile.Packages is null)
-        return "states no packages";
-    if (pinFile.Packages.Any(pin => pin is null))
-        return "contains a null entry";
-    if (pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package)))
-        return "contains an entry without a package name";
-    if (pinFile.Packages.Any(pin => !IsBarePackageId(pin.Package)))
-        return "names a package that is not a bare NuGet id";
-    if (pinFile.Packages.Any(pin => !IsBareVersion(pin.Version)))
-        return "pins a package without a usable version";
+    ("schema", pinFile => pinFile.SchemaVersion != 1
+        ? $"states schema version {pinFile.SchemaVersion}, which this sweep cannot read"
+        : null),
+    ("packages", pinFile => pinFile.Packages is null
+        ? "states no packages"
+        : null),
+    ("null-entry", pinFile => pinFile.Packages?.Any(pin => pin is null) == true
+        ? "contains a null entry"
+        : null),
+    ("blank-name", pinFile => pinFile.Packages?.Any(pin => pin is not null && string.IsNullOrWhiteSpace(pin.Package)) == true
+        ? "contains an entry without a package name"
+        : null),
+    ("bare-id", pinFile => pinFile.Packages?.Any(pin => pin is not null && !IsBarePackageId(pin.Package)) == true
+        ? "names a package that is not a bare NuGet id"
+        : null),
+    ("version", pinFile => pinFile.Packages?.Any(pin => pin is not null && !IsBareVersion(pin.Version)) == true
+        ? "pins a package without a usable version"
+        : null),
+    ("status", pinFile => pinFile.Packages?.Any(pin => pin is not null && pin.Status is not ("pinned" or "no-library")) == true
+        ? "pins a package with a status this sweep does not know"
+        : null),
     // Required, not optional. An entry that may omit the hash is an entry that can
     // opt out of the check by omitting it, which is what a null TFM did before it was
     // made to match null.
-    if (pinFile.Packages.Any(pin => pin.Status is not ("pinned" or "no-library")))
-        return "pins a package with a status this sweep does not know";
-    if (pinFile.Packages.Any(pin => pin.Status == "pinned" && !IsSha256(pin.Sha256)))
-        return "pins a package without the sha256 of its assembly";
+    ("sha", pinFile => pinFile.Packages?.Any(pin => pin is not null && pin.Status == "pinned" && !IsSha256(pin.Sha256)) == true
+        ? "pins a package without the sha256 of its assembly"
+        : null),
     // A no-library entry has no assembly, so a hash on one describes bytes that are not
     // supposed to exist. Nothing downstream reads it, which is the problem: the entry
     // reads as pinning something while contributing nothing, and the contradiction
     // survives every later check. EvilPoolPinTests refuses it; so must the sweep.
-    if (pinFile.Packages.Any(pin => pin.Status == "no-library" && pin.Sha256 is not null))
-        return "pins a package as no-library but states an assembly hash";
-    if (pinFile.Packages.Select(pin => pin.Package)
-            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count)
-        return "pins the same package twice";
+    ("no-library-hash", pinFile => pinFile.Packages?.Any(pin => pin is not null && pin.Status == "no-library" && pin.Sha256 is not null) == true
+        ? "pins a package as no-library but states an assembly hash"
+        : null),
+    ("duplicate", pinFile => pinFile.Packages is { } packages
+            && packages.All(pin => pin is not null)
+            && packages.Select(pin => pin.Package)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != packages.Count
+        ? "pins the same package twice"
+        : null),
+];
 
-    return null;
-}
+static string? Malformed(PackagePinFile pinFile) =>
+    PinRules().Select(rule => rule.Refuse(pinFile)).FirstOrDefault(problem => problem is not null);
 
 // A version reaches the extractor, which validates it as a path component and throws.
 // '../bad' exited 134 that way. NuGet versions are digits, dots, and the pre-release

@@ -40,9 +40,14 @@ public class EvilPoolPinTests
     ///
     /// <para>So the sweep's list is now the only list. Each case below is a pin file this
     /// suite considers malformed; the assertion is that the sweep refuses it. The rules
-    /// are not restated here -- restating them is what drifted. The sweep grows a rule and
-    /// nothing here needs to change; the sweep loses one and the case that covered it goes
-    /// red.</para>
+    /// are not restated here -- restating them is what drifted.</para>
+    ///
+    /// <para>What each case <em>names</em> is a rule, and the sweep is asked which rules
+    /// it has rather than told. Round fourteen added a rule to the sweep with no case
+    /// behind it and this suite stayed green over a check no input reached, which is the
+    /// same shape as the drift above with the direction reversed. Coverage is now a set
+    /// equality against <c>--list-pin-rules</c>, so a rule with no case fails and a case
+    /// naming a rule that is gone fails too.</para>
     ///
     /// <para>The committed file is validated in the same invocation, so a case that
     /// refuses for the wrong reason (a broken harness writing garbage, say) cannot pass by
@@ -92,6 +97,20 @@ public class EvilPoolPinTests
         string scratch = Directory.CreateTempSubdirectory("evil-pin-shapes").FullName;
         try
         {
+            // Asked, not assumed. Every rule the sweep applies to a pin file's shape must
+            // have a case above that trips it, and every case must name a rule the sweep
+            // still has. The names come from the sweep, so this cannot drift into a
+            // second list of rules -- it is a list of which rules are held.
+            var declared = PinRuleNamesFromSweep(root);
+            var covered = cases.Select(entry => entry.Rule).ToHashSet(StringComparer.Ordinal);
+
+            Assert.True(
+                declared.SetEquals(covered),
+                "the cases above and the sweep's own rules do not cover each other, so a "
+                + "rule is held by nothing or a case holds a rule that is gone. Rules with "
+                + $"no case: {string.Join(", ", declared.Except(covered).DefaultIfEmpty("none"))}. "
+                + $"Cases naming no rule: {string.Join(", ", covered.Except(declared).DefaultIfEmpty("none"))}");
+
             var written = new List<(string Case, string Rule, string Path)>();
             foreach (var (name, rule, tamper) in cases)
             {
@@ -275,6 +294,55 @@ public class EvilPoolPinTests
     /// only way to hold a read open indefinitely without a second process, and the BCL
     /// has no way to make one.
     /// </summary>
+    /// <summary>
+    /// The names of the shape rules the sweep applies to a pin file, as the sweep reports
+    /// them.
+    ///
+    /// <para>Asking is the point. A copy of the names here would be a second list of
+    /// rules, which is the thing three rounds of review found drifting; a list derived
+    /// from the sweep can only be wrong by the sweep being wrong.</para>
+    /// </summary>
+    static HashSet<string> PinRuleNamesFromSweep(string root)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
+                ? host
+                : "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("run");
+        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add("--list-pin-rules");
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("could not start the sweep");
+        string output = ReadToExit(process, out string errors);
+
+        Assert.True(
+            process.ExitCode == 0,
+            $"the sweep could not list its pin rules (exit {process.ExitCode}); stdout was:"
+            + $"\n{output}\nstderr was:\n{errors}");
+
+        var names = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("Pin rule '", StringComparison.Ordinal) && line.EndsWith("'.", StringComparison.Ordinal))
+            .Select(line => line["Pin rule '".Length..^2])
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A sweep that listed nothing would make the coverage check below pass over an
+        // empty set, which is the vacuous green this whole test exists to refuse.
+        Assert.True(
+            names.Count > 0,
+            $"the sweep listed no pin rules at all; stdout was:\n{output}\nstderr was:\n{errors}");
+
+        return names;
+    }
+
     static bool TryMakeFifo(string path)
     {
         try
