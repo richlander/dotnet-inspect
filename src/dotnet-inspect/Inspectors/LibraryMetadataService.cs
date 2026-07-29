@@ -587,13 +587,19 @@ internal static class LibraryMetadataService
     /// rooted values — plus reserved device names, names the host would canonicalize to something
     /// else, and an upper length bound. A legitimate assembly simple name contains none of these.
     /// <para>
-    /// Traversal is stopped by the separator and rooting rejections, not by looking for <c>..</c>:
+    /// Traversal is stopped by the separator rejections, not by looking for <c>..</c>:
     /// this name becomes one path component, and a component with no separator cannot leave its
     /// directory whatever dots it contains. Refusing every embedded <c>..</c> refused
     /// <c>Valid..Dependency</c>, a name the C# compiler accepts and emits, and the tree then showed
     /// that node with no company and no children because it was never resolved. Names made only of
     /// dots (<c>.</c>, <c>..</c>) are host-special and stay refused, but by the trailing-dot rule
     /// below, which every all-dot name reaches; there is no separate check for them here.
+    /// </para>
+    /// <para>
+    /// There is deliberately no <c>Path.IsPathRooted</c> check. Rooting requires a separator on
+    /// Unix, and a separator or a drive colon on Windows, so every rooted string is already refused
+    /// by the three rejections above and the call could not return true for any input that reached
+    /// it. Naming it as a gate here would describe a line that enforces nothing.
     /// </para>
     /// </summary>
     internal static bool IsSafeAssemblySimpleName(string? name)
@@ -602,8 +608,7 @@ internal static class LibraryMetadataService
             || name.Length > 256
             || name.Contains('/')
             || name.Contains('\\')
-            || name.Contains(':')
-            || Path.IsPathRooted(name))
+            || name.Contains(':'))
         {
             return false;
         }
@@ -698,16 +703,52 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
+    /// Classifies a resolved assembly by where the file lives, so provenance is a function of the
+    /// file rather than of the route that reached it. Anything under the shared-framework root is
+    /// platform; everything else ships with the inspected assembly.
+    /// </summary>
+    private static string ProvenanceOf(string resolvedPath)
+    {
+        var shared = PlatformResolver.GetSharedDirectory();
+        if (string.IsNullOrEmpty(shared))
+        {
+            return "local";
+        }
+
+        var full = Path.GetFullPath(resolvedPath);
+        var root = Path.GetFullPath(shared);
+        if (!root.EndsWith(Path.DirectorySeparatorChar))
+        {
+            root += Path.DirectorySeparatorChar;
+        }
+
+        return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? "platform" : "local";
+    }
+
+    /// <summary>
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
-    /// <param name="sourceKind">
-    /// What resolving beside <paramref name="sourceDir"/> means for provenance. Recursion replaces
-    /// <paramref name="sourceDir"/> with the resolved parent's directory, so probing "beside the
-    /// parent" is not the same claim at depth 3 as at depth 0. Without carrying the parent's
-    /// provenance down, a platform assembly's own dependency -- found beside it, inside the shared
-    /// framework -- was reported as <c>local</c>, which reads as "shipped next to the assembly you
-    /// inspected". Children of a platform assembly are platform.
-    /// </param>
+    /// <remarks>
+    /// <para>
+    /// Provenance is derived from where a resolved file actually lives, never from who asked for
+    /// it. That is deliberate, and two defects motivate it.
+    /// </para>
+    /// <para>
+    /// Probing "beside <paramref name="sourceDir"/>" is not the same claim at depth 3 as at depth
+    /// 0, because recursion replaces <paramref name="sourceDir"/> with the resolved parent's
+    /// directory. Treating a hit as <c>local</c> therefore reported a platform assembly's own
+    /// dependency -- found beside it, inside the shared framework -- as "shipped next to the
+    /// assembly you inspected". Inheriting the parent's kind instead fixes that for depth >= 1 but
+    /// leaves depth 0 wrong whenever the inspected assembly is itself a platform assembly, since
+    /// the root callers have no parent to inherit from.
+    /// </para>
+    /// <para>
+    /// Inheritance is also order-dependent under <paramref name="deduplicate"/>: <c>visited</c> is
+    /// shared across the walk, so the first route to an assembly wins and the reported kind follows
+    /// alphabetical visit order rather than the file. Deriving from the path makes the answer a
+    /// function of the file alone, so both routes agree.
+    /// </para>
+    /// </remarks>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
         List<AssemblyReference> references,
         string? sourceDir,
@@ -715,8 +756,7 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null,
-        string sourceKind = "local")
+        Dictionary<string, int>? globalSeen = null)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -775,7 +815,7 @@ internal static class LibraryMetadataService
                 if (File.Exists(localPath))
                 {
                     resolvedPath = localPath;
-                    resolvedFrom = sourceKind;
+                    resolvedFrom = ProvenanceOf(localPath);
                 }
             }
 
@@ -809,8 +849,7 @@ internal static class LibraryMetadataService
                             logger,
                             depth + 1,
                             deduplicate,
-                            globalSeen,
-                            resolvedFrom ?? sourceKind);
+                            globalSeen);
                         nodes.AddRange(childNodes);
                     }
                 }

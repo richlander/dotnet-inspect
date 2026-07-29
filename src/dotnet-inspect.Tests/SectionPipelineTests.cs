@@ -1544,14 +1544,40 @@ public class SectionPipelineTests
         var path = typeof(SectionPipelineTests).Assembly.Location;
         using var httpClient = new HttpClient();
         var logger = new DotnetInspector.Output.VerboseLogger(false);
-        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys;
+        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys.ToList();
 
         Assert.NotEmpty(declared);
+
+        // The property is about the intersection, so the request has to be quantified over sets,
+        // not over keys. A gate that only ever asks for one key at a time is vacuous against any
+        // condition keyed on how many sections were requested: widening the consuming condition to
+        // `|| scanners?.Count > 1` changes behavior for real users and leaves a single-key gate
+        // completely green. The maximal non-reading set generalises that -- it is the largest
+        // request that must still not read, so it fails every `Count > k` variant at once, not
+        // just the k the tamper happened to pick.
+        var reading = declared.Where(LibraryMetadataService.ReferenceReadingScannerKeys.Contains).ToList();
+        var notReading = declared.Where(k => !LibraryMetadataService.ReferenceReadingScannerKeys.Contains(k)).ToList();
+
+        Assert.NotEmpty(reading);
+        Assert.NotEmpty(notReading);
+
+        var requests = new List<List<string>>();
+        requests.AddRange(declared.Select(k => new List<string> { k }));
+        for (int i = 0; i < declared.Count; i++)
+        {
+            for (int j = i + 1; j < declared.Count; j++)
+            {
+                requests.Add([declared[i], declared[j]]);
+            }
+        }
+
+        requests.Add(notReading);
+        requests.Add(declared);
 
         var unexpected = new List<string>();
         var missing = new List<string>();
 
-        foreach (var key in declared)
+        foreach (var request in requests)
         {
             var inspection = await LibraryMetadataService.InspectAsync(
                 path,
@@ -1560,30 +1586,30 @@ public class SectionPipelineTests
                 null,
                 null,
                 httpClient,
-                scanners: new HashSet<string>(StringComparer.Ordinal) { key },
+                scanners: new HashSet<string>(request, StringComparer.Ordinal),
                 scannerRegistry: LibrarySections.CreateScannerRegistry());
 
             Assert.NotNull(inspection);
 
             var readReferences = inspection!.AssemblyReferenceInspection.HasFindings();
-            var shouldRead = LibraryMetadataService.ReferenceReadingScannerKeys.Contains(key);
+            var shouldRead = request.Any(LibraryMetadataService.ReferenceReadingScannerKeys.Contains);
 
             if (readReferences && !shouldRead)
-                unexpected.Add(key);
+                unexpected.Add(string.Join("+", request));
             else if (!readReferences && shouldRead)
-                missing.Add(key);
+                missing.Add(string.Join("+", request));
         }
 
         Assert.True(
             unexpected.Count == 0,
-            $"These keys are not declared as reference-reading, but requesting one alone extracted "
-                + $"assembly references anyway: {string.Join(", ", unexpected)}. The condition that "
+            $"These requests contain no key declared as reference-reading, but extracted assembly "
+                + $"references anyway: {string.Join(" | ", unexpected)}. The condition that "
                 + "consults ReferenceReadingScannerKeys has drifted wider than the declaration.");
 
         Assert.True(
             missing.Count == 0,
-            $"These keys are declared as reference-reading but extracted nothing: "
-                + $"{string.Join(", ", missing)}.");
+            $"These requests contain a key declared as reference-reading but extracted nothing: "
+                + $"{string.Join(" | ", missing)}.");
     }
 
     // ===== Presence flag / CanRender discovery tests =====
@@ -2809,6 +2835,19 @@ public class SectionPipelineTests
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
     }
 
+    /// <summary>
+    /// The length cap is a real rule, so it needs a case that reaches it. No theory row exceeded
+    /// 256 characters, so deleting the cap left the whole suite green -- the rule was shipped
+    /// unguarded. The 256-character control keeps the boundary honest in both directions: a cap
+    /// moved to an arbitrarily small value fails the accept side rather than passing silently.
+    /// </summary>
+    [Fact]
+    public void OverlongAssemblyReferenceName_IsRefused()
+    {
+        Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(new string('A', 257)));
+        Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(new string('A', 256)));
+    }
+
     // Close negatives: real assembly names, including ones with dots, digits, dashes, unicode and
     // a device name only as a prefix. Over-rejecting here would silently drop real dependencies.
     [Theory]
@@ -2853,12 +2892,59 @@ public class SectionPipelineTests
     /// A platform assembly's own dependency is platform, not local. Recursion replaces the source
     /// directory with the resolved parent's directory, so the "is it beside the source directory?"
     /// probe answers a different question at depth 3 than at depth 0: inside the shared framework
-    /// it answers yes for every platform assembly. Before provenance was carried down, this
-    /// reported 101 assemblies in /usr/local/share/dotnet as "local" -- which reads as "shipped
-    /// beside the assembly you inspected" -- including System.Private.CoreLib.
+    /// it answers yes for every platform assembly. Before provenance was derived from the resolved
+    /// file's location, this reported 101 assemblies in /usr/local/share/dotnet as "local" -- which
+    /// reads as "shipped beside the assembly you inspected" -- including System.Private.CoreLib.
     /// </summary>
+    /// <remarks>
+    /// The root is a <em>platform</em> assembly on purpose. An earlier version of this test used
+    /// the test assembly, which is local, so depth 0 was legitimately "local" and the whole
+    /// platform-root case -- where every dependency sits beside a platform parent -- was outside
+    /// the fixture. That version passed against code that labelled all 27 of System.Text.Json's
+    /// dependencies "local", so the test name claimed a property the fixture could not observe.
+    /// </remarks>
     [Fact]
     public void PlatformAssemblyDependencies_AreNotReportedAsLocal()
+    {
+        var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(error is null && platformPath is not null, $"Could not resolve a platform assembly: {error}");
+
+        var sharedRoot = PlatformResolver.GetSharedDirectory();
+        Assert.False(string.IsNullOrEmpty(sharedRoot), "No shared framework directory on this machine.");
+
+        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(platformPath!);
+
+        var nodes = LibraryMetadataService.BuildTransitiveReferences(
+            references,
+            Path.GetDirectoryName(platformPath!),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new DotnetInspector.Output.VerboseLogger(false),
+            deduplicate: true);
+
+        var mislabelled = nodes
+            .Where(n => n.ResolvedFrom == "local"
+                && n.Path is not null
+                && Path.GetFullPath(n.Path).StartsWith(Path.GetFullPath(sharedRoot!), StringComparison.OrdinalIgnoreCase))
+            .Select(n => $"{n.Name} (depth {n.Depth}) -> {n.Path}")
+            .ToList();
+
+        Assert.True(
+            mislabelled.Count == 0,
+            "These live under the shared framework but are reported as resolved 'local': "
+                + string.Join("; ", mislabelled));
+
+        // Positive control: the walk actually resolved things. Without this, a walk that resolved
+        // nothing would satisfy the assertion above.
+        Assert.Contains(nodes, n => n.ResolvedFrom == "platform");
+    }
+
+    /// <summary>
+    /// The other direction of the same rule: an assembly that ships beside a local root is local.
+    /// Deriving provenance from the file's location must not relabel an application's own
+    /// dependencies as platform, which would be a worse error than the one being fixed.
+    /// </summary>
+    [Fact]
+    public void LocalAssemblyDependencies_AreNotReportedAsPlatform()
     {
         var path = typeof(SectionPipelineTests).Assembly.Location;
         var sourceDir = Path.GetDirectoryName(path)!;
@@ -2872,21 +2958,65 @@ public class SectionPipelineTests
             deduplicate: true);
 
         var mislabelled = nodes
-            .Where(n => n.ResolvedFrom == "local"
+            .Where(n => n.ResolvedFrom == "platform"
                 && n.Path is not null
-                && !string.Equals(Path.GetDirectoryName(Path.GetFullPath(n.Path)), sourceDir, StringComparison.Ordinal))
-            .Select(n => $"{n.Name} (depth {n.Depth}) -> {n.Path}")
+                && string.Equals(Path.GetDirectoryName(Path.GetFullPath(n.Path)), sourceDir, StringComparison.Ordinal))
+            .Select(n => $"{n.Name} -> {n.Path}")
             .ToList();
 
         Assert.True(
             mislabelled.Count == 0,
-            "These are reported as resolved 'local' but do not live beside the inspected assembly: "
+            "These sit beside the inspected assembly but are reported as 'platform': "
                 + string.Join("; ", mislabelled));
 
-        // Positive control: the walk actually resolved things, and it did label some of them
-        // platform. Without this, a walk that resolved nothing would pass the assertion above.
-        Assert.Contains(nodes, n => n.ResolvedFrom == "platform");
         Assert.Contains(nodes, n => n.ResolvedFrom == "local");
+    }
+
+    /// <summary>
+    /// Provenance is a function of the resolved file, not of the route that reached it. Under
+    /// deduplication the walk shares one visited set, so the first route to an assembly wins and
+    /// the surviving node carries whatever kind that route assigned. While the kind was inherited
+    /// from the parent, that made the reported provenance follow alphabetical visit order.
+    /// </summary>
+    [Fact]
+    public void Provenance_DoesNotDependOnWhichRouteReachedTheAssembly()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        var sourceDir = Path.GetDirectoryName(path)!;
+        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(path);
+
+        // The same graph walked with the references presented in the opposite order. Only visit
+        // order changes, so any assembly whose kind depends on the route will disagree.
+        var forward = LibraryMetadataService.BuildTransitiveReferences(
+            references,
+            sourceDir,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new DotnetInspector.Output.VerboseLogger(false),
+            deduplicate: true);
+
+        var reversed = LibraryMetadataService.BuildTransitiveReferences(
+            Enumerable.Reverse(references).ToList(),
+            sourceDir,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new DotnetInspector.Output.VerboseLogger(false),
+            deduplicate: true);
+
+        var first = forward.Where(n => n.Path is not null)
+            .GroupBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().ResolvedFrom, StringComparer.OrdinalIgnoreCase);
+
+        var disagreements = reversed
+            .Where(n => n.Path is not null
+                && first.TryGetValue(n.Name, out var other)
+                && other != n.ResolvedFrom)
+            .Select(n => $"{n.Name}: {first[n.Name]} vs {n.ResolvedFrom}")
+            .ToList();
+
+        Assert.True(
+            disagreements.Count == 0,
+            "Provenance changed with visit order: " + string.Join("; ", disagreements));
+
+        Assert.NotEmpty(first);
     }
 
     // Artifact canary for the predicate above: exercises the real resolution walk rather than the
