@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Reflection;
 
 namespace DotnetInspector.Tests;
@@ -166,6 +167,69 @@ public class UntrustedArgumentDiagnosticContainmentTests
             orphans.Length == 0,
             "Every stderr line must be indented or written by CommandError. "
                 + $"Orphans: {string.Join(" | ", orphans)} in: {raw}");
+    }
+
+    /// <summary>
+    /// Pins containment for a stderr view that reaches the stream through a
+    /// serializer sink rather than through the writer, carrying text taken from
+    /// inside a package archive.
+    /// </summary>
+    /// <remarks>
+    /// The --info view was cleared by one reviewer as carrying only counts and
+    /// durations. It also carries the readme path, which comes out of the
+    /// .nupkg, so a bidi override in an entry name reached stderr as raw bytes.
+    /// Two sink leaks in one round is why the sink set is now pinned by name
+    /// rather than reasoned about per review.
+    /// </remarks>
+    /// <remarks>
+    /// Only the hazards XML 1.0 can carry are exercised. A nuspec holding
+    /// U+000B or U+001B does not parse, so the readme is never found and the
+    /// non-vacuity assertion below correctly refuses to call that a pass.
+    /// </remarks>
+    [Theory]
+    [InlineData(Bidi)]
+    [InlineData(LineSeparator)]
+    [InlineData(ParagraphSeparator)]
+    public void HostilePackageReadmePath_IsContainedInTheInfoView(string hazard)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "readme-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            string entry = $"READ{hazard}INJECTEDREADME.md";
+            string package = Path.Combine(directory, "Hostile.Readme.1.0.0.nupkg");
+
+            using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
+            {
+                WriteEntry(archive, "Hostile.Readme.nuspec", $"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package><metadata><id>Hostile.Readme</id><version>1.0.0</version>
+                    <description>d</description><authors>a</authors>
+                    <readme>{System.Security.SecurityElement.Escape(entry)}</readme></metadata></package>
+                    """);
+                WriteEntry(archive, entry, "readme!!");
+                WriteEntry(archive, "lib/net8.0/Hostile.Readme.dll", "MZ");
+            }
+
+            var (output, error) = RunCli(["package", package, "--readme", "--info"]);
+            string combined = output + error;
+
+            HostileOutputAssert.MarkersRendered(combined, "info-readme", "INJECTEDREADME");
+            HostileOutputAssert.NoRenderingHazard(combined, "info-readme");
+            HostileOutputAssert.NoLineSplit(combined, "INJECTEDREADME");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, string content)
+    {
+        using var stream = archive.CreateEntry(name).Open();
+        using var writer = new StreamWriter(stream);
+        writer.Write(content);
     }
 
     private static (string Output, string Error) RunCli(string[] args)

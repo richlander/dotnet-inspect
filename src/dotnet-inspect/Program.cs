@@ -131,7 +131,7 @@ var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", String
 
 if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
 {
-    Console.Error.WriteLine($"Error: {staleDirectionError}");
+    CommandError.Write(staleDirectionError!);
     return 1;
 }
 
@@ -200,7 +200,13 @@ if (showInfo)
         Cache = InfoTracker.CacheHits > 0 || InfoTracker.CacheMisses > 0
             ? $"{InfoTracker.CacheHits} {(InfoTracker.CacheHits == 1 ? "hit" : "hits")}, {InfoTracker.CacheMisses} {(InfoTracker.CacheMisses == 1 ? "miss" : "misses")}"
             : null,
-        Readme = InfoTracker.GetDetail("readme")
+        // A readme detail is a path out of the package archive, so it is
+        // untrusted text on a view that goes to stderr through a serializer
+        // sink rather than through the writer. Contained where the row is
+        // built, which is the same place tips contain theirs.
+        Readme = InfoTracker.GetDetail("readme") is string readme
+            ? CSharpIdentifier.ContainRenderedText(readme)
+            : null
     };
 
     CommandError.WriteBlankLine();
