@@ -347,8 +347,10 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
-    /// <paramref name="text"/> with <c>\uXXXX</c> and <c>\UXXXXXXXX</c> escapes
-    /// outside literals replaced by the characters they denote.
+    /// <paramref name="text"/> reduced to the identifiers the compiler binds:
+    /// <c>\uXXXX</c>/<c>\UXXXXXXXX</c> escapes outside literals are replaced by
+    /// the characters they denote, and the <c>@</c> of a verbatim identifier is
+    /// dropped.
     /// </summary>
     /// <remarks>
     /// C# lets an identifier be spelled with Unicode escapes, and the compiler
@@ -364,9 +366,20 @@ public class CommandErrorOwnershipTests
     /// identifier escapes so a name is the name it binds to. Each replaces a
     /// guess about the source's surface with the structure underneath it.
     ///
+    /// The same pass drops the <c>@</c> from a verbatim identifier, for the same
+    /// reason and after the same kind of report: <c>Console.@Error.WriteLine</c>
+    /// binds to the property and reaches the stream while matching nothing here.
+    /// Round 20 had already fixed this for the *alias* position
+    /// (<c>using @C = System.Console;</c>) by widening one regex, which left the
+    /// receiver and member positions open -- enumerating the places an <c>@</c>
+    /// can appear is the same mistake as enumerating spellings. Normalizing it
+    /// away once covers every position at once.
+    ///
     /// Literals are copied through untouched. An escape inside a string is part
     /// of that string's value, not of an identifier, and <see cref="Console"/>
-    /// spelled inside a literal is not a call.
+    /// spelled inside a literal is not a call. An <c>@</c> immediately before a
+    /// quote opens a verbatim string rather than naming an identifier, so it is
+    /// not dropped.
     ///
     /// Newlines are preserved, so reported line numbers stay those of the
     /// original file. Offsets within a line are not preserved, and nothing here
@@ -376,7 +389,7 @@ public class CommandErrorOwnershipTests
 
     private static string DecodeIdentifierEscapes(string text)
     {
-        if (!text.Contains('\\'))
+        if (!text.Contains('\\') && !text.Contains('@'))
         {
             return text;
         }
@@ -393,6 +406,18 @@ public class CommandErrorOwnershipTests
                 int end = SkipLiteral(text, i);
                 result.Append(text, i, end - i);
                 i = end;
+                continue;
+            }
+
+            // A verbatim identifier binds to the same member as the plain one:
+            // `Console.@Error.WriteLine(untrusted)` reaches the stream while
+            // matching no pattern here. The `@` before a quote is a verbatim
+            // *string* and is left alone, so the literal scan above still sees
+            // it.
+            if (c == '@' && i + 1 < text.Length
+                && (char.IsLetter(text[i + 1]) || text[i + 1] == '_'))
+            {
+                i++;
                 continue;
             }
 
@@ -727,6 +752,21 @@ public class CommandErrorOwnershipTests
 
         // An escape inside a literal is that literal's value, not an identifier.
         Assert.DoesNotMatch(StderrWrite, Normalize("_ = \"System.\\u0043onsole.Error.WriteLine(\";"));
+
+        // A verbatim identifier binds to the same member, in every position.
+        Assert.Matches(StderrWrite, Normalize("System.Console.@Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Normalize("System.@Console.@Error.@WriteLine(x);"));
+        Assert.Matches(StderrSink, Normalize("var sink = Console.@Error;"));
+        Assert.Matches(ConsoleImport, Normalize("using static System.@Console;"));
+
+        // The `@` of a verbatim string is not an identifier prefix. It must
+        // survive, because dropping it would turn the verbatim literal that
+        // follows into a regular one and desynchronize the literal scan --
+        // `@"a""b"` is one string, `"a""b"` is two. (The contents of a literal
+        // are deliberately left intact, so quoting `Console.Error.WriteLine(`
+        // in a string is a false report by design; see BlankComments.)
+        Assert.Contains("@\"", Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"), StringComparison.Ordinal);
+        Assert.Matches(StderrWrite, Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"));
 
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
