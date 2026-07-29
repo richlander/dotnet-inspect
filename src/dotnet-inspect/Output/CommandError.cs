@@ -80,22 +80,30 @@ namespace DotnetInspector.Output;
 /// stderr, and cannot reach this writer. They are out of scope by construction,
 /// tracked as issue #3444.
 ///
-/// And the ownership scan reads source text, so it sees the names a program
-/// spells, not the members it reaches. Comments, identifier escapes, and
-/// verbatim <c>@</c> are normalized away because those are still spellings of
-/// the name; reflection is not.
+/// And the ownership scan reads the program's tokens, so it sees the names a
+/// program spells, not the descriptor it ends up writing to. Identifier escapes
+/// and verbatim <c>@</c> are seen through because those are still spellings of
+/// the name. Two routes are not spellings of it at all:
 /// <c>((TextWriter)typeof(Console).GetProperty("Error")!.GetValue(null)!).WriteLine(untrusted)</c>
-/// names neither, and no amount of pattern work will make a text scan see it --
-/// which is the same argument this class makes about severity prefixes, applied
-/// to itself.
+/// reaches the stream by reflection, and
+/// <c>new StreamWriter(File.OpenWrite("/proc/self/fd/2"))</c> reaches the same
+/// file descriptor without going through <see cref="Console"/> at all -- as
+/// would <c>/dev/stderr</c>, a <c>SafeFileHandle</c> for descriptor 2, or a
+/// child process inheriting the handle. No amount of pattern work makes a text
+/// scan see any of them, and enumerating them is the mistake this class exists
+/// to stop making: the boundary is "any route to descriptor 2 that does not
+/// name Console", not a list.
 ///
 /// What covers it is the other kind of gate. The out-of-process tests in
 /// <c>UntrustedArgumentDiagnosticContainmentTests</c> read the bytes actually
 /// on the stream, so they do not care how a write was spelled: introducing that
 /// exact reflective write inside <see cref="Write(string, string[])"/> leaves
 /// all five ownership tests green and fails those tests across every channel and
-/// hazard. The residual is therefore narrower than "reflection defeats this" --
-/// it is a reflective write on a path no hostile test exercises -- and it is a
+/// hazard, and so does the file-descriptor write above -- measured, not assumed:
+/// with it in the startup path the ownership tests report 5 passed and
+/// <c>UntrustedArgumentDiagnosticContainmentTests</c> reports 4 failed. The
+/// residual is therefore narrower than "the static rule is Console-centric" --
+/// it is an unspellable write on a path no hostile test exercises -- and it is a
 /// reach limitation of the behavioral suite rather than a hole in the rule.
 /// Note also that neither gate defends against an author who intends the leak,
 /// since the same commit can delete the test; both exist to catch the
