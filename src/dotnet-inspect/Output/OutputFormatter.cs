@@ -282,7 +282,7 @@ public static class OutputFormatter
         if (options.Format == OutputFormat.PlainText)
         {
             MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
-            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections) is { } plainMetadata)
+            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
                 Console.WriteLine(plainMetadata);
         }
         else if (options.VerbosityEnabled)
@@ -320,7 +320,7 @@ public static class OutputFormatter
     {
         var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
 
-        if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections) is { } metadata)
+        if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
         {
             var body = markdown.TrimEnd();
             markdown = body.Length == 0 ? metadata : body + Environment.NewLine + Environment.NewLine + metadata;
@@ -351,7 +351,8 @@ public static class OutputFormatter
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
-                    inspection, writerOpts.IncludeSections, format, writer, Console.Error),
+                    inspection, writerOpts.IncludeSections, format, writer, Console.Error,
+                    writerOpts.Projection?.IncludeColumns),
                 options.Rows);
             return;
         }

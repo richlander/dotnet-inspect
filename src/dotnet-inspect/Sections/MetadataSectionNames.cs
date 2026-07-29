@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
+using Markout;
 
 namespace DotnetInspector.Sections;
 
@@ -81,5 +82,45 @@ public static class MetadataSectionNames
             .ToHashSet();
 
         return [.. MetadataTableProjector.ProjectedTables.Where(selected.Contains)];
+    }
+
+    /// <summary>
+    /// The column names <paramref name="section"/> renders, or an empty array when the section is
+    /// not a metadata table section. Read from
+    /// <see cref="MetadataTableProjector.ColumnsFor(TableIndex)"/> so the schema a caller
+    /// discovers and projects against is the one the renderer actually emits.
+    /// </summary>
+    public static ImmutableArray<string> ColumnsFor(string section)
+        => TryGetTable(section, out var table)
+            ? [RowIdColumn, .. MetadataTableProjector.ColumnsFor(table).Select(static c => c.Name)]
+            : [];
+
+    /// <summary>
+    /// The name of the leading row-id column every table section carries. It is not an ECMA-335
+    /// column — it is the row's own index — so the projector does not declare it, but it is a real
+    /// rendered column and must appear in the schema like any other.
+    /// </summary>
+    public const string RowIdColumn = "Rid";
+
+    /// <summary>
+    /// Registers this lens's sections and their columns into <paramref name="schema"/>.
+    ///
+    /// Metadata sections are not attributed view properties, so they are absent from the Markout
+    /// schema; without this, <c>-D "Metadata: TypeRef"</c> lists nothing and <c>--columns</c>
+    /// rejects every name. Registering here keeps one source of column names for discovery,
+    /// projection validation, and rendering.
+    /// </summary>
+    public static DocumentSchema AugmentSchema(DocumentSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        schema.Add(Image, "column", "Property", "Value");
+        foreach (var table in MetadataTableProjector.ProjectedTables)
+        {
+            var name = ForTable(table);
+            schema.Add(name, "column", [.. ColumnsFor(name)]);
+        }
+
+        return schema;
     }
 }

@@ -64,7 +64,8 @@ internal static class MetadataLensRenderer
     /// </summary>
     internal static string? RenderMarkdown(
         LibraryInspection inspection,
-        IReadOnlyCollection<string>? sections)
+        IReadOnlyCollection<string>? sections,
+        IReadOnlyCollection<string>? columns = null)
     {
         ArgumentNullException.ThrowIfNull(inspection);
 
@@ -81,12 +82,12 @@ internal static class MetadataLensRenderer
         {
             output.WriteLine($"## {MetadataSectionNames.Image}");
             output.WriteLine();
-            MetadataProjectionRenderer.RenderImageFacts(overview, output);
+            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns);
             WriteCaveats(output, MetadataProjectionRenderer.Caveats(overview));
             first = false;
         }
 
-        foreach (var table in ProjectSelected(inspection, selected, caveats))
+        foreach (var table in ProjectSelected(inspection, selected, caveats, columns))
         {
             if (!first)
                 output.WriteLine();
@@ -134,7 +135,8 @@ internal static class MetadataLensRenderer
         IReadOnlyCollection<string>? sections,
         MetadataTableFormat format,
         TextWriter output,
-        TextWriter caveats)
+        TextWriter caveats,
+        IReadOnlyCollection<string>? columns = null)
     {
         ArgumentNullException.ThrowIfNull(inspection);
         ArgumentNullException.ThrowIfNull(output);
@@ -148,12 +150,15 @@ internal static class MetadataLensRenderer
         if (selected.Contains(MetadataSectionNames.Image, StringComparer.OrdinalIgnoreCase)
             && inspection.MetadataOverview is { } overview)
         {
-            MetadataProjectionRenderer.Render(overview, output, format);
+            // The same fact rows the Markdown path renders, deliberately not the standalone
+            // report's three-part shape: one section must mean one set of rows in every format, or
+            // --count and --rows would report different sizes for the same selection.
+            MetadataProjectionRenderer.RenderImageFacts(overview, output, columns, format);
             foreach (string caveat in MetadataProjectionRenderer.Caveats(overview))
                 caveats.WriteLine(caveat);
         }
 
-        var views = ProjectSelected(inspection, selected, caveats);
+        var views = ProjectSelected(inspection, selected, caveats, columns);
         if (views.Length > 0)
         {
             var projection = new MetadataTableProjection([.. views.Select(static v => v.View)]);
@@ -175,7 +180,8 @@ internal static class MetadataLensRenderer
     static ImmutableArray<(TableIndex Index, MetadataTableView View)> ProjectSelected(
         LibraryInspection inspection,
         IReadOnlyCollection<string> sections,
-        TextWriter caveats)
+        TextWriter caveats,
+        IReadOnlyCollection<string>? columns)
     {
         var tables = MetadataSectionNames.TablesFor(sections);
         if (tables.IsEmpty)
@@ -211,8 +217,59 @@ internal static class MetadataLensRenderer
 
         var builder = ImmutableArray.CreateBuilder<(TableIndex, MetadataTableView)>(projection.Tables.Length);
         foreach (var view in projection.Tables)
-            builder.Add((view.Index, view));
+            builder.Add((view.Index, Narrow(view, columns)));
 
         return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// Restricts <paramref name="table"/> to the columns <paramref name="columns"/> names,
+    /// preserving projector order rather than the order they were requested in, so the same table
+    /// always reads the same way.
+    ///
+    /// Narrowing happens here, in the CLI, rather than in the shared projection renderer: which
+    /// columns a user asked to see is a presentation concern the command owns, and
+    /// <see cref="MetadataProjectionRenderer"/> is also the standalone inspector's renderer.
+    ///
+    /// The row-id column is structural, not an ECMA-335 column — it is how a row is addressed —
+    /// so it is never narrowed away. Requesting it alone is legitimate ("which rids exist"), which
+    /// is why it is matched but not counted as a column match.
+    ///
+    /// An unmatched name is not silently ignored: <c>ProjectionDiagnostics.ValidateProjection</c>
+    /// has already rejected a name absent from the schema, and the schema is derived from the same
+    /// <see cref="MetadataTableProjector.ColumnsFor(TableIndex)"/> list this filters on.
+    /// </summary>
+    static MetadataTableView Narrow(MetadataTableView table, IReadOnlyCollection<string>? columns)
+    {
+        if (columns is null || columns.Count == 0)
+            return table;
+
+        var wanted = new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase);
+        var keep = new List<int>(table.Columns.Length);
+        for (int i = 0; i < table.Columns.Length; i++)
+            if (wanted.Contains(table.Columns[i].Name))
+                keep.Add(i);
+
+        if (keep.Count == table.Columns.Length)
+            return table;
+
+        // keep.Count == 0 means no column of *this* table was named. With several tables selected
+        // that is expected — the name belongs to a sibling — so the table narrows to its row ids
+        // rather than disappearing, which would misreport a populated table as absent.
+        var narrowedColumns = keep.Select(i => table.Columns[i]).ToImmutableArray();
+        var narrowedRows = table.Rows
+            .Select(row => new MetadataRow(
+                row.RowId,
+                row.Token,
+                keep.Select(i => row.Cells[i]).ToImmutableArray()))
+            .ToImmutableArray();
+
+        return new MetadataTableView(
+            table.Index,
+            table.Name,
+            table.RowCount,
+            narrowedColumns,
+            narrowedRows,
+            table.Truncation);
     }
 }

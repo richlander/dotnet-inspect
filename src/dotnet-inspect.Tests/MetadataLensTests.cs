@@ -288,6 +288,86 @@ public partial class CommandExecutionTests
         }
     }
 
+    /// <summary>
+    /// The Vector rung of the shape ladder: <c>--columns</c> narrows a table section to the named
+    /// ECMA-335 columns, and the schema that <c>-D</c> reports is the same list, so the remedy the
+    /// projection error suggests is not a dead end.
+    ///
+    /// Gate for the derivation in <see cref="MetadataSectionNames.ColumnsFor"/>: it reads
+    /// <c>MetadataTableProjector.ColumnsFor</c>, the same declaration the projection renders from,
+    /// so a schema that advertises a column the renderer does not emit is not expressible.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Columns_NarrowsTableAndMatchesDiscovery()
+    {
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeRef", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        var columns = DiscoveryNames(discoverOutput);
+        Assert.Equal(
+            new[] { MetadataSectionNames.RowIdColumn, "ResolutionScope", "Name", "Namespace" },
+            columns);
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef",
+            "--columns", "Name", "--rows", "2", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        var rows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.TrimEnd('\r').Split('\t'))
+            .ToArray();
+
+        // table + rid + Name, and nothing else: ResolutionScope and Namespace are gone.
+        Assert.All(rows, cells => Assert.Equal(3, cells.Length));
+        Assert.Equal(new[] { "table", "rid", "name" }, rows[0]);
+        Assert.Equal(2, rows.Length - 1);
+    }
+
+    /// <summary>
+    /// A column name absent from the schema is rejected rather than silently ignored, and the
+    /// remedy the error names resolves to a real column list.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_UnknownColumn_IsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--columns", "Bogus", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("No columns matched projection: Bogus", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// One section means one set of rows in every format. <c>Metadata: Image</c> renders the same
+    /// facts in Markdown and in the machine formats, deliberately not the standalone report's
+    /// three-part shape — otherwise <c>--count</c> and <c>--rows</c> would report different sizes
+    /// for the same selection depending on the output flag.
+    ///
+    /// This is the gate for that choice: it fails if the tabular path is routed back through
+    /// <c>MetadataProjectionRenderer.Render</c>, which folds in per-table row counts.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_ImageSection_HasSameRowsInEveryFormat()
+    {
+        var (markdownExit, markdownOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tips", "q");
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, tsvExit);
+
+        // Markdown table lines less the header and separator rows.
+        int markdownRows = markdownOutput
+            .Split('\n')
+            .Count(l => l.TrimStart().StartsWith("| ", StringComparison.Ordinal)) - 2;
+        int tsvRows = tsvOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length - 1;
+
+        Assert.True(markdownRows > 0, "the image section must render facts");
+        Assert.Equal(markdownRows, tsvRows);
+    }
+
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
     private static string[] DiscoveryNames(string output) => output
         .Split('\n', StringSplitOptions.RemoveEmptyEntries)

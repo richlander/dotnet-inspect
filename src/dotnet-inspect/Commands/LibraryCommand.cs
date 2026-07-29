@@ -31,7 +31,8 @@ public class LibraryCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -1372,7 +1373,8 @@ public class LibraryCommand
         // including opt-in sections whose renderability depends on the section's
         // own work (for example SourceLink audit sections).
         var allEffective = pipeline.GetDiscoverableSections(inspection);
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());

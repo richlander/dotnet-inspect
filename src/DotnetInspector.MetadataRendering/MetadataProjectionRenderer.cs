@@ -370,8 +370,16 @@ public static class MetadataProjectionRenderer
     /// emits three headings for a standalone report. The per-table row counts that report also
     /// carries are omitted here rather than flattened in: they are rows of the table sections this
     /// lens already registers, reachable as <c>-S @Metadata --count</c>.
+    ///
+    /// <paramref name="columns"/> narrows the rendered table to the named columns of
+    /// <c>Property</c>/<c>Value</c>; null or empty renders both. The facts themselves are rows, so
+    /// selecting *which facts* is <c>--rows</c>'s job, not this parameter's.
     /// </summary>
-    public static void RenderImageFacts(MetadataImageOverview overview, TextWriter output)
+    public static void RenderImageFacts(
+        MetadataImageOverview overview,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(output);
@@ -386,8 +394,33 @@ public static class MetadataProjectionRenderer
             ]);
         }
 
-        var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
-        writer.WriteTable(["Property", "Value"], ["property", "value"], rows);
+        string[] headers = ["Property", "Value"];
+        string[] headerNames = ["property", "value"];
+        if (columns is { Count: > 0 })
+        {
+            var wanted = new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase);
+            var keep = Enumerable.Range(0, headers.Length).Where(i => wanted.Contains(headers[i])).ToArray();
+
+            // An empty selection means neither column was named — the request was aimed at a
+            // sibling section — so the full table stands rather than rendering as blank rows.
+            if (keep.Length > 0)
+            {
+                headers = [.. keep.Select(i => headers[i])];
+                headerNames = [.. keep.Select(i => headerNames[i])];
+                rows = [.. rows.Select(row => keep.Select(i => row[i]).ToArray())];
+            }
+        }
+
+        var writer = format == MetadataTableFormat.Markdown
+            ? new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions())
+            : new MarkoutWriter(
+                output,
+                new TableFormatter(showHeader: true),
+                new MarkoutWriterOptions
+                {
+                    TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+                });
+        writer.WriteTable(headers, headerNames, rows);
         writer.Flush();
     }
 
