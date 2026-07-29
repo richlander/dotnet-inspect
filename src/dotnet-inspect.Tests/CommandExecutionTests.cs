@@ -9723,6 +9723,11 @@ public partial class CommandExecutionTests
     // prerequisite; it is kept because it renders far more sections.
     [InlineData("System.Text.Json")]
     [InlineData("System.Runtime.InteropServices")]
+    // System.Data.Common is the only offline assembly found that renders
+    // "Integration: Opportunities" (two DbDataSource rows), so it is what gives that section any
+    // alone-vs-together coverage at all. It cannot catch a missing Integrations prerequisite —
+    // see IntegrationOpportunities_DeclaresIntegrationsPrerequisite for why.
+    [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
         // The gate for removing the scanner fan-out. Every scanner-bound section must render the
@@ -9747,12 +9752,30 @@ public partial class CommandExecutionTests
             LibrarySections.ScannerResourceTriage,
         ];
 
+        // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
+        // exits non-zero with 'requires --heap <heap>:<address>', the same way
+        // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
+        // scanner-bound, so ScannerBoundSections lists it, but supplying a coordinate is
+        // orthogonal to prerequisite sufficiency. The per-heap listing sections
+        // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
+        string[] coordinateScoped = [MetadataSectionNames.Heap];
+
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
+
+        var bound = pipeline.ScannerBoundSections
+            .Select(b => b.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Excluding a name that no longer exists would silently shrink to a no-op, so the
+        // exclusion must still name a real scanner-bound section.
+        foreach (var name in coordinateScoped)
+            Assert.Contains(name, bound);
 
         var names = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name)
+            .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();

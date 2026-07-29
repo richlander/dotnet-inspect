@@ -1476,12 +1476,19 @@ public class SectionPipelineTests
     {
         // This pins the declaration, not the behavior, and that is a deliberate weakening.
         // LibrarySections_RenderIdenticallyAloneAndTogether covers every other prerequisite
-        // behaviorally, but it cannot cover this one: "Integration: Opportunities" renders for no
-        // assembly available offline, and the failure mode is extra rows rather than missing ones
-        // (without Integrations, the existing-integration set is empty, so already-integrated
-        // categories stop being suppressed). Closing that gap properly needs a fixture assembly
-        // carrying both an existing integration and a gap in the same category. Until then this
-        // catches the realistic failure — someone deleting the declaration — and nothing more.
+        // behaviorally, but it cannot cover this one.
+        //
+        // Not because the section never renders offline — it does; System.Data.Common yields two
+        // rows (DbDataSource under Aspire and Health Checks). It is because the failure mode is
+        // EXTRA rows rather than missing ones: without Integrations the existing-integration set
+        // is empty, so already-integrated categories stop being suppressed. Distinguishing the
+        // two therefore needs an assembly that both renders opportunities AND carries an existing
+        // integration in one of those same categories, so that dropping the prerequisite makes a
+        // suppressed row reappear. No assembly available offline does both.
+        //
+        // Closing the gap properly needs a purpose-built fixture with that combination. Until
+        // then this catches the realistic failure — someone deleting the declaration — and
+        // nothing more.
         var registry = LibrarySections.CreateScannerRegistry();
 
         Assert.Contains(
