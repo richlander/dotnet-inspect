@@ -143,13 +143,13 @@ scope.
 
 ## Signals
 
-`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink Availability`, `SourceLink Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink Integrity`) is opt-in only.
+`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink: Availability`, `SourceLink: Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink: Integrity`) is opt-in only.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
-| `library X -S "Signals,SourceLink Availability,SourceLink Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
-| `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
+| `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
+| `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
 Vulnerability-service traffic is capability-gated. It runs only for detailed
@@ -161,20 +161,22 @@ sources. RID companion-package verification follows the configured source list.
 
 ## Integrations
 
-`Integrations` is a library section for ecosystem support such as AI, ASP.NET
-Core, Aspire, Authentication, Configuration, Dependency Injection, Logging, Options, Hosting,
-Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. It is a usability index, not a raw evidence report: focused
-integration sections list package-owned actionable types and starter APIs rather
-than assembly references.
+`@Integrations` is a library section category for ecosystem support such as AI,
+ASP.NET Core, Aspire, Authentication, Configuration, Dependency Injection,
+Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and
+OpenTelemetry. It is a usability index, not a raw evidence report: focused
+integration sections (named with an `Integration:` prefix, such as `Integration:
+Logging`) list package-owned actionable types and starter APIs rather than
+assembly references.
 
 Use `package Foo --library` to inspect one package DLL, or `package Foo
 --all-libraries` when the package contains multiple relevant libraries. In
 all-library mode, singular sections such as `Library Info` are rendered per
-library while aggregate sections such as `@Integrations` roll up rows across
-libraries and include library provenance when needed. Row formats (`--table`,
-`--tsv`, `--jsonl`) require one concrete section, such as `Library Info`,
-`Integrations`, `Switches`, or a focused integration section; use Markdown for
-category selectors such as `@Integrations`.
+library while aggregate sections roll up rows across libraries and include
+library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
+require one concrete section, such as `Library Info`, `Switches`, or a focused
+`Integration:` section; use Markdown for category selectors such as
+`@Integrations`. Add `--count` to a category selector for per-section row counts.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -192,9 +194,9 @@ hardening first. Select `Top Leverage` to rank members by direct callers,
 `Root Reach` (distinct entry points that transitively reach a member), fanout,
 depth, and loop calls. At `library` scope the performance findings are surfaced
 as a curated group of kind-scoped sections — `Performance: Boxing`,
-`Performance: Arrays`, `Performance: Closures and delegates`,
-`Performance: Enumerators`, `Performance: Loop hot paths`,
-`Performance: Allocation hotspots`, and `Performance: Async` — that you can
+`Performance: Arrays`, `Performance: Closures and Delegates`,
+`Performance: Enumerators`, `Performance: Loop Hot Paths`,
+`Performance: Allocation Hotspots`, and `Performance: Async` — that you can
 request individually (`-S "Performance: Boxing"`) or as a group (`-S
 @Performance`, also reachable via the legacy name `-S Performance`). The
 kind sections are catalog-hidden: they do not appear in the top-level
@@ -373,8 +375,8 @@ dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
-dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
+dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions

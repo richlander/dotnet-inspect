@@ -67,6 +67,19 @@ public interface ISectionDescriptor<TModel>
     static virtual SectionCapabilities Capabilities => SectionCapabilities.None;
 
     /// <summary>
+    /// Declared size hint (curated-catalog pipelines). Chosen by the author from the section's
+    /// expected and stress-tested row count; drives the size dimension of the verbosity ladder.
+    /// Legacy (non-curated) pipelines ignore this and keep positional tiering.
+    /// </summary>
+    static virtual SectionSizeClass SizeClass => SectionSizeClass.Terse;
+
+    /// <summary>
+    /// Declared latency/output budget (curated-catalog pipelines). Drives which verbosity views may
+    /// auto-run the section. Legacy pipelines ignore this and use <see cref="IsExpensive"/>.
+    /// </summary>
+    static virtual SectionCost Cost => SectionCost.NetworkFree;
+
+    /// <summary>
     /// Scanner key identifying the data collection step this section requires.
     /// Null means the section's data is always collected (core metadata).
     /// Multiple sections may share a scanner key (e.g., Unsafe and P/Invoke

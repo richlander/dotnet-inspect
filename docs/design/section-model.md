@@ -11,108 +11,253 @@ There are three major aspects in play:
 ## Section taxonomy
 
 Sections grew organically into a tangle of overlapping flags — `Info`,
-`ExplicitOnly`, `ListedInCatalog`, an inferred "verbose" annotation, plus
-`IsExpensive`, `ProbeEffectiveness`, and `Capabilities`. One boolean
-(`ExplicitOnly`) was made to stand for three unrelated reasons a section stays
-out of the default view (expensive, feeder, niche), and catalog visibility was
-computed inconsistently across mechanisms. This section defines the principled
-model that replaces that tangle.
+`Noisy`, `ExplicitOnly`, `ListedInCatalog`, an inferred "verbose"/"opt-in"
+annotation, plus `IsExpensive`, `ProbeEffectiveness`, and `Capabilities`. One
+boolean (`ExplicitOnly`) was made to stand for three unrelated reasons a section
+stays out of the default view (expensive, feeder, niche), and catalog
+visibility was computed inconsistently across mechanisms. This section defines
+the principled model that replaces that tangle.
 
-### One primitive: the category
+The model is opt-in per pipeline via `SectionPipeline.UseCuratedCatalog()`.
+The **library** pipeline (`LibrarySections`) adopts it; the package, type, and
+member pipelines still run the legacy positional path and are unaffected by the
+declarations below. Rollout to the remaining commands is a follow-up.
 
-**Every section is rooted by at least one category.** There are no homeless
-sections. Categories are the universal organizing and discovery unit.
+### Two declared per-section axes
 
-Two categories are poles rather than ordinary groupings, because they serve a
-different function than a curated `@Performance`-style door:
+A curated section declares only two things. Everything else (`-D` contents,
+catalog visibility, the old "verbose"/"opt-in" annotations, and the legacy
+`Info`/`Noisy`/`ExplicitOnly`/`ListedInCatalog` reasons) is computed from them
+plus the section's category membership.
 
-- **`@All`** — the visible pole. Its members are every section worth showing on
-  its own. `@All` owns the top-level discovery catalog: **`-D` lists exactly
-  `@All`'s members plus the names of every other *listed* category.**
-- **`@Hidden`** — the invisible pole, and the **computed complement** of `@All`.
-  A section falls into `@Hidden` exactly when no *listed* category surfaces it.
-  You never author `@Hidden` membership; it falls out. `@Hidden`'s own name is
-  not listed in `-D`; its members are reached only via `--schema`, discovery
-  (`-D @Hidden`), or an exact-name request (`-S "SourceLink Integrity"`).
-  `@Hidden` is **discovery-only**: it is not a render selector, so `-S @Hidden`
-  is rejected. This guarantees its footgun-expensive members (SourceLink
-  Integrity) can never be executed as a group — only by exact name or `-v:d`.
+1. **Size class** (`SectionSizeClass`) — the author's stable **growth** class,
+   describing how the section's row count behaves across the entire universe of
+   packages (not the count for any one target), picked from expected and
+   stress-tested output rather than measured at runtime:
+   - `Fixed` — structurally constant across every package (a fact/signal/summary
+     table whose row set does not vary with package content).
+   - `Terse` — grows with the package but stays small (≈ ≤ 12 rows).
+   - `Informative` — grows with the package, medium (≈ ≤ 24 rows).
+   - `Verbose` — grows without a meaningful bound (may greatly exceed 24 rows).
+2. **Cost** (`SectionCost`) — the latency/output budget:
+   - `NetworkFree` — cheap, bounded, offline.
+   - `Moderated` — bounded work that may touch the network or warm a PDB but
+     stays within the default sub-second budget.
+   - `Unbounded` — network fan-out, source-content download, or a
+     whole-assembly scan that can emit thousands of rows.
 
-`--schema` is the union: `@All ∪ @Hidden` = the full section graph.
+Two orthogonal facts round out a section's placement:
 
-### Two per-section declarations
+- **Target flag** (`Info`) — the command's identity section (library: `Library
+  Info`). It is the only thing `-v:m` renders; it is described by fields, not a
+  size class.
+- **Topical category membership** — which visible doors (`@Surface`,
+  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`) surface
+  the section. `@All`/`@Hidden` remain internal computed poles (below); they are
+  not user-facing doors.
 
-A section declares only two things. Everything else (`-D` contents, catalog
-visibility, the old "verbose"/"opt-in" annotations) is computed.
+A category earns its keep only at two or more members: a door with a single
+room behind it is pure indirection, since the flat catalog already lists that
+section and a shared name prefix (`Performance:`, `Integration:`) already groups
+the family under alphabetical render order. This is why the array-pool escape
+section is a flat `Array Pool Escapes` rather than a prefixed member of a
+single-member `@Escape` door.
 
-1. **Render tier** — when the section auto-renders without `-S`:
-   - `Default` — the hero document (`-v:m`).
-   - `Terse` — the fuller document (`-v:n`); effective and low-noise.
-   - `Noisy` — cheap and effective but low signal-to-noise (Async Methods,
-     Custom Attributes, Extension Methods). Never auto-renders in the `-v`
-     ladder; shown only by `-S @All` or explicit selection.
-2. **Cost bit** — `Cheap` or `Expensive` (with a `Network` refinement for the
-   inherent-network exception).
+**A prefix and a category door are two halves of one claim.** A `Group: Leaf`
+prefix advertises membership in a family, so every prefixed section must be
+reachable through that family's door, and a prefix is only appropriate when the
+family is *exclusively* owned by one door. `P/Invoke Methods` belongs to both
+`@Audit` and `@Surface`, so no prefix can describe it — cross-cutting lenses
+stay unprefixed, and only exclusive families (`Performance:`, `Integration:`,
+`SourceLink:`) carry a prefix. The `SourceLink` family's half of this is
+enforced by a test that pins the door's membership to the set of
+`SourceLink:`-prefixed sections.
 
-`Effective` is not a declared axis — it is the existing `CanRender` render
-filter: an auto-selected section that would produce zero rows is suppressed.
-Expensive sections are not effectiveness-probed (see the cost gate below).
+**A section lists in `-D` only when >0 rows can be established cheaply.** If
+applicability is a *capability* predicate (the scan could run) rather than a
+*content* predicate (the scan found something), and establishing content costs
+a real scan, the section sets `ListedInCatalog => false`. It stays reachable by
+exact name, through `@All`/`--schema`, and through any category door that roots
+it — a door drops zero-row members from render but still reports them under
+`--count`. `Array Pool Escapes` and the kind-scoped `Performance:` sections both
+follow this rule; listing them unconditionally would advertise sections that
+then render nothing.
 
-### The render ladder
+`Effective` is not a declared axis — it is the existing `CanRender` filter: an
+auto-selected section that would produce zero rows is suppressed. `Unbounded`
+sections are never effectiveness-probed (they never auto-run).
 
-| Selector | Shows |
+### The curated render ladder
+
+Verbosity is a **filter** over the two declared axes plus measured
+effectiveness. It is defined by `IsCuratedAutoRendered`:
+
+| Selector | Filter |
 | --- | --- |
-| `-v:q` / `-v:m` | primary `Default` section(s) |
-| `-v:n` | all `Default` + `Terse` sections (the clean default document) |
-| `-S @All` | adds `Noisy` sections; excludes expensive/unbounded sections. Its `Default` members (Signals, Symbols) may warm the PDB and run a bounded SourceLink-signal audit. |
-| `-v:d` | the cost axis: `Terse` document **plus** executed `Expensive`/`Network` sections |
+| `-v:q` | nothing (the identity line is emitted by the view model) |
+| `-v:m` | the target (`Info`) section only |
+| `-v:n` | size class ≤ `Informative` **and** `NetworkFree` **and** effective |
+| `-v:d` | any size class, cost ≠ `Unbounded` (i.e. `NetworkFree` or `Moderated`) **and** effective |
 
-`@All` owns the **noise** axis (adds noisy, excludes expensive/unbounded work).
-`-v:d` owns the **cost** axis (adds expensive/network work). They are orthogonal knobs.
+The ladder is cumulative: every section shown at `-v:n` is shown at `-v:d`.
+`Unbounded` sections never auto-render at any verbosity; they are reached only
+by exact name (`-S "Unsafe Members"`) or, where appropriate, a topical door.
+
+`CuratedRequiredVerbosity` is the inverse used to auto-promote `-S <name>`: a
+`Verbose` or non-`NetworkFree` section requires `-v:d`; the `Info` target
+requires `-v:m`; every other bounded network-free section first renders at
+`-v:n` (because `-v:m` shows the target only).
+
+### Bare `-S` — the network-free fixed overview
+
+Bare `-S` (the `-S` flag with no value, which parses to the lone `@Default`
+preset) is the ergonomic **network-free fixed overview**. Instead of the `-v:m`
+target-only view, the library command renders only the sections whose declared
+growth class is `Fixed` and whose cost is `NetworkFree` — today the `Library
+Info`, `Signals`, and `Symbols` fact tables. Because membership is a function of
+the section's declared growth class and cost (never a measured row count), the
+rendered set is **identical for every package**: absence of a section always
+means "not applicable", never "too long for this target". This is deliberately
+narrower than the `-v:n` ladder, which additionally admits package-growing
+`Terse`/`Informative` sections whose presence varies by target.
+
+`Signals` and `Symbols` are symbol-dependent but read an embedded, adjacent, or
+already-cached PDB **network-free** (see below), so they belong in a view that
+must never touch the network. Only the default (`-v:m`) bare `-S` maps to the
+fixed overview; a user-supplied `-v` is never downgraded and stays on the normal
+curated ladder — `-S -v:n` renders the bounded set and `-S -v:d` the detailed
+view.
 
 ### Two orthogonal gates
 
-- **Cost is an execution gate, not a membership gate.** An `Expensive` section
-  may still be *rooted* in a listed category (so it is discoverable by drilling
-  `-D @Category`), but **discovery never runs it**: `-D @Category`, `@All`, and
-  `-v:n` list it structurally and never execute it. It runs only via explicit
-  render selection (`-S <name>`, or `-S @Category` when the section is a member)
-  or `-v:d`. Because `-S @Category` is explicit selection, it executes its
-  members like exact names — so no render-selectable category may root an
-  *unbounded* member. SourceLink Integrity is the canonical unbounded case: it
-  is rooted only in `@Hidden`, which is **discovery-only** (`-S @Hidden` is
-  rejected), so it can never be executed as a group.
-- **Category listed/unlisted is the discovery gate.** A listed category's name
-  appears in `-D` as a door. `@Hidden` is unlisted, so its members are
-  `--schema`-only.
+- **Cost is an execution gate, not a membership gate.** An `Unbounded` section
+  is `ExplicitOnly` and never auto-runs in the verbosity ladder — not even
+  `-v:d`. It may still be *rooted* in a topical category (so it is discoverable
+  by drilling `-D @Category`), and **discovery never runs it**: `-D` and
+  `-D @Category` list members structurally and never execute them. It runs only
+  via explicit render selection: an exact name (`-S "Unsafe Members"`) or a
+  topical door that roots it (`-S @Category`), which expands to explicit
+  selection and therefore executes its members like exact names.
+  - **Known footgun (deferred hardening):** because a topical door is a render
+    selector, rooting an `Unbounded` member in it means `-S @Category` fans out
+    to that unbounded work. This is inherited from the pre-curated model:
+    `@SourceLink` roots SourceLink: Files / SourceLink: Availability /
+    SourceLink: Missing Files / SourceLink: Integrity, and `@Audit` roots Unsafe
+    Members. `-D @SourceLink` / `-D @Audit` never
+    execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
+    expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
+    nuance) is a deferred follow-up; today `ExplicitOnly` only keeps them out of
+    the verbosity ladder, not out of door expansion.
+- **`-D` listing is the discovery gate.** The top-level `-D` catalog lists the
+  topical category doors (alpha) followed by one flat group of effective
+  standalone sections. `ListedInCatalog=false` keeps a section out of that flat
+  group while still letting it render at `-v:d` — used for the kind-scoped
+  `Performance:` buckets and the ecosystem `@Integrations` members
+  (`Integration: AI`, `Integration: Hosting`, `Integration: Logging`, …), which
+  stay behind their `@Performance` / `@Integrations` door in `-D` yet still
+  render by size class.
+
+### Symbol-dependent discovery (SourceLink family)
+
+The SourceLink section family — SourceLink: Files / Availability / Missing
+Files / Integrity, all rooted in `@SourceLink` —
+is **symbol-dependent**: it is only discoverable when a local PDB (embedded,
+adjacent, or **already in the symbol cache**) exposes a SourceLink document.
+This is an orthogonal discovery gate, not a peer of cost: rendering these
+sections still performs its network work (HEAD/GET) on demand, but *listing*
+them under `-D` is network-free.
+
+- Discovery applicability for the family is `AssemblyInfo != null &&
+  HasSourceLink` (`LibrarySections.SourceLinkDiscoverable`). The sections remain
+  `ExplicitOnly`, so they never auto-render; the gate only controls whether they
+  *list*.
+- During `-D`, `LibraryMetadataService.ProbeLocalSourceLinkAsync` populates
+  `HasSourceLink` network-free: it opens the assembly, and if no embedded or
+  adjacent PDB is present it consults the symbol cache **read-only** (never
+  downloads). A PDB warmed into the cache by a prior render (or `source`
+  command) therefore makes the family discoverable on the next `-D`; clearing it
+  hides the family again.
+- The **render path** applies the same cache-only leverage. At `-v:n` and bare
+  `-S` (Normal and above, no explicit selection) the source plan sets
+  `ReadCachedPdb`, so `AuditAsync` consults the symbol cache read-only when there
+  is no embedded/adjacent PDB. This lets the symbol-dependent `Symbols` and
+  `Signals` sections (and the `SourceLink` provenance row) reflect an
+  already-cached PDB **without touching the network**. Downloading a missing PDB
+  still requires `-v:d` or explicit selection (`AllowPdbDownload`); a cache miss
+  stays network-free and simply renders no symbols.
+- Because the family's effectiveness depends on cached-PDB presence, the
+  effective-section cache key folds a network-free SourceLink-availability token
+  (`#sl0`/`#sl1`) so warming or clearing a cached PDB busts a stale `-D` catalog.
+- Hyper-subscribe applies: with no resolvable SourceLink, the `@SourceLink` door
+  and its members disappear from `-D` entirely.
+- `-D` discovery is network-free at **every** verbosity. The discovery
+  inspection is run with `discoveryOnly: true`, which neutralizes the entire
+  source plan (no PDB download, no source-URL HEAD audit, no integrity GET, no
+  source-file collection) regardless of `-v` level or `-S` filters — so
+  `-D -v:d` never touches the network to list a section, even for an
+  embedded/adjacent-PDB assembly whose local audit stages would otherwise fire.
+  The SourceLink family is listed solely from the network-free probe, keeping
+  the `-D` catalog identical across verbosities and keeping the effective-cache
+  token (probe-driven) consistent with what the inspection records for
+  `HasSourceLink`.
+
+### `-D` catalog
+
+`-D` is **categories-first** and carries **no** `(verbose)`/`(opt-in)`
+annotations (those were internal markers):
+
+1. The visible topical category doors, alphabetical.
+2. One flat group of effective standalone sections (the computed `@All`
+   members), alphabetical.
+
+Categories **hyper-subscribe**: the effective `-D` path lists only members with
+count > 0 and drops categories that become empty. `--schema` is the exhaustive
+escape hatch — the full section graph plus every topical door, still without
+annotations. `@All`/`@Hidden` are internal computed poles: `@All` is the flat
+standalone set, `@Hidden` is its complement, and neither is a user-facing door
+(`@Default`/`@All`/`@Hidden`/`@Switches` never appear in `-D`).
 
 ### Invariants
 
-- **Discovery** of any `@category` (`-D @Category`) is always cheap: it lists
-  member names and never executes them. `--count` and `-S @Category` are *render
-  selection*, not discovery — they execute the selected members like exact names.
-- No **render-selectable** category (`@All`, `@Source`, `@Performance`,
-  `@Surface`, `@Resources`, `@Audit`) roots an *unbounded* member. The one
-  unbounded standalone section, SourceLink Integrity, is rooted only in the
-  **discovery-only** `@Hidden` pole.
-- `-D` = `@All` members + listed category names. Computed, never hand-flagged.
-- Every section is category-rooted; `@Hidden` is the catch-all for niche and
-  footgun-expensive standalone sections, and is discovery-only (not a render selector).
-- `@All` excludes expensive sections and feeders; its `Default` members (Signals,
-  Symbols) may perform bounded PDB warming and a SourceLink-signal audit, so
-  `-S @All` is bounded (no source-content download, no integrity fan-out) rather
-  than strictly network-free.
+- **Discovery** of any `@category` (`-D`, `-D @Category`) is always cheap: it
+  lists member names and never executes them. `--count` and `-S @Category` are
+  *render selection*, not discovery — they execute the selected members like
+  exact names.
+- No **render-selectable** category roots an `Unbounded` member *for the
+  verbosity ladder* — `Unbounded` sections are `ExplicitOnly`, so no `-v` level
+  auto-runs them. They remain reachable by exact name and, as a known deferred
+  footgun, by `-S @SourceLink` / `-S @Audit` door expansion (see the cost gate).
+- The `-v` ladder is cumulative and never auto-runs an `Unbounded` section.
+- Every visible section is reachable from at least one topical door or the flat
+  `@All` set; internal-only sections fall into the computed `@Hidden` complement.
+- **Library sections always render in alphabetical order** (case-insensitive)
+  regardless of registration or view-model declaration order. The same sections
+  sort the same way in every library view and selection — the default ladder,
+  `@Category` doors, and `@All`. Because sections share a `Group: Leaf` prefix
+  (`Performance:`, `SourceLink:`, `Integration:`, `Context:`), a
+  group's members still cluster together while sorting alphabetically within the
+  cluster; no group carries a curated non-alphabetical display order at render
+  time.
+- **A section family is named by prefix, not by suffix.** A shared `Group: Leaf`
+  prefix makes a family's membership legible from the name alone and clusters it
+  under alphabetical order, which is what makes a family discoverable without
+  consulting `-D`. A shared *suffix* does neither: the coordinate sections were
+  once `Member Context` / `Safety Context` / `Cost Context`, an obvious family
+  that scattered across `M`, `S`, and `C` and read as unrelated. They are now
+  `Context: Member`, `Context: Safety`, `Context: Cost`. Sections outside any
+  family (`Library Info`, `Signals`, `Symbols`, `References`) stay unprefixed.
 
 ### How the dimensions map
 
-| Section kind | Render tier | Cost | Category root |
-| --- | --- | --- | --- |
-| Hero (Signals, Symbols) | Default | cheap | `@All` |
-| Structural (Dependencies, References) | Terse | cheap | `@All` |
-| Noisy (Async / Custom Attributes / Extension Methods) | Noisy | cheap | `@All` + `@Surface` |
-| Feeder (Allocation Context) | — (opt-in) | cheap | `@Performance` / `@Audit` (listed door, not `@All`) |
-| Niche (Non-normalized Paths) | — (opt-in) | cheap | `@Hidden` |
-| Expensive (SourceLink Integrity, Vulnerabilities) | — (opt-in) | expensive | `@Hidden` or a listed door (listed, never auto-run) |
+| Section kind | Size class | Cost | Auto-renders at | Topical door |
+| --- | --- | --- | --- | --- |
+| Target (Library Info) | `Fixed` (`Info`) | `NetworkFree` | `-v:m`, bare `-S` | — |
+| Fixed fact table (Signals, Symbols) | `Fixed` | `NetworkFree` | bare `-S`, `-v:n` | `@Audit` / `@SourceLink` |
+| Surface (Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
+| Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
+| Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
+| Networked (SourceLink: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
+| Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name, or a door that roots it) | `@Audit` / — / `@SourceLink` |
 
 ## Query paths
 
@@ -143,7 +288,7 @@ Vulnerabilities          section
 
 The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
 
-Effective discovery uses two predicates. The section pipeline's applicability gate answers whether a section is structurally selectable for the current target without doing the section's own work. `CanRender` answers whether collected data can actually produce output. Use explicit applicability gates to keep opt-in or alternate-representation sections discoverable when their render data is populated only after selection, or when the default render pass chooses a compact alternate; keep `CanRender` data-dependent so rendering and empty-section notes remain honest. Discovery annotates explicit non-default alternates as `verbose`.
+Effective discovery uses two predicates. The section pipeline's applicability gate answers whether a section is structurally selectable for the current target without doing the section's own work. `CanRender` answers whether collected data can actually produce output. Use explicit applicability gates to keep opt-in or alternate-representation sections discoverable when their render data is populated only after selection, or when the default render pass chooses a compact alternate; keep `CanRender` data-dependent so rendering and empty-section notes remain honest. In the curated catalog, discovery no longer annotates sections as `verbose`/`opt-in` — those internal markers were dropped in favor of the declared size-class and cost axes.
 
 Note: This content should itself be data and printable with any of the renderers using the same system as "actual data". I consider this view to be table output with no heading. One can imagine either of the following (which would include a heading).
 

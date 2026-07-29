@@ -65,7 +65,7 @@ command today. It is reachable from more than one structural scope:
   peer offset-scoped facts within that narrower scope.
 
 These are two entry points into the same method-body inspection model, not
-different meanings for the coordinate. Sections such as `Instruction Context`
+different meanings for the coordinate. Sections such as `Context: Instruction`
 choose the observation/projection, while raw `IL` is a representation lens.
 Neither changes coordinate identity.
 

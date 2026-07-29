@@ -93,7 +93,7 @@ public class IndexBuildInvariantTests
                 SectionNames.UnsafeMembers,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
-                SectionNames.ResourceTriage,
+                SectionNames.ArrayPoolEscapes,
             ],
             Markdown = true,
             Rows = RowWindow.Head(25),
