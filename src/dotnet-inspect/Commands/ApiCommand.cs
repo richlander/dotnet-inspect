@@ -101,7 +101,8 @@ public class ApiCommand
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
+                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                projection: options));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
@@ -115,7 +116,7 @@ public class ApiCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
-        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -128,7 +129,9 @@ public class ApiCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // Discovery renders its own payload and refuses the shape projections itself with
+            // an accurate reason; demanding -S first reports a requirement that is not the problem.
+            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
             {
@@ -154,7 +157,7 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && options.Discover == null && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
         if (options.Print && options.Rows is not null)
@@ -1327,7 +1330,8 @@ public class ApiCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap());
+            sectionCategories: memberPipeline.GetCategoryMap(),
+            projection: options);
     }
 
     /// <summary>

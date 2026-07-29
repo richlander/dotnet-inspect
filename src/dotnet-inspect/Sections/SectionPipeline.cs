@@ -186,6 +186,21 @@ public sealed class SectionPipeline<TModel>
         .ToList();
 
     /// <summary>
+    /// Every distinct non-null <see cref="SectionEntry{TModel}.ScannerKey"/> declared by a
+    /// registered section, independent of verbosity or selection. This is the demand side of the
+    /// section-to-scanner binding; the supply side is
+    /// <see cref="ScannerRegistry.RegisteredKeys"/>. The two must agree exactly — a key declared
+    /// here but not registered is a section whose data silently never gets collected, and a key
+    /// registered but not declared here is a scanner nothing can ask for. Gate for the library
+    /// pipeline: <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>.
+    /// Other pipelines declare no scanner keys today, so nothing gates them.
+    /// </summary>
+    public IReadOnlySet<string> DeclaredScannerKeys => _entries
+        .Select(e => e.ScannerKey)
+        .Where(key => key != null)
+        .ToHashSet(StringComparer.Ordinal)!;
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.

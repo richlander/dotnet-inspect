@@ -1290,17 +1290,19 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryScannerRegistry_HasAllDetailedScanners()
+    public void LibraryScannerRegistry_RegistrationMatchesDeclaration()
     {
+        // Set equality, not containment, so both failure directions are caught: a section
+        // declaring a key nobody registered (its data silently never collected) and a registered
+        // scanner no section asks for (dead code). Derived from the pipeline and the registry
+        // rather than restated as a literal list, so adding a section or a scanner cannot drift
+        // past this test.
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        // All scanner keys from detailed sections should be registered
-        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
-
-        // Registry should handle all of them without throwing
-        // (we can't easily inspect the registry, but we can verify it runs)
-        Assert.NotEmpty(detailedScanners);
+        Assert.Equal(
+            pipeline.DeclaredScannerKeys.OrderBy(k => k, StringComparer.Ordinal),
+            registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     // ===== Presence flag / CanRender discovery tests =====

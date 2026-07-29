@@ -52,7 +52,8 @@ public class PackageCommand
                 // --schema reveals the full catalog including the @Hidden pole; a static -D
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                projection: options);
         }
 
         // Bare -S (a lone @Default preset - i.e. `-S` with no value) selects the network-free
@@ -86,7 +87,36 @@ public class PackageCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
 
-            if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+            // The alternate lens modes render their own payload and never consult the section
+            // filter, so requiring -S here would force the caller to name a section that is then
+            // ignored. LensProjection answers the projection for those modes instead, and -S is
+            // rejected outright below rather than silently dropped.
+            var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
+                || options.ShowContent || options.ShowReadme;
+            // Discovery also renders its own payload, so it is exempt from the single-section
+            // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
+            // is meaningful with -D, which restricts discovery to the selected sections.
+            var rendersOwnPayload = lensMode || options.Discover != null;
+            // Gate on what the caller actually typed: --path and --type synthesize a selection,
+            // and rejecting that would break the lens modes' normal use. The refusal is
+            // unconditional rather than excusing --print: the lens prints its own document
+            // without a selection, so accepting -S there would silently ignore it.
+            if (lensMode && options.SelectExplicitlySet)
+            {
+                var lensName = options.ListVersions ? "--versions"
+                    : options.ListLayout ? "--layout"
+                    : options.ListTfms ? "--tfms"
+                    : options.ShowContent ? "--content"
+                    : "--readme";
+                Console.Error.WriteLine(
+                    $"Error: -S/--select is not available with {lensName}, which renders its own payload rather than sections.");
+                return 1;
+            }
+
+            // #3448 aligns the package gate with the library one: a count over several selected
+            // sections is meaningful now that the file family is disjoint, so require a selection
+            // rather than exactly one section.
+            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -99,7 +129,10 @@ public class PackageCommand
             if (shapeCount == 1)
             {
                 var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-                if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                // In a lens mode the shape projection is refused by LensProjection with an
+                // accurate reason; demanding -S first would report a section requirement that is
+                // not the actual problem.
+                if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
                 if (options.Count || options.Print)
                 {
@@ -125,7 +158,10 @@ public class PackageCommand
                 return 1;
             }
 
-            if (options.Print && !ValidatePackagePrintSelection(options.IncludeSections))
+            // A lens renders its own payload, so demanding a printable section selection reports a
+            // requirement the lens does not have. The readme lens prints its own document, and
+            // the rest refuse --print through LensProjection with an accurate reason.
+            if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
@@ -208,7 +244,11 @@ public class PackageCommand
 
                         var unlistedVector = PackageVersionVector.CreateListingAware(
                             range!, rangeListings, options.IncludePrerelease);
-                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue);
+                        // Materialized once: counting a lazy sequence and then re-enumerating it
+                        // for the render is how a count starts to disagree with its payload.
+                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
+                        if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
+                            return rangeListingExit;
                         OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
                         return 0;
                     }
@@ -221,7 +261,10 @@ public class PackageCommand
                         options.IncludePrerelease);
                     var rangeVersions = vector.Addresses
                         .Take(options.Limit ?? int.MaxValue)
-                        .Select(address => address.Version.ToNormalizedString());
+                        .Select(address => address.Version.ToNormalizedString())
+                        .ToList();
+                    if (LensProjection.TryProject(options, "--versions", rangeVersions.Count, out var rangeProjectionExit))
+                        return rangeProjectionExit;
                     OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
                     return 0;
                 }
@@ -251,6 +294,8 @@ public class PackageCommand
                 if (!options.IncludeUnlisted
                     && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
                 {
+                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
+                        return cachedPinnedExit;
                     Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
@@ -272,6 +317,10 @@ public class PackageCommand
                     v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase));
                 if (pinnedMatch != null)
                 {
+                    // Either spelling renders a single version row, so the projection answers 1
+                    // and returns before the render path chooses between them.
+                    if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
+                        return knownPinnedExit;
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
                     else
@@ -296,6 +345,8 @@ public class PackageCommand
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
                 {
+                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
+                        return cachedLatestExit;
                     Console.WriteLine(cachedVersion);
                     return 0;
                 }
@@ -317,6 +368,9 @@ public class PackageCommand
                     return 1;
                 }
 
+                // A single resolved version is a one-row payload, so --count reports 1.
+                if (LensProjection.TryProject(options, "--latest-version", 1, out var latestProjectionExit))
+                    return latestProjectionExit;
                 if (options.IncludeUnlisted)
                 {
                     // Latest resolution is listing-aware (#3388), so the version it returns is
@@ -342,6 +396,8 @@ public class PackageCommand
                     return 1;
                 }
 
+                if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
+                    return listingExit;
                 OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }
@@ -352,6 +408,9 @@ public class PackageCommand
                 Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
                 return 1;
             }
+
+            if (LensProjection.TryProject(options, "--versions", versions.Count, out var versionsProjectionExit))
+                return versionsProjectionExit;
 
             OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
@@ -433,17 +492,11 @@ public class PackageCommand
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
-            {
-                ListPackageLayout(extractPath, options, packageName, options.TipLevel);
-                return 0;
-            }
+                return ListPackageLayout(extractPath, options, packageName, options.TipLevel);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
-            {
-                ListPackageTfms(extractPath, options.Tsv, options.Jsonl);
-                return 0;
-            }
+                return ListPackageTfms(extractPath, options);
 
             // Parse nuspec (needed for --readme and --dependencies early exits, and full inspection)
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
@@ -459,8 +512,11 @@ public class PackageCommand
                     options);
             }
 
-            // Handle --readme/--print mode: print the selected grounding document and exit early
-            if (options.ShowReadme || options.Print)
+            // Handle --readme/--print mode: print the selected grounding document and exit early.
+            // Discovery is excluded: it renders its own payload further down and refuses --print
+            // with an accurate reason, where falling in here would print the grounding document
+            // instead of the discovery rows the caller asked to project.
+            if (options.ShowReadme || (options.Print && !effectiveDiscovery))
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
@@ -542,14 +598,17 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (options.Count)
+            // Effective discovery renders the discovered rows below and answers the projection
+            // against them. Counting here would count the package document instead, which is a
+            // different payload than the one -D displays.
+            if (options.Count && !effectiveDiscovery)
             {
                 ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
 
-            if (options.Value || options.Urls || options.Paths)
+            if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
                 return WritePackageShapeProjection(result, options);
 
             if (options.Bare)
@@ -609,7 +668,8 @@ public class PackageCommand
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap(),
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                    projection: options);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -970,12 +1030,6 @@ public class PackageCommand
         if (options.ShowContent && options.Tabular && !options.Jsonl)
         {
             Console.Error.WriteLine("Error: --content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
-            return false;
-        }
-
-        if (options.ShowContent && options.Count)
-        {
-            Console.Error.WriteLine("Error: --content cannot be combined with --count.");
             return false;
         }
 
@@ -1518,6 +1572,13 @@ public class PackageCommand
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+
+        // A path that matches nothing still yields one row so the render can show it as absent.
+        // Counting that row would answer "one file matched" when none did, so count found files,
+        // as the bare writer below already does.
+        if (LensProjection.TryProject(options, "--content", rows.Count(row => row.Found), out var contentProjectionExit))
+            return contentProjectionExit;
+
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
@@ -1997,6 +2058,10 @@ public class PackageCommand
         if (sections.Count == 0)
         {
             Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            // An empty match is still an answer to --count, and returning without projecting
+            // would report the absence as unprojected output.
+            if (libraryOptions.Count)
+                CountOutput.WriteCount(0);
             return 0;
         }
 
@@ -2599,7 +2664,7 @@ public class PackageCommand
         }
     }
 
-    private static void ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
+    private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
         string searchPath;
         string relativeBase;
@@ -2617,7 +2682,7 @@ public class PackageCommand
             else
             {
                 Console.Error.WriteLine($"Error: TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
-                return;
+                return 1;
             }
 
             // Show paths relative to parent of TFM dir so TFM appears as root node
@@ -2629,7 +2694,7 @@ public class PackageCommand
             if (error != null)
             {
                 Console.Error.WriteLine(error);
-                return;
+                return 1;
             }
             searchPath = resolved;
             relativeBase = extractPath;
@@ -2647,8 +2712,12 @@ public class PackageCommand
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
 
+        if (LensProjection.TryProject(options, "--layout", results.Count, out var projectionExitCode))
+            return projectionExitCode;
+
         PackageOutputFormatter.WriteFileTree(results);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
+        return 0;
     }
 
     internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel, bool isLayout)
@@ -2671,11 +2740,15 @@ public class PackageCommand
         return (extractPath, null);
     }
 
-    private static void ListPackageTfms(string extractPath, bool tsv, bool jsonl)
+    private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
 
-        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", tsv, jsonl, Console.Out);
+        if (LensProjection.TryProject(options, "--tfms", tfms.Count, out var projectionExit))
+            return projectionExit;
+
+        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        return 0;
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
@@ -2793,6 +2866,9 @@ public class PackageCommand
 
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
+
+        if (LensProjection.TryProject(options, "--readme", result.Files.Count, out var readmeProjectionExit, printHandledByLens: true, scalarPayload: true))
+            return readmeProjectionExit;
         if (options.Print)
         {
             return PrintProjectionOutput.Write(

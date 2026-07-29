@@ -174,6 +174,9 @@ public static class PackageOptionsParser
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
+        // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
+        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } };
+
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
