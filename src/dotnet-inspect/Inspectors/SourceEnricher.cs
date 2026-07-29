@@ -150,7 +150,7 @@ internal static class SourceEnricher
                     logger.Log($"Type '{typeName}' is forwarded to '{forwardTarget}'.");
 
                     var forwardedResult = await TryEnrichFromForwardedAssemblyAsync(
-                        apiType, typeName, forwardTarget, dllPath, options, logger, httpClient);
+                        apiType, typeName, forwardTarget, context, options, logger, httpClient);
                     if (forwardedResult)
                         return;
                 }
@@ -721,19 +721,20 @@ internal static class SourceEnricher
         ApiType apiType,
         string typeName,
         string targetAssemblyName,
-        string originalDllPath,
+        PdbContext context,
         ApiOptions options,
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        var runtimeDir = Path.GetDirectoryName(originalDllPath);
-        if (runtimeDir == null)
-            return false;
-
-        var targetDllPath = Path.Combine(runtimeDir, targetAssemblyName + ".dll");
-        if (!File.Exists(targetDllPath))
+        // Resolve through the owner rather than rebuilding the path here. This method used to do
+        // its own Path.Combine on the forwarder target, which is a name read from untrusted
+        // metadata, so a forwarder naming "../payload" escaped the assembly's directory and was
+        // then handed to source enrichment and its network fetches. The duplicate resolution was
+        // the reason the guard on PdbContext did not cover this call.
+        var targetDllPath = context.ResolveImplementationAssemblyPath(typeName);
+        if (targetDllPath == null)
         {
-            logger.Log($"Target library '{targetAssemblyName}' not found at '{targetDllPath}'.");
+            logger.Log($"Target library '{targetAssemblyName}' could not be resolved next to the forwarding assembly.");
             return false;
         }
 

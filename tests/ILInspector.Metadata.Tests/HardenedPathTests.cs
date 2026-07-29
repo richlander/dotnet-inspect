@@ -39,6 +39,10 @@ public class HardenedPathTests
     [InlineData("LPT9")]
     [InlineData("CON.txt")]
     [InlineData("com1.dll")]
+    // The console input/output devices, which CreateFile also opens.
+    [InlineData("CONIN$")]
+    [InlineData("conout$")]
+    [InlineData("CONIN$.dll")]
     // Names the host rewrites before opening: Windows strips trailing spaces and dots.
     [InlineData("CON ")]
     [InlineData("NUL   ")]
@@ -87,6 +91,8 @@ public class HardenedPathTests
     [InlineData("My Assembly.Core")]
     [InlineData("CON Toso.Library")]
     [InlineData("My\u00a0Assembly.Core")]
+    // A device name only as a prefix of a longer stem, including the console devices.
+    [InlineData("CONIN$Extras")]
     // The digit fold only fires when the whole stem becomes a device name.
     [InlineData("COM\u00b9Plus")]
     [InlineData("COM\uff11Plus")]
