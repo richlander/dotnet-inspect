@@ -987,6 +987,21 @@ public class ScanTokenTests
             "\"", "@\"", "$\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "$$$\"\"\"\"", "/*",
         ];
 
+        // The seeds are hand-written, which is the failure mode this test exists to avoid, so
+        // they police themselves twice. They must be distinct, or the pinned count can be met
+        // by repeating one. And each must actually open something that carries: if a seed
+        // stops carrying, the "a" below it is code rather than literal or comment text, and
+        // the seed is no longer reaching the paths it was added for (adversarial review, GPT).
+        Assert.Equal(openers.Length, openers.Distinct().Count());
+
+        foreach (var opener in openers)
+        {
+            var carried = BodySlicer.ScanTokens([opener, "a"]).Last();
+            Assert.True(
+                carried.Kind is ScanTokenKind.StringLiteral or ScanTokenKind.Comment,
+                $"opener [{opener}] no longer carries: 'a' below it scanned as {carried.Kind}");
+        }
+
         var tails = new List<string> { "" };
         Walk(new char[1], 0, 1, tails.Add);
 
