@@ -471,6 +471,32 @@ public class LibraryInspection
         }
     }
 
+    /// <summary>
+    /// Image-level metadata facts for the <c>@Metadata</c> lens: the metadata version, heap
+    /// sizes, and the per-table physical row counts.
+    ///
+    /// This is deliberately the *cheap* half of the lens. It is what the per-table sections'
+    /// <c>CanRender</c> consults, so a table with no rows never renders an empty section, and it
+    /// backs the <c>Metadata: Image</c> section. The expensive half — actually projecting rows —
+    /// happens at render time for the selected tables only, so selecting one table never pays to
+    /// project the other sixteen.
+    ///
+    /// Null when the metadata scanner did not run (no metadata section was requested) or when the
+    /// image carries no metadata at all. Those are different facts, and the lens distinguishes
+    /// them: an image with no metadata reports that rather than rendering success-shaped empty
+    /// sections.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataImageOverview? MetadataOverview { get; set; }
+
+    /// <summary>
+    /// The path the metadata lens re-opens to project rows at render time. Captured from the
+    /// scanner rather than recovered from <see cref="FileName"/>, which is a display name and
+    /// not always a resolvable path (extracted package assemblies resolve elsewhere).
+    /// </summary>
+    [JsonIgnore]
+    public string? MetadataAssemblyPath { get; set; }
+
     [JsonIgnore]
     public FindingInspection<AssemblyAttributeInfo>? AssemblyAttributeInspection =>
         _assemblyAttributeInspection;

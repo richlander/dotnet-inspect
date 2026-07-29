@@ -46,6 +46,7 @@ public class ProjectCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 ProjectDiscoverySchema(),
+                projection: options,
                 tree: options.Tree,
                 json: options.JsonOutput,
                 tsv: options.Tsv,
@@ -54,7 +55,7 @@ public class ProjectCommand
                 sectionCategories: ProjectCategoryMap());
         }
 
-        if (options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
+        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
             return 1;
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -67,7 +68,7 @@ public class ProjectCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
+            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {
