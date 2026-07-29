@@ -16,6 +16,17 @@ the Azure DevOps guidance, which is authoritative and kept current:
 - [Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds)
   and the [Azure Artifacts Credential Provider](https://github.com/microsoft/artifacts-credprovider)
   — the recommended way to supply feed credentials.
+- [Angel Wong's posts on the Azure DevOps blog](https://devblogs.microsoft.com/devops/author/wonga/)
+  — the Senior PM who owns Azure DevOps authentication, and the best source for *direction of
+  travel* rather than current state. Reference docs say what works now; this feed says what is
+  being restricted next, with dates. Two that bear directly on this document:
+  [Retirement of Global Personal Access Tokens](https://devblogs.microsoft.com/devops/retirement-of-global-personal-access-tokens-in-azure-devops/)
+  (global PATs stop working December 1, 2026; the recommendation is "short-lived, Microsoft
+  Entra-backed authentication") and
+  [Authentication Tokens Are Not a Data Contract](https://devblogs.microsoft.com/devops/authentication-tokens-are-not-a-data-contract/)
+  ("assume any token claim may change or disappear without notice"; tokens are being further
+  encrypted, so anything decoding them will break). Their avatar has been a crossed-out "PATs"
+  sign since 2021, which is a fair summary of the trajectory.
 
 ## What the tool sends
 
