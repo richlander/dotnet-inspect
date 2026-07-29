@@ -246,6 +246,42 @@ public class PrintedRangeMapTests
     }
 
     [Fact]
+    public void EnumerationOrder_CompletesSiblingsLeftToRight_AsTheyWereComposed()
+    {
+        // Ancestor-before-descendant is only half the contract. The printer
+        // composes a left operand before a right one, so the left completes
+        // first; ordering that pins only the ancestor direction is satisfied by
+        // any sibling order, including backwards.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.TwoDistinctOperands));
+
+        var position = new Dictionary<IrNode, int>();
+        for (int i = 0; i < ranges.Count; i++)
+            position[ranges[i].Node] = i;
+
+        int compared = 0;
+        foreach (var (node, _) in ranges)
+        {
+            foreach (var sibling in node.Parent?.Children ?? [])
+            {
+                if (ReferenceEquals(sibling, node) || !ranges.TryGetRange(sibling, out _))
+                    continue;
+                var mine = ranges.First(r => ReferenceEquals(r.Node, node));
+                var theirs = ranges.First(r => ReferenceEquals(r.Node, sibling));
+                if (Offsets(mine, output.Length).Start >= Offsets(theirs, output.Length).Start)
+                    continue;
+
+                // node is textually to the left of sibling, so it completed first.
+                compared++;
+                Assert.True(position[node] < position[sibling]);
+            }
+        }
+
+        Assert.True(compared > 0);
+    }
+
+    [Fact]
     public void ReformattedStatement_ClaimsNothing_RatherThanTheLiteralThatSurvivedTheRewrap()
     {
         // Uniqueness within a statement is not ownership. Emission re-breaks a
@@ -424,6 +460,13 @@ public static class PrintedRangeExpressionFixture
         sink.Add(1);
         return sink.Count;
     }
+
+    /// <summary>
+    /// Two operands that print differently, so both claim characters and their
+    /// relative completion order is observable. <c>TwiceTheSame</c> cannot serve
+    /// here: identical spellings claim nothing.
+    /// </summary>
+    public static int TwoDistinctOperands(int x, int y) => x + y;
 
     /// <summary>
     /// A spelling that repeats across the statement but occurs once inside the

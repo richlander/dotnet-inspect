@@ -1758,9 +1758,9 @@ public sealed partial class CSharpPrinter
     /// <para>
     /// Claims are collected parent-first (<see cref="IrNode.Descendants"/> is
     /// pre-order, and a window must exist before anything is measured against it)
-    /// and recorded in reverse, so descendants still reach
-    /// <see cref="PrintedRangeMap.Record"/> ahead of the ancestors containing
-    /// them. That is what the map's completion-order contract requires, and it
+    /// and recorded in completion order: a node finishes after every child, and
+    /// siblings finish left to right, which is the order the printer composed
+    /// them in. That is what the map's completion-order contract requires, and it
     /// holds for expression-inside-expression nesting, not merely for expressions
     /// inside their statement. Nested statements record earlier still -- they are
     /// appended while this statement's body runs, and <c>Record</c> keeps the
@@ -1776,7 +1776,6 @@ public sealed partial class CSharpPrinter
         string text = sb.ToString(start, sb.Length - start);
         var windows = new Dictionary<IrNode, (int Start, int End)>();
         HashSet<IrNode>? refused = null;
-        List<(IrNode Node, int Start, int End)>? claims = null;
 
         foreach (var descendant in statement.Descendants)
         {
@@ -1817,13 +1816,32 @@ public sealed partial class CSharpPrinter
             }
 
             windows[descendant] = (at, at + printed.Length);
-            (claims ??= []).Add((descendant, at, at + printed.Length));
         }
 
-        if (claims is null)
+        if (windows.Count == 0)
             return;
-        for (int i = claims.Count - 1; i >= 0; i--)
-            _printedRanges!.Record(claims[i].Node, start + claims[i].Start, start + claims[i].End);
+
+        // Windows had to be computed parent-first, but completion order is
+        // post-order: a node finishes after every child, and siblings finish
+        // left to right, which is the order the printer composed them in.
+        // Pushing children forward pops them right-first, so reversing the walk
+        // yields exactly that.
+        var pending = new Stack<IrNode>();
+        var completion = new List<IrNode>();
+        pending.Push(statement);
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            completion.Add(node);
+            foreach (var child in node.Children)
+                pending.Push(child);
+        }
+
+        for (int i = completion.Count - 1; i >= 0; i--)
+        {
+            if (windows.TryGetValue(completion[i], out var claim))
+                _printedRanges!.Record(completion[i], start + claim.Start, start + claim.End);
+        }
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
