@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+
 namespace NuGetFetch;
 
 /// <summary>
@@ -6,21 +8,42 @@ namespace NuGetFetch;
 public class SearchService(HttpClient client, string? searchUrl = null)
 {
     private readonly string _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
+
     /// <summary>
     /// Searches NuGet for packages matching the given query.
     /// </summary>
+    /// <remarks>
+    /// Retry, telemetry, and credential acquisition belong to the caller: this
+    /// type stays a leaf and reaches for nothing beyond the supplied
+    /// <see cref="HttpClient"/> and the optional header it is handed.
+    /// </remarks>
     public async Task<IReadOnlyList<SearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
         string pre = prerelease ? "true" : "false";
         string url = $"{_searchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={pre}";
 
-        using Stream stream = await client.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
-        SearchResponse? response = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
-        return (IReadOnlyList<SearchResult>?)response?.Data ?? [];
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (auth is not null)
+        {
+            request.Headers.Authorization = auth;
+        }
+
+        using HttpResponseMessage response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        SearchResponse? parsed = await NuGetApi.GetSearchResponseAsync(stream, cancellationToken).ConfigureAwait(false);
+
+        // A null document is not an empty result set. Reporting it as one would
+        // hide the failure behind a successful-looking zero-result search.
+        return parsed?.Data
+            ?? throw new InvalidOperationException(
+                $"Search response from '{_searchUrl}' was not a valid NuGet search document.");
     }
 
     /// <summary>
@@ -31,9 +54,11 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         string prefix,
         int take = 100,
         bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<SearchResult> results = await SearchAsync(prefix, take, prerelease, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<SearchResult> results = await SearchAsync(
+            prefix, take, prerelease, auth, cancellationToken).ConfigureAwait(false);
 
         return results
             .Where(r => r.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))

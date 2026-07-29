@@ -20,12 +20,22 @@ public class PackageSearchCommand
 
         try
         {
-            var results = await NuGetSearchService.SearchAsync(
+            var outcome = await NuGetSearchService.SearchAsync(
                 context.HttpClient,
                 options.Query,
                 options.Take,
                 options.Prerelease,
-                logger.Log);
+                logger.Log,
+                options.SourceOptions);
+
+            var results = outcome.Results;
+
+            // Sources that could not be searched are reported even when other sources
+            // succeeded: a partial answer must not read like a complete one.
+            foreach (var failure in outcome.Failures)
+            {
+                Console.Error.WriteLine($"Warning: could not search {failure}");
+            }
 
             if (options.JsonOutput)
             {
@@ -34,13 +44,15 @@ public class PackageSearchCommand
                     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                         result, PackageSearchJsonlContext.Default.NuGetSearchResult));
                 }
-                return 0;
+                return outcome.Failures.Count > 0 ? 1 : 0;
             }
 
             if (results.Count == 0)
             {
                 Console.Error.WriteLine($"No packages found for \"{options.Query}\".");
-                return 0;
+
+                // A genuine zero-result search succeeded; an incomplete one did not.
+                return outcome.Failures.Count > 0 ? 1 : 0;
             }
 
             var view = new PackageSearchResultView
@@ -55,7 +67,7 @@ public class PackageSearchCommand
                 Description = $"{results.Count} package(s) found"
             };
             MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), PackageSearchResultContext.Default);
-            return 0;
+            return outcome.Failures.Count > 0 ? 1 : 0;
         }
         catch (Exception ex)
         {
@@ -87,4 +99,7 @@ public record PackageSearchOptions
 
     /// <summary>Show verbose progress messages.</summary>
     public bool Verbose { get; init; }
+
+    /// <summary>NuGet sources to search. Defaults to nuget.org when unset.</summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

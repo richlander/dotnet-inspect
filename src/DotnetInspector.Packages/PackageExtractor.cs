@@ -524,9 +524,32 @@ public static class PackageExtractor
     /// <summary>
     /// Discovers the PackageBaseAddress (flat-container) endpoint from a V3 service index.
     /// </summary>
-    private static async Task<string?> GetPackageBaseAddressAsync(
+    private static Task<string?> GetPackageBaseAddressAsync(
         HttpClient client,
         NuGetSource source,
+        Action<string>? log)
+        => GetServiceIndexResourceAsync(client, source, "PackageBaseAddress", log);
+
+    /// <summary>
+    /// Discovers the SearchQueryService endpoint from a V3 service index. Returns null when the
+    /// source is not an HTTP feed, its service index cannot be read, or it advertises no search
+    /// resource (a valid state — flat-container-only feeds exist and simply cannot be searched).
+    /// </summary>
+    public static Task<string?> GetSearchQueryServiceAsync(
+        HttpClient client,
+        NuGetSource source,
+        Action<string>? log = null)
+        => GetServiceIndexResourceAsync(client, source, "SearchQueryService", log);
+
+    /// <summary>
+    /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose
+    /// <c>@type</c> starts with <paramref name="resourceTypePrefix"/>. Service-index types are
+    /// versioned by suffix (<c>SearchQueryService/3.5.0</c>), so matching is by prefix.
+    /// </summary>
+    private static async Task<string?> GetServiceIndexResourceAsync(
+        HttpClient client,
+        NuGetSource source,
+        string resourceTypePrefix,
         Action<string>? log)
     {
         // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
@@ -566,7 +589,7 @@ public static class PackageExtractor
             foreach (var resource in resources.EnumerateArray())
             {
                 var type = resource.GetProperty("@type").GetString();
-                if (type != null && type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
+                if (type != null && type.StartsWith(resourceTypePrefix, StringComparison.OrdinalIgnoreCase))
                 {
                     return resource.GetProperty("@id").GetString();
                 }

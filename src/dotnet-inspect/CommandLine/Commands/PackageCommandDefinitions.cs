@@ -170,6 +170,7 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
+        opts.AddNuGetOptionsTo(searchCommand);
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
@@ -183,6 +184,7 @@ public static class PackageCommandDefinitions
                 Console.Error.WriteLine("  package search Azure.AI");
                 Console.Error.WriteLine("  package search AWSSDK --take 50");
                 Console.Error.WriteLine("  package search \"json serializer\" --json");
+                Console.Error.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
                 return 0;
             }
 
@@ -193,7 +195,8 @@ public static class PackageCommandDefinitions
                 Prerelease = parseResult.GetValue(prereleaseOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(opts.Verbose)
+                Verbose = parseResult.GetValue(opts.Verbose),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await PackageSearchCommand.ExecuteAsync(options);
