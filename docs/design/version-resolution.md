@@ -194,6 +194,42 @@ the nuget.org gallery:
   pre-filter build are never read after upgrading — the filter takes effect
   immediately rather than being delayed by up to the cache TTL.
 
+### Revealing unlisted versions
+
+The listing status is available as a typed bit (`PackageVersionInfo.Listed`)
+rather than only a hidden filter, so a surface can *mark* unlisted versions
+instead of silently omitting them. `package --versions --include-unlisted`
+opts into this: it lists every version, including unlisted ones, as a
+`Version`/`Listing` table (each row marked `listed` or `unlisted`) across the
+Markdown, `--tsv`, and `--jsonl` shapes. Hiding remains the default, so the bare
+`--versions` output is unchanged.
+
+Because a pinned `Name@Version` names an explicit coordinate, the `--versions`
+query that verifies a single pinned version also consults the include-unlisted
+listing, so verifying a known unlisted version reports it rather than
+"not found". When listing status is unknown (fail-open, or a non-nuget.org
+feed), versions are reported as listed.
+
+`--include-unlisted` composes with the other `--versions` lenses. With a limit
+(`--versions 1 --include-unlisted`) it takes the listing-aware path — every
+single-version shortcut (the local package cache, a pinned `Name@Version`, and
+`Name@latest`) still emits a one-row tagged table rather than a bare version, so
+the result always carries the `listed`/`unlisted` column the flag requests.
+(`Name@latest` resolves through the listing-aware latest path, so its single row
+is listed by construction.) With an addressable range (`Name@A..B --versions
+--include-unlisted`) the vector is resolved from the full listing set — unlisted
+versions included — so an unlisted endpoint resolves rather than being reported
+as a missing endpoint, and each in-range row is marked. Prereleases are included
+whenever a range endpoint is itself a prerelease (matching the default range
+path), so a prerelease-endpoint range resolves without `--preview`. The bare
+range (without the flag) resolves against listed versions only, matching the
+hidden default.
+
+The version-list cache stores the listed bit per version. Each cache line
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
+the encoding is unambiguous for any version text; a legacy suffix-less line is
+read as listed.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
