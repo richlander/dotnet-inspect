@@ -35,8 +35,8 @@ dotnet-inspect                      L3  argument parsing, console, formats
         |
         +-- DotnetInspector.Queries L1  typed inspection requests -> results
               |
-              +-- ILInspector.*         metadata, analysis, decompiler, research
-                  DotnetInspector.*     packages, services, core
+              +-- DotnetInspector.*     packages, services, core
+                  ILInspector.*         metadata, analysis, decompiler, research
 ```
 
 Each layer is a separate component. A consumer decides how far up it comes:
