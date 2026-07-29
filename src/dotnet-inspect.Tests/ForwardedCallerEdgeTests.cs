@@ -297,11 +297,111 @@ public class ForwardedCallerEdgeTests
     }
 
     /// <summary>
+    /// The reference version reaches identity verification through the <em>snapshot</em> taken at
+    /// indexing time, not only through the prefilter's live <c>MetadataReader</c>.
+    ///
+    /// <para>The two paths are separate: <see cref="ILInspector.Analysis.CallerScopeTypeFilter"/>
+    /// calls <c>RestrictedTo(MetadataReader)</c> while <c>CallerEdges</c> calls
+    /// <c>RestrictedTo(ImmutableArray&lt;AssemblyReferenceSpelling&gt;)</c> over
+    /// <c>LibraryBodyIndex.AssemblyReferences</c>. A scope carried over from another lens never
+    /// runs the prefilter — that gap was the round-2 defect — so a version dropped on the way into
+    /// the snapshot would be invisible to every prefilter test. Reported after mutating
+    /// <c>CaptureAssemblyReferences</c> to record every reference as <c>0.0.0.0</c> and watching
+    /// the suite stay green, in review of <c>984454a3</c>.</para>
+    ///
+    /// <para>The evidence is synthetic so its version can be placed below this assembly's real
+    /// reference; the caller, the call site and the reference version are all real.</para>
+    /// </summary>
+    [Fact]
+    public void CallerEdges_ConsultTheReferenceVersionCapturedAtIndexingTime()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        string facade = Path.Combine(FrameworkDirectory, "System.Xml.ReaderWriter.dll");
+        Assert.SkipWhen(!File.Exists(facade), "System.Xml.ReaderWriter not in the runtime directory.");
+
+        byte[]? genuineKey = System.Reflection.AssemblyName.GetAssemblyName(facade).GetPublicKey();
+        Assert.SkipWhen(genuineKey is not { Length: > 0 }, "The shipped facade is not strong-named.");
+
+        Version? referenced = ReferencedFacadeVersion();
+        Assert.SkipWhen(
+            referenced is null || referenced.Major == 0,
+            "This assembly does not reference the facade at a version a test can undercut.");
+
+        var xmlReader = ILInspector.Analysis.TypeRef.Definition(
+            "System.Private.Xml", "System.Xml", "XmlReader");
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), "fwd-snapshot-" + Guid.NewGuid().ToString("n"));
+        string control = Path.Combine(directory, "control");
+        string below = Path.Combine(directory, "below");
+        Directory.CreateDirectory(control);
+        Directory.CreateDirectory(below);
+        try
+        {
+            // Identical in every respect except the version: same spelling, same public key, same
+            // forwarder. So the difference in the two answers is the version and nothing else.
+            WriteFacade(control, genuineKey!, referenced!);
+            WriteFacade(below, genuineKey!, new Version(referenced!.Major - 1, 0, 0, 0));
+
+            var targetSession = MethodBodyInspectionSession.Open(target!);
+
+            var accepted = targetSession.CallerEdges(
+                CreateFromUriToken(target!),
+                [MethodBodyInspectionSession.Open(SelfPath)],
+                ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
+                    xmlReader, Directory.GetFiles(control, "*.dll")));
+
+            // Premise: the wiring works at all under this synthetic evidence, so the absence below
+            // is the version check rather than a facade the walk never accepted.
+            Assert.Contains(accepted, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+
+            var refused = targetSession.CallerEdges(
+                CreateFromUriToken(target!),
+                [MethodBodyInspectionSession.Open(SelfPath)],
+                ILInspector.Analysis.ForwardedTypeAliases.ForTarget(
+                    xmlReader, Directory.GetFiles(below, "*.dll")));
+
+            Assert.DoesNotContain(refused, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The version this test assembly's own <c>AssemblyRef</c> row records for the facade — the
+    /// value the snapshot must carry.
+    /// </summary>
+    static Version? ReferencedFacadeVersion()
+    {
+        using var reader = new PEReader(File.OpenRead(SelfPath));
+        var metadata = reader.GetMetadataReader();
+        foreach (var handle in metadata.AssemblyReferences)
+        {
+            var reference = metadata.GetAssemblyReference(handle);
+            if (metadata.GetString(reference.Name) == "System.Xml.ReaderWriter")
+                return reference.Version;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// A strong-named assembly calling itself <c>System.Xml.ReaderWriter</c> and forwarding
     /// <c>System.Xml.XmlReader</c> to <c>System.Private.Xml</c>, exactly as the real facade does.
     /// Everything about it matches the genuine article except the key it is signed with.
     /// </summary>
     static void WriteImpostorFacade(string directory)
+        => WriteFacade(directory, [.. Enumerable.Repeat((byte)0xC3, 16)], new Version(1, 0, 0, 0));
+
+    /// <summary>
+    /// The same, with the identity behind the spelling supplied by the caller, so a test can hold
+    /// the forwarding behaviour fixed and vary one component of ECMA identity.
+    /// </summary>
+    static void WriteFacade(string directory, byte[] publicKey, Version version)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -312,9 +412,9 @@ public class ForwardedCallerEdgeTests
             default);
         metadata.AddAssembly(
             metadata.GetOrAddString("System.Xml.ReaderWriter"),
-            new Version(1, 0, 0, 0),
+            version,
             culture: default,
-            publicKey: metadata.GetOrAddBlob(Enumerable.Repeat((byte)0xC3, 16).ToArray()),
+            publicKey: metadata.GetOrAddBlob(publicKey),
             flags: System.Reflection.AssemblyFlags.PublicKey,
             hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
 

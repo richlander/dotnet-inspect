@@ -94,7 +94,7 @@ public sealed class ForwardedTypeAliases
 
     /// <summary>No aliases: every comparison falls back to plain identity.</summary>
     public static ForwardedTypeAliases None { get; } = new(
-        new HashSet<string>(StringComparer.Ordinal),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
@@ -227,7 +227,7 @@ public sealed class ForwardedTypeAliases
         if (verified.Count == 0)
             return None;
 
-        var aliases = new HashSet<string>(StringComparer.Ordinal);
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var spellingTokens = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string raw in verified)
@@ -320,11 +320,26 @@ public sealed class ForwardedTypeAliases
         if (!string.Equals(reference.Culture, evidence.Culture, StringComparison.OrdinalIgnoreCase))
             return ReferenceVerdict.Contradicted;
 
-        // Roll-forward direction, not equality. A reference can bind to a same-or-newer definition
-        // and never to an older one, so a reference naming a version above the evidence did not
-        // bind to this assembly — it named a different, later one that happens to share the
-        // spelling. Equality would instead decline the 713 measured legitimate roll-forwards.
-        if (reference.Version > evidence.Version)
+        // Version rule, and why it depends on signing. For a strong-named assembly the token
+        // already proves the publisher, and binding to a same-or-newer definition of one strong
+        // name is exactly what the loader does — requiring equality there would decline the
+        // canonical facade itself (mscorlib references System.Private.CoreLib at 0.0.0.0 against a
+        // definition of 9.0.0.0). For an unsigned assembly the token proves nothing, anyone can
+        // produce the name, and no binding policy ties an unsigned reference to a later file, so
+        // version is the only discriminator left and "could roll forward" is not evidence that it
+        // did (executed in review of 984454a3: an unsigned v3 forwarder vouched for a caller that
+        // referenced v2, which may define the type itself).
+        //
+        // Measured over the shared framework, ASP.NET Core and this repository's build output
+        // (16,294 references resolving to a definition on disk): 712 legitimate roll-forwards are
+        // strong-named and exactly 1 is unsigned. So this costs one miss and closes the
+        // fabrication.
+        bool evidenceIsSigned = evidence.Token.Length > 0;
+        bool versionAgrees = evidenceIsSigned
+            ? reference.Version <= evidence.Version
+            : reference.Version == evidence.Version;
+
+        if (!versionAgrees)
             return ReferenceVerdict.Contradicted;
 
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
@@ -360,6 +375,13 @@ public sealed class ForwardedTypeAliases
     /// Whether <paramref name="assembly"/> is a facade spelling that forwards the target type to
     /// the target's defining assembly. Already-equal spellings are not aliases and are not
     /// recorded here; identity comparison answers those.
+    ///
+    /// <para>Assembly names compare case-insensitively, as the CLR compares them
+    /// (<see cref="System.Reflection.AssemblyName.ReferenceMatchesDefinition"/> matches
+    /// <c>contoso.facade</c> to <c>Contoso.Facade</c>). The alias sets were ordinal while the
+    /// identity verification beside them was case-insensitive, so a reference that differed only
+    /// in case verified and was then refused by the lookup, dropping a genuine caller (found in
+    /// review of <c>984454a3</c>).</para>
     /// </summary>
     public bool Includes(string assembly) => _aliases.Contains(assembly);
 
@@ -375,10 +397,16 @@ public sealed class ForwardedTypeAliases
     /// sibling down with it, which is the regression the <c>Contradicted</c>/<c>Indeterminate</c>
     /// split exists to prevent — so the spelling is refused by name here, where it is still
     /// known.</para>
+    ///
+    /// <para>A candidate with no raw spelling is not special-cased. An earlier revision skipped the
+    /// refusal when <paramref name="rawSpelling"/> was empty, reading it as "nothing known, so do
+    /// not refuse" — a permissive default in a check whose entire purpose is to refuse, and the
+    /// shape every defect in this file has taken (raised in review of <c>984454a3</c>). An empty
+    /// spelling simply is not in the withdrawn set, so the refusal is a no-op for it either way,
+    /// and a <see cref="TypeRef"/> with no assembly name also has no canonical one to match.</para>
     /// </summary>
     public bool Includes(string assembly, string rawSpelling)
-        => _aliases.Contains(assembly)
-            && !(rawSpelling.Length > 0 && _withdrawnSpellings.Contains(rawSpelling));
+        => _aliases.Contains(assembly) && !_withdrawnSpellings.Contains(rawSpelling);
 
     /// <summary>
     /// Whether <paramref name="candidate"/> denotes the same type as <paramref name="target"/>,
@@ -474,8 +502,8 @@ public sealed class ForwardedTypeAliases
         // the core library is reachable through whichever of them forwards the type. The
         // imprecision is inherited from TypeRef identity rather than introduced here: those names
         // are already indistinguishable to the matcher.
-        var forwardsTo = new Dictionary<string, string>(StringComparer.Ordinal);
-        var rawByCanonical = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var forwardsTo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var rawByCanonical = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var tokensBySpelling = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var probed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -507,9 +535,20 @@ public sealed class ForwardedTypeAliases
                 // Differing only in version is not ambiguity: both files are the same signed
                 // identity and both forward the type, so the highest of them is the newest version
                 // known to forward, and roll-forward admits every reference at or below it.
+                //
+                // Unless they disagree about where the type went. Then raising the version to the
+                // max would vouch for a reference to the later file while `forwardsTo` still holds
+                // the earlier file's definer, aliasing the caller to a type it does not name.
+                // Same identity, same spelling, two answers: that is the ambiguity this arm is for
+                // (raised in review of 984454a3).
+                bool retargets =
+                    forwardsTo.TryGetValue(canonical, out string? already)
+                    && already != TypeRef.CanonicalAssembly(edge.Target);
+
                 if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen))
                 {
-                    if (!(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
+                    if (retargets
+                        || !(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
                         && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase)))
                     {
                         tokensBySpelling[edge.Assembly] =
@@ -540,7 +579,7 @@ public sealed class ForwardedTypeAliases
         if (forwardsTo.Count == 0)
             return None;
 
-        var aliases = new HashSet<string>(StringComparer.Ordinal);
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rawSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var spellingTokens = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         var canonicalByRaw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -580,7 +619,7 @@ public sealed class ForwardedTypeAliases
         string targetAssembly,
         Dictionary<string, string> forwardsTo)
     {
-        var visited = new HashSet<string>(StringComparer.Ordinal) { spelling };
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { spelling };
         string current = spelling;
 
         for (int hop = 0; hop < MaxHops; hop++)

@@ -337,7 +337,68 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// A reference naming a version <em>above</em> the evidence did not bind to the evidence: the
+    /// The CLR matches assembly names case-insensitively
+    /// (<c>AssemblyName.ReferenceMatchesDefinition</c> matches <c>contoso.facade</c> to
+    /// <c>Contoso.Facade</c>), and identity verification here already did. The alias sets did not,
+    /// so a reference differing only in case verified and was then refused by the lookup — a
+    /// genuine caller dropped by the two halves of one question disagreeing. Found in review of
+    /// <c>984454a3</c>.
+    /// </summary>
+    [Fact]
+    public void PrefilterKeepsAReferenceThatDiffersFromTheEvidenceOnlyInCase()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var lowercased = BuildCallerNaming("contoso.facade", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(lowercased.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// An unsigned assembly's token proves nothing — anyone can produce the name — so version is
+    /// the only discriminator left, and "could roll forward" is not evidence that it did. An
+    /// unsigned v3 forwarder vouching for a caller that references v2 fabricates: the v2 the caller
+    /// actually bound against may define the type itself. Executed in review of <c>984454a3</c>.
+    ///
+    /// <para>Strong-named evidence is the opposite case and is deliberately more permissive — see
+    /// <see cref="PrefilterAcceptsAnEarlierReferenceToStrongNamedEvidence"/>. Measured over 16,294
+    /// references resolving to a definition on disk, 712 legitimate roll-forwards are strong-named
+    /// and exactly 1 is unsigned, so this costs one miss and closes the fabrication.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterRejectsAnEarlierReferenceToUnsignedEvidence()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // Premise: the evidence is unsigned and written at 1.0.0.0, and an exact-version reference
+        // is admitted — so the rejection below is the version and nothing else.
+        using (var exact = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget"))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(exact.GetMetadataReader(), target, aliases));
+        }
+
+        using var earlier = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", publicKeyOrToken: null,
+            flags: default, culture: null, version: new Version(0, 5, 0, 0));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(earlier.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
     /// loader rolls forward, never backward. Without this, an unrelated later assembly sharing the
     /// spelling fabricated a caller — a v1 facade forwarding <c>Widget</c> vouched for a caller
     /// built against a v2 assembly of the same name that defines <c>Widget</c> itself, so a call to
@@ -379,6 +440,11 @@ public class ForwardedTypeAliasesTests
     /// above. Equality would have declined all 713, including <c>mscorlib</c>, the canonical
     /// forwarding facade, whose reference to <c>System.Private.CoreLib</c> reads <c>0.0.0.0</c>
     /// against a definition of <c>9.0.0.0</c> — the very shape #3419 exists to serve.</para>
+    ///
+    /// <para>The evidence here is strong-named, which is what earns the roll-forward: the token
+    /// already proves the publisher. Unsigned evidence gets the strict rule instead — see
+    /// <see cref="PrefilterRejectsAnEarlierReferenceToUnsignedEvidence"/>. Of the 713 measured
+    /// roll-forwards, <b>712</b> are strong-named and <b>1</b> is not.</para>
     /// </summary>
     [Fact]
     public void PrefilterAcceptsAReferenceToAnEarlierVersionThanTheEvidence()
@@ -669,6 +735,39 @@ public class ForwardedTypeAliasesTests
         Assert.Equal(
             CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
             CallerScopeTypeFilter.Classify(mixed.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// Two files claiming one assembly identity that forward the type to <em>different</em>
+    /// definers cannot both be right, and neither can be picked. The chain map takes the first
+    /// writer, so without this the second file's callers are aliased to the first file's definer —
+    /// a call to one type reported as a call to another.
+    ///
+    /// <para>Identity alone does not catch this: the two files agree on name, key and culture, so
+    /// every identity check passes and only the forwarding target disagrees. Raised in review of
+    /// <c>984454a3</c> against the version-max rule, but it does not need differing versions — this
+    /// fixture holds version fixed to show the disagreement itself is what makes the spelling
+    /// unusable.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterDeclinesASpellingWhoseTwoFilesForwardToDifferentDefiners()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "first");
+        WriteForwarder(
+            directory, "Contoso.Facade", "Other.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "second");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
     }
 
     /// <summary>
