@@ -9633,9 +9633,12 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
-            Assert.Contains("| Signals | section (opt-in) |", output);
-            Assert.Contains("| SourceLink: Files | section (opt-in) |", output);
+            Assert.Contains("| Signals | section |", output);
             Assert.Contains("Manifest", output);
+            // SourceLink: Files is reachable through its door rather than the top-level
+            // catalog, so the door is what discovery has to advertise.
+            Assert.Contains("| @SourceLink | category |", output);
+            Assert.DoesNotContain("| SourceLink: Files | section |", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -9660,17 +9663,17 @@ public class CommandExecutionTests
             Assert.Empty(error);
             var rows = ExtractDiscoveryRows(output);
 
-            Assert.Contains(rows, row => row.Name == "Package files" && row.Kind == "section (opt-in)");
+            Assert.Contains(rows, row => row.Name == "Package files" && row.Kind == "section");
 
             var regular = rows.Where(row => row.Kind == "section").Select(row => row.Name).ToArray();
             var categories = rows.Where(row => row.Kind == "category").Select(row => row.Name).ToArray();
-            var optIn = rows.Where(row => row.Kind == "section (opt-in)").Select(row => row.Name).ToArray();
 
             Assert.Equal(regular.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), regular);
             Assert.Equal(categories.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), categories);
-            Assert.Equal(optIn.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), optIn);
-            Assert.True(rows.FindLastIndex(row => row.Kind == "section") < rows.FindIndex(row => row.Kind == "category"));
-            Assert.True(rows.FindLastIndex(row => row.Kind == "category") < rows.FindIndex(row => row.Kind == "section (opt-in)"));
+            // Curated catalogs lead with the topical doors, then the sections, and no longer
+            // annotate rows as opt-in: the size-class and cost axes carry that instead.
+            Assert.True(rows.FindLastIndex(row => row.Kind == "category") < rows.FindIndex(row => row.Kind == "section"));
+            Assert.DoesNotContain(rows, row => row.Kind == "section (opt-in)");
         }
         finally
         {
@@ -9692,9 +9695,12 @@ public class CommandExecutionTests
             Assert.Contains("SourceLink: Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
-            Assert.Contains("@All", output);
-            Assert.Contains("@Default", output);
-            Assert.Contains("section (opt-in)", output);
+            // @All/@Default/@Hidden are internal computed poles, not doors: curated discovery
+            // advertises only the real category doors.
+            Assert.Contains("| @Files | category |", output);
+            Assert.Contains("| @SourceLink | category |", output);
+            Assert.DoesNotContain("@All", output);
+            Assert.DoesNotContain("@Default", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -9802,11 +9808,14 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
-            Assert.Contains("## Package library files", output);
+            Assert.Contains("## Manifest", output);
+            // Package-growing sections stay out of the fixed overview...
             Assert.DoesNotContain("## Dependencies", output);
-            Assert.DoesNotContain("## Manifest", output);
+            Assert.DoesNotContain("## Target Frameworks", output);
+            Assert.DoesNotContain("## Package files", output);
+            // ...as do the network-bound ones, however small their row set.
             Assert.DoesNotContain("## Signals", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Package library files", StringComparison.Ordinal));
+            Assert.DoesNotContain("## Statistics", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10042,10 +10051,10 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Library Files");
+            // The lib/ slice is no longer its own section: --path is the scoping mechanism.
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "lib/**");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Package library files", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| lib/net10.0/Latest.One.dll |", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
@@ -10065,10 +10074,10 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-v:n");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Package library files", output);
+            Assert.Contains("## Package files", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
@@ -10122,18 +10131,18 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (refExit, refOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Reference");
-            Assert.Equal(0, refExit);
-            Assert.Contains("## Package reference files", refOutput);
-            Assert.Contains("| ref/net8.0/Layout.dll |", refOutput);
-            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", refOutput);
+            var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package markdown files");
+            Assert.Equal(0, mdExit);
+            Assert.Contains("## Package markdown files", mdOutput);
+            Assert.Contains("| README.md |", mdOutput);
+            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", mdOutput);
 
-            var (runtimeExit, runtimeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Runtime");
-            Assert.Equal(0, runtimeExit);
-            Assert.Contains("## Package runtime files", runtimeOutput);
-            Assert.Contains("| runtimes/win-x64/native/layout.native.txt |", runtimeOutput);
+            var (readmeExit, readmeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package README file");
+            Assert.Equal(0, readmeExit);
+            Assert.Contains("## Package README file", readmeOutput);
+            Assert.Contains("| README.md |", readmeOutput);
 
-            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package nuspec file");
             Assert.Equal(0, nuspecExit);
             Assert.Contains("## Package nuspec file", nuspecOutput);
             // The manifest section is a path listing, not the document itself.
@@ -10193,22 +10202,22 @@ public class CommandExecutionTests
     [Fact]
     public async Task Package_FilesCategory_DropsEmptyMembersButStillCountsThem()
     {
-        // CreateLocalLibPackage has lib/ only: no ref/, runtimes/, markdown, or nuspec.
-        var (packagePath, tempDir) = CreateLocalLibPackage();
+        // CreateLocalLayoutPackage ships a README and a manifest but no skills/.
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (renderExit, renderOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files");
             Assert.Equal(0, renderExit);
-            Assert.Contains("## Package library files", renderOutput);
-            Assert.DoesNotContain("## Package reference files", renderOutput);
-            Assert.DoesNotContain("## Package runtime files", renderOutput);
+            Assert.Contains("## Package nuspec file", renderOutput);
+            Assert.Contains("## Package README file", renderOutput);
+            Assert.DoesNotContain("## Package skill files", renderOutput);
 
             // --count reports the whole category, including the members that rendered nothing.
             var (countExit, countOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files", "--count");
             Assert.Equal(0, countExit);
-            Assert.Contains("| Package reference files | 0 |", countOutput);
-            Assert.Contains("| Package runtime files | 0 |", countOutput);
-            Assert.Contains("| Package library files | 4 |", countOutput);
+            Assert.Contains("| Package skill files | 0 |", countOutput);
+            Assert.Contains("| Package nuspec file | 1 |", countOutput);
+            Assert.Contains("| Package README file | 1 |", countOutput);
         }
         finally
         {
@@ -10222,13 +10231,13 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (libExit, libOutput, _) = await RunAppAsync("package", packagePath, "-S", "Library Files");
-            Assert.Equal(0, libExit);
-            Assert.Contains("## Package library files", libOutput);
-
             var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
             Assert.Equal(0, mdExit);
             Assert.Contains("## Package markdown files", mdOutput);
+
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("## Package nuspec file", nuspecOutput);
         }
         finally
         {
@@ -10282,7 +10291,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Section", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package README file", output);
@@ -10298,7 +10307,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_GroundingSection_LegacyReadmeSelectorStillResolves()
+    public async Task Package_ReadmeSection_LegacyReadmeSelectorStillResolves()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Grounding.Alias", "README.md", "readme", "agents");
         try
@@ -10317,7 +10326,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Print_PrintsBestGroundingContent()
+    public async Task Package_Print_PrintsBestReadmeContent()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Print.Grounding",
@@ -10327,7 +10336,7 @@ public class CommandExecutionTests
             ("00-FIRST.txt", "wrong file"));
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--print", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -10419,7 +10428,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--bare", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--bare", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

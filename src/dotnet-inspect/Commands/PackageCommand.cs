@@ -48,7 +48,27 @@ public class PackageCommand
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap());
+                sectionCategories: pipeline.GetCategoryMap(),
+                // --schema reveals the full catalog including the @Hidden pole; a static -D
+                // without --schema keeps the curated top-level view.
+                catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
+        }
+
+        // Bare -S (a lone @Default preset - i.e. `-S` with no value) selects the network-free
+        // "fixed" overview: only sections whose declared growth class is Fixed and whose cost is
+        // NetworkFree, so the rendered set is structurally identical for every package (absence
+        // means "not applicable", never "too long for this package"). Drop the preset marker and
+        // flag the fixed overview; keep display verbosity at Normal, and never downgrade a higher
+        // verbosity the user asked for - there the normal curated ladder applies instead.
+        if (!packageLibraryMode
+            && options.Discover == null
+            && options.Select is { Length: 1 }
+            && SelectResolver.IsInfoSelector(options.Select))
+        {
+            options = options with { Select = null };
+            if (options.Verbosity == Verbosity.Minimal)
+                options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
         // -D defaults to effective discovery for target-based commands.
@@ -587,7 +607,9 @@ public class PackageCommand
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)userVerbosity, rootLabel: $"package {packageName}", fullSchema: fullSchemaMap,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap());
+                    sectionCategories: pipeline.GetCategoryMap(),
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
@@ -997,10 +1019,7 @@ public class PackageCommand
         {
             PackageSections.PackageInfo => ProjectPackageInfo(result, section, kind, options),
             PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
-            PackageSections.FilesLibrary => ProjectPackageFiles(new InspectionResultView(result).LibraryFiles, section, kind, options),
             PackageSections.FilesMarkdown => ProjectPackageFiles(new InspectionResultView(result).MarkdownFiles, section, kind, options),
-            PackageSections.FilesReference => ProjectPackageFiles(new InspectionResultView(result).ReferenceFiles, section, kind, options),
-            PackageSections.FilesRuntime => ProjectPackageFiles(new InspectionResultView(result).RuntimeFiles, section, kind, options),
             PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.FilesReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
             PackageSections.FilesSkills => ProjectPackageFiles(new InspectionResultView(result).SkillFiles, section, kind, options),

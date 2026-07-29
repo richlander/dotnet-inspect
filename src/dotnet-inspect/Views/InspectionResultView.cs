@@ -73,11 +73,6 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.PackageInfo, FieldOrder = MarkoutFieldOrder.Alphabetical)]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
-    [MarkoutSection(Name = PackageSections.FilesLibrary)]
-    public List<PackageFileRow>? LibraryFiles => LibraryPackageFiles()
-        ?.Select(ToFileRow)
-        .ToList();
-
     [MarkoutSection(Name = PackageSections.FilesMarkdown)]
     public List<PackageFileRow>? MarkdownFiles => FamilyRows(PackageSections.FilesMarkdown);
 
@@ -91,12 +86,6 @@ public class InspectionResultView
     // its siblings instead of re-deriving the readme from PackageReadmeFile.
     [MarkoutSection(Name = PackageSections.FilesReadme)]
     public List<PackageFileRow>? PackageReadme => FamilyRows(PackageSections.FilesReadme);
-
-    [MarkoutSection(Name = PackageSections.FilesReference)]
-    public List<PackageFileRow>? ReferenceFiles => FamilyRows(PackageSections.FilesReference);
-
-    [MarkoutSection(Name = PackageSections.FilesRuntime)]
-    public List<PackageFileRow>? RuntimeFiles => FamilyRows(PackageSections.FilesRuntime);
 
     [MarkoutSection(Name = PackageSections.FilesSkills)]
     public List<PackageFileRow>? SkillFiles => FamilyRows(PackageSections.FilesSkills);
@@ -265,21 +254,6 @@ public class InspectionResultView
     [MarkoutPropertyName("Native Files")]
     public List<string>? NativeFiles => _data.NativeFiles;
 
-    private List<PackageFile>? LibraryPackageFiles()
-    {
-        if (_data.PackageFiles is { Count: > 0 } files)
-        {
-            var rows = files
-                .Where(IsLibraryFile)
-                .ToList();
-            return rows.Count > 0 ? rows : null;
-        }
-
-        return _data.LibraryFiles?
-            .Select(path => new PackageFile(path, 0))
-            .ToList();
-    }
-
     private static PackageFileRow ToFileRow(PackageFile file)
         => new(file.Path, file.Size);
 
@@ -287,9 +261,6 @@ public class InspectionResultView
         => PackageFileFamily.PredicateFor(section) is { } predicate
             ? _data.PackageFiles?.Where(predicate).Select(ToFileRow).ToList()
             : null;
-
-    private static bool IsLibraryFile(PackageFile file)
-        => PackageFileFamily.PredicateFor(PackageSections.FilesLibrary)!(file);
 
     private List<MarkoutField> GetCompactFields()
     {

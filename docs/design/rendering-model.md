@@ -45,8 +45,8 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | ----- | -------- |
 | `-v:q` | Title and fields only |
 | `-v:m` | Package Info |
-| `-v:n` | Dependencies, Manifest, Package Info, Package library files, Package reference files, Package runtime files, Runtime Dependencies, Signature, Target Frameworks |
-| `-v:d` | Dependencies, Manifest, Package Info, Package library files, Package reference files, Package runtime files, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
+| `-v:n` | Dependencies, Manifest, Package Info, Package markdown files, Package nuspec file, Package README file, Package skill files, Runtime Dependencies, Signature, Target Frameworks |
+| `-v:d` | everything at `-v:n`, plus Signals, Statistics, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
 
@@ -65,7 +65,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-The package file sections all expose package-relative paths and uncompressed byte sizes over one schema. `Package files` is explicit-only and renders the full package depth. The named slices over that same list are reachable together through the `@Files` category: `Package library files` (`lib/`, the default asset slice), `Package reference files` (`ref/`), `Package runtime files` (`runtimes/`), `Package markdown files` (all `.md`), `Package skill files` (`skills/**/SKILL.md`), `Package nuspec file` (the manifest path), and `Package README file` (the best README candidate, `README.md` > `PACKAGE.md` > declared readme). The last two are singular because they yield at most one row. `Package files` itself is the unfiltered superset rather than a family member, so `@Files` does not re-render every path it already covers. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
+The package file sections all expose package-relative paths and uncompressed byte sizes over one schema. `Package files` renders the full package depth and never auto-renders. The named slices over that same list are reachable together through the `@Files` category: `Package markdown files` (all `.md`), `Package skill files` (`skills/**/SKILL.md`), `Package nuspec file` (the manifest path), and `Package README file` (the best README candidate, `README.md` > `PACKAGE.md` > declared readme). The last two are singular because they yield at most one row. Slices by layout root (`lib/`, `ref/`, `runtimes/`) are not sections: `--path "lib/**"` scopes the listing instead, and `Package Info`'s `Content` field names the roots a package ships. `Package files` itself is the unfiltered superset rather than a family member, so `@Files` does not re-render every path it already covers. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
 
 **Why `Package files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S "Package files"` file-resolution view is the correct entry point for structural exploration.
 
@@ -117,7 +117,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
-| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `-S "Package README file" --print`, `--readme`, `--versions`, `-S Signals` |
+| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--readme`, `--versions`, `-S Signals` |
 | `project` | — | `-S Skills`, `-S Skills --print --row N` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "Original Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |

@@ -598,7 +598,10 @@ public sealed class SectionPipeline<TModel>
     /// <see cref="SectionEntry{TModel}.SizeClass"/> and <see cref="SectionEntry{TModel}.Cost"/>
     /// fit the view:
     /// <list type="bullet">
-    ///   <item><b>Quiet</b>: no sections (the identity line is rendered by the view model).</item>
+    ///   <item><b>Quiet</b>: the headless <c>Summary</c> preamble only, for commands that
+    ///   register one. <c>Summary</c> carries the compact identity fields and is not selectable,
+    ///   so it sits outside the size/cost ladder rather than on it; commands with no
+    ///   <c>Summary</c> section render their identity line from the view model instead.</item>
     ///   <item><b>Minimal</b>: the target section(s) only (<see cref="SectionEntry{TModel}.Info"/>).</item>
     ///   <item><b>Normal</b>: Terse + Informative, network-free.</item>
     ///   <item><b>Detailed</b>: all size classes, network-free or moderated cost (never unbounded).</item>
@@ -609,12 +612,15 @@ public sealed class SectionPipeline<TModel>
     private static bool IsCuratedAutoRendered(SectionEntry<TModel> entry, Verbosity verbosity)
         => verbosity switch
         {
-            Verbosity.Quiet => false,
-            Verbosity.Minimal => entry.Info,
+            Verbosity.Quiet => IsHeadlessSummary(entry),
+            Verbosity.Minimal => entry.Info || IsHeadlessSummary(entry),
             Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
                 && entry.Cost == SectionCost.NetworkFree,
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost
         };
+
+    private static bool IsHeadlessSummary(SectionEntry<TModel> entry)
+        => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSelectable(SectionEntry<TModel> entry)
         => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);

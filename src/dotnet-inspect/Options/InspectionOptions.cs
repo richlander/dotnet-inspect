@@ -175,6 +175,15 @@ public record InspectionOptions
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>
+    /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose
+    /// declared <see cref="DotnetInspector.Sections.SectionSizeClass.Fixed"/> growth class and
+    /// <see cref="DotnetInspector.Sections.SectionCost.NetworkFree"/> cost make their membership
+    /// package-independent. Set internally when a valueless <c>-S</c> is issued at the default
+    /// verbosity; an explicit <c>-v:n</c>/<c>-v:d</c> stays on the normal curated ladder.
+    /// </summary>
+    public bool FixedOverview { get; init; }
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }

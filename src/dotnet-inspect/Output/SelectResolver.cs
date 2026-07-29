@@ -65,18 +65,12 @@ public static class SelectResolver
         ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
         ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
         // Package file family: both the original names and the interim "Files:" spellings.
-        ["Library Files"] = DotnetInspector.Views.PackageSections.FilesLibrary,
         ["Markdown Files"] = DotnetInspector.Views.PackageSections.FilesMarkdown,
-        ["Files: Library"] = DotnetInspector.Views.PackageSections.FilesLibrary,
-        ["Files: Reference"] = DotnetInspector.Views.PackageSections.FilesReference,
-        ["Files: Runtime"] = DotnetInspector.Views.PackageSections.FilesRuntime,
         ["Files: Markdown"] = DotnetInspector.Views.PackageSections.FilesMarkdown,
         ["Files: Nuspec"] = DotnetInspector.Views.PackageSections.FilesNuspec,
         ["Files"] = DotnetInspector.Views.PackageSections.Files,
-        // "Grounding" resolved the best package doc; that behavior is now "Package README
         // file". The agent-grounding intent the name carried is served by "Package skill
         // files", which is a different section, so this alias follows the behavior.
-        ["Grounding"] = DotnetInspector.Views.PackageSections.FilesReadme,
     };
 
     /// <summary>

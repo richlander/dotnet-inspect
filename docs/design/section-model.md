@@ -86,11 +86,17 @@ rather than a mechanism change:
   `SourceLink:`. This suits families whose leaf names are only meaningful under
   the group.
 - A shared **noun-phrase suffix**, used by the package file family:
-  `Package library files`, `Package reference files`, `Package runtime files`,
   `Package markdown files`, `Package skill files`, `Package nuspec file`, and
   `Package README file`. These read as English rather than as a namespace, and
   their singular/plural form carries real information — a singular name means
   the section yields at most one row.
+
+  The family covers *kinds of document*, not layout roots. There is no
+  `Package library files` section: `lib/`, `ref/`, and `runtimes/` are slices of
+  one listing rather than different things, so `--path "lib/**"` scopes
+  `Package files` and `Package Info`'s `Content` field names the roots a package
+  ships. A section per root would have multiplied the catalog without answering
+  a question the path scope could not.
 
 Both are enforced the same way: a test pins the door's membership to the set of
 sections the naming rule selects, so a new section that adopts the naming but
@@ -316,32 +322,32 @@ The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-co
 $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 | Name | Kind |
 | ---- | ---- |
+| @Files | category |
+| @SourceLink | category |
 | Dependencies | section |
 | Manifest | section |
+| Package files | section |
 | Package Info | section |
-| Package library files | section |
+| Package markdown files | section |
+| Package nuspec file | section |
+| Package README file | section |
+| Signals | section |
 | Signature | section |
 | Statistics | section |
 | Target Frameworks | section |
-| @All | category |
-| @Default | category |
-| @Files | category |
-| @SourceLink | category |
-| Package files | section (opt-in) |
-| Package markdown files | section (opt-in) |
-| Package nuspec file | section (opt-in) |
-| Package README file | section (opt-in) |
-| Signals | section (opt-in) |
-| SourceLink: Files | section (opt-in) |
 ```
 
+Curated catalogs lead with the topical doors, then list sections alphabetically.
+`@All`, `@Default`, and `@Hidden` are computed poles rather than doors, so
+discovery does not advertise them. `SourceLink: Files` is absent from the
+section rows for the same reason a `Performance:` leaf is on the library
+command: the door above it is the entry point.
+
 Discovery is data-aware, so this listing is a property of the target and not a
-static catalog. `System.CommandLine` ships no `ref/`, `runtimes/`, or `skills/` assets, so
-`Package reference files`, `Package runtime files`, and `Package skill files` do
-not list for it; the first two appear for a package such as
-`Microsoft.Data.SqlClient` that ships them. This is the same rule that
-keeps `Vulnerabilities` and `Runtime Dependencies` out of the listing when they
-would be empty.
+static catalog. `System.CommandLine` ships no `skills/**/SKILL.md`, so
+`Package skill files` does not list for it; it appears for a package such as
+`Markout` that does. This is the same rule that keeps `Vulnerabilities` and
+`Runtime Dependencies` out of the listing when they would be empty.
 
 The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
 

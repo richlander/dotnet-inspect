@@ -4,7 +4,7 @@ using DotnetInspector.Models;
 
 /// <summary>
 /// The package file family: <c>Package &lt;X&gt; file(s)</c> listings, each scoped to one
-/// slice of the package layout.
+/// kind of document the package ships.
 ///
 /// This is the single declaration of which sections are in the family and what each
 /// one matches. The section descriptors, the view's row projections, the command's
@@ -19,9 +19,6 @@ public static class PackageFileFamily
     /// </summary>
     public static readonly (string Section, Func<PackageFile, bool> Matches)[] Members =
     [
-        (PackageSections.FilesLibrary, static file => HasRoot(file, "lib/")),
-        (PackageSections.FilesReference, static file => HasRoot(file, "ref/")),
-        (PackageSections.FilesRuntime, static file => HasRoot(file, "runtimes/")),
         (PackageSections.FilesMarkdown, static file => HasExtension(file, ".md")),
         (PackageSections.FilesNuspec, static file => HasExtension(file, ".nuspec")),
         // At most one row: IsReadme is set on the single file that ResolvePackageReadme

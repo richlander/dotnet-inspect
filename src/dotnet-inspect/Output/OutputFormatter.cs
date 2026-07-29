@@ -235,7 +235,7 @@ public static class OutputFormatter
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
-            result, options.Verbosity, options.IncludeSections, selectAll);
+            result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         if (includeContext && includeSections is { Count: > 0 })
             includeSections = [PackageSections.Summary, .. includeSections];
 

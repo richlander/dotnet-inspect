@@ -1237,7 +1237,6 @@ public class OutputFormatterTests
             IncludeSections =
             [
                 PackageSections.PackageInfo,
-                PackageSections.FilesLibrary,
                 PackageSections.Signature,
                 PackageSections.Signals
             ]

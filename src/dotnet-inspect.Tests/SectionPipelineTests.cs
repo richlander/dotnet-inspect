@@ -1554,7 +1554,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(19, pipeline.AllSectionNames.Length);
+        Assert.Equal(16, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1568,9 +1568,6 @@ public class SectionPipelineTests
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
-        Assert.Contains("Package library files", names);
-        Assert.Contains("Package reference files", names);
-        Assert.Contains("Package runtime files", names);
         Assert.Contains("Package markdown files", names);
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
@@ -1774,7 +1771,9 @@ public class SectionPipelineTests
 
         var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Package Info" });
 
-        Assert.Equal(Verbosity.Quiet, required);
+        // Curated ladder: Quiet renders only the headless Summary preamble, so the identity
+        // table first becomes available at Minimal.
+        Assert.Equal(Verbosity.Minimal, required);
     }
 
     [Fact]
@@ -1797,11 +1796,14 @@ public class SectionPipelineTests
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
         };
 
-        // At Detailed with all default-renderable data populated, explicit-only Signals stays filtered.
+        // At Detailed with all default-renderable data populated, Unbounded-cost sections stay
+        // filtered: the whole-package listing and the PDB-backed SourceLink listing are reachable
+        // only by exact name or their category door, never by turning verbosity up.
         var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
 
         Assert.NotNull(include);
-        Assert.DoesNotContain("Signals", include);
+        Assert.DoesNotContain("Package files", include);
+        Assert.DoesNotContain("SourceLink: Files", include);
     }
 
     [Fact]
@@ -1823,7 +1825,9 @@ public class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        Assert.Equal(["Dependencies", "Manifest", "Package library files", "Signals", "SourceLink: Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+        // SourceLink: Files and Package files are reached through their door or by exact name,
+        // so they are not members of the visible @All pole.
+        Assert.Equal(["Dependencies", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
     [Fact]
@@ -1831,7 +1835,7 @@ public class SectionPipelineTests
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
 
-        Assert.Equal(["Package Info", "Package library files"], pipeline.InfoSectionNames);
+        Assert.Equal(["Package Info"], pipeline.InfoSectionNames);
     }
 
     public static IEnumerable<object[]> DiscoverablePipelineCases()
