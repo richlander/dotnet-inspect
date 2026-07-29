@@ -1079,6 +1079,22 @@ public class ScanTokenTests
         Assert.Equal(Enum.GetValues<ScanTokenKind>().ToHashSet(), kindsReached);
         Assert.True(deepest > 0, "no input opened a block, so no token was ever scanned inside one");
         Assert.True(shallowest < 0, "no input closed an unopened block, so depth never went below its start");
+
+        // Those three say what the alphabet must accomplish without saying which characters
+        // spell it, and that is both their strength and their blind spot: a character whose
+        // whole job is invisible to a summary of kinds and depths can be dropped without any of
+        // them noticing. `\` opens no construct, closes none, and produces no kind of its own;
+        // it only changes what the next character means. Removing it leaves every count and
+        // every reach intact while deleting the escape path from the sweep, after which a wrong
+        // depth on an escaped fragment survives (adversarial review, GPT). Pin the alphabet
+        // itself as well.
+        //
+        // The pin does not make the reach assertions redundant, and the division is measured
+        // rather than assumed. Replacing a character *and* updating this pin in step -- the
+        // shape a well-meaning edit takes -- is still caught for `{`, `}`, `#`, and `'` by the
+        // three assertions above, which is what keeps editing the alphabet honest. `\` is the
+        // one such edit they do not catch, and this is the assertion that does.
+        Assert.Equal("#/*'\"@$\\{}a", Alphabet);
     }
 
 
