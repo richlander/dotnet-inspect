@@ -488,7 +488,7 @@ public class FidelityGateTests
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;
-        return FidelityCheck.Evaluate(assembly)
+        return FidelityCheck.Evaluate(assembly, type => type == FixtureType)
             .Where(r => r.Type == FixtureType)
             .ToList();
     });
