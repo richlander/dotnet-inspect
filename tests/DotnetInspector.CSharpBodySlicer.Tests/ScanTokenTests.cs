@@ -24,6 +24,23 @@ public class ScanTokenTests
         return string.Join(' ', tokens.Select(t => $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}"));
     }
 
+    /// <summary>
+    /// Renders the token stream as <see cref="Render"/> does, with the three state fields each
+    /// token carries appended: structural depth, bracket depth, and a trailing "?" when the
+    /// scanner has lost its place and the depth is meaningless.
+    /// <para>
+    /// <see cref="Render"/> shows only kind and text, which is why every rule that governs these
+    /// three fields alone went ungated: a mutation could corrupt the depth of every token on a
+    /// line and no assertion in this file could see it (adversarial review, GPT).
+    /// </para>
+    /// </summary>
+    private static string RenderState(params string[] lines)
+    {
+        var tokens = BodySlicer.ScanTokens(lines);
+        return string.Join(' ', tokens.Select(t =>
+            $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}:d{t.Depth}:b{t.BracketDepth}{(t.DepthKnown ? "" : "?")}"));
+    }
+
     private static char Code(ScanTokenKind kind) => kind switch
     {
         ScanTokenKind.Word => 'W',
@@ -692,4 +709,140 @@ public class ScanTokenTests
 
         return [.. paths.OrderBy(p => p, StringComparer.Ordinal)];
     }
+
+    /// <summary>
+    /// A block comment closes on "*/" and on nothing else. Each of the three parts of that test
+    /// -- the "*", the bounds check, and the "/" -- was separately droppable with a green suite
+    /// (adversarial review, GPT), so each gets an input that only it rejects.
+    /// </summary>
+    [Fact]
+    public void BlockComment_DoesNotCloseOnASlashThatNoAsteriskPrecedes()
+    {
+        Assert.Equal(
+            "W:int W:x P:; C:/* a/b */ W:int W:y P:;",
+            Render("int x; /* a/b */ int y;"));
+    }
+
+    [Fact]
+    public void BlockComment_DoesNotCloseOnAnAsteriskThatNoSlashFollows()
+    {
+        Assert.Equal(
+            "W:int W:x P:; C:/* a*x */ W:int W:y P:;",
+            Render("int x; /* a*x */ int y;"));
+    }
+
+    /// <summary>
+    /// The bounds half of the same test. A line inside a block comment that ends in "*" has no
+    /// character after it to read, and reading one throws rather than misclassifying.
+    /// </summary>
+    [Fact]
+    public void BlockCommentLineEndingInAnAsterisk_DoesNotReadPastTheLine()
+    {
+        Assert.Equal(
+            "C:/* a C:b* C:c */ W:int W:y P:;",
+            Render("/* a", "b*", "c */ int y;"));
+    }
+
+    /// <summary>
+    /// "#if" makes the structural depth unknowable, because the braces below it may belong to a
+    /// branch the compiler discards. "#ifdef" is not a C# directive and names no branch, so
+    /// matching it as a conditional would discard the depth for every token that follows.
+    /// </summary>
+    [Fact]
+    public void DirectiveWhoseNameOnlyStartsWithAConditional_KeepsTheDepthKnown()
+    {
+        Assert.Equal(
+            "D:#ifdef X:d0:b0 W:int:d0:b0 W:x:d0:b0 P:;:d0:b0",
+            RenderState("#ifdef X", "int x;"));
+
+        // The close negative: the real directive must still give the depth up.
+        Assert.Equal(
+            "D:#if X:d0:b0? W:int:d0:b0? W:x:d0:b0? P:;:d0:b0?",
+            RenderState("#if X", "int x;"));
+    }
+
+    /// <summary>
+    /// A hole opens on "{". A "}" in literal text closes nothing -- the hole is closed from
+    /// inside it -- so it is content, and the text after it is still the literal's.
+    /// </summary>
+    [Fact]
+    public void ClosingBraceInAnInterpolatedLiteral_IsContentNotAHoleOpener()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:$\"}x\" P:;",
+            Render("var s = $\"}x\";"));
+    }
+
+    /// <summary>
+    /// The escaped quote is the reason the plain-content run stops at a backslash at all. Losing
+    /// that stop closes the literal early and reports its remaining text as code.
+    /// </summary>
+    [Fact]
+    public void EscapedQuoteInsideALiteral_DoesNotCloseIt()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:\"a\\\"b\" P:; W:int W:y P:;",
+            Render("var s = \"a\\\"b\"; int y;"));
+    }
+
+    /// <summary>
+    /// An unterminated character literal runs to the end of the line and stops there. Scanning
+    /// for its closing quote without a bounds check reads past the line instead of ending.
+    /// </summary>
+    [Fact]
+    public void UnterminatedCharLiteral_DoesNotReadPastTheLine()
+    {
+        Assert.Equal("W:char W:c P:= H:'x", Render("char c = 'x"));
+    }
+
+    /// <summary>
+    /// Bracket depth is how an attribute list spanning lines is told from the code around it, so
+    /// a bracket that belongs to an expression inside an interpolation hole must not move it.
+    /// </summary>
+    [Fact]
+    public void BracketInsideAnInterpolationHole_DoesNotMoveTheOuterBracketDepth()
+    {
+        Assert.Equal(
+            "P:[:d0:b0 W:A:d0:b1 P:(:d0:b1 S:$\"{:d0:b1 W:xs:d0:b1 P:[:d0:b1 W:i:d0:b1 " +
+            "P:]:d0:b1 S:}\":d0:b1 P:):d0:b1 P:]:d0:b1 W:int:d0:b0 W:f:d0:b0 P:;:d0:b0",
+            RenderState("[A($\"{xs[i]}\")] int f;"));
+    }
+
+    /// <summary>
+    /// A slice can begin below the "[" that opened a list. The unmatched "]" that follows must
+    /// leave the depth at zero rather than drive it negative, which would read as "inside a
+    /// list" to every predicate that asks.
+    /// </summary>
+    [Fact]
+    public void ClosingBracketWithoutAnOpener_DoesNotDriveTheBracketDepthNegative()
+    {
+        Assert.Equal("P:]:d0:b0 W:x:d0:b0", RenderState("] x"));
+    }
+
+    /// <summary>
+    /// A verbatim literal spans lines by design, so carrying one is not losing the place. Only a
+    /// literal that cannot span a line -- an unterminated single-quoted one -- is.
+    /// </summary>
+    [Fact]
+    public void MultilineVerbatimLiteral_KeepsTheDepthKnown()
+    {
+        Assert.Equal(
+            "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:@\"a:d0:b0 S:b\":d0:b0 P:;:d0:b0 " +
+            "W:int:d0:b0 W:y:d0:b0 P:;:d0:b0",
+            RenderState("var s = @\"a", "b\"; int y;"));
+    }
+
+    /// <summary>
+    /// A hole closes on the brace that matches its opener, not on the first "}" inside it. An
+    /// object initializer in a hole spells braces of its own, and closing on those turns the
+    /// rest of the expression into literal text.
+    /// </summary>
+    [Fact]
+    public void BracesInsideAHole_DoNotCloseTheInterpolation()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:$\"{ W:new P:{ W:X P:= W:1 P:} S:}\" P:; W:int W:y P:;",
+            Render("var s = $\"{new { X = 1 }}\"; int y;"));
+    }
+
 }

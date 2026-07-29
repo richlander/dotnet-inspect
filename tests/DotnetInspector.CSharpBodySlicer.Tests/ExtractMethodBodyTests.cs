@@ -1102,4 +1102,33 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("void Target() { Log($\"\"\"x{y}\n    \"\"\"); }", body);
     }
+
+    /// <summary>
+    /// A line that closes a literal carried in from above and then declares a sibling accessor
+    /// is a declaration from the point the literal ends. Asking only whether the line *began*
+    /// inside a literal suppressed the question on exactly the line that answers it, and the
+    /// getter's slice then swallowed the setter (adversarial review, GPT).
+    /// </summary>
+    [Fact]
+    public void AccessorClosingACarriedLiteral_DoesNotSwallowTheSiblingAccessor()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    public string P",
+            "    {",
+            "        get",
+            "        {",
+            "            return @\"a",
+            "\" set { _v = value; }",
+            "        }",
+            "    }",
+            "}") + "\n";
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.NotNull(body);
+        Assert.DoesNotContain("set {", body);
+    }
+
 }
