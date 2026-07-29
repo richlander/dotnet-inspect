@@ -260,15 +260,19 @@ if (selected.Length != packageCount)
 // and 3 -- the right number of packages, every one of them pinned, and a pool that is
 // not the one the caller named. The caller asks for a rank range; the range is what
 // must arrive.
+// Nullable rather than a default sentinel. (0, 0) cannot name a real gap today --
+// startRank is refused at or below zero and every rank must be positive -- but that
+// makes "no gap" depend on two validations several hundred lines apart, and this
+// change has already been bitten twice by a quantity that could stand for two things.
 var gap = Enumerable.Range(0, selected.Length)
     .Where(index => selected[index].Rank != startRank + index)
-    .Select(index => (Expected: startRank + index, Got: selected[index].Rank))
+    .Select(index => ((int Expected, int Got)?)(startRank + index, selected[index].Rank))
     .FirstOrDefault();
-if (gap != default)
+if (gap is { } missing)
 {
     Console.Error.WriteLine(
-        $"The list does not rank {gap.Expected}; ranks {startRank}-"
-        + $"{startRank + packageCount - 1} were requested and rank {gap.Got} arrived "
+        $"The list does not rank {missing.Expected}; ranks {startRank}-"
+        + $"{startRank + packageCount - 1} were requested and rank {missing.Got} arrived "
         + "in its place.");
     Environment.ExitCode = 2;
     return;
