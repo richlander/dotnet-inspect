@@ -1011,13 +1011,37 @@ public class ScanTokenTests
         // the seed is no longer reaching the paths it was added for (adversarial review, GPT).
         Assert.Equal(openers.Length, openers.Distinct().Count());
 
+        var carriedKinds = new List<ScanTokenKind>();
+
         foreach (var opener in openers)
         {
             var carried = BodySlicer.ScanTokens([opener, "a"]).Last();
             Assert.True(
                 carried.Kind is ScanTokenKind.StringLiteral or ScanTokenKind.Comment,
                 $"opener [{opener}] no longer carries: 'a' below it scanned as {carried.Kind}");
+            carriedKinds.Add(carried.Kind);
         }
+
+        // "Carries" is not the property the arm needs, only the nearest visible one. Nine
+        // distinct unterminated comments all carry, satisfy the count, the distinctness, and
+        // the concatenation check, and leave the suite green -- while deleting every carried
+        // *string* fragment the arm exists to reach. Measured, that swap lets a wrong depth
+        // survive at two emit sites that nothing else in the suite catches. So pin the kinds
+        // the seeds carry as, which is exactly what the swap destroys, and pin that some seed
+        // is longer than the exhaustive arms can spell, which is why the arm exists at all.
+        Assert.Equal(8, carriedKinds.Count(k => k is ScanTokenKind.StringLiteral));
+        Assert.Equal(1, carriedKinds.Count(k => k is ScanTokenKind.Comment));
+        Assert.Equal(5, openers.Count(o => o.Length > 2));
+
+        // Those properties still describe the seeds rather than name them, and a seed can be
+        // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
+        // disturbing any of them, which drops one interpolation-order path and keeps the suite
+        // green (adversarial review, Gemini). The seeds are a hand-written list, so pin the
+        // list, for the same reason the alphabet is pinned by value: the properties above are
+        // why these forms, and this is which.
+        Assert.Equal(
+            ["\"", "@\"", "$\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "$$$\"\"\"\"", "/*"],
+            openers);
 
         var tails = new List<string> { "" };
         Walk(new char[1], 0, 1, tails.Add);
@@ -1068,8 +1092,20 @@ public class ScanTokenTests
         // against 1 second are the same number and not the same test (adversarial review, GPT).
         // Pin each dimension, so one cannot be spent to buy another.
         Assert.Equal(9, openers.Length);
-        Assert.Equal(12, tails.Count);
-        Assert.Equal(132, seconds.Count);
+
+        // Counting the swept lines says nothing about what they spell: 132 arbitrary unique
+        // strings satisfy a count as well as the 132 exhaustive ones, and carry none of the
+        // alphabet's meaning with them (adversarial review, GPT). Derive both sets here from the
+        // pinned alphabet, independently of the `Walk` that produced them, and compare in order.
+        // A second derivation is worth its duplication precisely because it is not the first:
+        // it pins the contents, the ordering, and `Walk`'s limits at once, and it is anchored,
+        // because the alphabet it reads is itself pinned just above.
+        var expectedTails = new[] { "" }.Concat(Alphabet.Select(c => c.ToString()));
+        var expectedSeconds = Alphabet.SelectMany(first =>
+            new[] { first.ToString() }.Concat(Alphabet.Select(second => $"{first}{second}")));
+
+        Assert.Equal(expectedTails, tails);
+        Assert.Equal(expectedSeconds, seconds);
 
         // Every count above can be met by an alphabet that spells nothing: replacing `{` with a
         // letter keeps all three dimensions and the pinned total while deleting the only input
