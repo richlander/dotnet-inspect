@@ -342,6 +342,60 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
+    /// The global usings the compiler was handed, as the build wrote them down,
+    /// for every project in the CLI's closure.
+    /// </summary>
+    /// <remarks>
+    /// Reading the repository's build files answers "what does this repository
+    /// declare", which is not the question. A reviewer imported a props file
+    /// from outside the repository -- <c>&lt;Import Project="/tmp/evil.props"/&gt;</c>,
+    /// though a machine-wide <c>Directory.Build.props</c> above the clone or a
+    /// NuGet package's <c>buildTransitive</c> targets need no <c>Import</c> at
+    /// all -- declared <c>&lt;Using Include="System.Console" Static="true"/&gt;</c>
+    /// there, wrote a bare <c>Error.WriteLine</c>, and every test stayed green.
+    ///
+    /// Widening the file scan cannot fix that, because the set of files MSBuild
+    /// reads is not a property of this repository. So this stops reading
+    /// declarations and reads the result: the SDK writes every effective
+    /// <c>Using</c> into a generated <c>GlobalUsings.g.cs</c>, and that file is
+    /// a compiler input, not a prediction of one. Wherever the import came from
+    /// -- this repository, a parent directory, a package, an environment
+    /// variable -- it appears there or it did not happen.
+    ///
+    /// A missing file throws. It means the closure was not built, so the
+    /// observation is unavailable, and an unavailable answer must not read as a
+    /// clean one.
+    /// </remarks>
+    private static IEnumerable<string> GeneratedGlobalUsings(string root)
+    {
+        string artifacts = Path.Combine(root, "artifacts", "obj");
+
+        foreach (string project in ProjectClosure(
+            Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        {
+            string name = Path.GetFileNameWithoutExtension(project);
+            string directory = Path.Combine(artifacts, name);
+            string[] generated = Directory.Exists(directory)
+                ? Directory.GetFiles(directory, $"{name}.GlobalUsings.g.cs", SearchOption.AllDirectories)
+                : [];
+
+            if (generated.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{name}: no generated GlobalUsings.g.cs under {directory}. This rule reads the usings the "
+                    + "compiler was handed rather than the ones this repository declares, which is the only way "
+                    + "to see an import that arrives from outside it. Build the CLI closure first; a missing "
+                    + "observation is not a clean one.");
+            }
+
+            foreach (string file in generated)
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>
     /// Files named by an explicit <c>&lt;Compile Include="..."/&gt;</c> in
     /// <paramref name="projectPath"/>.
     /// </summary>
@@ -856,8 +910,24 @@ public class CommandErrorOwnershipTests
             }
         }
 
-        // The same import can be declared in MSBuild, where no .cs file mentions
-        // it and every source scan above is blind to it.
+        // The build's own record of what the compiler was handed. This is the
+        // only reading that sees an import arriving from outside the
+        // repository, where no scan of this repository's files can reach.
+        foreach (string generated in GeneratedGlobalUsings(root))
+        {
+            string text = File.ReadAllText(generated);
+            foreach (Match match in ConsoleImport.Matches(text))
+            {
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                offenders.Add(
+                    $"{Path.GetRelativePath(root, generated)}:{line}: {match.Value.Trim()}"
+                        + " (an effective global using; find the Using item or import that declares it)");
+            }
+        }
+
+        // The declaring side of the same import. It reports a narrower set than
+        // the generated files above and is kept for the message: it names the
+        // build file a contributor has to edit, which the generated file cannot.
         foreach (string project in MsBuildFiles(root))
         {
             string text = File.ReadAllText(project);
@@ -1076,6 +1146,12 @@ public class CommandErrorOwnershipTests
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
         Assert.Matches(StderrWrite, File.ReadAllText(owner));
+
+        // The generated global usings are read as the compiler's input, so the
+        // spelling the SDK emits has to match.
+        Assert.Matches(ConsoleImport, "global using static global::System.Console;\n");
+        Assert.NotEmpty(GeneratedGlobalUsings(RepositoryRoot()));
+        Assert.All(GeneratedGlobalUsings(RepositoryRoot()), f => Assert.True(File.Exists(f)));
 
         // The MSBuild half reaches the implicitly imported build files, not just
         // the projects. A `Using` in Directory.Build.props applies to every
