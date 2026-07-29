@@ -61,6 +61,44 @@ public static class ArgumentPreprocessor
     }
 
     /// <summary>
+    /// Answers raw-token questions that must be resolved before parsing: spellings the product
+    /// used to accept and no longer does. The parser can only say "Unrecognized option", which
+    /// is true but leaves the caller to find the replacement themselves.
+    /// </summary>
+    public static bool TryGetStaleArgumentError(string[] args, out string? error)
+        => TryGetStaleDirectionFlagError(args, out error);
+
+    /// <summary>
+    /// The replacement guidance for a package option this product removed, or <c>null</c> when the
+    /// token names something the command never had.
+    ///
+    /// Unlike the stale direction flag -- which parses cleanly and so has to be caught before
+    /// parsing -- a removed option is something the parser itself rejects, so this answers the
+    /// command's own unrecognized-option outcome rather than scanning raw tokens. That is what
+    /// keeps a run that parses from being second-guessed: in <c>--out --readme</c> the token is an
+    /// output file name and never reaches here, and a bare name that routes to a library or
+    /// platform assembly gets that command's answer rather than package-specific advice.
+    /// </summary>
+    public static string? GetRemovedPackageOptionError(string option)
+    {
+        // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
+        // named the removed flag and both deserve the replacement.
+        if (!option.Equals("--readme", StringComparison.Ordinal)
+            && !option.StartsWith("--readme=", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // package --readme was removed: printing a document is a projection over a selected
+        // section rather than a lens of its own, so a flag naming one document competed with the
+        // section selection for the same question. Scoped to the package command because
+        // project --readme <package-id> is a different option that still exists.
+        return "'--readme' is no longer valid. Printing a document is a projection over a "
+            + "selected section: use '-S \"Package README file\" --print' for one package, "
+            + "or '--content --path @readme' to survey several.";
+    }
+
+    /// <summary>
     /// Known/reserved commands for implicit package command detection.
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)

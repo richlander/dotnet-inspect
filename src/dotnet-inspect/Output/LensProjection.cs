@@ -23,11 +23,10 @@ namespace DotnetInspector.Output;
 /// inspects successful exits.
 /// </para>
 /// <para>
-/// Two lenses render text rather than a table, and they differ. <c>--readme</c> is a single
-/// document — a Scalar in the shape model — and <c>--count</c> collapses a Vector, so counting it
-/// could only report that one document was requested; it passes <c>scalarPayload</c> and refuses
-/// <c>--count</c>. <c>--content</c> looks similar but yields one structured row per matched file,
-/// so it is a Vector and counts normally.
+/// The lenses that render text rather than a table still yield one structured row per matched
+/// file, so they are Vectors and count normally. A lens that rendered a single document would be
+/// a competing answer to the question section selection already answers, so printing a document
+/// is a projection over a declared section rather than a lens of its own.
 /// </para>
 /// </remarks>
 public static class LensProjection
@@ -47,14 +46,6 @@ public static class LensProjection
     /// <param name="lens">The lens flag, named as the user spelled it (e.g. <c>--versions</c>).</param>
     /// <param name="rowCount">The number of rows the lens is about to render.</param>
     /// <param name="exitCode">The exit code to return when this method returns true.</param>
-    /// <param name="printHandledByLens">
-    /// True when the lens itself renders <c>--print</c> (the readme lens does), so the request
-    /// must be passed through rather than refused here.
-    /// </param>
-    /// <param name="scalarPayload">
-    /// True when the lens renders a single text blob rather than a list of rows, so there is
-    /// nothing to count.
-    /// </param>
     /// <returns>
     /// True when the request was answered and the caller must return <paramref name="exitCode"/>
     /// without rendering; false when no projection was requested and the caller should render
@@ -64,9 +55,7 @@ public static class LensProjection
         IProjectionOptions? options,
         string lens,
         int rowCount,
-        out int exitCode,
-        bool printHandledByLens = false,
-        bool scalarPayload = false)
+        out int exitCode)
     {
         exitCode = 0;
         if (!IsRequested(options))
@@ -74,31 +63,18 @@ public static class LensProjection
 
         if (options!.Count)
         {
-            if (scalarPayload)
-            {
-                Console.Error.WriteLine(
-                    $"Error: --count is not available with {lens}, which renders a single text " +
-                    "payload rather than a list of rows.");
-                exitCode = 1;
-                return true;
-            }
-
             CountOutput.WriteCount(rowCount, options.OutputPath);
             return true;
         }
-
-        if (printHandledByLens && options.Print && !options.Value && !options.Urls && !options.Paths)
-            return false;
 
         var flag = options.Print ? "--print"
             : options.Value ? "--value"
             : options.Urls ? "--urls"
             : "--paths";
 
-        var remedy = scalarPayload ? string.Empty : " Use --count to count that payload.";
         Console.Error.WriteLine(
             $"Error: {flag} is not available with {lens}, which renders its own payload rather " +
-            $"than a section.{remedy}");
+            "than a section. Use --count to count that payload.");
         exitCode = 1;
         return true;
     }
