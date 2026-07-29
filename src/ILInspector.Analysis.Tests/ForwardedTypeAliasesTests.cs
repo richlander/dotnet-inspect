@@ -510,7 +510,7 @@ public class ForwardedTypeAliasesTests
     /// which routinely reference <c>System.Runtime</c> (no forwarder, hence never verifiable)
     /// alongside the facade that does forward. The residual — a <c>TypeRef</c> spelled through a
     /// corelib facade this image never referenced — is <see cref="TypeRef"/> canonicalization
-    /// imprecision that predates aliasing and is tracked separately.</para>
+    /// imprecision that predates aliasing and is tracked as #3485.</para>
     /// </summary>
     [Fact]
     public void PrefilterDeclinesACanonicalAliasARefutedSpellingAlsoMapsTo()

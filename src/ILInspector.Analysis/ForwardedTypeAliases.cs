@@ -187,7 +187,8 @@ public sealed class ForwardedTypeAliases
 
         // A canonical alias any refuted spelling also maps to cannot be admitted either: the
         // spellings are indistinguishable to the matcher once canonicalized, so keeping it would
-        // readmit the row that was just refused.
+        // readmit the row that was just refused. This covers spellings that supplied forwarder
+        // evidence; the wider imprecision of canonicalization itself is #3485.
         foreach (string raw in refuted)
         {
             if (_canonicalByRaw.TryGetValue(raw, out string? canonical))
