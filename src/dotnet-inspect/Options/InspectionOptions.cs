@@ -108,7 +108,6 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// Show the README.md content from the package.
     /// </summary>
-    public bool ShowReadme { get; init; }
 
     /// <summary>
     /// Print the document behind the selected section's first row.
@@ -173,6 +172,15 @@ public record InspectionOptions : IProjectionOptions
     /// Tip verbosity level.
     /// </summary>
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+
+    /// <summary>
+    /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose
+    /// declared <see cref="DotnetInspector.Sections.SectionSizeClass.Fixed"/> growth class and
+    /// <see cref="DotnetInspector.Sections.SectionCost.NetworkFree"/> cost make their membership
+    /// package-independent. Set internally when a valueless <c>-S</c> is issued at the default
+    /// verbosity; an explicit <c>-v:n</c>/<c>-v:d</c> stays on the normal curated ladder.
+    /// </summary>
+    public bool FixedOverview { get; init; }
 
     /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
@@ -273,7 +281,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

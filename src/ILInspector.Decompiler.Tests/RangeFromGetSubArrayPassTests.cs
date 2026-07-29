@@ -246,7 +246,9 @@ public class RangeFromGetSubArrayPassTests
             nameof(CfgSampleClass.ArrayRangeCompoundBoth),
         };
 
-        var results = FidelityCheck.Evaluate(typeof(CfgSampleClass).Assembly.Location)
+        var results = FidelityCheck.Evaluate(
+                typeof(CfgSampleClass).Assembly.Location,
+                type => type == typeof(CfgSampleClass).FullName)
             .Where(r => r.Type == typeof(CfgSampleClass).FullName && methods.Contains(r.Method))
             .ToList();
 
@@ -466,7 +468,9 @@ public class RangeFromGetSubArrayPassTests
             nameof(RangeAdversarialSamples.ArgumentTwoBoundString),
         };
 
-        var results = FidelityCheck.Evaluate(typeof(RangeAdversarialSamples).Assembly.Location)
+        var results = FidelityCheck.Evaluate(
+                typeof(RangeAdversarialSamples).Assembly.Location,
+                type => type == typeof(RangeAdversarialSamples).FullName)
             .Where(r => r.Type == typeof(RangeAdversarialSamples).FullName && methods.Contains(r.Method))
             .ToList();
 

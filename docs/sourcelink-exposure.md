@@ -18,7 +18,7 @@ SourceLink answers three related questions:
 | Question | Best home |
 | --- | --- |
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
-| Which source files map to this target? | `SourceLink: Files` (`library`) / `Source Files` (`package` / `type`) |
+| Which source files map to this target? | `SourceLink: Files` (`library` / `package`) / `Source Files` (`type`) |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
 | What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset <token>+<offset>` for MethodDef token + IL offset point queries |
 
@@ -50,11 +50,18 @@ another command merely to continue a package inspection.
 | Section | Purpose |
 | --- | --- |
 | `Signals` | package and dependency evidence, plus binary/source provenance summaries |
-| `Source Files` | SourceLink URL rows aggregated from package libraries, with library provenance |
+| `SourceLink: Files` | SourceLink URL rows aggregated from package libraries, with library provenance |
 
-The package `Source Files` section defaults to the same library selection rules
-as other package-library views: compatible/highest TFM unless a TFM selector says
-otherwise. This keeps the section scoped and avoids exploding output by default.
+The package `SourceLink: Files` section defaults to the same library selection
+rules as other package-library views: compatible/highest TFM unless a TFM selector
+says otherwise. This keeps the section scoped and avoids exploding output by
+default.
+
+It shares its name with the library section because it is the same data from the
+same collector, and it is rooted in `@SourceLink` on the package command so the
+prefix stays honest. The legacy `Source Files` spelling still resolves. The
+package command exposes only this one member of the family today; `type` still
+spells its equivalent `Source Files`, which is the remaining inconsistency.
 
 ### Type and member
 
