@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Text.Json;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.CommandLine;
@@ -66,7 +67,21 @@ public static class CommandLineHelpers
         var client = HttpClientFactory.Shared;
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");
-        var results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+
+        List<NuGetSearchResult> results;
+        try
+        {
+            results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+            or InvalidOperationException or TaskCanceledException)
+        {
+            // Prefix expansion is a convenience over arguments the user could have typed out.
+            // A feed that cannot be reached or parsed degrades to "no matches" with a warning
+            // rather than aborting the command the prefix was only decorating.
+            Console.Error.WriteLine($"Warning: could not resolve prefix \"{prefix}\": {ex.Message}");
+            return [];
+        }
 
         if (results.Count == 0)
         {

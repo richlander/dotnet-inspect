@@ -26,6 +26,13 @@ public static class NuGetCredentialScope
     /// Returns true when both URLs are absolute and share a scheme, host, and port.
     /// Unparseable or relative URLs are never same-origin.
     /// </summary>
+    /// <remarks>
+    /// Hosts are compared as <see cref="Uri.IdnHost"/> rather than <see cref="Uri.Host"/>, which
+    /// does not canonicalize Unicode and punycode spellings against each other: a feed configured
+    /// as <c>https://bücher.example</c> whose index advertises <c>https://xn--bcher-kva.example</c>
+    /// is the same DNS name, and comparing <c>Host</c> would withhold credentials from the user's
+    /// own feed. IdnHost narrows nothing — distinct DNS names still compare distinct.
+    /// </remarks>
     public static bool IsSameOrigin(string? sourceUrl, string? endpointUrl)
     {
         if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var source)
@@ -35,7 +42,7 @@ public static class NuGetCredentialScope
         }
 
         return string.Equals(source.Scheme, endpoint.Scheme, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(source.Host, endpoint.Host, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(source.IdnHost, endpoint.IdnHost, StringComparison.OrdinalIgnoreCase)
             && source.Port == endpoint.Port;
     }
 

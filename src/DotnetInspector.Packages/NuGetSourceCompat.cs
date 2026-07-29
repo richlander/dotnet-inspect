@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
 using NuGetFetch;
 using DotnetInspector.Core;
 using NuGetSource = NuGetFetch.PackageSource;
@@ -30,25 +32,79 @@ public static class NuGetSourceResolver
     {
         options ??= NuGetSourceOptions.Default;
 
-        string? explicitSource = options.Sources.Length == 1 ? options.Sources[0] : null;
-
-        IEnumerable<string>? additional = options.AdditionalSources.Length > 0
-            ? options.AdditionalSources
-            : null;
-
-        if (options.Sources.Length > 1)
+        if (options.ConfigFile is not null)
         {
-            explicitSource = null;
-            additional = options.Sources.Concat(options.AdditionalSources);
+            ValidateExplicitConfig(options.ConfigFile);
         }
 
-        IReadOnlyList<PackageSource> sources = SourceResolver.ResolveSources(
-            explicitSource: explicitSource,
-            configPath: options.ConfigFile,
-            additionalSources: additional);
+        if (options.Sources.Length > 0)
+        {
+            return SelectExplicitSources(options);
+        }
 
-        return sources.Select(s => s).ToList();
+        IReadOnlyList<NuGetSource> sources = SourceResolver.ResolveSources(
+            explicitSource: null,
+            configPath: options.ConfigFile,
+            additionalSources: options.AdditionalSources.Length > 0 ? options.AdditionalSources : null);
+
+        return [.. sources];
     }
+
+    /// <summary>
+    /// Validates a user-supplied <c>--nugetconfig</c> path before it is used.
+    /// </summary>
+    /// <remarks>
+    /// SourceResolver parses config files best-effort and falls back to nuget.org when it ends up
+    /// with no sources. That is right for the machine, user, and project configs it discovers on
+    /// its own — a broken machine config should not break every command. It is wrong for a config
+    /// the user named explicitly: a mistyped path or malformed file would otherwise search
+    /// unrelated feeds and exit 0, reporting someone else's packages as the answer. An explicit
+    /// config that cannot be used is a failure, not a reason to pick a default.
+    /// </remarks>
+    private static void ValidateExplicitConfig(string configFile)
+    {
+        if (!File.Exists(configFile))
+        {
+            throw new FileNotFoundException($"NuGet config file not found: '{configFile}'.", configFile);
+        }
+
+        try
+        {
+            XDocument.Load(configFile);
+        }
+        catch (XmlException ex)
+        {
+            throw new InvalidOperationException(
+                $"NuGet config file '{configFile}' is not valid XML: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Builds the source list for an explicit <c>--source</c> selection.
+    /// </summary>
+    /// <remarks>
+    /// <c>--source</c> replaces the configured defaults. SourceResolver's explicit-source fast
+    /// path takes a single value, so more than one had been forwarded as *additional* sources,
+    /// which re-entered config resolution and silently searched feeds the user never named — and
+    /// a single <c>--source</c> combined with <c>--add-source</c> dropped the added source
+    /// entirely. Selection is resolved here instead.
+    ///
+    /// Credentials still come from configuration: a user who names an authenticated feed on the
+    /// command line has already declared that feed's credentials in nuget.config, keyed by the
+    /// same URL, and NuGet's own client matches them the same way.
+    /// </remarks>
+    private static List<NuGetSource> SelectExplicitSources(NuGetSourceOptions options)
+    {
+        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveSources(configPath: options.ConfigFile);
+
+        List<NuGetSource> selected = [.. options.Sources.Select(url => Match(url, configured))];
+        selected.AddRange(options.AdditionalSources.Select(url => Match(url, configured)));
+        return selected;
+    }
+
+    private static NuGetSource Match(string url, IReadOnlyList<NuGetSource> configured) =>
+        configured.FirstOrDefault(s => string.Equals(s.Url, url, StringComparison.OrdinalIgnoreCase))
+        ?? new NuGetSource("explicit", url);
 }
 
 /// <summary>

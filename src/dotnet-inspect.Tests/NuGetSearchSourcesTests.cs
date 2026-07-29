@@ -216,6 +216,9 @@ public class NuGetSearchSourcesTests
     [InlineData("https://feed.example/v3/index.json", "http://feed.example/query", false)]
     [InlineData("https://feed.example/v3/index.json", "https://feed.example:8443/query", false)]
     [InlineData("https://feed.example/v3/index.json", "https://sub.feed.example/query", false)]
+    [InlineData("https://xn--bcher-kva.example/i.json", "https://b\u00fccher.example/query", true)]
+    [InlineData("https://b\u00fccher.example/i.json", "https://xn--bcher-kva.example/query", true)]
+    [InlineData("https://[::1]/i.json", "https://[0:0:0:0:0:0:0:1]/query", true)]
     [InlineData("https://feed.example/v3/index.json", null, false)]
     [InlineData("https://feed.example/v3/index.json", "/relative", false)]
     [InlineData(@"D:\packages", "https://feed.example/query", false)]
@@ -242,6 +245,145 @@ public class NuGetSearchSourcesTests
 
         Assert.Null(NuGetCredentialScope.AuthFor(source, "https://attacker.example/x", log.Add));
         Assert.Contains(log, m => m.Contains("Withholding credentials", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ResolveSources_MissingExplicitConfig_ThrowsRatherThanDefaultingToNuGetOrg()
+    {
+        // Silently ignoring a config the user named and searching nuget.org instead reports
+        // someone else's packages as the answer, with exit code 0.
+        string missing = Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.config");
+
+        var ex = Assert.Throws<FileNotFoundException>(() =>
+            NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = missing }));
+
+        Assert.Contains(missing, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSources_MalformedExplicitConfig_ThrowsRatherThanDefaultingToNuGetOrg()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"broken-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, "<configuration><packageSources>");
+        try
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = path }));
+
+            Assert.Contains("not valid XML", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResolveSources_ValidExplicitConfig_ReturnsItsSources()
+    {
+        using var config = new TempNuGetConfig(IndexUrl);
+
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        NuGetSource source = Assert.Single(sources);
+        Assert.Equal(IndexUrl, source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_MultipleExplicitSources_ReplacesDefaults()
+    {
+        // --source documents itself as "replaces defaults", but more than one value used to be
+        // forwarded as *additional* sources, which re-entered config resolution and searched
+        // feeds the user never named. Asserting the exact set proves nothing was merged in:
+        // config resolution falls back to nuget.org even on a machine with no nuget.config.
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(new NuGetSourceOptions
+        {
+            Sources = ["https://a.example/v3/index.json", "https://b.example/v3/index.json"]
+        });
+
+        Assert.Equal(
+            ["https://a.example/v3/index.json", "https://b.example/v3/index.json"],
+            sources.Select(s => s.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitSourceWithAddSource_KeepsBoth()
+    {
+        // SourceResolver's explicit-source fast path returned early, dropping additional sources.
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(new NuGetSourceOptions
+        {
+            Sources = ["https://a.example/v3/index.json"],
+            AdditionalSources = ["https://b.example/v3/index.json"]
+        });
+
+        Assert.Equal(
+            ["https://a.example/v3/index.json", "https://b.example/v3/index.json"],
+            sources.Select(s => s.Url));
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitSource_AdoptsConfiguredCredentials()
+    {
+        // Naming an authenticated feed with --source must still pick up the credentials the
+        // user declared for that same URL, or the feature cannot reach an authenticated feed.
+        using var config = new TempNuGetConfig(IndexUrl);
+
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(new NuGetSourceOptions
+        {
+            Sources = [IndexUrl],
+            ConfigFile = config.Path
+        });
+
+        NuGetSource source = Assert.Single(sources);
+        Assert.NotNull(source.GetAuthHeader());
+        Assert.Equal("contoso", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitSourceNotInConfig_HasNoCredentials()
+    {
+        using var config = new TempNuGetConfig(IndexUrl);
+
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(new NuGetSourceOptions
+        {
+            Sources = ["https://unrelated.example/v3/index.json"],
+            ConfigFile = config.Path
+        });
+
+        NuGetSource source = Assert.Single(sources);
+        Assert.Null(source.GetAuthHeader());
+    }
+
+    [Fact]
+    public async Task SearchAsync_MultipleExplicitSources_SearchesOnlyThose()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"A.Package","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"B.Package","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client, "q", sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Empty(outcome.Failures);
+        Assert.Equal(2, outcome.Results.Count);
+
+        // Nothing beyond the two named feeds was contacted — in particular not nuget.org.
+        Assert.All(handler.Requested, url =>
+            Assert.True(
+                url.StartsWith("https://a.example/", StringComparison.Ordinal)
+                || url.StartsWith("https://b.example/", StringComparison.Ordinal),
+                $"unexpected request to {url}"));
     }
 
     /// <summary>Writes a nuget.config naming the given sources, and deletes it on dispose.</summary>
