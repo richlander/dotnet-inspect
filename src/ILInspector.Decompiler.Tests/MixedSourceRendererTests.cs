@@ -247,3 +247,65 @@ public class MixedSourceRendererTests
         Assert.Equal(left.GetHashCode(), right.GetHashCode());
     }
 }
+
+/// <summary>
+/// A derived constructor whose implicit <c>base()</c> targets a user-defined
+/// base. The chain call prints nothing, so it owns no characters, but its two
+/// opcodes still run — before the first statement. See
+/// <see cref="MixedPreambleTests"/>.
+/// </summary>
+public class MixedPreambleBase
+{
+    protected MixedPreambleBase() => Created = true;
+
+    public bool Created { get; }
+}
+
+public sealed class MixedPreambleDerived : MixedPreambleBase
+{
+    public MixedPreambleDerived(string name) => Name = name;
+
+    public string Name { get; }
+}
+
+public class MixedPreambleTests
+{
+    static string Render(Type type)
+    {
+        var source = MetadataSource.Open(type.Assembly.Location);
+        var result = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source, type.FullName!, ".ctor", AnnotatedSource: true)).AnnotatedSource;
+        Assert.NotNull(result?.Output);
+        return result!.Output!;
+    }
+
+    [Fact]
+    public void ImplicitBaseCall_RendersAboveTheStatementItRunsBefore()
+    {
+        // The implicit base() prints no C#, so it has no range and no line, and
+        // the interleave reaches it only through its insertion point. Two things
+        // have to hold and both have been wrong before: the opcodes must appear
+        // at all (dropping the zero-width range once removed them entirely), and
+        // they must appear *above* the first statement rather than beneath it
+        // (bucketing them onto the next statement's line once claimed that
+        // statement executed them).
+        var lines = Render(typeof(MixedPreambleDerived)).Split('\n');
+
+        int baseCall = Array.FindIndex(lines, l => l.Contains($"{nameof(MixedPreambleBase)}::.ctor()"));
+        int firstStatement = Array.FindIndex(lines, l => l.Trim().StartsWith("this.Name = name;"));
+
+        Assert.True(baseCall >= 0, $"base call IL is missing from:\n{string.Join('\n', lines)}");
+        Assert.True(firstStatement >= 0, "the constructor body should print its field store");
+        Assert.True(
+            baseCall < firstStatement,
+            $"base call IL should precede the statement it runs before:\n{string.Join('\n', lines)}");
+        Assert.StartsWith("//", lines[baseCall].TrimStart());
+
+        // The invariant is "before the first statement", not "immediately after
+        // the opening brace". An insertion point is where the node's text would
+        // have gone, and the printer may hoist synthesized local declarations to
+        // the top of the block first, in which case the preamble lands below
+        // them. Those declarations emit no IL of their own, so nothing
+        // executable is ever shown as running before the base call.
+    }
+}

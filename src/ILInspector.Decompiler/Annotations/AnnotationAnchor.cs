@@ -103,11 +103,11 @@ public static class AnnotationAnchor
     /// </summary>
     public static bool TryGetPrintedLine(
         IrNode owner,
-        IReadOnlyDictionary<IrNode, int> statementLines,
+        PrintedRangeMap printedRanges,
         out int line)
     {
         for (var current = owner; current is not null; current = current.Parent)
-            if (statementLines.TryGetValue(current, out line))
+            if (printedRanges.TryGetLine(current, out line))
                 return true;
         line = 0;
         return false;
