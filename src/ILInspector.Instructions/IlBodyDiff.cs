@@ -43,6 +43,37 @@ public enum IlBodyDiffNormalization
     /// Replace known platform assembly reference scopes with a shared scope.
     /// </summary>
     NormalizePlatformAssemblyScope = 1 << 2,
+
+    /// <summary>
+    /// Replace the containing-method ordinal inside Roslyn-synthesized closure
+    /// member names with <c>#</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Roslyn names a lambda's cache field <c>&lt;&gt;9__N_M</c>, its method
+    /// <c>&lt;Name&gt;b__N_M</c>, and a local function
+    /// <c>&lt;Name&gt;g__Local|N_M</c>, where <c>N</c> is the containing
+    /// method's declaration ordinal in the <em>compilation unit</em> and
+    /// <c>M</c> indexes the lambda within that method. <c>N</c> therefore
+    /// describes the unit, not the member: recompiling the same source in a
+    /// unit whose member ordering or member count differs renumbers it while
+    /// the emitted IL stays behaviorally identical.
+    /// </para>
+    /// <para>
+    /// Only <c>N</c> is replaced. The containing-method name, the local
+    /// function name, and the per-method index <c>M</c> all stay significant,
+    /// so a body that binds to the wrong lambda, or to a lambda of a
+    /// differently named method, still diffs.
+    /// </para>
+    /// <para>
+    /// Known limitation, deliberately not addressed: overloads share a
+    /// containing-method name and are told apart only by <c>N</c>, so this
+    /// option conflates the closures of two overloads with the same lambda
+    /// index. State-machine names (<c>&lt;Name&gt;d__N</c>) are left alone for
+    /// the same reason — <c>N</c> is their only distinguishing component.
+    /// </para>
+    /// </remarks>
+    NormalizeSynthesizedMemberOrdinals = 1 << 3,
 }
 
 public enum IlBodyDiffOutcome
@@ -127,7 +158,8 @@ public static class IlBodyDiff
     const IlBodyDiffNormalization SupportedNormalizations =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
@@ -634,6 +666,8 @@ public static class IlBodyDiff
                     string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
                     value = NormalizeAssemblyScopes(value, assembly);
                 }
+                if (instruction.Operand != OperandKind.InlineString)
+                    value = NormalizeSynthesizedOrdinals(value);
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
                 failure = null;
                 return true;
@@ -959,6 +993,117 @@ public static class IlBodyDiff
                 || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
                 || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
 
+        string NormalizeSynthesizedOrdinals(string value)
+        {
+            if ((normalization & IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals) == 0)
+                return value;
+
+            return SynthesizedOrdinals.Normalize(value);
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the containing-method ordinal out of Roslyn closure member
+    /// names. See
+    /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
+    /// for what the ordinal means and why it is not evidence.
+    /// </summary>
+    internal static class SynthesizedOrdinals
+    {
+        internal const char Placeholder = '#';
+
+        public static string Normalize(string value)
+        {
+            // Cheap reject: every recognized form contains this separator.
+            if (!value.Contains("__", StringComparison.Ordinal))
+                return value;
+
+            StringBuilder? builder = null;
+            int copied = 0;
+
+            for (int i = 0; i + 2 < value.Length; i++)
+            {
+                if (value[i] != '_' || value[i + 1] != '_')
+                    continue;
+
+                // `<>9__N_M` (cache field) and `<Name>b__N_M` (lambda method)
+                // put the ordinal straight after the separator. `g__` is a
+                // local function: `<Name>g__Local|N_M`, so the ordinal sits
+                // after the `|` that follows the local's own name.
+                char marker = i > 0 ? value[i - 1] : '\0';
+                int digitsStart;
+                if (marker is '9' or 'b')
+                {
+                    digitsStart = i + 2;
+                }
+                else if (marker == 'g')
+                {
+                    int bar = value.IndexOf('|', i + 2);
+                    if (bar < 0)
+                        continue;
+                    // The local's name must not itself contain a separator we
+                    // would rather have matched; bail if one intervenes.
+                    if (value.AsSpan(i + 2, bar - (i + 2)).Contains("__", StringComparison.Ordinal))
+                        continue;
+                    digitsStart = bar + 1;
+                }
+                else
+                {
+                    continue;
+                }
+
+                // Every Roslyn closure name begins with '<' — `<>9__…` or
+                // `<Method>b__…`. C# cannot spell that, so requiring it keeps
+                // an authored identifier that merely ends in `b`/`g` before a
+                // digit run (`Grab__1_0`) out of the rewrite.
+                if (!StartsSynthesizedName(value, i))
+                    continue;
+
+                int digitsEnd = digitsStart;
+                while (digitsEnd < value.Length && char.IsAsciiDigit(value[digitsEnd]))
+                    digitsEnd++;
+
+                // Require at least one digit, and require the ordinal to be
+                // followed by `_M` — that trailing index is what distinguishes
+                // a closure name from an ordinary identifier ending in digits.
+                if (digitsEnd == digitsStart
+                    || digitsEnd >= value.Length
+                    || value[digitsEnd] != '_'
+                    || digitsEnd + 1 >= value.Length
+                    || !char.IsAsciiDigit(value[digitsEnd + 1]))
+                {
+                    continue;
+                }
+
+                builder ??= new StringBuilder(value.Length);
+                builder.Append(value, copied, digitsStart - copied);
+                builder.Append(Placeholder);
+                copied = digitsEnd;
+                i = digitsEnd - 1;
+            }
+
+            if (builder is null)
+                return value;
+
+            builder.Append(value, copied, value.Length - copied);
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// True when the identifier containing <paramref name="index"/> opens
+        /// with <c>&lt;</c>, the marker Roslyn puts on every synthesized name.
+        /// </summary>
+        static bool StartsSynthesizedName(string value, int index)
+        {
+            int start = index;
+            while (start > 0 && IsNameChar(value[start - 1]))
+                start--;
+
+            return value[start] == '<';
+        }
+
+        static bool IsNameChar(char c)
+            => char.IsAsciiLetterOrDigit(c) || c is '_' or '<' or '>' or '|' or '`';
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>

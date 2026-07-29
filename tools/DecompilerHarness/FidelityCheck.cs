@@ -44,7 +44,12 @@ static class FidelityCheck
     internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        // Compile-back recompiles a reconstructed unit, whose member ordering
+        // is the harness's rather than the original source file's, so Roslyn
+        // renumbers the containing-method ordinal in every closure name it
+        // synthesizes. That renumbering is not decompiler evidence (#3503).
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 

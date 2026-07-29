@@ -7,10 +7,18 @@ namespace ILInspector.Instructions.Tests;
 
 public class IlBodyDiffNormalizationTests
 {
-    const IlBodyDiffNormalization AllNormalizations =
-        IlBodyDiffNormalization.NormalizeVariableLayout
-        | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+    // Derived from the enum rather than restated, so a normalization added
+    // without coverage here still flows into every AllNormalizations test.
+    static readonly IlBodyDiffNormalization AllNormalizations =
+        Enum.GetValues<IlBodyDiffNormalization>()
+            .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+
+    [Fact]
+    public void AllNormalizations_CoversEveryDeclaredOption()
+    {
+        foreach (var option in Enum.GetValues<IlBodyDiffNormalization>())
+            Assert.Equal(option, AllNormalizations & option);
+    }
 
     [Fact]
     public void NormalizeVariableLayout_ToleratesLocalMacroAndSlotLayout()
@@ -195,6 +203,62 @@ public class IlBodyDiffNormalizationTests
             AllNormalizations).IsExact);
     }
 
+    /// <summary>
+    /// The gate for #3503. ``StatementBodyLambdaInsideIf`` failed
+    /// <c>FidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket</c> with
+    /// identical opcodes and only <c>&lt;&gt;9__103_0</c> vs
+    /// <c>&lt;&gt;9__128_0</c> differing, because recompiling a reconstructed
+    /// unit renumbers the containing method.
+    /// </summary>
+    [Theory]
+    [InlineData("<>9__103_0", "<>9__128_0")]                          // lambda cache field
+    [InlineData("<Run>b__103_0", "<Run>b__128_0")]                    // lambda method
+    [InlineData("<Run>g__Local|103_0", "<Run>g__Local|128_0")]        // local function
+    public void NormalizeSynthesizedMemberOrdinals_ToleratesContainingMethodRenumbering(
+        string oldName,
+        string newName)
+    {
+        Assert.False(CompareMemberNames(oldName, newName).IsExact);
+        Assert.True(CompareMemberNames(
+            oldName,
+            newName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// The negative half of #3503: only the containing-method ordinal is
+    /// non-evidence. Every other component of a closure name still identifies
+    /// which lambda a body binds to, so a real mis-binding must keep diffing.
+    /// State-machine names are a documented non-goal — their ordinal is their
+    /// only distinguishing component.
+    /// </summary>
+    [Theory]
+    [InlineData("<Run>b__103_0", "<Run>b__103_1")]              // different lambda in the same method
+    [InlineData("<Run>b__103_0", "<Walk>b__103_0")]             // different containing method
+    [InlineData("<Run>g__Local|103_0", "<Run>g__Other|103_0")]  // different local function
+    [InlineData("<Run>d__103", "<Run>d__128")]                  // state machine: not normalized
+    [InlineData("Grab__103_0", "Grab__128_0")]                  // authored name, not synthesized
+    public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
+        string oldName,
+        string newName)
+    {
+        Assert.False(CompareMemberNames(
+            oldName,
+            newName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_PreservesSynthesizedLikeStringLiterals()
+    {
+        var diff = CompareImages(
+            BuildStringImage("Old", "<>9__103_0"),
+            BuildStringImage("New", "<>9__128_0"),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals);
+
+        Assert.False(diff.IsExact);
+    }
+
     [Fact]
     public void Compare_RejectsUndefinedOptions()
     {
@@ -203,6 +267,15 @@ public class IlBodyDiffNormalizationTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => IlBodyDiff.Compare(body, body, (IlBodyDiffNormalization)(1 << 10)));
     }
+
+    static IlBodyDiffResult CompareMemberNames(
+        string oldMemberName,
+        string newMemberName,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        => CompareImages(
+            BuildCallImage("Same", "Library.Probe", oldMemberName),
+            BuildCallImage("Same", "Library.Probe", newMemberName),
+            normalization);
 
     static MethodInstructions Decode(byte[] il)
         => MethodInstructions.Decode(il, il.Length, exceptionRegions: []);
@@ -237,7 +310,10 @@ public class IlBodyDiffNormalizationTests
             normalization: normalization).Diff;
     }
 
-    static byte[] BuildCallImage(string assemblyName, string? referenceAssemblyName = null)
+    static byte[] BuildCallImage(
+        string assemblyName,
+        string? referenceAssemblyName = null,
+        string? memberName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -274,7 +350,7 @@ public class IlBodyDiffNormalizationTests
                 metadata.GetOrAddString(selfReference ? "C" : "Probe"));
             target = metadata.AddMemberReference(
                 type,
-                metadata.GetOrAddString(selfReference ? "Caller" : "Target"),
+                metadata.GetOrAddString(memberName ?? (selfReference ? "Caller" : "Target")),
                 metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
         }
 
