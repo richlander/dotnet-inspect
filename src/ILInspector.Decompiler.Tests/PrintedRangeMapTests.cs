@@ -219,15 +219,102 @@ public class PrintedRangeMapTests
     {
         // The documented contract. Ordering by start position is deliberately not
         // promised, so this pins what is promised instead.
-        var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
+        //
+        // Pointed at a fixture whose recorded expressions are all leaves, this
+        // only ever compares an expression against its enclosing statement, which
+        // holds for a reason unrelated to expression nesting. Nested is used so a
+        // recorded expression sits inside another recorded expression.
+        var (_, ranges) = Print(typeof(PrintedRangeExpressionFixture), nameof(PrintedRangeExpressionFixture.Nested));
 
         var position = new Dictionary<IrNode, int>();
         for (int i = 0; i < ranges.Count; i++)
             position[ranges[i].Node] = i;
 
+        int nestedPairs = 0;
         foreach (var (node, _) in ranges)
-            if (NearestRecordedAncestor(node, ranges) is { } ancestor)
-                Assert.True(position[node] < position[ancestor]);
+        {
+            if (NearestRecordedAncestor(node, ranges) is not { } ancestor)
+                continue;
+            if (node is IrExpression && ancestor is IrExpression)
+                nestedPairs++;
+            Assert.True(position[node] < position[ancestor]);
+        }
+
+        // Without this the assertion above can pass vacuously, which is exactly
+        // how parent-first recording of nested expressions went unnoticed.
+        Assert.True(nestedPairs > 0);
+    }
+
+    [Fact]
+    public void ReformattedStatement_ClaimsNothing_RatherThanTheLiteralThatSurvivedTheRewrap()
+    {
+        // Uniqueness within a statement is not ownership. Emission re-breaks a
+        // too-wide fluent chain one call per line after its links were composed,
+        // so `f.Link()` no longer occurs contiguously at its own site -- while
+        // the string literal spelling it does. Searching the whole statement,
+        // the literal is then the only match, and the link claims characters
+        // inside a string: precise, confident, and wrong.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.Rewrapped));
+
+        // The rewrap has to actually happen, or this proves nothing.
+        Assert.Contains("\n", output.Trim(), StringComparison.Ordinal);
+
+        int literal = output.IndexOf("\"f.Link()\"", StringComparison.Ordinal);
+        Assert.True(literal >= 0);
+        int literalEnd = literal + "\"f.Link()\"".Length;
+
+        foreach (var range in ranges)
+        {
+            var (start, end) = Offsets(range, output.Length);
+            bool insideLiteral = start >= literal && end <= literalEnd;
+            bool isTheLiteralItself = start == literal && end == literalEnd;
+            Assert.False(insideLiteral && !isTheLiteralItself);
+        }
+    }
+
+    [Fact]
+    public void Ambiguity_IsJudgedWithinTheParent_NotAcrossTheWholeStatement()
+    {
+        // `Wrap(x) + x` spells `x` twice, so judged against the whole statement
+        // the argument inside `Wrap(...)` looks ambiguous and claims nothing.
+        // Within its parent's characters it is the only `x`, and composition
+        // order cannot confuse it with a sibling it does not live inside. The
+        // narrower window is what makes short spellings -- locals, arguments,
+        // small constants -- reachable at all.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.UniqueWithinItsParent));
+
+        var call = Assert.Single(ranges, r => r.Node is Call);
+        var (callStart, callEnd) = Offsets(call, output.Length);
+
+        var argument = Assert.Single(
+            ranges,
+            r => r.Node is LoadArgument && Offsets(r, output.Length).Start >= callStart
+                 && Offsets(r, output.Length).End <= callEnd);
+
+        var (start, end) = Offsets(argument, output.Length);
+        Assert.Equal("x", output[start..end]);
+    }
+
+    [Fact]
+    public void TargetTypedNew_ClaimsItsOwnCharacters_NotTheWholeDeclaration()
+    {
+        // `new()` is composed by the target-typed shortener rather than returned
+        // through Expression(), so it was never captured and claimed nothing --
+        // leaving a caret to underline the whole declaration. That is the first
+        // example in #3328.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.TargetTyped));
+
+        Assert.Contains("new()", output, StringComparison.Ordinal);
+
+        var creation = Assert.Single(ranges, r => r.Node is NewObject);
+        var (start, end) = Offsets(creation, output.Length);
+        Assert.Equal("new()", output[start..end]);
     }
 
     [Fact]
@@ -324,4 +411,79 @@ public static class PrintedRangeExpressionFixture
 
     /// <summary>The same node kind as above, printed once, so it is unambiguous.</summary>
     public static int OnlyOnce(int x) => x + 1;
+
+    /// <summary>
+    /// A target-typed <c>new()</c>, whose spelling the printer composes directly
+    /// rather than returning through the expression printer. Shaped as a local
+    /// declaration because that is where the shortener applies -- and it is the
+    /// exact <c>List&lt;object&gt; sink = new();</c> line from #3328.
+    /// </summary>
+    public static int TargetTyped()
+    {
+        List<object> sink = new();
+        sink.Add(1);
+        return sink.Count;
+    }
+
+    /// <summary>
+    /// A spelling that repeats across the statement but occurs once inside the
+    /// operand that contains it. Searching the whole statement, both copies of
+    /// <c>x</c> make the inner one ambiguous and it claims nothing; searching
+    /// only its parent's characters, it is unique and claims them.
+    /// </summary>
+    public static int UniqueWithinItsParent(int x) => Wrap(x) + x;
+
+    /// <summary>
+    /// A recorded expression nested inside another recorded expression, so the
+    /// enumeration-order contract is exercised against something other than a
+    /// statement. Pointed at a fixture of only leaf expressions, the order test
+    /// compares an expression against its enclosing <em>statement</em> -- which
+    /// holds trivially, and passed even while nested expressions were recorded
+    /// parent-first.
+    /// </summary>
+    public static int Nested(int x) => Wrap(Wrap(x) + 1);
+
+    static int Wrap(int v) => v;
+
+    /// <summary>
+    /// A fluent chain long enough to exceed the printer's width budget, whose
+    /// argument is a string literal spelling one of the chain's own links.
+    /// Emission re-breaks the chain one call per line <em>after</em> the links
+    /// were composed, so a link's captured spelling no longer occurs at its own
+    /// site while the literal's copy survives -- the shape that let a node claim
+    /// characters inside a string.
+    /// </summary>
+    public static ChainLink Rewrapped(ChainLink f) =>
+        f.Link()
+         .WithText("f.Link()")
+         .AppendMeasuredValueNumberOne(1)
+         .AppendMeasuredValueNumberTwo(2)
+         .AppendMeasuredValueNumberThree(3)
+         .AppendMeasuredValueNumberFour(4)
+         .AppendMeasuredValueNumberFive(5);
+}
+
+/// <summary>Chain receiver for <see cref="PrintedRangeExpressionFixture.Rewrapped"/>.</summary>
+public sealed class ChainLink
+{
+    /// <summary>The link whose spelling the literal below repeats.</summary>
+    public ChainLink Link() => this;
+
+    /// <summary>Carries the literal that repeats a link's spelling.</summary>
+    public ChainLink WithText(string text) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberOne(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberTwo(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberThree(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberFour(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberFive(int v) => this;
 }

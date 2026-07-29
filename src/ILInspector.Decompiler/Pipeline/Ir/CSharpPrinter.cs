@@ -1734,24 +1734,38 @@ public sealed partial class CSharpPrinter
     /// <see cref="Expression(IrExpression)"/> captures, and this rebases it.
     /// </para>
     /// <para>
-    /// The binding is by unique occurrence: a node claims characters only when
-    /// its printed text appears exactly once in the statement. That is a refusal
-    /// to guess, not a heuristic that usually works. Where the text repeats --
-    /// <c>x + x</c>, two calls spelled identically -- the composition order does
-    /// not say which occurrence belongs to which node, and a caret placed on the
-    /// wrong one would point confidently at the wrong characters. No range is
-    /// recorded, the node stays absent from the map, and a consumer falls back to
-    /// the enclosing statement, which is what it had before.
+    /// The binding is by unique occurrence <em>within the characters the node's
+    /// parent claimed</em>. Searching the whole statement is not sound: emission
+    /// can reformat a statement after its expressions were composed -- a fluent
+    /// chain past the width budget is re-broken one call per line -- so a node's
+    /// captured spelling may no longer occur at the node's own site, while an
+    /// unrelated occurrence (inside a string literal, say) survives and becomes
+    /// the only match. That yields a range that is precise and wrong, the one
+    /// outcome worse than the coarse whole-statement underline this replaces.
+    /// Constraining each node to its parent's window makes a claim structurally
+    /// consistent by construction: reformatting breaks the chain at the first
+    /// ancestor whose text no longer occurs, and every node beneath it refuses.
     /// </para>
     /// <para>
-    /// Nested statements record first, because they are appended while this
-    /// statement's body is still running, and <see cref="PrintedRangeMap.Record"/>
-    /// keeps the first range a node is given. So an expression inside a nested
-    /// block is claimed against that block, where it is more likely to be unique,
-    /// rather than against the whole outer statement. This runs before the
-    /// statement claims its own range for the same reason the nesting works at
-    /// all: the map enumerates in completion order, and a descendant must not
-    /// appear after the ancestor that contains it.
+    /// Refusal is also the answer to ambiguity. Where a spelling repeats within
+    /// the window -- <c>x + x</c>, two calls spelled identically -- composition
+    /// order does not say which occurrence belongs to which node, so no range is
+    /// recorded, the node stays absent from the map, and a consumer falls back to
+    /// the enclosing statement, which is what it had before. A node that never
+    /// had text captured claims nothing but does not block its children, since
+    /// its silence is an absence of evidence rather than evidence of a rewrite.
+    /// </para>
+    /// <para>
+    /// Claims are collected parent-first (<see cref="IrNode.Descendants"/> is
+    /// pre-order, and a window must exist before anything is measured against it)
+    /// and recorded in reverse, so descendants still reach
+    /// <see cref="PrintedRangeMap.Record"/> ahead of the ancestors containing
+    /// them. That is what the map's completion-order contract requires, and it
+    /// holds for expression-inside-expression nesting, not merely for expressions
+    /// inside their statement. Nested statements record earlier still -- they are
+    /// appended while this statement's body runs, and <c>Record</c> keeps the
+    /// first range a node is given -- so an expression inside a nested block is
+    /// claimed against that block, where it is more likely to be unique.
     /// </para>
     /// </remarks>
     void RecordExpressionRanges(StringBuilder sb, IrNode statement, int start)
@@ -1760,15 +1774,56 @@ public sealed partial class CSharpPrinter
             return;
 
         string text = sb.ToString(start, sb.Length - start);
+        var windows = new Dictionary<IrNode, (int Start, int End)>();
+        HashSet<IrNode>? refused = null;
+        List<(IrNode Node, int Start, int End)>? claims = null;
+
         foreach (var descendant in statement.Descendants)
         {
+            int windowStart = 0, windowEnd = text.Length;
+            bool blocked = false;
+            for (var parent = descendant.Parent;
+                 parent is not null && !ReferenceEquals(parent, statement);
+                 parent = parent.Parent)
+            {
+                if (windows.TryGetValue(parent, out var window))
+                {
+                    (windowStart, windowEnd) = window;
+                    break;
+                }
+                if (refused?.Contains(parent) == true)
+                {
+                    blocked = true;
+                    break;
+                }
+            }
+
+            if (blocked)
+            {
+                (refused ??= []).Add(descendant);
+                continue;
+            }
+
             if (!_expressionText.TryGetValue(descendant, out string? printed) || printed.Length == 0)
                 continue;
-            int at = text.IndexOf(printed, StringComparison.Ordinal);
-            if (at < 0 || text.IndexOf(printed, at + 1, StringComparison.Ordinal) >= 0)
+
+            int at = text.IndexOf(printed, windowStart, windowEnd - windowStart, StringComparison.Ordinal);
+            if (at < 0
+                || (at + 1 < windowEnd
+                    && text.IndexOf(printed, at + 1, windowEnd - at - 1, StringComparison.Ordinal) >= 0))
+            {
+                (refused ??= []).Add(descendant);
                 continue;
-            _printedRanges!.Record(descendant, start + at, start + at + printed.Length);
+            }
+
+            windows[descendant] = (at, at + printed.Length);
+            (claims ??= []).Add((descendant, at, at + printed.Length));
         }
+
+        if (claims is null)
+            return;
+        for (int i = claims.Count - 1; i >= 0; i--)
+            _printedRanges!.Record(claims[i].Node, start + claims[i].Start, start + claims[i].End);
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
@@ -4423,7 +4478,15 @@ public sealed partial class CSharpPrinter
             return null;
         }
 
-        return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string text = $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        // This spelling is composed here rather than by Expression(), which is
+        // otherwise the one place a node's text is captured. Without recording it
+        // the shortened form claims no characters at all, so a fact on the
+        // creation falls back to underlining the whole declaration -- exactly the
+        // `List<object> sink = new();` case in #3328.
+        if (_expressionText is not null)
+            _expressionText[creation] = text;
+        return text;
     }
 
     /// <summary>
