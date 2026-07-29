@@ -2289,6 +2289,17 @@ public class SectionPipelineTests
     [InlineData("con")]
     [InlineData("COM1")]
     [InlineData("LPT9.dll")]
+    // Windows strips trailing spaces and dots from a path component, so these name something
+    // other than what the metadata spells. "CON " reaches the CON device; "Foo." opens "Foo";
+    // "System.Text.Json " collides with the real assembly while denoting a different one.
+    [InlineData("CON ")]
+    [InlineData("con.")]
+    [InlineData("NUL   ")]
+    [InlineData("Foo.")]
+    [InlineData("System.Text.Json ")]
+    [InlineData("System.Text.Json.")]
+    [InlineData(" System.Text.Json")]
+    [InlineData(".")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2307,6 +2318,9 @@ public class SectionPipelineTests
     [InlineData("COM1Plus")]
     [InlineData("mscorlib")]
     [InlineData("\u00dcmlaut.Assembly")]
+    // Interior spaces and dots are not canonicalized away, so these stay distinct and legitimate.
+    [InlineData("My Assembly.Core")]
+    [InlineData("CON Toso.Library")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));

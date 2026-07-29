@@ -521,8 +521,9 @@ internal static class LibraryMetadataService
     /// Whether an assembly simple name read from untrusted metadata is safe to use as a single
     /// path component. Mirrors <c>NuGetCache.ValidatePathComponent</c>'s rejection list — empty or
     /// whitespace, traversal (<c>..</c>), separators, volume qualifiers (<c>:</c>), null and other
-    /// control characters, and rooted values — plus reserved device names and an upper length
-    /// bound. A legitimate assembly simple name contains none of these.
+    /// control characters, and rooted values — plus reserved device names, names the host would
+    /// canonicalize to something else, and an upper length bound. A legitimate assembly simple
+    /// name contains none of these.
     /// </summary>
     internal static bool IsSafeAssemblySimpleName(string? name)
     {
@@ -543,7 +544,19 @@ internal static class LibraryMetadataService
                 return false;
         }
 
-        // A device name is reserved with or without an extension, so compare the stem.
+        // Windows strips trailing spaces and dots from a path component, so "CON " and "CON"
+        // name the same thing there and "Foo." opens "Foo". A name that the host would rewrite
+        // is ambiguous: it denotes one assembly in metadata and another on disk. Reject it rather
+        // than trim it, for the same reason the caller rejects instead of sanitizing -- a trimmed
+        // name silently designates a different assembly. Leading whitespace is not canonicalized
+        // away, but no legitimate assembly simple name carries it and it reads as padding.
+        if (name.Length != name.TrimEnd(' ', '.').Length || name.Length != name.TrimStart(' ').Length)
+        {
+            return false;
+        }
+
+        // A device name is reserved with or without an extension, so compare the stem. The name is
+        // already free of trailing spaces and dots here, so the stem is the host's stem.
         var stem = name;
         var dot = stem.IndexOf('.');
         if (dot >= 0)
