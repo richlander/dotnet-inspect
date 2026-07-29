@@ -692,6 +692,41 @@ public class ObjectInitializerPassTests
         function.CheckInvariant();
     }
 
+    // #3459 blocking negative (reorder soundness): a receiver field read that sits
+    // AFTER a member value which may write that field must NOT be hoisted ahead of the
+    // member value. Inlining `this.Rest` into the folded receiver position (evaluated
+    // before the initializer argument) would observe the pre-`MutateRest()` receiver.
+    // The spill store must survive, and the dangerous reordered spelling must not
+    // appear.
+    [Fact]
+    public void FieldReceiverSpillAfterMutatingEntry_IsNotHoistedAcrossSideEffect()
+    {
+        var function = FunctionWithFieldReceiverSpillAfterMutatingEntry();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The receiver read is left as a spill store (not inlined ahead of the mutation).
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.DoesNotContain("this.Rest.Consume(new", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant();
+    }
+
+    // #3459 blocking negative (throw soundness): in a STATIC method argument 0 is an
+    // ordinary, possibly null parameter, so reading a field off it can throw. It must
+    // not be admitted as a non-throwing reorder-safe spill and inlined as the folded
+    // receiver, which would change when the NullReferenceException is observed.
+    [Fact]
+    public void StaticArg0FieldReceiverSpill_IsNotInlined()
+    {
+        var function = FunctionWithStaticArg0FieldReceiverSpill();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The receiver read remains a spill store (not treated as a `this` field read).
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        function.CheckInvariant();
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -875,6 +910,95 @@ public class ObjectInitializerPassTests
             "ReorderSafeSpillUsedTwice",
             owner,
             new MethodSignature(intType, [new Parameter("n", intType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_256.X = MutateRest(); S_257 = this.Rest;
+    // return S_257.Consume(S_256);` in an INSTANCE method. The receiver field read
+    // `this.Rest` is a reorder-safe candidate (non-volatile field off `this`), but it
+    // sits AFTER a member value `MutateRest()` that has a side effect and may write
+    // `this.Rest`. Inlining it into the folded call's receiver position would move the
+    // read ahead of `MutateRest()`, observing the pre-mutation receiver. The pass must
+    // NOT admit a mutable-memory read after an entry, so `this.Rest` is never inlined
+    // as the folded receiver.
+    static IrFunction FunctionWithFieldReceiverSpillAfterMutatingEntry()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var rest = TypeRef.Definition("Synthetic", "Samples", "Rest");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var mutateRest = new MethodRef(owner, "MutateRest", intType, [], HasThis: false);
+        var consume = new MethodRef(rest, "Consume", intType, [type], HasThis: true);
+        var restField = new FieldRef(owner, "Rest", rest);
+
+        const int seed = 256;
+        const int receiver = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Call(mutateRest, isVirtual: false, [])));
+        block.Add(new StoreStackSlot(receiver, new LoadField(restField, new LoadArgument(0, "this", owner))));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(receiver, rest),
+            new LoadStackSlot(seed, type),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "FieldReceiverSpillAfterMutatingEntry",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_257 = holder.Rest; S_256.X = 1;
+    // return S_257.Consume(S_256);` in a STATIC method, where argument 0 (`holder`) is
+    // an ordinary, possibly null parameter rather than `this`. Reading `holder.Rest`
+    // can throw NullReferenceException, so it is NOT reorder-safe: moving it (and the
+    // construction) would change when the throw is observed. The pass must decline to
+    // inline it as the folded receiver.
+    static IrFunction FunctionWithStaticArg0FieldReceiverSpill()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var rest = TypeRef.Definition("Synthetic", "Samples", "Rest");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var consume = new MethodRef(rest, "Consume", intType, [type], HasThis: true);
+        var restField = new FieldRef(owner, "Rest", rest);
+
+        const int seed = 256;
+        const int receiver = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(receiver, new LoadField(restField, new LoadArgument(0, "holder", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Constant(1, intType)));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(receiver, rest),
+            new LoadStackSlot(seed, type),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "StaticArg0FieldReceiverSpill",
+            owner,
+            new MethodSignature(intType, [new Parameter("holder", owner)], HasThis: false, GenericParameterCount: 0),
             [],
             body);
     }

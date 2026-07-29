@@ -290,26 +290,35 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
-            // A side-effect-free, non-throwing spill interleaved anywhere in the
-            // construction region: a pure receiver or argument the compiler spilled
-            // to its own slot for the *enclosing call* whose argument this
-            // initializer becomes — e.g. `S_257 = _rest;` before the members, or
-            // `V_0 = default;` in the gap between the last member and the call. Unlike
-            // the offset skip below, this does not require the statement to have run
-            // before the `newobj`: use-site folding moves the construction to the
-            // call-argument position, past this statement, and a pure, non-throwing
-            // statement commutes with the construction — it neither observes the fresh
-            // object nor mutates anything a member value reads, and cannot throw
-            // between the construction's effects and the surrounding order. So it is
-            // reorder-safe regardless of IL offset, and — unlike the offset skip — is
-            // permitted after entries too, because reordering a member store across a
-            // provably pure statement is unobservable. (The impure-receiver case, where
-            // the receiver has a side effect, is handled by the offset skip below:
-            // Roslyn must evaluate a side-effecting receiver first, so it emits that
-            // spill *before* the `newobj`, where ExecutesBefore admits it.)
+            // A side-effect-free, non-throwing spill interleaved in the construction
+            // region: a pure receiver or argument the compiler spilled to its own slot
+            // for the *enclosing call* whose argument this initializer becomes — e.g.
+            // `S_257 = _rest;` before the members, or `V_0 = default;` in the gap
+            // between the last member and the call. Use-site folding moves the
+            // construction to the call-argument position, past this statement, so the
+            // statement must commute with the construction and every member value.
+            //
+            // Two admissibility tiers (see IsReorderSafeSpill), because "pure and
+            // non-throwing" is not enough for a mutable-memory read:
+            //   * A position-independent value (constant / `default` / `sizeof` /
+            //     `ldtoken` / argument load) reads no mutable state, so it commutes
+            //     with the construction and any member value in either direction — it
+            //     is admitted anywhere, including after entries.
+            //   * A mutable-memory read (a field or local load — e.g. the receiver
+            //     `_rest`) is admitted ONLY before the first entry. Inlining it feeds
+            //     the folded call's *receiver* position, which C# evaluates before the
+            //     initializer argument; if a member value that ran before it in the IL
+            //     (an entry already recorded here) writes that memory, moving the read
+            //     ahead of the members would observe the pre-write value. Requiring it
+            //     to precede every entry keeps the read ahead of all member values in
+            //     both the original and the folded order. (The impure-receiver case,
+            //     where the receiver has a side effect, is handled by the offset skip
+            //     below: Roslyn evaluates a side-effecting receiver first, emitting that
+            //     spill before the `newobj`, where ExecutesBefore admits it.)
+            var beforeFirstEntry = entries.Count == 0;
             if (pendingInner is null
                 && !TouchesAnySlot(statement, aliasSlots)
-                && IsReorderSafeSpill(statement, aliasSlots))
+                && IsReorderSafeSpill(statement, aliasSlots, function.Signature.HasThis, beforeFirstEntry))
             {
                 skipped.Add(statement);
                 inlinableSkipped.Add(statement);
@@ -967,30 +976,62 @@ public sealed class ObjectInitializerPass : IIrPass
     /// receiver/argument spills the compiler emits for the enclosing call whose
     /// argument the initializer becomes (see the skip branch in <see cref="TryBuild"/>).
     /// </summary>
-    static bool IsReorderSafeSpill(IrNode statement, HashSet<int> aliasSlots) => statement switch
+    /// <summary>
+    /// Whether an interleaved statement is a reorder-safe spill that use-site folding
+    /// may move the construction past. Two tiers, per <paramref name="beforeFirstEntry"/>:
+    /// a position-independent value (see <see cref="IsPositionIndependentValue"/>) is
+    /// admitted anywhere, while a mutable-memory read (a field or local load) is
+    /// admitted only before the first initializer entry, so it is never reordered
+    /// across a member value that could write the memory it reads. A struct
+    /// <c>default</c> init (<c>initobj</c> zeroing a local) writes only that fresh
+    /// local and reads nothing mutable, so it too is safe anywhere.
+    /// </summary>
+    static bool IsReorderSafeSpill(IrNode statement, HashSet<int> aliasSlots, bool hasThis, bool beforeFirstEntry) => statement switch
     {
-        StoreStackSlot store => !aliasSlots.Contains(store.Slot) && IsReorderSafeValue(store.Value),
-        StoreLocal store => IsReorderSafeValue(store.Value),
-        // `default(T)` for a struct: `initobj` zeroing a local — pure and non-throwing.
+        StoreStackSlot store => !aliasSlots.Contains(store.Slot) && IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry),
+        StoreLocal store => IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry),
+        // `default(T)` for a struct: `initobj` zeroing a local — pure and non-throwing,
+        // reads no mutable state, so it commutes with the construction anywhere.
         InitObject init => init.Address is LoadLocalAddress,
         _ => false,
     };
 
     /// <summary>
-    /// Whether an expression is side-effect-free AND non-throwing, so moving the
-    /// object construction across a statement that computes it is unobservable.
-    /// Deliberately conservative: constants and a struct <c>default</c>; argument
-    /// and local reads (pure, non-throwing); and a non-volatile instance field read
-    /// off the non-null <c>this</c> receiver (no null-receiver throw, and — unlike a
-    /// static field — no type-initializer side effect). Anything else (calls, static
-    /// or nested field reads, indexers, arithmetic that can throw) is rejected.
+    /// Whether an expression is side-effect-free, non-throwing, and — when
+    /// <paramref name="beforeFirstEntry"/> is false — free of any mutable-memory read
+    /// whose value a member store could have changed. So moving the object
+    /// construction across a statement that computes it is unobservable.
+    ///
+    /// A <see cref="IsPositionIndependentValue"/> reads no mutable state and is
+    /// admitted regardless of position. A non-volatile instance field read off the
+    /// non-null <c>this</c> receiver is non-throwing but *is* a mutable-memory read;
+    /// it is admitted only before the first entry, because inlining it feeds the
+    /// folded call's receiver position (evaluated before the initializer argument) and
+    /// a member value that ran before it could otherwise be reordered after it. The
+    /// <c>this</c>-field carve-out further requires <paramref name="hasThis"/>: in a
+    /// static method argument 0 is an ordinary, possibly null parameter, so a field
+    /// read off it can throw <see cref="System.NullReferenceException"/>.
+    /// Everything else (calls, static or nested field reads, indexers, throwing
+    /// arithmetic) is rejected.
     /// </summary>
-    static bool IsReorderSafeValue(IrExpression value) => value switch
+    static bool IsReorderSafeValue(IrExpression value, bool hasThis, bool beforeFirstEntry) => value switch
+    {
+        _ when IsPositionIndependentValue(value) => true,
+        LoadField { IsVolatile: false, Instance: LoadArgument { Index: 0 } } => hasThis && beforeFirstEntry,
+        LoadLocal => beforeFirstEntry,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether an expression reads no mutable memory and cannot throw, so it commutes
+    /// with the object construction and every member value in either direction — a
+    /// constant, a struct <c>default</c>, a <c>sizeof</c>/<c>ldtoken</c>, or an
+    /// argument load (a caller-supplied slot a callee member value cannot mutate).
+    /// </summary>
+    static bool IsPositionIndependentValue(IrExpression value) => value switch
     {
         Constant or DefaultValue or SizeOf or LoadToken => true,
         LoadArgument => true,
-        LoadLocal => true,
-        LoadField { IsVolatile: false, Instance: LoadArgument { Index: 0 } } => true,
         _ => false,
     };
 
@@ -1126,16 +1167,24 @@ public sealed class ObjectInitializerPass : IIrPass
     /// </summary>
     static void InlineSingleUseSpills(IReadOnlyList<IrNode> skipped, IrFunction function)
     {
+        // Count and rewrite only within this function's own scope. IrNode.Descendants
+        // crosses into nested lambda/local-function bodies, whose stack slots and local
+        // indices live in a separate pool that can collide with the outer spill's slot
+        // — over-counting a load would wrongly block the inline, and (worse) inlining
+        // into a nested scope's load would reparent an outer expression across the
+        // closure boundary. DescendantsOutsideNestedFunctions stops at those bounds.
+        IEnumerable<IrNode> Scoped() => GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function);
+
         foreach (var statement in skipped)
         {
             switch (statement)
             {
                 case StoreStackSlot store:
                 {
-                    var loads = function.Descendants.OfType<LoadStackSlot>()
+                    var loads = Scoped().OfType<LoadStackSlot>()
                         .Where(load => load.Slot == store.Slot)
                         .ToList();
-                    var writers = function.Descendants.OfType<StoreStackSlot>()
+                    var writers = Scoped().OfType<StoreStackSlot>()
                         .Count(other => other.Slot == store.Slot);
                     if (loads.Count != 1 || writers != 1)
                         continue;
@@ -1148,12 +1197,12 @@ public sealed class ObjectInitializerPass : IIrPass
 
                 case StoreLocal store:
                 {
-                    var loads = function.Descendants.OfType<LoadLocal>()
+                    var loads = Scoped().OfType<LoadLocal>()
                         .Where(load => load.Index == store.Index)
                         .ToList();
-                    var writers = function.Descendants.OfType<StoreLocal>()
+                    var writers = Scoped().OfType<StoreLocal>()
                         .Count(other => other.Index == store.Index);
-                    var addressUses = function.Descendants.OfType<LoadLocalAddress>()
+                    var addressUses = Scoped().OfType<LoadLocalAddress>()
                         .Count(address => address.Index == store.Index);
                     if (loads.Count != 1 || writers != 1 || addressUses != 0)
                         continue;
@@ -1172,12 +1221,12 @@ public sealed class ObjectInitializerPass : IIrPass
                 // with no other writer or address escape beyond this init.
                 case InitObject { Address: LoadLocalAddress { Index: var index } } init:
                 {
-                    var loads = function.Descendants.OfType<LoadLocal>()
+                    var loads = Scoped().OfType<LoadLocal>()
                         .Where(load => load.Index == index)
                         .ToList();
-                    var addressUses = function.Descendants.OfType<LoadLocalAddress>()
+                    var addressUses = Scoped().OfType<LoadLocalAddress>()
                         .Count(address => address.Index == index);
-                    var stores = function.Descendants.OfType<StoreLocal>()
+                    var stores = Scoped().OfType<StoreLocal>()
                         .Count(store => store.Index == index);
                     if (loads.Count != 1 || stores != 0 || addressUses != 1)
                         continue;
