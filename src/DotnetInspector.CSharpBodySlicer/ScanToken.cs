@@ -19,8 +19,16 @@ internal enum ScanTokenKind
     Punctuator,
 
     /// <summary>
-    /// Literal text between a string's delimiters. An interpolated literal yields one of these
-    /// per run of literal text, with the holes emitted as ordinary code tokens in between.
+    /// Text between a string's delimiters, delimiters included.
+    /// <para>
+    /// One token may span more than one literal. Adjacent literal text coalesces, and a literal
+    /// that opens immediately inside another's interpolation hole is adjacent to it, so
+    /// <c>$"a{$"b{</c> arrives as a single token. The guarantee is the complement rather than the
+    /// extent: no character of code is ever inside one of these, because code is emitted as
+    /// <see cref="Word"/> or <see cref="Punctuator"/> and so breaks the adjacency. Callers use
+    /// this kind to ask "is this position code?", which it answers exactly; they must not use it
+    /// to count literals or to find one literal's bounds.
+    /// </para>
     /// </summary>
     StringLiteral,
 

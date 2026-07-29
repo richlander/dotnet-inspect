@@ -116,6 +116,90 @@ public class ScanTokenTests
     }
 
     [Fact]
+    public void NestedInterpolation_KeepsTheInnerHoleAsCode()
+    {
+        // Two literals, and the inner one opens immediately inside the outer one's hole, so the
+        // two openers coalesce into a single token. That is the documented meaning of the kind:
+        // it marks text that is not code, not the bounds of one literal. What matters is that the
+        // hole contents still arrive as code, and they do.
+        Assert.Equal(
+            "W:var W:s P:= S:$\"outer {$\"inner { W:x S:}\"} end\" P:;",
+            Render("var s = $\"outer {$\"inner {x}\"} end\";"));
+    }
+
+    [Fact]
+    public void ConditionalInsideAHole_YieldsItsOwnLiteralsAsSeparateTokens()
+    {
+        // Here the hole does contain code between the literals, so nothing coalesces across it.
+        Assert.Equal(
+            "W:var W:s P:= S:$\"{ P:( W:cond P:? S:\"a\" P:: S:\"b\" P:) S:}\" P:;",
+            Render("var s = $\"{(cond ? \"a\" : \"b\")}\";"));
+    }
+
+    [Fact]
+    public void TripleBraceRunInDoubleDollarLiteral_OpensAHoleWithTheLastTwo()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:$$\"\"\"a{{{ W:b S:}}}c\"\"\" P:;",
+            Render("var s = $$\"\"\"a{{{b}}}c\"\"\";"));
+    }
+
+    [Theory]
+    [InlineData("$@")]
+    [InlineData("@$")]
+    public void VerbatimAndInterpolatedInEitherOrder_StillInterpolates(string prefix)
+    {
+        Assert.Equal(
+            $"W:var W:s P:= S:{prefix}\"a{{ W:b S:}}c\" P:;",
+            Render($"var s = {prefix}\"a{{b}}c\";"));
+    }
+
+    [Fact]
+    public void QuoteRunShorterThanTheDelimiter_IsRawLiteralContent()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:\"\"\"\"a \"\"\" b\"\"\"\" P:;",
+            Render("var s = \"\"\"\"a \"\"\" b\"\"\"\";"));
+    }
+
+    [Fact]
+    public void VerbatimLiteral_EndingALineOnAnEscapedQuote_StaysOpen()
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:@\"ends with quote\"\" S:still literal\" P:;",
+            Render("var s = @\"ends with quote\"\"", "still literal\";"));
+    }
+
+    [Theory]
+    [InlineData("var s = \"http://not/a/comment\";", "W:var W:s P:= S:\"http://not/a/comment\" P:;")]
+    [InlineData("var s = \"/* not a comment */\";", "W:var W:s P:= S:\"/* not a comment */\" P:;")]
+    public void CommentOpenerInsideALiteral_IsLiteralText(string line, string expected)
+    {
+        Assert.Equal(expected, Render(line));
+    }
+
+    [Theory]
+    [InlineData("// a \" quote in a comment", "C:// a \" quote in a comment")]
+    [InlineData("/* a \" quote */ int x;", "C:/* a \" quote */ W:int W:x P:;")]
+    public void QuoteInsideAComment_DoesNotOpenALiteral(string line, string expected)
+    {
+        Assert.Equal(expected, Render(line));
+    }
+
+    [Fact]
+    public void IndexerBrackets_RaiseBracketDepthJustAsAnAttributeListDoes()
+    {
+        // Bracket depth says "inside square brackets", not "inside an attribute list". A predicate
+        // moving onto these tokens must not read a non-zero bracket depth as an attribute.
+        var lines = new[] { "var x = a[i] + b[j];" };
+        var tokens = BodySlicer.ScanTokens(lines);
+
+        Assert.Equal(1, Single(tokens, lines, "i", line: 0).BracketDepth);
+        Assert.Equal(1, Single(tokens, lines, "j", line: 0).BracketDepth);
+        Assert.Equal(0, Single(tokens, lines, "+", line: 0).BracketDepth);
+    }
+
+    [Fact]
     public void CharLiteral_SurvivesAnEscapedQuote()
     {
         Assert.Equal("W:char W:c P:= H:'\\'' P:;", Render("char c = '\\'';"));
