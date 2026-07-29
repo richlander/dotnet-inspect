@@ -151,6 +151,17 @@ if (unreadable is not null)
 
 List<PackageListEntry> packageList = parsedList!;
 
+// Checked before anything dereferences an entry. The deserializer will happily put a
+// null in the list, and the pin file has guarded this since round two while its sibling
+// did not -- so the very first validation dereferenced it and exited 134, in the one
+// file whose stated purpose is that no input reaches 134.
+if (packageList.Any(entry => entry is null))
+{
+    Console.Error.WriteLine($"Package list '{sourcePath}' contains a null entry.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package)))
 {
     Console.Error.WriteLine($"Package list '{sourcePath}' contains an invalid entry.");
@@ -771,6 +782,13 @@ static SweepPackageResult Failed(
 
 static string? Malformed(PackagePinFile pinFile)
 {
+    // The sweep writes 1 and reads 1. Ignoring the number meant a file written to a
+    // later schema would be read with this schema's meaning -- fields silently absent
+    // rather than refused, which is how a pin stops describing the pool without saying
+    // so. EvilPoolPinTests asserts the committed file is 1; this is the same rule where
+    // the refusal can actually stop a run.
+    if (pinFile.SchemaVersion != 1)
+        return $"states schema version {pinFile.SchemaVersion}, which this sweep cannot read";
     if (pinFile.Packages is null)
         return "states no packages";
     if (pinFile.Packages.Any(pin => pin is null))
