@@ -10,7 +10,7 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class RouterVersionTests
 {
-    private const string VersionCacheCategory = "versions";
+    private const string VersionCacheCategory = "versions-v2";
 
     public RouterVersionTests()
     {

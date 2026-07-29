@@ -153,6 +153,47 @@ dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
 kind and producer detail establish identity, while IL offsets remain local to
 each endpoint.
 
+## Listed vs. unlisted versions
+
+NuGet lets a publisher **unlist** a version: it stays restorable by exact
+coordinate but is hidden from discovery on nuget.org. The flat-container
+`index.json` that drives version enumeration lists **every** published version
+and carries no listed flag, so it cannot distinguish an unlisted version on its
+own. Only the nuget.org **registration** index exposes the per-version
+`catalogEntry.listed` bit. Resolution reads the SemVer2 registration hive
+(`registration5-gz-semver2`) rather than the SemVer1 hive, because the SemVer1
+hive omits SemVer2 versions entirely — reading it would let unlisted SemVer2
+prereleases escape filtering. That hive is gzip-encoded and transparently
+decompressed by the shared HTTP client.
+
+Version resolution applies one shared listing-aware policy so discovery matches
+the nuget.org gallery:
+
+- **Enumeration** (`Name --versions`, wildcard resolution) and the
+  **flat-container / prerelease "latest"** paths consult the registration index
+  and drop versions whose `catalogEntry.listed` is explicitly `false`. The
+  stable "latest" path already uses the listing-aware search API and is
+  unaffected. This is nuget.org-only; other feeds have no listed concept and are
+  returned unfiltered.
+- **Explicit access is preserved.** A pinned `Name@Version` (including
+  `Name@latest` and the addressable-vector endpoints) never enumerates, so a
+  known unlisted version still resolves and loads — matching NuGet's own
+  behavior of restoring a known unlisted version.
+- **Fail-open vs. fail-closed on outage.** If the registration index cannot be
+  fetched or parsed (network failure, or a valid-JSON document whose shape
+  defies the expected schema), the condition is logged and behavior depends on
+  the caller. **Raw enumeration** (`Name --versions`) fails **open** — the
+  unfiltered list is returned rather than silently dropping real versions.
+  **Auto-selecting** callers that pick a single version — nuget.org "latest"
+  resolution and wildcard pattern resolution (`Name@3.0.*`) — fail **closed**,
+  returning no result rather than risk selecting an unlisted version from an
+  unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
+  transient registration outage cannot re-surface unlisted versions for the
+  cache TTL; only an authoritatively filtered list is persisted. The version
+  cache category is versioned (`versions-v2`) so lists written by an older,
+  pre-filter build are never read after upgrading — the filter takes effect
+  immediately rather than being delayed by up to the cache TTL.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
@@ -160,7 +201,7 @@ each endpoint.
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
