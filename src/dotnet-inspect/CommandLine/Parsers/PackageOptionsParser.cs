@@ -28,7 +28,6 @@ public static class PackageOptionsParser
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
         Option<bool> IncludeUnlistedOption,
-        Option<bool> ReadmeOption,
         Option<bool> ContentOption,
         Option<bool> FrontmatterOption,
         Option<bool> BodyOption,
@@ -137,7 +136,6 @@ public static class PackageOptionsParser
             ListVersions = showVersions,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
-            ShowReadme = parseResult.GetValue(args.ReadmeOption),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
@@ -183,7 +181,7 @@ public static class PackageOptionsParser
         else if (pathFilters != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
-            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceFiles] };
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
