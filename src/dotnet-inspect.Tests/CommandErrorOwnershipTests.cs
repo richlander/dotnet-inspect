@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using ILInspector.Instructions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -147,35 +151,52 @@ public class CommandErrorOwnershipTests
     /// harness compensating for an unavailable observation, and it is exactly
     /// when evaluation stops working that the difference matters.
     /// </remarks>
+    /// <summary>
+    /// The item types this class asks for. Requested together because the cost
+    /// is the process, not the question.
+    /// </summary>
+    private static readonly string[] Items = ["Compile", "ProjectReference", "Using"];
+
     private static IReadOnlyList<Dictionary<string, string>> EvaluatedItems(
         string projectPath,
         string item,
-        string configuration) =>
-        Evaluations.GetOrAdd((projectPath, item, configuration), static key => Evaluate(key.Project, key.Item, key.Configuration));
+        BuildFlavor flavor) =>
+        Evaluations.GetOrAdd((projectPath, flavor), static key => Evaluate(key.Project, key.Flavor))
+            .GetValueOrDefault(item, []);
 
-    private static readonly ConcurrentDictionary<(string Project, string Item, string Configuration),
-        IReadOnlyList<Dictionary<string, string>>> Evaluations = new();
+    private static readonly ConcurrentDictionary<(string Project, BuildFlavor Flavor),
+        Dictionary<string, IReadOnlyList<Dictionary<string, string>>>> Evaluations = new();
 
-    private static IReadOnlyList<Dictionary<string, string>> Evaluate(
+    private static Dictionary<string, IReadOnlyList<Dictionary<string, string>>> Evaluate(
         string projectPath,
-        string item,
-        string configuration)
+        BuildFlavor flavor)
     {
+        string item = string.Join(',', Items);
+
         using Process process = new()
         {
             StartInfo = new ProcessStartInfo("dotnet")
             {
-                ArgumentList =
-                {
-                    "msbuild",
-                    projectPath,
-                    $"-getItem:{item}",
-                    $"-p:Configuration={configuration}",
-                },
+                ArgumentList = { "msbuild", projectPath, $"-getItem:{item}" },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             },
         };
+
+        foreach (string property in flavor.Properties)
+        {
+            process.StartInfo.ArgumentList.Add($"-p:{property}");
+        }
+
+        // Items a target adds do not exist at evaluation time. A reviewer put
+        // <Compile Include="eng/InjectedStderr.cs"/> inside a target with
+        // BeforeTargets="CoreCompile": the file compiles into the CLI and the
+        // evaluated item list does not mention it. Asking for the items after
+        // the target has run does, and costs nothing on an up-to-date build.
+        if (flavor.AfterTargets)
+        {
+            process.StartInfo.ArgumentList.Add("-t:CoreCompile");
+        }
 
         process.Start();
         string output = process.StandardOutput.ReadToEnd();
@@ -185,36 +206,64 @@ public class CommandErrorOwnershipTests
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"Could not evaluate {item} for {projectPath} ({configuration}). This class reads the set of files "
+                $"Could not evaluate {item} for {projectPath} ({flavor.Name}). This class reads the set of files "
                 + $"the compiler was handed rather than deriving it from project XML, so an evaluation it cannot "
                 + $"run is an observation it does not have.{Environment.NewLine}{output}{Environment.NewLine}{error}");
         }
 
         using JsonDocument document = JsonDocument.Parse(output);
-        if (!document.RootElement.GetProperty("Items").TryGetProperty(item, out JsonElement values))
+        JsonElement items = document.RootElement.GetProperty("Items");
+        Dictionary<string, IReadOnlyList<Dictionary<string, string>>> result = new(StringComparer.Ordinal);
+
+        foreach (string name in Items)
         {
-            return [];
+            result[name] = items.TryGetProperty(name, out JsonElement values)
+                ?
+                [
+                    .. values.EnumerateArray().Select(v => v.EnumerateObject()
+                        .ToDictionary(p => p.Name, p => p.Value.GetString() ?? string.Empty, StringComparer.Ordinal))
+                ]
+                : [];
         }
 
-        return
-        [
-            .. values.EnumerateArray().Select(v => v.EnumerateObject()
-                .ToDictionary(p => p.Name, p => p.Value.GetString() ?? string.Empty, StringComparer.Ordinal))
-        ];
+        return result;
     }
 
     /// <summary>
-    /// The configurations every evaluation here is run in.
+    /// One way the CLI is built: the properties that select it, and whether the
+    /// items are read after the targets that contribute to them have run.
+    /// </summary>
+    private readonly record struct BuildFlavor(string Name, string[] Properties, bool AfterTargets);
+
+    /// <summary>
+    /// Every way the CLI is built that this class reads.
     /// </summary>
     /// <remarks>
-    /// Both, because a <c>Condition</c> is part of what a build file can say.
-    /// Evaluating only the configuration the tests run in would let
+    /// More than one, because a <c>Condition</c> is part of what a build file
+    /// can say and the answer changes with it. Reading only the configuration
+    /// the tests happen to run in would let
     /// <c>Condition="'$(Configuration)' == 'Debug'"</c> put a file into a
-    /// compilation that this class never reads -- the same hole, one property
-    /// deeper. The XML readings kept alongside these deliberately ignore
-    /// conditions for the same reason.
+    /// compilation this class never reads, and a reviewer pointed out that
+    /// <c>OfficialBuild</c>, <c>OfficialAotBuild</c>, and <c>PublishAot</c> are
+    /// the same hole one property further out: <c>release.yml</c> packs with
+    /// them set and nothing else here ever does.
+    ///
+    /// Only the Release flavour is read after target execution. Running
+    /// <c>CoreCompile</c> in a configuration the repository does not build
+    /// would compile the whole closure to answer a question about item lists,
+    /// and Release is the configuration whose assemblies
+    /// <see cref="CompiledIl_ReachesStderrOnlyWhereAccountedFor"/> reads. A
+    /// target-injected file in another flavour is named in the PR's declared
+    /// residual rather than silently covered.
     /// </remarks>
-    private static readonly string[] Configurations = ["Debug", "Release"];
+    private static readonly BuildFlavor[] Configurations =
+    [
+        new("Release", ["Configuration=Release"], AfterTargets: true),
+        new("Debug", ["Configuration=Debug"], AfterTargets: false),
+        new("Official", ["Configuration=Release", "OfficialBuild=true"], AfterTargets: false),
+        new("OfficialAot", ["Configuration=Release", "OfficialAotBuild=true"], AfterTargets: false),
+        new("NoAot", ["Configuration=Release", "PublishAot=false"], AfterTargets: false),
+    ];
 
     /// <summary>
 
@@ -363,7 +412,7 @@ public class CommandErrorOwnershipTests
                     // ... and the references the build actually resolves, which
                     // is a different set: one added by an imported build file
                     // appears here and in no project XML.
-                    foreach (string configuration in Configurations)
+                    foreach (BuildFlavor configuration in Configurations)
                     {
                         foreach (var reference in EvaluatedItems(project, "ProjectReference", configuration))
                         {
@@ -423,7 +472,7 @@ public class CommandErrorOwnershipTests
             // ... and, finally, the set the compiler is actually handed, which
             // is the only one of the three that sees a Compile item contributed
             // by a build file rather than by the project.
-            foreach (string configuration in Configurations)
+            foreach (BuildFlavor configuration in Configurations)
             {
                 foreach (var compile in EvaluatedItems(project, "Compile", configuration))
                 {
@@ -906,6 +955,139 @@ public class CommandErrorOwnershipTests
             : string.Concat(node.DescendantTokens().Select(t => t.Text));
     }
 
+
+    /// <summary>
+    /// The value MSBuild evaluates <paramref name="property"/> to for
+    /// <paramref name="projectPath"/>.
+    /// </summary>
+    private static string EvaluatedProperty(string projectPath, string property, string configuration)
+    {
+        using Process process = new()
+        {
+            StartInfo = new ProcessStartInfo("dotnet")
+            {
+                ArgumentList = { "msbuild", projectPath, $"-getProperty:{property}", $"-p:Configuration={configuration}" },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+
+        process.Start();
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        return process.ExitCode == 0
+            ? output.Trim()
+            : throw new InvalidOperationException($"Could not evaluate {property} for {projectPath}.{Environment.NewLine}{output}");
+    }
+
+    /// <summary>
+    /// Every member of <c>System.Console</c> that reaches stderr, named as the
+    /// compiler emits it.
+    /// </summary>
+    private static readonly HashSet<string> StderrMembers = new(StringComparer.Ordinal)
+    {
+        "get_Error",
+        "OpenStandardError",
+        "SetError",
+    };
+
+    /// <summary>
+    /// Every method in <paramref name="assemblyPath"/> whose IL references a
+    /// member of <see cref="StderrMembers"/>.
+    /// </summary>
+    /// <remarks>
+    /// Read as IL rather than as source because IL is what runs. Every finding
+    /// from round 20 to round 26 of this review was a way of writing C# that
+    /// the source scan read differently than the compiler did -- an escape, a
+    /// verbatim identifier, an interpolation hole, an alias in an alphabet the
+    /// pattern did not cover, a preprocessor branch it did not realise, a file
+    /// it never opened because a build file rather than a project named it.
+    /// None of those is expressible here: by the time a call is in a method
+    /// body it has one spelling, and it is this one.
+    ///
+    /// The two rules are kept together because they fail differently and are
+    /// worth different things. The source rule names a file and a line, which
+    /// is what a contributor needs, and it reads code that is compiled in
+    /// configurations this one is not built in. This rule cannot be evaded by
+    /// how the code is written at all. A leak has to get past both.
+    /// </remarks>
+    private static List<string> ConsoleErrorReferences(string assemblyPath)
+    {
+        List<string> references = [];
+        using FileStream stream = File.OpenRead(assemblyPath);
+        using PEReader pe = new(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        string assembly = Path.GetFileNameWithoutExtension(assemblyPath);
+
+        foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(handle);
+            if (method.RelativeVirtualAddress == 0)
+            {
+                continue;
+            }
+
+            MethodBodyBlock body = pe.GetMethodBody(method.RelativeVirtualAddress);
+            ILReader il = new(body.GetILBytes() ?? []);
+
+            while (il.HasNext)
+            {
+                ILOpCode opCode = il.ReadILOpcode();
+
+                if (opCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj
+                    or ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Jmp or ILOpCode.Ldtoken)
+                {
+                    if (NamesStderrMember(reader, MetadataTokens.EntityHandle(il.ReadILToken())))
+                    {
+                        TypeDefinition declaring = reader.GetTypeDefinition(method.GetDeclaringType());
+                        string type = reader.GetString(declaring.Namespace) is { Length: > 0 } ns
+                            ? $"{ns}.{reader.GetString(declaring.Name)}"
+                            : reader.GetString(declaring.Name);
+
+                        references.Add($"{assembly}!{type}.{reader.GetString(method.Name)}");
+                    }
+                }
+                else if (!il.TrySkip(opCode))
+                {
+                    throw new InvalidOperationException(
+                        $"{assembly}: could not decode {opCode} in {reader.GetString(method.Name)}. A body this rule "
+                        + "cannot read is a body it cannot vouch for.");
+                }
+            }
+        }
+
+        return references;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="handle"/> names a <c>System.Console</c> member
+    /// that reaches stderr.
+    /// </summary>
+    private static bool NamesStderrMember(MetadataReader reader, EntityHandle handle)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodSpecification:
+                return NamesStderrMember(reader, reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method);
+
+            case HandleKind.MemberReference:
+                MemberReference member = reader.GetMemberReference((MemberReferenceHandle)handle);
+                if (!StderrMembers.Contains(reader.GetString(member.Name))
+                    || member.Parent.Kind != HandleKind.TypeReference)
+                {
+                    return false;
+                }
+
+                TypeReference parent = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                return reader.GetString(parent.Namespace) == "System"
+                    && reader.GetString(parent.Name) == "Console";
+
+            default:
+                return false;
+        }
+    }
+
     /// <summary>
     /// Pins the rule that actually closes this class of defect: outside the
     /// owner, no code in the CLI process writes text to stderr.
@@ -1030,7 +1212,7 @@ public class CommandErrorOwnershipTests
         foreach (string project in ProjectClosure(
             Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
         {
-            foreach (string configuration in Configurations)
+            foreach (BuildFlavor configuration in Configurations)
             {
                 foreach (var import in EvaluatedItems(project, "Using", configuration))
                 {
@@ -1044,7 +1226,7 @@ public class CommandErrorOwnershipTests
                             || string.Equals(identity, "System.Console", StringComparison.Ordinal)))
                     {
                         offenders.Add(
-                            $"{Path.GetRelativePath(root, project)} ({configuration}): <Using Include=\"{identity}\"/>");
+                            $"{Path.GetRelativePath(root, project)} ({configuration.Name}): <Using Include=\"{identity}\"/>");
                     }
                 }
             }
@@ -1124,8 +1306,10 @@ public class CommandErrorOwnershipTests
             // required parameter so no caller can omit it.
             ["src/dotnet-inspect/Program.cs: traceMermaid.WriteTo(Console.Error,CSharpIdentifier.ContainRenderedText);"] = 1,
 
-            // DEBUG-only network traffic log. Not in the shipped build, but the
-            // logged URL carries the package id from argv, so its consumer takes
+            // The network traffic log. Its call site is behind #if DEBUG, but
+            // the method itself is public API and ships, as
+            // CompiledIl_ReachesStderrOnlyWhereAccountedFor shows. The logged
+            // URL carries the package id from argv, so its consumer takes
             // containment as a required constructor parameter.
             ["src/DotnetInspector.Core/HttpClientFactory.cs: return_networkTrafficLoggingSubscription??=NetworkTelemetry.Subscribe(newNetworkTrafficLogConsumer(Console.Error,contain));"] = 1,
         };
@@ -1477,5 +1661,85 @@ public class CommandErrorOwnershipTests
     /// Whether <paramref name="xml"/>, a single MSBuild element, declares one.
     /// </summary>
     private static bool DeclaresConsoleImport(string xml) => DeclaresConsoleImport(XElement.Parse(xml));
+
+
+    /// <summary>
+    /// The same rule as <see cref="CommandError_IsTheOnlyWriterOfStderr"/>, read
+    /// from the IL that ships rather than from the source that produced it.
+    /// </summary>
+    /// <remarks>
+    /// A source scan can only be as good as its reading of C#, and seven
+    /// consecutive rounds of this review were spent on the gap between that
+    /// reading and the compiler's. This rule has no such gap: an alias, an
+    /// escape, a verbatim identifier, an interpolation hole, a preprocessor
+    /// branch, a source generator, and a file contributed by a build file all
+    /// produce the same <c>call System.Console::get_Error</c>, and that is what
+    /// is matched.
+    ///
+    /// It is scoped to the assemblies built from the CLI's own project closure,
+    /// which is the scope its sibling has. A third-party dependency writing to
+    /// stderr is a different question with a different answer, and pretending
+    /// this rule covers it would be worse than saying it does not.
+    ///
+    /// The accounted set is the same five sites the source rule accounts for,
+    /// plus the owner. Both are pinned because either could go stale alone.
+    /// </remarks>
+    [Fact]
+    public void CompiledIl_ReachesStderrOnlyWhereAccountedFor()
+    {
+        string root = RepositoryRoot();
+        List<string> found = [];
+
+        foreach (string project in ProjectClosure(
+            Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        {
+            string target = EvaluatedProperty(project, "TargetPath", "Release");
+
+            // A missing assembly is an unavailable observation, not a clean one.
+            Assert.True(
+                File.Exists(target),
+                $"{Path.GetRelativePath(root, project)} is in the CLI's closure but {target} does not exist. "
+                    + "Build the solution in Release before running this rule; it reads the IL that ships.");
+
+            found.AddRange(ConsoleErrorReferences(target));
+        }
+
+        // Counted, not listed. A method is not a fine enough identity on its
+        // own: `Program.<Main>$` is every top-level statement in the CLI and is
+        // accounted for, so a set-valued pin called a new raw write in it
+        // accounted too. Five tampers proved that -- a plain write, a method
+        // group, OpenStandardError, and SetError all landed in an accounted
+        // method and the rule stayed green.
+        Dictionary<string, int> accounted = new(StringComparer.Ordinal)
+        {
+            // The owner, which contains every string before it writes it. Four
+            // methods rather than one, because the stream is fetched at each.
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDiagnostic"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDetail"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteLine"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteBlankLine"] = 1,
+
+            // Markout views of the tips and the legend; every field of both
+            // rows is contained where the row is built.
+            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteTips"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteLegend"] = 1,
+
+            // --info and --trace-mermaid, both in top-level code, so IL sees one
+            // method where the source rule sees two statements. The source rule
+            // is the one that tells them apart; this one is why they are here.
+            ["dotnet-inspect!Program.<Main>$"] = 2,
+
+            // The network traffic log. Its caller is behind #if DEBUG, but this
+            // method is not: it is public API and the reference to the stream is
+            // in the shipped assembly, which is a thing only this rule can say.
+            // Its consumer takes containment as a required constructor
+            // parameter, and the logged URL carries the package id from argv.
+            ["DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging"] = 1,
+        };
+
+        Assert.Equal(
+            accounted,
+            found.GroupBy(f => f, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal));
+    }
 
 }
