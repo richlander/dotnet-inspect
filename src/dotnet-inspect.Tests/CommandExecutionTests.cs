@@ -7746,6 +7746,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverTreeShapedSectionByCategoryDoor_ExplainsTheEmptySchema()
+    {
+        // Regression: resolving selectors closed the note's blindness to globs but not to
+        // category doors. `-D @Dependencies` expands to the same tree-shaped Dependencies section
+        // that `-D Dependencies` and `-D Depend*` reach, yet printed a bare catalog and exited 0 --
+        // the third spelling of the same success-shaped empty output. The note now expands doors
+        // through DiscoverOutput.TryResolveCategory, the lookup discovery itself performs, rather
+        // than a second category matcher that would be free to disagree with it.
+        foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
+        {
+            string[] args = ["library", "System.Text.Json", "-D", "@Dependencies", .. extra, "--tips", "q"];
+            var (exit, _, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("not row-shaped", error, StringComparison.Ordinal);
+            Assert.Contains("Dependencies", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverRowShapedCategoryDoor_StaysQuiet()
+    {
+        // Positive control for the door path. Expanding doors would also "fix" the case above by
+        // firing for every door, so a door whose sections are all row-shaped has to stay quiet
+        // for the fix to mean what it claims. @Metadata is that door.
+        foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
+        {
+            string[] args = ["library", "System.Text.Json", "-D", "@Metadata", .. extra, "--tips", "q"];
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("not row-shaped", error, StringComparison.Ordinal);
+            Assert.NotEmpty(output);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverRowShapedSectionByGlob_StaysQuiet()
     {
         // Positive control for the glob path specifically. Resolving selectors through

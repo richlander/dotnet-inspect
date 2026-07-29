@@ -1717,8 +1717,16 @@ public class SectionPipelineTests
             .ToList();
     }
 
-    private static IEnumerable<object> CandidateValuesFor(Type type)
+    private static IEnumerable<object> CandidateValuesFor(Type type) => CandidateValuesFor(type, depth: 0);
+
+    private static IEnumerable<object> CandidateValuesFor(Type type, int depth)
     {
+        // A nested option type can name its own complex members, so the recursion needs a floor.
+        // Two levels reaches LibraryOptions -> PerformanceTriageOptions -> its scalars, which is
+        // every option shape the product declares today; a deeper one would have to widen this.
+        if (depth > 2)
+            yield break;
+
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
         if (underlying == typeof(bool))
@@ -1776,19 +1784,23 @@ public class SectionPipelineTests
 
             // A record whose only published instance is its default (PerformanceTriageOptions.Default
             // is `new()`) needs one of its own properties moved before it counts as a variation.
+            // Every writable member, and every candidate value for each: stopping at the first one
+            // is how `options.PerformanceTriage.Top.HasValue` escaped an earlier revision, since
+            // LoopOnly is declared first and was the only member this ever moved.
             foreach (var nested in underlying.GetProperties())
             {
                 if (!nested.CanWrite || nested.GetSetMethod() is null)
                     continue;
 
-                var nestedValue = CandidateValuesFor(nested.PropertyType).FirstOrDefault();
-                if (nestedValue is null)
-                    continue;
+                foreach (var nestedValue in CandidateValuesFor(nested.PropertyType, depth + 1))
+                {
+                    var mutated = Activator.CreateInstance(underlying)!;
+                    if (Equals(nested.GetValue(mutated), nestedValue))
+                        continue;
 
-                var mutated = Activator.CreateInstance(underlying)!;
-                nested.SetValue(mutated, nestedValue);
-                yield return mutated;
-                break;
+                    nested.SetValue(mutated, nestedValue);
+                    yield return mutated;
+                }
             }
         }
 
@@ -3658,6 +3670,48 @@ public class SectionPipelineTests
             var legit = Assert.Single(nodes, n => n.Name == "Legit.Neighbor");
             Assert.Equal("local", legit.ResolvedFrom);
             Assert.NotNull(legit.Path);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    // Refusing to resolve is a security decision, and the node it produces is indistinguishable
+    // from an ordinary unresolved reference -- same name, empty Path, empty ResolvedFrom. Routing
+    // the reason through VerboseLogger.Log therefore hid it at every verbosity a user actually
+    // runs: the tree rendered a plausible-looking unresolved dependency and said nothing about
+    // having declined it. The message goes through Warn, which is not verbosity-gated.
+    [Fact]
+    public async Task BuildTransitiveReferences_TraversingName_ReportsTheRefusalWithoutVerbose()
+    {
+        var root = Directory.CreateTempSubdirectory("di-traversal-visible-");
+        try
+        {
+            var sourceDir = Directory.CreateDirectory(Path.Combine(root.FullName, "app")).FullName;
+            var realAssembly = typeof(SectionPipelineTests).Assembly.Location;
+            File.Copy(realAssembly, Path.Combine(root.FullName, "payload.dll"), overwrite: true);
+            File.Copy(realAssembly, Path.Combine(sourceDir, "Legit.Neighbor.dll"), overwrite: true);
+
+            var (_, error) = await ConsoleCapture.RunAsync(() =>
+            {
+                LibraryMetadataService.BuildTransitiveReferences(
+                    [
+                        new AssemblyReference("../payload", "1.0.0.0", null, null),
+                        new AssemblyReference("Legit.Neighbor", "1.0.0.0", null, null)
+                    ],
+                    sourceDir,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    // Not verbose: this is the configuration every default invocation uses.
+                    new VerboseLogger(false));
+            });
+
+            Assert.Contains("refusing to resolve", error, StringComparison.Ordinal);
+            Assert.Contains("../payload", error, StringComparison.Ordinal);
+
+            // The legitimate neighbour resolved silently, so the warning is about the refusal and
+            // not a message this path emits for every reference.
+            Assert.DoesNotContain("Legit.Neighbor", error, StringComparison.Ordinal);
         }
         finally
         {

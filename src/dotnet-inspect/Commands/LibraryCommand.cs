@@ -1709,11 +1709,13 @@ public class LibraryCommand
     /// of them are tree-shaped.
     /// </summary>
     /// <remarks>
-    /// Resolution goes through <see cref="SelectResolver"/>, the same matcher
-    /// <c>DiscoverOutput</c> uses to turn a selector into section names. Comparing the raw
+    /// Resolution goes through <see cref="SelectResolver"/> and, for category doors, the same
+    /// lookup <c>DiscoverOutput</c> uses. Comparing the raw
     /// selectors by name silently skipped every glob: <c>-D Dependencies</c> warned, while
     /// <c>-D 'Depend*'</c> -- which discovery resolves to exactly the same section -- printed
     /// nothing at all and exited 0, the success-shaped empty output this note exists to prevent.
+    /// Handling only names and globs left the same hole open one door further along, for
+    /// <c>-D @Dependencies</c> and <c>-D @All</c>.
     /// Both call sites match the way discovery matches, so the two cannot disagree again; they
     /// differ only in the candidate set, because static schema discovery lists the whole catalog
     /// while effective discovery is narrowed by <c>-S</c>.
@@ -1725,13 +1727,39 @@ public class LibraryCommand
         if (options.Discover is { Length: > 0 })
         {
             var names = candidates.ToArray();
+            var categories = pipeline.GetCategoryMap();
             discovered = options.Discover
-                .SelectMany(selector => SelectResolver.ResolveSingle(selector, names, singleGlob: true).Matches)
+                .SelectMany(selector => ResolveDiscoverySelector(selector, names, categories))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
         WarnSelectedSectionsWithoutRowProjection(discovered, pipeline, "Render it with -S instead.");
+    }
+
+    /// <summary>
+    /// Turns one discovery selector into the section names discovery will report on, honouring
+    /// category doors as well as exact names and globs.
+    /// </summary>
+    /// <remarks>
+    /// A door is expanded with <see cref="DiscoverOutput.TryResolveCategory"/> -- the same lookup
+    /// <c>DiscoverOutput</c> performs -- rather than a second category matcher, because a parallel
+    /// one would be free to disagree. Matching only exact names and globs left
+    /// <c>-D @Dependencies</c> and <c>-D @All</c> silent while <c>-D 'Depend*'</c> warned, even
+    /// though all three resolve to the tree-shaped Dependencies section. The expansion is
+    /// intersected with <paramref name="candidates"/> so a door cannot reintroduce a section that
+    /// <c>-S</c> already excluded.
+    /// </remarks>
+    private static IEnumerable<string> ResolveDiscoverySelector(
+        string selector, string[] candidates, IReadOnlyDictionary<string, string[]>? categories)
+    {
+        if (DiscoverOutput.TryResolveCategory(selector, categories, out var categorySections))
+        {
+            return categorySections.Where(section =>
+                candidates.Contains(section, StringComparer.OrdinalIgnoreCase));
+        }
+
+        return SelectResolver.ResolveSingle(selector, candidates, singleGlob: true).Matches;
     }
 
     private static void WarnSelectedSectionsWithoutRowProjection(IReadOnlyCollection<string>? selected,

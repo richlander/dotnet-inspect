@@ -1027,7 +1027,7 @@ internal static class LibraryMetadataService
             // in the metadata, and dropping it would hide evidence; only resolution is refused.
             if (!IsSafeAssemblySimpleName(reference.Name))
             {
-                logger.Log($"Warning: refusing to resolve reference with unsafe assembly name: '{reference.Name}'");
+                logger.Warn($"Warning: refusing to resolve reference with unsafe assembly name: '{reference.Name}'");
                 nodes.Add(node);
                 continue;
             }

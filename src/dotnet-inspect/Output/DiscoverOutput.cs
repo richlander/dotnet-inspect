@@ -680,7 +680,7 @@ public static class DiscoverOutput
         return filtered;
     }
 
-    private static bool TryResolveCategory(
+    internal static bool TryResolveCategory(
         string name,
         IReadOnlyDictionary<string, string[]>? categories,
         out string[] sections)
