@@ -930,11 +930,11 @@ public class ScanTokenTests
     {
         const string Alphabet = "#/*'\"@$\\{}a";
         int checked_ = 0;
-        var opened = new HashSet<string>();
+        HashSet<string>? seedFirstLines = null;
 
         void Check(string[] content)
         {
-            opened.Add(content[0]);
+            seedFirstLines?.Add(content[0]);
 
             var bare = BodySlicer.ScanTokens(content);
             string[] wrapped = ["{", "[", .. content];
@@ -1008,6 +1008,8 @@ public class ScanTokenTests
         var tails = new List<string> { "" };
         Walk(new char[1], 0, 1, tails.Add);
 
+        seedFirstLines = [];
+
         foreach (var opener in openers)
         {
             foreach (var tail in tails)
@@ -1025,7 +1027,11 @@ public class ScanTokenTests
         // lines preserves every pairing and every assertion above while removing the carried
         // raw literal entirely (adversarial review, GPT). Pin that each opener was actually
         // scanned in the position that carries.
-        Assert.All(openers, opener => Assert.Contains(opener, opened));
+        //
+        // The record is scoped to the seeded arm rather than collected across all three. Seven
+        // of the nine openers are spellable from the single-line alphabet, so a set shared with
+        // the earlier arms would already contain them and pin nothing.
+        Assert.All(openers, opener => Assert.Contains(opener, seedFirstLines));
     }
 
 
