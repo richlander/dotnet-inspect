@@ -354,8 +354,34 @@ public class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private sealed record ProjectSkillDoc(string Path, string Text);
+    /// <summary>
+    /// A package that ships a nuspec and a library but no README, so a README selection resolves
+    /// to a section with zero rows rather than to a missing section.
+    /// </summary>
+    private static (string PackagePath, string TempDir) CreateLocalPackageWithoutReadme(string id)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "lib", "net8.0"));
+        File.WriteAllText(Path.Combine(packageRoot, "lib", "net8.0", $"{id}.dll"), "not a real assembly");
+        File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>{{id}}</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+              </metadata>
+            </package>
+            """);
 
+        var packagePath = Path.Combine(tempDir, $"{id}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private sealed record ProjectSkillDoc(string Path, string Text);
     private sealed record ProjectDocPackage(
         string Id,
         string Version,
@@ -11216,6 +11242,36 @@ public class CommandExecutionTests
             var paths = pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, paths.Length);
             Assert.EndsWith("beta/SKILL.md", paths[1].Trim(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmePrint_NamesTheEmptySectionWhenThePackageShipsNoSuchDocument()
+    {
+        // The generic writer can only say "selected section" because an empty payload has no row
+        // to name it from. A package ships several document kinds, so the caller needs to know
+        // which one is absent -- the bespoke printer used to say so, and that must not be lost.
+        var (packagePath, tempDir) = CreateLocalPackageWithoutReadme("Test.NoReadme.Print");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Package README file", error, StringComparison.Ordinal);
+
+            // The nuspec is always present, so the empty refusal must be about the selected
+            // section rather than about printing being unavailable on this package.
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("Test.NoReadme.Print", nuspecOutput, StringComparison.Ordinal);
         }
         finally
         {

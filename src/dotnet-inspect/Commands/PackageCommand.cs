@@ -1102,6 +1102,15 @@ public class PackageCommand
             _ => null
         } ?? [];
 
+        // The shared writer refuses an empty payload, but it has no row to name the section from,
+        // so it can only say "selected section". This package does ship documents of other kinds,
+        // and naming the empty section is what tells the caller which one is missing.
+        if (rows.Count == 0)
+        {
+            Console.Error.WriteLine($"Error: this package contains no '{section}' document to print.");
+            return 1;
+        }
+
         // A Markdown scope names a Markdown construct. The caller named this section explicitly,
         // so silently returning the whole document -- or an empty one -- would answer a question
         // they did not ask. Report that the scope does not apply to this document instead.
