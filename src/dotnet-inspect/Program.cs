@@ -126,7 +126,15 @@ if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault()
 // SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
 // covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
 // which is why no --rows gate remains here.
-var rowLimitMode = args.Any(a => a == "--rows");
+var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+
+if (CommandLineBuilder.FindValuedDirectionFlag(args) is (string flag, string count))
+{
+    var replacement = rowLimitMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+    Console.Error.WriteLine($"Error: '{flag} {count}' is no longer valid. {flag} now names only the direction; the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.");
+    return 1;
+}
+
 // Line/tail windows apply only outside --rows mode; in --rows mode the count is a
 // per-table data-row window rendered by the commands, not an output-line window.
 if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)

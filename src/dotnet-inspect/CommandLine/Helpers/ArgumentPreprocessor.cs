@@ -15,9 +15,28 @@ public static class ArgumentPreprocessor
     public static int? HeadLines { get; private set; }
 
     /// <summary>
-    /// When --tail N is used, stores the tail line count.
+    /// When --tail is used, stores the line count taken from -n/-NN.
     /// </summary>
     public static int? TailLines { get; private set; }
+
+    /// <summary>
+    /// Detects the pre-#3364 spelling <c>--head N</c>/<c>--tail N</c>, where the count
+    /// rode on the direction flag. Those flags now name only a direction, so the count
+    /// would bind as a positional instead: <c>--tail 20</c> would go looking for a
+    /// package named "20" and report that it does not exist. Reporting the stale
+    /// spelling directly keeps an old command line from failing at an unrelated task,
+    /// or worse, succeeding at one.
+    /// </summary>
+    public static (string Flag, string Count)? FindValuedDirectionFlag(string[] args)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if ((args[i] == "--head" || args[i] == "--tail") && int.TryParse(args[i + 1], out _))
+                return (args[i], args[i + 1]);
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Known/reserved commands for implicit package command detection.
@@ -68,12 +87,12 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set HeadLines for explicit -n N or --head N (so -n 6 behaves like -6)
+        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
         if (HeadLines == null)
         {
             for (int i = 0; i < args.Length - 1; i++)
             {
-                if ((args[i] == "-n" || args[i] == "--head") && int.TryParse(args[i + 1], out var n))
+                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
                 {
                     HeadLines = n;
                     break;
@@ -81,14 +100,12 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set TailLines for --tail N
-        for (int i = 0; i < args.Length - 1; i++)
+        // --tail names the direction; the count comes from -n/-NN. Move the count
+        // across so the tail writer gets it and the head writer does not.
+        if (args.Any(static a => a == "--tail"))
         {
-            if (args[i] == "--tail" && int.TryParse(args[i + 1], out var tailN))
-            {
-                TailLines = tailN;
-                break;
-            }
+            TailLines = HeadLines;
+            HeadLines = null;
         }
 
         // Find the first positional argument, skipping any leading options
@@ -153,7 +170,7 @@ public static class ArgumentPreprocessor
         "--il-offset", "--il-offsets", "--extract-resources", "--version", "--versions",
         "--out", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
-        "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
+        "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
     };
