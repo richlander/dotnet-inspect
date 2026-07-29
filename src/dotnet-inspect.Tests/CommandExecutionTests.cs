@@ -4380,6 +4380,71 @@ public class CommandExecutionTests
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
     }
 
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task Find_ColumnProjectionWithJson_IsRejected(string projectionFlag)
+    {
+        // Same category error as #3386: --fields/--columns select table columns, but find's
+        // --json emits the full per-result objects and has no column-slicing facility, so the
+        // combination used to silently drop the column filter. It now fails closed.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, projectionFlag, "Type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_ColumnProjectionWithJson_IsRejected()
+    {
+        // The member-search path shares ExecuteAsync's guard, so it rejects too.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--members", "--library", TestAssemblyPath, "--fields", "Member", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_ColumnProjectionWithJsonl_IsHonored()
+    {
+        // Boundary: the row-oriented formats keep honoring column projection. Only document
+        // --json is rejected.
+        var (exit, _, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_ColumnProjectionWithCountAndJson_IsHonored()
+    {
+        // --count reduces to a scalar and is excluded from the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--fields", "Type", "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Find_Discovery_ColumnProjectionWithJson_IsHonored()
+    {
+        // The -D discovery branch honors projection itself and returns before the guard, so a
+        // discovery request carrying --fields/--json must not be rejected.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "-D", "Results", "--fields", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.Contains("\"kind\":\"column\"", output);
+    }
+
     [Fact]
     public async Task Implements_Count_ComposesWithJson()
     {
