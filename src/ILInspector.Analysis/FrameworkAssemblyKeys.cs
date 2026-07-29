@@ -33,6 +33,15 @@ public static class FrameworkAssemblyKeys
             isFullKey: (reference.Flags & AssemblyFlags.PublicKey) != 0);
     }
 
+    /// <summary>
+    /// True if a lowercase-hex public-key token (as carried by
+    /// <see cref="ILInspector.Metadata.AssemblyReferenceIdentity.PublicKeyToken"/>)
+    /// is a .NET framework key. Use when only the identity is in hand and the
+    /// declaring <see cref="MetadataReader"/> is not.
+    /// </summary>
+    public static bool IsFrameworkToken(string? publicKeyToken)
+        => publicKeyToken is not null && s_frameworkTokens.Contains(publicKeyToken);
+
     public static bool IsFrameworkDefinition(MetadataReader reader)
     {
         if (!reader.IsAssembly)
