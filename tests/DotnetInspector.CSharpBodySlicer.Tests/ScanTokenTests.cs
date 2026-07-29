@@ -404,6 +404,53 @@ public class ScanTokenTests
     }
 
     /// <summary>
+    /// Gates both conjuncts of the guard that decides whether a line is a preprocessor directive.
+    /// A line beginning with <c>#</c> is only a directive when the scan is not already inside a
+    /// literal or a block comment; either conjunct can be dropped on its own, so each needs a
+    /// case. Without these, a <c>#define</c> carried inside a raw literal or a block comment is
+    /// emitted as a <see cref="ScanTokenKind.Directive"/> and the line's real content is lost.
+    /// </summary>
+    [Fact]
+    public void HashLine_CarriedInsideALiteralOrAComment_IsNotADirective()
+    {
+        Assert.Equal(
+            """"W:var W:s P:= S:""" S:#define FOO S:""" P:;"""",
+            Render("var s = \"\"\"", "#define FOO", "\"\"\";"));
+
+        Assert.Equal(
+            "C:/* C:#define FOO C:*/",
+            Render("/*", "#define FOO", "*/"));
+    }
+
+    /// <summary>
+    /// Gates the bounds half of the guard that looks for a comment opener. A <c>/</c> is only the
+    /// start of <c>//</c> or <c>/*</c> when another character follows it, and a line may legally
+    /// end with one — a division split across lines does exactly that. Dropping the length check
+    /// reads one past the end of the line, so this is the test standing between that guard and an
+    /// <see cref="IndexOutOfRangeException"/>.
+    /// </summary>
+    [Fact]
+    public void SlashAtEndOfLine_IsAPunctuator_NotACommentOpener()
+    {
+        Assert.Equal(
+            "W:int W:x P:= W:a P:/ W:b P:;",
+            Render("int x = a /", "    b;"));
+    }
+
+    /// <summary>
+    /// Gates the underscore half of the character test that starts an identifier run. An
+    /// identifier may begin with <c>_</c>, and dropping that conjunct splits <c>_value</c> into a
+    /// punctuator and a word — two tokens whose spans still cover the line completely, which is
+    /// why the coverage gate cannot see it.
+    /// </summary>
+    [Fact]
+    public void IdentifierStartingWithAnUnderscore_IsASingleWord()
+    {
+        Assert.Equal("W:_value P:= W:1 P:;", Render("_value = 1;"));
+        Assert.Equal("W:var W:_ P:= W:M P:( P:) P:;", Render("var _ = M();"));
+    }
+
+    /// <summary>
     /// Gates the column half of the adjacency rule. Two literal fragments can sit on one line
     /// with a gap between them when a hole's code is separated from its braces by whitespace:
     /// <c>$"{  "x"}"</c> emits <c>$"{</c>, then two skipped spaces, then <c>"x"}"</c>. Fusing
