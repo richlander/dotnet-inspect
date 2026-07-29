@@ -1081,7 +1081,7 @@ public class ScanTokenTests
         bool CodeOnSecondLine(string opener, string second) =>
             BodySlicer.ScanTokens([opener, second]).Any(t => t.Line == 1 && t.Kind is ScanTokenKind.Word);
 
-        Assert.Equal(1, openers.Count(o => CodeOnSecondLine(o, "\\\"a") && CodeOnSecondLine(o, "{a}")));
+        bool Verbatim(string opener) => CodeOnSecondLine(opener, "\\\"a");
 
         // Four raw seeds can be four *non-interpolated* raw seeds, which would erase the
         // dollar-run ladder: the scanner tracks how many braces open a hole (`frame.DollarRun`),
@@ -1096,6 +1096,13 @@ public class ScanTokenTests
         // run three with quote run four disappears, after which a wrong depth on exactly that
         // frame survives (adversarial review, GPT). The joint multiset implies both marginals,
         // so it replaces them rather than joining them.
+        //
+        // Verbatim belongs in the same tuple for the same reason. Pinning only how many seeds
+        // are verbatim *and* interpolated leaves the non-interpolated verbatim frame free: `@"`
+        // can be exchanged for an ordinary carrier while `$@"` keeps that count at one, and
+        // measured, a wrong depth guarded on `frame.Verbatim && frame.DollarRun == 0` at
+        // BodySlicer.cs:1431 then survives (adversarial review, GPT). Pinning the three
+        // together is what stops the state from being traded away one projection at a time.
         int MinBraceRun(string opener) =>
             CodeOnSecondLine(opener, "{a}") ? 1
             : CodeOnSecondLine(opener, "{{a}}") ? 2
@@ -1114,8 +1121,9 @@ public class ScanTokenTests
         }
 
         Assert.Equal(
-            [(0, 0), (0, 1), (0, 1), (0, 3), (1, 1), (1, 1), (1, 3), (2, 3), (3, 4)],
-            openers.Select(o => (Brace: MinBraceRun(o), Close: MinCloseRun(o))).Order());
+            [(false, 0, 0), (false, 0, 1), (false, 0, 3), (false, 1, 1), (false, 1, 3),
+             (false, 2, 3), (false, 3, 4), (true, 0, 1), (true, 1, 1)],
+            openers.Select(o => (Verbatim(o), MinBraceRun(o), MinCloseRun(o))).Order());
 
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
