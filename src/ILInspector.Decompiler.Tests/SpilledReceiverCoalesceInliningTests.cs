@@ -294,4 +294,103 @@ public class SpilledReceiverCoalesceInliningTests
         var interp = function.Descendants.OfType<InterpolatedStringExpression>().Single();
         Assert.IsType<LoadStackSlot>(interp.FormattedValues[1]);
     }
+
+    // The FIRST interpolation hole takes the firstLeaf path, so the guard must be
+    // universal. `$"{S_0}"` still constructs the handler before the hole is
+    // evaluated; the handler reserves an object identity and rents a pooled buffer,
+    // which a non-pure value that reads allocation order can observe (GPT's
+    // ArrayPool identity repro). The universal LoadCrossesHiddenOperation guard
+    // keeps the store even though the load is the first evaluated leaf (#3500,
+    // GPT). Verified to cost nothing on the corpus.
+    [Fact]
+    public void NonPureSpill_InFirstInterpolatedStringHole_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var strType = TypeRef.CoreLib("System", "String");
+        var objType = TypeRef.CoreLib("System", "Object");
+        var sideEffect = new MethodRef(holder, "SideEffect", objType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return $"{S_0}";  (single, first hole -> firstLeaf)
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        InterpolatedStringPart[] parts = [InterpolatedStringPart.FormattedValue(0)];
+        block.Add(new Return(new InterpolatedStringExpression(parts,
+            [new LoadStackSlot(0, objType)])));
+        var signature = new MethodSignature(strType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var interp = function.Descendants.OfType<InterpolatedStringExpression>().Single();
+        Assert.IsType<LoadStackSlot>(interp.FormattedValues[0]);
+    }
+
+    // `new T[] { S_0 }` (ArrayLiteral, e.g. from ArrayLiteralFromStoresPass)
+    // allocates the array (newarr) BEFORE evaluating any element. Folding the
+    // non-pure spill into the element reorders it past the allocation, changing
+    // allocation/exception ordering. ChildFollowsHiddenOperation rejects every
+    // ArrayLiteral element, so the store survives (#3500 adversarial review,
+    // Gemini).
+    [Fact]
+    public void NonPureSpill_InArrayLiteralElement_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var arrayType = TypeRef.SzArray(intType);
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return new int[] { S_0 };
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new ArrayLiteral(intType, arrayType,
+            [new LoadStackSlot(0, intType)])));
+        var signature = new MethodSignature(arrayType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var literal = function.Descendants.OfType<ArrayLiteral>().Single();
+        Assert.IsType<LoadStackSlot>(literal.Elements[0]);
+    }
+
+    // `[first, S_0]` (CollectionExpression) allocates the collection (newobj list /
+    // newarr) before evaluating elements and may interleave Add / spread MoveNext
+    // (user code) between them. Folding a non-pure spill into a later element
+    // reorders it past those operations. ChildFollowsHiddenOperation rejects every
+    // CollectionExpression element, so the store survives (#3500 adversarial
+    // review, Gemini).
+    [Fact]
+    public void NonPureSpill_InCollectionExpressionElement_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var listType = TypeRef.CoreLib("System.Collections.Generic", "List");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return [first, S_0];
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new CollectionExpression(intType, listType,
+            [new LoadArgument(0, "first", intType), new LoadStackSlot(0, intType)])));
+        var signature = new MethodSignature(listType,
+            [new Parameter("first", intType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var collection = function.Descendants.OfType<CollectionExpression>().Single();
+        Assert.IsType<LoadStackSlot>(collection.Elements[1]);
+    }
 }

@@ -144,6 +144,14 @@ public sealed class ExpressionInliningPass : IIrPass
             // unobservable and they skip this.
             if (!pure && !LoadIsUnconditionallyEvaluated(load, next))
                 continue;
+            // A non-pure value must also not cross a hidden operation that runs
+            // before or between a container's children — a record clone, an object
+            // construction, an interpolated-string handler build with interleaved
+            // appends, or a collection/array allocation. Universal, so it guards
+            // the firstLeaf path too: these operations precede even the first
+            // evaluated child (#3500 adversarial review, GPT + Gemini).
+            if (!pure && LoadCrossesHiddenOperation(load, next))
+                continue;
             // A value that is neither the first-evaluated leaf nor pure normally
             // cannot defer to its load: it would move past whatever `next`
             // evaluates first, reordering effects or which exception surfaces. It
@@ -584,9 +592,11 @@ public sealed class ExpressionInliningPass : IIrPass
     /// children before the path-child are its left siblings, fully evaluated
     /// before the load, so each must be pure. The operations ON the path normally
     /// sit above the load and execute AFTER their operands, so they are not part
-    /// of the preceding evaluation — EXCEPT for nodes that perform a hidden
-    /// operation partway through their children (a record clone, an object
-    /// construction), which <see cref="ChildFollowsHiddenOperation"/> rejects.
+    /// of the preceding evaluation. Nodes that instead perform a hidden operation
+    /// before or between their children (a record clone, an object construction,
+    /// a container allocation, interleaved handler appends) are rejected earlier
+    /// by the universal <see cref="LoadCrossesHiddenOperation"/> guard, so this
+    /// walk only has to prove the left siblings pure.
     /// </summary>
     static bool PrecedingEvaluationIsPure(
         IrNode load,
@@ -611,8 +621,6 @@ public sealed class ExpressionInliningPass : IIrPass
             }
             if (onPath is null)
                 return false;
-            if (ChildFollowsHiddenOperation(node, onPath))
-                return false;
             node = onPath;
         }
         return true;
@@ -620,36 +628,85 @@ public sealed class ExpressionInliningPass : IIrPass
 
     /// <summary>
     /// True when <paramref name="parent"/> performs an observable operation
-    /// between an earlier child and <paramref name="child"/>, so a value moved
-    /// into <paramref name="child"/> crosses that operation even though every
-    /// left sibling is pure. <c>receiver with { M = v }</c> clones the receiver
-    /// (a possibly effectful or throwing copy constructor) before evaluating any
-    /// initializer value, so only the receiver is preceding-operation-free;
-    /// <c>new T(args) { M = v }</c> runs the constructor before the initializers
-    /// (the creation is itself non-pure, so the left-sibling-pure check already
-    /// blocks this, but reject explicitly so the guard does not depend on that).
-    /// A <c>$"...{a}...{b}..."</c> interpolated string constructs a handler and
-    /// appends each literal and formatted value in turn, so every hole is
-    /// preceded by the appends of the parts before it — appending an earlier
-    /// <see cref="IFormattable"/> or custom-handler value can run arbitrary user
-    /// code — and no formatted value is preceding-operation-free. (Only the
-    /// preceding-<em>hole</em> appends are observable user code; the handler
-    /// construction and literal appends before the first hole are runtime
-    /// plumbing with no IR-modeled evaluation, so the unguarded firstLeaf path,
-    /// which fires only when the load is the first evaluated leaf and therefore
-    /// has nothing evaluated before it, stays sound. Rejecting the first hole
-    /// here too is a harmless over-approximation for the rare shape where an
-    /// interpolated string is itself a non-first operand.)
-    /// Every other expression's own operation runs strictly after all of its
-    /// operands, so the default is <c>false</c> (#3500 adversarial review, GPT).
+    /// before or between its children, up to and including <paramref name="child"/>,
+    /// so a non-pure value moved into <paramref name="child"/> crosses that
+    /// operation. This is the third soundness hazard for the deferred fold — after
+    /// impure left siblings (<see cref="PrecedingEvaluationIsPure"/>) and
+    /// conditional evaluation (<see cref="LoadIsUnconditionallyEvaluated"/>) —
+    /// and the only one that also affects the <c>firstLeaf</c> path, because these
+    /// operations run BEFORE the first evaluated child rather than after the last.
+    ///
+    /// <para><c>receiver with { M = v }</c> clones the receiver (a possibly
+    /// effectful or throwing copy constructor, and the clone snapshots the
+    /// receiver's other fields) before evaluating any initializer value, so only
+    /// the receiver is preceding-operation-free. <c>new T(args) { M = v }</c> runs
+    /// the constructor before the initializers (the creation is itself non-pure,
+    /// so the left-sibling-pure check already blocks it, but reject explicitly so
+    /// the guard does not depend on that).</para>
+    ///
+    /// <para>A <c>$"...{a}...{b}..."</c> interpolated string constructs a
+    /// <c>DefaultInterpolatedStringHandler</c> and appends each literal and
+    /// formatted value in turn, INTERLEAVED with hole evaluation: the append of an
+    /// earlier hole runs before a later hole is evaluated, and appending an
+    /// earlier <see cref="IFormattable"/> or custom-handler value runs arbitrary
+    /// user code. A <c>[a, b, ..s]</c> collection expression and a
+    /// <c>new T[] { a, b }</c> array literal allocate the container (<c>newobj</c>
+    /// list / <c>newarr</c>) before evaluating any element, and a collection
+    /// expression may additionally interleave <c>Add</c> calls or spread
+    /// enumeration (<c>MoveNext</c>, user code) between elements. For all three,
+    /// no element is preceding-operation-free.</para>
+    ///
+    /// <para>The container allocation before the FIRST element runs no user code,
+    /// but it is still program-observable: it reserves an object identity and can
+    /// rent a pooled buffer, so a non-pure value that reads allocation order (e.g.
+    /// <c>ArrayPool&lt;char&gt;.Shared.Rent</c> identity) or that runs only if the
+    /// allocation did not first throw observes the reordering (#3500 adversarial
+    /// review, GPT + Gemini). Rejecting the first element is therefore correct,
+    /// not merely conservative, and measured to cost nothing on the corpus.</para>
+    ///
+    /// <para>Every other expression's own operation runs strictly after all of its
+    /// operands, so the default is <c>false</c>.</para>
     /// </summary>
     static bool ChildFollowsHiddenOperation(IrNode parent, IrNode child) => parent switch
     {
         WithExpression w => !ReferenceEquals(child, w.Receiver),
         ObjectInitializerExpression o => !ReferenceEquals(child, o.Creation),
         InterpolatedStringExpression => true,
+        CollectionExpression => true,
+        ArrayLiteral => true,
         _ => false,
     };
+
+    /// <summary>
+    /// Walks the path from <paramref name="statement"/> to <paramref name="load"/>
+    /// and returns true if any parent performs a hidden operation before or between
+    /// the on-path child (see <see cref="ChildFollowsHiddenOperation"/>). Universal:
+    /// runs ahead of both the <c>firstLeaf</c> and <c>precedingPure</c> paths,
+    /// because a container's allocation and interleaved appends precede even its
+    /// first child, so the firstLeaf path is not exempt.
+    /// </summary>
+    static bool LoadCrossesHiddenOperation(IrNode load, IrNode statement)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+            }
+            if (onPath is null)
+                return false;
+            if (ChildFollowsHiddenOperation(node, onPath))
+                return true;
+            node = onPath;
+        }
+        return false;
+    }
 
     /// <summary>
     /// True when <paramref name="load"/> is evaluated on every execution of
