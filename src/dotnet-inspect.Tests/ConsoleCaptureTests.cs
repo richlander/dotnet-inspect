@@ -13,19 +13,35 @@ public class ConsoleCaptureTests
 {
     /// <summary>
     /// The behavioral half. Each capture must observe exactly the text its own action
-    /// wrote — no other worker's token, and never an empty writer. Without the shared
-    /// semaphore, concurrent workers overwrite <c>Console.Out</c> and this fails.
+    /// wrote — no other worker's token, and never an empty writer.
     /// </summary>
+    /// <remarks>
+    /// Forcing real overlap takes deliberate work, and an earlier version of this test got
+    /// it wrong: <see cref="ConsoleCapture.RunAsync(Action)"/> completes synchronously on an
+    /// uncontended semaphore, so plain <c>async</c> lambdas ran start-to-finish one after
+    /// another and the gate passed with the lock deleted. Two things fix that. Workers are
+    /// started with <c>Task.Run</c> and released together, so they genuinely contend; and
+    /// each sleeps <em>before</em> writing, because the damaging window is between
+    /// <c>ConsoleCapture</c> redirecting the console and the action using it. A peer that
+    /// redirects during that window steals this worker's writes.
+    /// </remarks>
     [Fact]
     public async Task ConcurrentCapturesDoNotObserveEachOthersOutput()
     {
+        const int workers = 8;
         var failures = new ConcurrentBag<string>();
+        using var ready = new CountdownEvent(workers);
+        var go = new TaskCompletionSource();
 
-        await Task.WhenAll(Enumerable.Range(0, 16).Select(async i =>
+        var tasks = Enumerable.Range(0, workers).Select(i => Task.Run(async () =>
         {
+            ready.Signal();
+            await go.Task;
+
             string token = $"token-{i}";
             var (output, error) = await ConsoleCapture.RunAsync(() =>
             {
+                Thread.Sleep(25);
                 Console.Write(token);
                 Console.Error.Write(token);
             });
@@ -34,7 +50,11 @@ public class ConsoleCaptureTests
                 failures.Add($"worker {i} stdout: expected '{token}', got '{output}'");
             if (error != token)
                 failures.Add($"worker {i} stderr: expected '{token}', got '{error}'");
-        }));
+        })).ToArray();
+
+        ready.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        go.SetResult();
+        await Task.WhenAll(tasks);
 
         Assert.Empty(failures);
     }
@@ -47,22 +67,37 @@ public class ConsoleCaptureTests
     [Fact]
     public async Task SyncAndAsyncCapturesExcludeEachOther()
     {
+        const int workers = 8;
         var failures = new ConcurrentBag<string>();
+        using var ready = new CountdownEvent(workers);
+        var go = new TaskCompletionSource();
 
-        await Task.WhenAll(Enumerable.Range(0, 16).Select(async i =>
+        var tasks = Enumerable.Range(0, workers).Select(i => Task.Run(async () =>
         {
+            ready.Signal();
+            await go.Task;
+
             string token = $"mixed-{i}";
             string observed = i % 2 == 0
-                ? (await ConsoleCapture.RunAsync(() => Console.Write(token))).Output
-                : (await ConsoleCapture.RunAsync(() =>
+                ? (await ConsoleCapture.RunAsync(() =>
                 {
+                    Thread.Sleep(25);
                     Console.Write(token);
-                    return Task.FromResult(0);
+                })).Output
+                : (await ConsoleCapture.RunAsync(async () =>
+                {
+                    await Task.Delay(25);
+                    Console.Write(token);
+                    return 0;
                 })).Output;
 
             if (observed != token)
                 failures.Add($"worker {i}: expected '{token}', got '{observed}'");
-        }));
+        })).ToArray();
+
+        ready.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        go.SetResult();
+        await Task.WhenAll(tasks);
 
         Assert.Empty(failures);
     }
