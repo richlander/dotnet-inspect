@@ -371,7 +371,10 @@ public sealed record PerformanceTriageOptions
             .FirstOrDefault();
         return suggestion is null
             ? $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'."
-            : $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.{Environment.NewLine}{Environment.NewLine}Did you mean:{Environment.NewLine}  {Contain(suggestion)}";
+            // One line: this message travels as a value through several
+            // parsers, and a writer that honored line breaks inside a message
+            // could not tell this structure from an injected one (issue #3319).
+            : $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'. Did you mean: {Contain(suggestion)}";
     }
 
     static int EditDistance(string left, string right)

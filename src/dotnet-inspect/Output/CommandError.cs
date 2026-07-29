@@ -17,13 +17,19 @@ namespace DotnetInspector.Output;
 /// containment a property of the write rather than of remembering (issue
 /// #3319).
 ///
-/// Some messages are deliberately multi-line -- an unknown field lists the
-/// sortable ones underneath -- so folding them onto one line would be a
-/// readability regression. The writer instead keeps the composer's line breaks
-/// and indents every continuation line, which preserves the block while making
-/// an unindented, non-empty line something only this writer can produce. A
-/// terminator injected from untrusted text therefore lands inside the
-/// indented block and cannot forge a second diagnostic.
+/// Some diagnostics are deliberately multi-line -- an unknown field lists the
+/// sortable ones underneath -- so structure has to survive. It arrives as
+/// <c>details</c>, never as a line break inside <c>message</c>: the message is
+/// always folded to a single line, so a terminator injected from untrusted text
+/// produces no line at all, and every detail line is indented. An unindented,
+/// non-empty line is therefore something only this writer can emit, and the
+/// writer never derives more than one from caller-composed text.
+///
+/// Honoring line breaks inside <c>message</c> was tried first and is not
+/// enough. It kept the injected line indented, but the injected text still
+/// became a real line -- <c>depends "BAD\nError: FORGED"</c> printed a second
+/// line reading <c>Error: FORGED' not found in the specified scope.</c> -- and
+/// the writer cannot tell the composer's newline from the attacker's.
 /// </remarks>
 internal static class CommandError
 {
@@ -34,7 +40,8 @@ internal static class CommandError
     public static void Write(Exception ex) => Write(ex.Message);
 
     /// <inheritdoc cref="Write(Exception)"/>
-    public static void Write(string message) => WriteDiagnostic("Error", message);
+    public static void Write(string message, params string[] details)
+        => WriteDiagnostic("Error", message, details);
 
     /// <summary>
     /// Writes <c>Warning: &lt;message&gt;</c> to stderr with the message
@@ -48,7 +55,8 @@ internal static class CommandError
     /// and the source gate that pins it, while still emitting a line the reader
     /// cannot distinguish from a real diagnostic.
     /// </remarks>
-    public static void WriteWarning(string message) => WriteDiagnostic("Warning", message);
+    public static void WriteWarning(string message, params string[] details)
+        => WriteDiagnostic("Warning", message, details);
 
     /// <summary>
     /// Writes <c>Note: &lt;message&gt;</c> to stderr with the message
@@ -60,24 +68,22 @@ internal static class CommandError
     /// untrusted text by construction, and a reader skims it. Every note in
     /// the product goes through here for that reason.
     /// </remarks>
-    public static void WriteNote(string message) => WriteDiagnostic("Note", message);
+    public static void WriteNote(string message, params string[] details)
+        => WriteDiagnostic("Note", message, details);
 
     /// <summary>
     /// Writes <c>&lt;severity&gt;: &lt;message&gt;</c> with the message
     /// contained. The severity is chosen from a closed set by the callers
     /// above, never composed from caller text.
     /// </summary>
-    private static void WriteDiagnostic(string severity, string message)
+    private static void WriteDiagnostic(string severity, string message, string[] details)
     {
-        var lines = message.Split(LineBreaks, StringSplitOptions.None);
-        Console.Error.WriteLine($"{severity}: {CSharpIdentifier.ContainRenderedText(lines[0])}");
+        Console.Error.WriteLine($"{severity}: {CSharpIdentifier.ContainRenderedText(message)}");
 
-        for (var i = 1; i < lines.Length; i++)
+        foreach (var detail in details)
         {
-            var contained = CSharpIdentifier.ContainRenderedText(lines[i]);
+            var contained = CSharpIdentifier.ContainRenderedText(detail);
             Console.Error.WriteLine(contained.Length == 0 ? string.Empty : $"  {contained}");
         }
     }
-
-    private static readonly string[] LineBreaks = ["\r\n", "\n", "\r"];
 }

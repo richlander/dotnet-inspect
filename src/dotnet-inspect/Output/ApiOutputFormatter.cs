@@ -1142,13 +1142,10 @@ public static class ApiOutputFormatter
         if (view.DegradedSignatureMembers is not { Count: > 0 } degraded)
             return;
 
-        var message = new StringBuilder(
+        CommandError.WriteWarning(
             $"{degraded.Count} member signature(s) could not be fully decoded from " +
-            "metadata; the displayed signature(s) may be incomplete or approximate:");
-        foreach (var signature in degraded)
-            message.AppendLine().Append($"- {signature}");
-
-        CommandError.WriteWarning(message.ToString());
+            "metadata; the displayed signature(s) may be incomplete or approximate:",
+            [.. degraded.Select(signature => $"- {signature}")]);
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)

@@ -67,6 +67,11 @@ public class UntrustedArgumentDiagnosticContainmentTests
             // through a bare Console.Error.WriteLine(error.Message) and so was
             // never contained by anything.
             data.Add("version-error", ["type", "mypackage", $"1.2.3{hazard}INJECTEDARG"]);
+
+            // Verbose progress quotes the thing being worked on, so it carries
+            // untrusted text on every line. It went to stderr raw: a hundred
+            // and sixteen call sites, none of them a "writer" by name.
+            data.Add("verbose-progress", ["depends", hostile, "--platform", "System.Runtime", "--verbose"]);
         }
 
         return data;
@@ -89,40 +94,70 @@ public class UntrustedArgumentDiagnosticContainmentTests
     }
 
     /// <summary>
-    /// Pins the shape that makes an injected line terminator harmless: a
-    /// diagnostic keeps the composer's line breaks, but every continuation line
-    /// is indented, so only this writer can produce an unindented, non-empty
-    /// line.
+    /// Pins the two halves of the diagnostic contract: structure passed as
+    /// details survives and is indented, and text passed as the message never
+    /// produces a second line at all.
     /// </summary>
     /// <remarks>
-    /// The first fix for this channel folded every message onto one line, which
-    /// is safe but destroys the messages that deliberately list alternatives
-    /// underneath. Structure and forgery-resistance are both required, so the
-    /// test asserts both: the alternatives still appear on their own lines, and
-    /// none of them starts at column zero.
+    /// Folding everything onto one line was safe but destroyed the messages
+    /// that list alternatives underneath. Honoring line breaks inside the
+    /// message brought the block back and kept injected text indented, but the
+    /// injected text still became a real line, because no writer can tell the
+    /// composer's newline from the attacker's. Structure therefore arrives as a
+    /// separate argument, and the message is always folded -- so a diagnostic
+    /// has exactly one unindented line no matter what reaches it.
     /// </remarks>
     [Fact]
-    public void MultiLineDiagnostic_KeepsItsBlockAndIndentsContinuationLines()
+    public void Diagnostic_KeepsItsDetailBlockAndNeverGrowsALineFromItsMessage()
     {
-        var (_, error) = RunCli(["library", ProductAssemblyPath(), "--order-by", $"NoSuchField{Bidi}INJECTEDARG"]);
+        // A diagnostic with genuine detail lines.
+        var (_, block) = RunCli(["type", "System.Strng", "--platform", "System.Runtime"]);
+        string[] blockLines = Lines(block);
 
-        string[] lines = error.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+        Assert.StartsWith("Error: ", blockLines[0], StringComparison.Ordinal);
+        Assert.Contains(blockLines, l => l.Contains("Did you mean:", StringComparison.Ordinal));
+        AssertOneUnindentedLine(blockLines, block);
 
-        Assert.StartsWith("Error: ", lines[0], StringComparison.Ordinal);
-        HostileOutputAssert.MarkersRendered(error, "order-by-multiline", "INJECTEDARG");
-        HostileOutputAssert.NoRenderingHazard(error, "order-by-multiline");
+        // The same writer, with a line terminator injected into the message.
+        var (_, injected) = RunCli(["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"]);
+        string[] injectedLines = Lines(injected);
 
-        // The block survived the fix for the injection, not just the injection.
-        Assert.True(
-            lines.Length > 1,
-            $"Expected the sortable-field list to stay on its own lines, got: {error}");
-        Assert.Contains(lines, l => l.Contains("Did you mean:", StringComparison.Ordinal));
+        HostileOutputAssert.MarkersRendered(injected, "message-line-injection", "INJECTEDARG");
 
+        // A run may emit several genuine diagnostics; what the injection must
+        // not do is add a line that is neither indented nor prefixed by this
+        // writer. The forged "Error: INJECTEDARG" is folded into its message.
+        AssertEveryLineIsOwned(injectedLines, injected);
+    }
+
+    private static string[] Lines(string text)
+        => text.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+
+    private static void AssertOneUnindentedLine(string[] lines, string raw)
+    {
         string[] unindented = [.. lines.Skip(1).Where(l => l.Length > 0 && !l.StartsWith("  ", StringComparison.Ordinal))];
         Assert.True(
             unindented.Length == 0,
-            "Every continuation line must be indented so injected text cannot forge a diagnostic. "
-                + $"Unindented: {string.Join(" | ", unindented)}");
+            "A diagnostic must have exactly one unindented line, or injected text can forge one. "
+                + $"Extra: {string.Join(" | ", unindented)} in: {raw}");
+    }
+
+    private static void AssertEveryLineIsOwned(string[] lines, string raw)
+    {
+        string[] orphans =
+        [
+            .. lines.Where(l =>
+                l.Length > 0
+                && !l.StartsWith("  ", StringComparison.Ordinal)
+                && !l.StartsWith("Error: ", StringComparison.Ordinal)
+                && !l.StartsWith("Warning: ", StringComparison.Ordinal)
+                && !l.StartsWith("Note: ", StringComparison.Ordinal)),
+        ];
+
+        Assert.True(
+            orphans.Length == 0,
+            "Every stderr line must be indented or written by CommandError. "
+                + $"Orphans: {string.Join(" | ", orphans)} in: {raw}");
     }
 
     private static (string Output, string Error) RunCli(string[] args)

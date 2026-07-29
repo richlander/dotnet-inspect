@@ -188,7 +188,7 @@ public static class MemberCommand
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
-                    CommandError.Write(diagnostic.FormatMessage());
+                    CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
                     return 1;
                 }
 

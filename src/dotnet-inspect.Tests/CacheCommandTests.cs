@@ -138,13 +138,18 @@ public class CacheCommandTests : IDisposable
     [Fact]
     public async Task CoreCache_Clear_RejectsTraversalOutsideCacheRoot()
     {
+        // The guard throws and does not also write. It used to do both, and
+        // the write was the uncontained copy: it interpolated the rejected path
+        // straight to stderr, while the throw is rendered by the one writer
+        // that contains it.
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
-            Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+            var thrown = Assert.Throws<InvalidOperationException>(() => CoreCache.Clear(".."));
+            Assert.Contains("Refusing to delete path outside dotnet-inspect cache", thrown.Message);
             return Task.FromResult(0);
         });
 
-        Assert.Contains("Warning: refusing to delete path outside dotnet-inspect cache", error);
+        Assert.Empty(error);
     }
 
     [Fact]

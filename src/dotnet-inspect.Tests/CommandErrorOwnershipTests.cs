@@ -32,21 +32,33 @@ namespace DotnetInspector.Tests;
 public class CommandErrorOwnershipTests
 {
     /// <summary>
-    /// Matches a severity-prefixed write on <em>any</em> receiver, not just
-    /// <c>Console.Error</c>.
+    /// Matches a severity-prefixed string literal anywhere outside the owner --
+    /// no receiver, no method name, no call shape.
     /// </summary>
     /// <remarks>
-    /// Naming <c>Console.Error</c> was too narrow twice over. Three product
-    /// helpers took a <c>TextWriter error</c> parameter that every caller
-    /// filled with <c>Console.Error</c>, so the write was spelled
-    /// <c>error.WriteLine($"Warning: ...")</c> and the scan never saw it -- one
-    /// of them listed undecodable signatures from the inspected assembly
-    /// straight to stderr. The parameter bought no flexibility and cost the
-    /// gate its reach, so the receiver is no longer part of the pattern: only
-    /// <c>CommandError</c> may spell a severity prefix, whatever it writes to.
+    /// Every narrower spelling of this rule was defeated by the next call site.
+    /// Naming <c>Console.Error</c> missed three helpers that took a
+    /// <c>TextWriter error</c> parameter every caller filled with
+    /// <c>Console.Error</c>; one listed undecodable signatures from the
+    /// inspected assembly straight to stderr. Naming a write method then missed
+    /// forty sites that spelled <c>logger.Log($"Warning: ...")</c>, where the
+    /// prefix travels as an argument to something that is not a writer at all
+    /// and the untrusted path or exception text reached stderr raw under
+    /// <c>--verbose</c>.
+    ///
+    /// So the rule is now the smallest one that covers all of them: outside
+    /// <c>CommandError</c>, no source line may spell a severity prefix. That is
+    /// checkable without understanding the call, and it cannot be sidestepped
+    /// by choosing a different sink. It is also newline-immune by construction
+    /// -- the literal lives on one line however the call is wrapped -- which the
+    /// receiver-based version was not.
+    ///
+    /// The match is case-insensitive because one site wrote a lowercase
+    /// <c>"warning: "</c>, which is the same forgeable line to a reader and was
+    /// invisible to a case-sensitive scan.
     /// </remarks>
-    private static readonly Regex ErrorWrite =
-        new(@"\.\s*(WriteLine|Write)\s*\(\s*\$?@?""(Error|Warning|Note): ", RegexOptions.Compiled);
+    private static readonly Regex SeverityLiteral =
+        new(@"""(Error|Warning|Note): ", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
     /// Catches a diagnostic whose severity is interpolated rather than spelled,
@@ -60,20 +72,75 @@ public class CommandErrorOwnershipTests
     /// argument it quoted reached stderr uncontained. Severity now belongs to
     /// the writer, and a call site that reaches for the old shape fails here.
     /// </remarks>
+    private static readonly Regex ProjectReference =
+        new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly Regex ComposedPrefixWrite =
         new(@"\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Every project reachable from <paramref name="projectPath"/> through
+    /// ProjectReference, including itself.
+    /// </summary>
+    private static HashSet<string> ProjectClosure(string projectPath)
+    {
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        Queue<string> queue = new();
+        queue.Enqueue(Path.GetFullPath(projectPath));
+
+        while (queue.Count > 0)
+        {
+            string current = queue.Dequeue();
+            if (!seen.Add(current) || !File.Exists(current))
+            {
+                continue;
+            }
+
+            string? directory = Path.GetDirectoryName(current);
+            foreach (Match match in ProjectReference.Matches(File.ReadAllText(current)))
+            {
+                string relative = match.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar);
+                queue.Enqueue(Path.GetFullPath(Path.Combine(directory!, relative)));
+            }
+        }
+
+        return seen;
+    }
 
     [Fact]
     public void CommandError_IsTheOnlyWriterOfTheErrorPrefix()
     {
         string root = RepositoryRoot();
-        string product = Path.Combine(root, "src", "dotnet-inspect");
-        string owner = Path.Combine(product, "Output", "CommandError.cs");
+        string owner = Path.Combine(root, "src", "dotnet-inspect", "Output", "CommandError.cs");
 
         Assert.True(File.Exists(owner), $"Expected the owning writer at {owner}.");
 
+        // Every project whose code runs inside this CLI process, derived from
+        // the CLI's own transitive ProjectReference closure rather than a
+        // hand-kept list. Scoping this to src/dotnet-inspect let
+        // ILInspector.Metadata keep composing its own "Error: " into a returned
+        // message, which the CLI then prefixed again: "member String -m
+        // ToString --index 99" printed "Error: Error: ...". Naming the
+        // exclusions instead went the other way and flagged sibling tools
+        // (runfaster, mdi, ILInspector.Analysis.App) that have their own entry
+        // points and cannot reach this writer at all. The closure is the exact
+        // set: a project newly referenced by the CLI is covered automatically,
+        // and a separate tool never is.
+        string[] products = [.. ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj"))
+            .Select(Path.GetDirectoryName)
+            .OfType<string>()];
+
+        // A broken closure would shrink to the CLI alone and pass vacuously,
+        // which is exactly the failure this rule already had once.
+        string[] names = [.. products.Select(Path.GetFileName).OfType<string>()];
+        Assert.Contains("dotnet-inspect", names);
+        Assert.Contains("ILInspector.Metadata", names);
+        Assert.Contains("DotnetInspector.Services", names);
+        Assert.DoesNotContain("mdi", names);
+        Assert.DoesNotContain("runfaster", names);
+
         List<string> offenders = [];
-        foreach (string path in Directory.EnumerateFiles(product, "*.cs", SearchOption.AllDirectories))
+        foreach (string path in products.SelectMany(p => Directory.EnumerateFiles(p, "*.cs", SearchOption.AllDirectories)))
         {
             if (string.Equals(path, owner, StringComparison.Ordinal))
             {
@@ -81,7 +148,23 @@ public class CommandErrorOwnershipTests
             }
 
             string text = File.ReadAllText(path);
-            foreach (Match match in ErrorWrite.Matches(text).Concat(ComposedPrefixWrite.Matches(text)))
+            string[] lines = text.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // A comment may quote the prefix while describing this very
+                // rule, which is not a write.
+                if (lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (SeverityLiteral.IsMatch(lines[i]))
+                {
+                    offenders.Add($"{Path.GetRelativePath(root, path)}:{i + 1}: {lines[i].Trim()}");
+                }
+            }
+
+            foreach (Match match in ComposedPrefixWrite.Matches(text))
             {
                 int line = text.Take(match.Index).Count(c => c == '\n') + 1;
                 offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Replace('\n', ' ').Trim()}");
@@ -102,23 +185,22 @@ public class CommandErrorOwnershipTests
     [Fact]
     public void Scan_MatchesTheShapeItIsMeantToCatch()
     {
-        Assert.Matches(ErrorWrite, "            Console.Error.WriteLine(\"Error: plain.\");");
-        Assert.Matches(ErrorWrite, "Console.Error.WriteLine($\"Error: {value} interpolated.\");");
-        Assert.Matches(ErrorWrite, "Console . Error . Write ( $\"Error: spaced.\");");
+        Assert.Matches(SeverityLiteral, "            Console.Error.WriteLine(\"Error: plain.\");");
+        Assert.Matches(SeverityLiteral, "Console.Error.WriteLine($\"Error: {value} interpolated.\");");
 
-        // The aliased-writer shape: same diagnostic, different receiver.
-        Assert.Matches(ErrorWrite, "            error.WriteLine($\"Warning: {count} signatures.\");");
-        Assert.Matches(ErrorWrite, "            writer.WriteLine(\"Note: aliased.\");");
-        Assert.Matches(ErrorWrite, "Console.Error.WriteLine(\"Warning: plain.\");");
-        Assert.Matches(ErrorWrite, "Console.Error.WriteLine(\"Note: plain.\");");
-        Assert.DoesNotMatch(ErrorWrite, "Console.Error.WriteLine(\"Errors: not a prefix.\");");
-        // Composed messages that merely quote a prefix are not writes.
-        Assert.DoesNotMatch(ErrorWrite, "var text = $\"Error: {value}\";");
+        // The wrapped call: the literal is still on one line.
+        Assert.Matches(SeverityLiteral, "                    $\"Error: wrapped {value}.\");");
 
-        // The wrapped form the line-based version of this scan could not see.
-        Assert.Matches(
-            ErrorWrite,
-            "Console.Error.WriteLine(\n                    $\"Error: wrapped {value}.\");");
+        // The aliased writer, and the sink that is not a writer at all.
+        Assert.Matches(SeverityLiteral, "            error.WriteLine($\"Warning: {count} signatures.\");");
+        Assert.Matches(SeverityLiteral, "                logger.Log($\"Warning: Could not read {skippedPath}\");");
+
+        // A returned message, not a write, and a lowercase prefix: both real.
+        Assert.Matches(SeverityLiteral, "                $\"Error: No members matched selector '{text}'.\",");
+        Assert.Matches(SeverityLiteral, "                var msg = $\"warning: {kind} '{name}' not found\";");
+
+        Assert.DoesNotMatch(SeverityLiteral, "Console.Error.WriteLine(\"Errors: not a prefix.\");");
+        Assert.DoesNotMatch(SeverityLiteral, "CommandError.Write($\"{message}\");");
 
         Assert.Matches(ComposedPrefixWrite, "Console.Error.WriteLine($\"{prefix}: Select value '{v}' not found.\");");
         Assert.DoesNotMatch(ComposedPrefixWrite, "Console.Error.WriteLine($\"  {suggestion}\");");

@@ -1722,7 +1722,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
-        Assert.Contains("note: 1 field has no data: Library", error);
+        Assert.Contains("Note: 1 field has no data: Library", error);
     }
 
     [Fact]
@@ -5505,7 +5505,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.StartsWith("stable\tcanonical_signature", output);
-        Assert.Contains("warning: column 'Obsolete' not found in section 'Member Index'", error);
+        Assert.Contains("Warning: column 'Obsolete' not found in section 'Member Index'", error);
         Assert.Contains("Run -D \"Member Index\" to list available columns.", error);
     }
 
@@ -5519,7 +5519,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.StartsWith("signature", output);
-        Assert.Contains("warning: column 'Select' not found in section 'Methods'", error);
+        Assert.Contains("Warning: column 'Select' not found in section 'Methods'", error);
         Assert.Contains("Run -D \"Methods\" to list available columns.", error);
     }
 

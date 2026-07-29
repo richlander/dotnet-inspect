@@ -647,7 +647,7 @@ public class ApiCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
         }
     }

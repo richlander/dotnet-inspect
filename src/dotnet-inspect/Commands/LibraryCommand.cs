@@ -1568,7 +1568,7 @@ public class LibraryCommand
             var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly);
             if (inspection == null)
             {
-                logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");
+                logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
             }
 

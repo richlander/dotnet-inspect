@@ -1888,7 +1888,7 @@ public class PackageCommand
                 scannerRegistry: scannerRegistry);
             if (inspection == null)
             {
-                logger.Log($"Warning: Could not read library: {Path.GetFileName(selection.Path)}");
+                logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
                 continue;
             }
 

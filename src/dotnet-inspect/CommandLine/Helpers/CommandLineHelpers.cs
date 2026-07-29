@@ -43,8 +43,16 @@ public static class CommandLineHelpers
     /// is set, or null otherwise. Centralizes the convention that verbose diagnostic
     /// output goes to stderr, keeping stdout reserved for machine-readable results.
     /// </summary>
+    /// <remarks>
+    /// This is the same channel as <see cref="DotnetInspector.Output.VerboseLogger"/>
+    /// in delegate form, so it gets the same owner: progress text quotes paths
+    /// and exception messages from untrusted input (issue #3319).
+    /// </remarks>
     public static Action<string>? CreateVerboseLogger(bool verbose)
-        => verbose ? msg => Console.Error.WriteLine(msg) : null;
+    {
+        var logger = new VerboseLogger(verbose);
+        return verbose ? logger.Log : null;
+    }
 
     /// <summary>
     /// Resolves a package ID prefix and merges with existing packages.

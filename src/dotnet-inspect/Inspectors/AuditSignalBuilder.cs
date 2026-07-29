@@ -46,7 +46,7 @@ internal static class AuditSignalBuilder
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning audit metadata in {assemblyPath}: {ex.Message}");
+            logger.LogWarning($"Error scanning audit metadata in {assemblyPath}: {ex.Message}");
         }
 
         var context = new LibrarySignalContext(inspection, metadata, pInvokeMethodCount);

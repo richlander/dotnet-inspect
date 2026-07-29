@@ -137,7 +137,7 @@ public static class DiscoverOutput
             if (fullMatches.Count >= 1)
             {
                 foreach (var match in fullMatches)
-                    Console.Error.WriteLine($"note: section '{match}' has no data for this query");
+                    CommandError.WriteNote($"section '{match}' has no data for this query");
                 emittedNote = true;
             }
             else

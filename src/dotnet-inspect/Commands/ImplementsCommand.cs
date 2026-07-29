@@ -128,7 +128,7 @@ public class ImplementsCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning {assemblyPath}: {ex.Message}");
+            logger.LogWarning($"Error scanning {assemblyPath}: {ex.Message}");
         }
 
         return results;

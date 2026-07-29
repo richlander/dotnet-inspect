@@ -24,20 +24,17 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     /// continuation indent all in one place.
     /// </remarks>
     public void WriteNotFoundError()
-    {
-        var message = new StringBuilder($"Type '{Query}' not found.");
-        AppendSuggestions(message, Suggestions);
-        CommandError.Write(message.ToString());
-    }
+        => CommandError.Write($"Type '{Query}' not found.", [.. SuggestionDetails(Suggestions)]);
 
-    internal static void AppendSuggestions(StringBuilder message, IReadOnlyList<string> suggestions)
+    internal static IEnumerable<string> SuggestionDetails(IReadOnlyList<string> suggestions)
     {
         if (suggestions.Count == 0)
-            return;
+            yield break;
 
-        message.AppendLine().AppendLine().Append("Did you mean:");
+        yield return string.Empty;
+        yield return "Did you mean:";
         foreach (var suggestion in suggestions)
-            message.AppendLine().Append($"  {suggestion}");
+            yield return $"  {suggestion}";
     }
 }
 
@@ -59,21 +56,20 @@ internal sealed record MemberFilterValidationResult(
         if (IsValid)
             return;
 
-        var message = new StringBuilder(
-            $"No members matched filter '{string.Join(", ", MissedFilters)}'");
+        List<string> details = [];
 
         // The ranking/graph surfaces (Top Leverage, Call Graph) walk the full
         // IL index, so they surface non-public members that member selection hides without
         // --all. Point the user at the flag instead of a dead end.
         if (NonPublicMatches.Count > 0)
         {
-            message.AppendLine();
+            details.Add(string.Empty);
             foreach (var name in NonPublicMatches)
-                message.AppendLine().Append($"Member '{name}' is non-public; pass --all to include it.");
+                details.Add($"Member '{name}' is non-public; pass --all to include it.");
         }
 
-        ApiTypeLookupResult.AppendSuggestions(message, Suggestions);
-        CommandError.Write(message.ToString());
+        details.AddRange(ApiTypeLookupResult.SuggestionDetails(Suggestions));
+        CommandError.Write($"No members matched filter '{string.Join(", ", MissedFilters)}'", [.. details]);
     }
 }
 

@@ -48,7 +48,7 @@ public sealed record PackageVersionRange
             || separatorIndex + 2 >= versionRange.Length
             || versionRange.IndexOf("..", separatorIndex + 2, StringComparison.Ordinal) >= 0)
         {
-            error = $"Error: Invalid package version range '{packageReference}'. Expected Package@A..B.";
+            error = $"Invalid package version range '{packageReference}'. Expected Package@A..B.";
             return false;
         }
 
@@ -56,13 +56,13 @@ public sealed record PackageVersionRange
         string endText = versionRange[(separatorIndex + 2)..];
         if (!NuGetVersion.TryParse(startText, out var start))
         {
-            error = $"Error: Invalid package version '{startText}' in range '{packageReference}'.";
+            error = $"Invalid package version '{startText}' in range '{packageReference}'.";
             return false;
         }
 
         if (!NuGetVersion.TryParse(endText, out var end))
         {
-            error = $"Error: Invalid package version '{endText}' in range '{packageReference}'.";
+            error = $"Invalid package version '{endText}' in range '{packageReference}'.";
             return false;
         }
 

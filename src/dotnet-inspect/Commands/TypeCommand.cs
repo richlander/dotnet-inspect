@@ -569,7 +569,7 @@ public static class TypeCommand
                 framework);
             if (assemblyPath == null || error != null)
             {
-                logger.Log($"Warning: Could not resolve platform library '{assembly}' in {framework}: {error}");
+                logger.LogWarning($"Could not resolve platform library '{assembly}' in {framework}: {error}");
                 continue;
             }
 

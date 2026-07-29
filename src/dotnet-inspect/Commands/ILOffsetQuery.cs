@@ -68,10 +68,10 @@ internal static class ILOffsetQuery
             // error, so CommandError indents it rather than prefixing it a
             // second time. Containment belongs to that writer, so the value is
             // interpolated raw here.
-            WriteError(
-                writeErrors,
-                $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'."
-                    + $"{Environment.NewLine}Expected format: 0x6000001+0x5 (method token + IL offset)");
+            if (writeErrors)
+                CommandError.Write(
+                    $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
+                    "Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }
 
@@ -87,7 +87,7 @@ internal static class ILOffsetQuery
                 logger.Log);
 
             if (service.HasPdb && !service.HasSourceLink)
-                logger.Log("Warning: No SourceLink information found. URLs will not be available.");
+                logger.LogWarning("No SourceLink information found. URLs will not be available.");
         }
 
         var outcome = ResearchViews.ProjectILOffset(new ILOffsetProjectionRequest(

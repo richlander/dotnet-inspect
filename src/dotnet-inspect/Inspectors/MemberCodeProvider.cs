@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
@@ -228,8 +229,8 @@ internal static class MemberCodeProvider
                 // families this member does have, or a typo is invisible.
                 if (researchProjection.UnmatchedFocusAlternatives is { Count: > 0 } alternatives)
                 {
-                    Console.Error.WriteLine(
-                        $"note: --focus '{request.CaretFocus}' matched no facts here; "
+                    CommandError.WriteNote(
+                        $"--focus '{request.CaretFocus}' matched no facts here; "
                         + $"available: {string.Join(", ", alternatives)}");
                 }
             }
