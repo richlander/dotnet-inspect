@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Globalization;
-using System.Text;
 
 namespace ILInspector.MetadataPrimitives;
 
@@ -42,11 +41,20 @@ public static class HardenedPath
     /// block or hang a read, so they are refused on every platform: the inspected artifact is
     /// frequently not from the host that will consume the report.
     /// </summary>
+    /// <remarks>
+    /// The superscript spellings are listed <em>literally</em> because Windows reserves those
+    /// exact names, not because a superscript folds to a digit. Windows' matcher uppercases ASCII
+    /// letters and strips trailing dots and spaces (and, before Windows 11, the extension); it
+    /// performs no Unicode normalization and no best-fit mapping. So <c>COM¹</c> is a device and
+    /// <c>COM⁴</c>, <c>COM１</c> and <c>ＣＯＭ1</c> are ordinary names.
+    /// </remarks>
     private static readonly string[] ReservedDeviceNames =
     [
         "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "COM\u00b9", "COM\u00b2", "COM\u00b3",
+        "LPT\u00b9", "LPT\u00b2", "LPT\u00b3"
     ];
 
     /// <summary>
@@ -158,60 +166,34 @@ public static class HardenedPath
     }
 
     /// <summary>
-    /// Whether the value's stem names a reserved device. A device is reserved with or without an
-    /// extension, so <c>CON.txt</c> is <c>CON</c>.
+    /// Whether the value names a reserved device under Windows' matching rules.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Windows' matcher is narrow and entirely non-Unicode-aware. Before comparing against the
+    /// device list it uppercases <em>ASCII</em> letters and strips trailing dots and spaces; on
+    /// Windows 10 and earlier it also drops everything from the first dot onward, which is why
+    /// <c>CON.txt</c> is <c>CON</c>. This applies the union of both, since the tool cannot know
+    /// which host will consume the artifact.
+    /// </para>
+    /// <para>
+    /// It performs no compatibility normalization and no best-fit mapping, so a name is a device
+    /// only if it is spelled as one. Two earlier revisions of this file assumed otherwise and
+    /// folded non-ASCII digits, then NFKC-normalized, on the belief that <c>COM⁴</c>, <c>COM１</c>
+    /// and <c>ＣＯＭ1</c> reach the device. They do not — best-fit mapping applies when a wide
+    /// string is converted for an ANSI API, not to path parsing, and .NET uses the wide APIs.
+    /// The superscript names are reserved because Windows lists those exact strings, so they are
+    /// listed exactly, and nothing here folds a spelling into another.
+    /// </para>
+    /// </remarks>
     private static bool IsReservedDeviceName(string value)
-    {
-        if (StemNamesReservedDevice(value))
-            return true;
-
-        // Windows applies a best-fit mapping to the whole path before opening it, so full-width
-        // Latin letters reach the same device: "\uff23\uff2f\uff2d1" opens COM1, and the digit
-        // fold below does not touch letters. Compatibility normalization is the closest standard
-        // model of that mapping, and it also folds the compatibility digit spellings and the
-        // full-width dot that would otherwise hide the stem boundary.
-        //
-        // It does not replace the numeric fold: NFKC leaves Arabic-Indic and other non-ASCII
-        // digits alone, so "COM\u0664" survives it unchanged. Both run, over the raw value and
-        // over the normalized one.
-        string normalized;
-        try
-        {
-            normalized = value.Normalize(NormalizationForm.FormKC);
-        }
-        catch (ArgumentException)
-        {
-            // Not normalizable, so what the host would open cannot be predicted. Refuse.
-            return true;
-        }
-
-        return !string.Equals(normalized, value, StringComparison.Ordinal)
-            && StemNamesReservedDevice(normalized);
-    }
-
-    /// <summary>
-    /// Whether the value's stem, after folding non-ASCII digits, is a reserved device name.
-    /// </summary>
-    private static bool StemNamesReservedDevice(string value)
     {
         var stem = value;
         var dot = stem.IndexOf('.');
         if (dot >= 0)
             stem = stem[..dot];
 
-        // Windows accepts non-ASCII digits as the digit in COMn/LPTn -- the Latin-1 superscripts
-        // directly, and others by best-fit ANSI conversion, which Microsoft documents as a
-        // security consideration because "COM4", "COM\u2074" and "COM\uff14" can reach the same
-        // device. Tools that checked only the ASCII spelling have been bypassed this way before
-        // (the Wasmtime sandbox escape and the Node.js device-name fix are both this bug).
-        //
-        // Fold any character whose Unicode numeric value is a single digit rather than enumerating
-        // spellings; an enumerated list is what drifted. Folding only matters when the whole stem
-        // becomes a device name, so it costs nothing real: "COM\uff11Plus" folds to "COM1Plus",
-        // matches nothing, and is accepted.
-        if (ContainsNonAsciiDigit(stem))
-            stem = FoldDigits(stem);
+        stem = stem.TrimEnd(' ', '.');
 
         foreach (var reserved in ReservedDeviceNames)
         {
@@ -222,74 +204,17 @@ public static class HardenedPath
         return false;
     }
 
-    private static bool ContainsNonAsciiDigit(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] > '\u007f' && AsciiDigitFor(value, i) >= 0)
-                return true;
-
-            if (IsPairAt(value, i))
-                i++;
-        }
-
-        return false;
-    }
-
-    private static string FoldDigits(string value)
-    {
-        var folded = new char[value.Length];
-        var written = 0;
-
-        for (var i = 0; i < value.Length; i++)
-        {
-            var digit = value[i] > '\u007f' ? AsciiDigitFor(value, i) : -1;
-            if (digit >= 0)
-            {
-                folded[written++] = (char)('0' + digit);
-                if (IsPairAt(value, i))
-                    i++;
-                continue;
-            }
-
-            folded[written++] = value[i];
-            if (IsPairAt(value, i))
-                folded[written++] = value[++i];
-        }
-
-        return new string(folded, 0, written);
-    }
-
     /// <summary>
     /// Whether <paramref name="index"/> starts a well-formed surrogate pair.
     /// </summary>
     /// <remarks>
-    /// A high surrogate alone is not enough to skip the next code unit. An unpaired one followed
-    /// by a digit -- <c>COM\ud800\u00b9</c> -- let the loop consume that digit as if it were a
-    /// trailing surrogate, so the digit was copied out without ever being tested. Malformed UTF-16
-    /// is the input most likely to carry that shape, which is the reason to check rather than
-    /// assume.
+    /// Used to walk the value by code point when rejecting malformed UTF-16. A high surrogate
+    /// alone is not enough to skip the next code unit: treating an unpaired one as if it began a
+    /// pair consumes the following character without ever testing it, and malformed UTF-16 is
+    /// exactly the input most likely to carry that shape.
     /// </remarks>
     private static bool IsPairAt(string value, int index)
         => char.IsHighSurrogate(value[index])
            && index + 1 < value.Length
            && char.IsLowSurrogate(value[index + 1]);
-
-    /// <summary>
-    /// Returns the digit 0-9 the code point at <paramref name="index"/> denotes, or -1.
-    /// </summary>
-    /// <remarks>
-    /// The rule is deliberately a property of the code point rather than a list of encodings: the
-    /// device list drifted twice while it enumerated superscripts, and each round of review found
-    /// another spelling. Indexing by <see cref="string"/> rather than <see cref="char"/> is what
-    /// extends that rule past the basic plane, where the mathematical and enclosed digit blocks
-    /// live; a code-unit loop silently exempted them.
-    /// </remarks>
-    private static int AsciiDigitFor(string value, int index)
-    {
-        var numeric = CharUnicodeInfo.GetNumericValue(value, index);
-        return numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
-            ? (int)numeric
-            : -1;
-    }
 }

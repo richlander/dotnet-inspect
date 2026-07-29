@@ -13,7 +13,7 @@ public class PdbContextForwarderResolutionTests
     [InlineData("../payload")]
     [InlineData("..\\payload")]
     [InlineData("CON")]
-    [InlineData("COM\u2074")]
+    [InlineData("COM\u00b9")]
     [InlineData("payload\u200b")]
     public void ForwarderTarget_WithUnsafeName_IsNotResolved(string hostileName)
     {

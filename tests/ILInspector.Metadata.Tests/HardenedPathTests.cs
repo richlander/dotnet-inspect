@@ -50,29 +50,18 @@ public class HardenedPathTests
     [InlineData("System.Text.Json ")]
     [InlineData(" System.Text.Json")]
     [InlineData(".")]
-    // Non-ASCII digits in the device-digit position: the Latin-1 superscripts are accepted by
-    // Windows directly, and the others collapse onto the ASCII digit under best-fit ANSI.
+    // Windows reserves these exact superscript spellings, so they are refused as literal names --
+    // not because a superscript folds to a digit. COM\u2074 is deliberately absent: it is not on
+    // the list and is an ordinary name.
     [InlineData("COM\u00b9")]
     [InlineData("COM\u00b2.txt")]
     [InlineData("LPT\u00b3")]
-    [InlineData("COM\u2074")]
-    [InlineData("LPT\u2079")]
-    [InlineData("COM\uff11")]
-    [InlineData("COM\u0661")]
-    // The rule is a property of the code point, not of the UTF-16 code unit: the mathematical and
-    // enclosed digit blocks are outside the basic plane and a per-char loop exempted them.
-    [InlineData("COM\U0001d7cf")]
-    [InlineData("LPT\U0001d7e3")]
-    // Full-width Latin letters: Windows best-fit maps the whole component, so these open the same
-    // device even though no digit is involved and OrdinalIgnoreCase does not match them to ASCII.
-    [InlineData("\uff23\uff2f\uff2d1")]
-    [InlineData("\uff23\uff2f\uff2e")]
-    [InlineData("\uff21\uff35\uff38")]
-    [InlineData("\uff2e\uff35\uff2c.txt")]
-    // Full-width letters and a non-ASCII digit together: neither fold alone catches this one.
-    [InlineData("\uff23\uff2f\uff2d\u0664")]
-    // A full-width dot hides the stem boundary from an ASCII-only split.
-    [InlineData("\uff23\uff2f\uff2e\uff0etxt")]
+    [InlineData("com\u00b9")]
+    // Windows strips trailing dots and spaces from the stem before matching, so the space lands
+    // inside the value rather than at its end and the edge-whitespace rule never sees it.
+    [InlineData("COM1 .txt")]
+    [InlineData("COM1 . .ext")]
+    [InlineData("COM\u00b9 .txt")]
     // Absorbed from ResourceExtractor's copy when it was made to delegate: the Windows-invalid
     // filename characters, which Path.GetInvalidFileNameChars misses on Unix, and CLOCK$.
     [InlineData("Cont<oso")]
@@ -118,17 +107,27 @@ public class HardenedPathTests
     // A device name only as a prefix of a longer stem, including the console devices.
     [InlineData("CONIN$Extras")]
     [InlineData("CLOCK$Extras")]
-    // The digit fold only fires when the whole stem becomes a device name.
+    // A reserved spelling only matches as the whole stem.
     [InlineData("COM\u00b9Plus")]
-    [InlineData("COM\uff11Plus")]
     [InlineData("Contoso.V\u2074")]
     [InlineData("COM\u00b94")]
-    // Folding a surrogate pair shortens the stem; a non-digit pair must survive intact.
     [InlineData("COM\U0001d7cfPlus")]
     [InlineData("Contoso.\U0001d400ssembly")]
     [InlineData("\U0001f600.Assembly")]
-    // Compatibility normalization must not over-reject: it only decides device-name identity, so
-    // full-width text that does not normalize onto a device name is still an ordinary name.
+    // Windows' device matcher uppercases ASCII letters and strips trailing dots and spaces. It
+    // applies no compatibility normalization and no best-fit mapping, so these are ordinary
+    // names, and refusing them would refuse valid artifacts. Two earlier revisions of the guard
+    // rejected them on a mechanism that does not apply to path parsing.
+    [InlineData("COM\u2074")]
+    [InlineData("LPT\u2079")]
+    [InlineData("COM\uff11")]
+    [InlineData("COM\u0661")]
+    [InlineData("COM\U0001d7cf")]
+    [InlineData("LPT\U0001d7e3")]
+    [InlineData("\uff23\uff2f\uff2d1")]
+    [InlineData("\uff23\uff2f\uff2e")]
+    [InlineData("\uff21\uff35\uff38")]
+    [InlineData("\uff23\uff2f\uff2d\u0664")]
     [InlineData("\uff23\uff2f\uff2d1Plus")]
     [InlineData("\uff2c\uff29\uff22.Assembly")]
     [InlineData("\u30c6\u30b9\u30c8.Library")]
