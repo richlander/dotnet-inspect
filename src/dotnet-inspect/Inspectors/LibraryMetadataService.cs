@@ -2,6 +2,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using System.Globalization;
 using System.Reflection;
+using System.Text;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -48,6 +49,34 @@ internal static class LibraryMetadataService
         LibrarySections.ScannerTransitiveRefs,
         LibrarySections.ScannerAuditSignals
     ];
+
+    /// <summary>
+    /// Whether the shared metadata read extracts assembly references. The References, Dependencies
+    /// and Audit sections all consume them, and they are extracted during that read rather than by
+    /// a registered scanner, so their keys have to be consulted before it runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The parameters are the whole contract: the requested scanner keys, and the two flags by
+    /// which a user explicitly asks for references. Nothing else about the request participates.
+    /// </para>
+    /// <para>
+    /// It takes flags rather than the options object on purpose. Every structural gate in
+    /// <see cref="SectionPipelineTests"/> quantifies over the scanner <em>sets</em>, holding the
+    /// rest of the request at one shape, so a condition here that consulted anything else was
+    /// invisible to all of them: adding <c>|| !string.IsNullOrWhiteSpace(options.AssemblyName)</c>
+    /// made unrelated sections serialize references for real users while the whole suite stayed
+    /// green, because the gate never set a name and the CLI always does. A function that cannot
+    /// reach the rest of the request cannot grow that dependency without changing this signature.
+    /// </para>
+    /// </remarks>
+    internal static bool ReadsAssemblyReferences(
+        IReadOnlyCollection<string>? scanners,
+        bool includeReferences,
+        bool includeDependencies) =>
+        includeReferences
+        || includeDependencies
+        || scanners?.Any(ReferenceReadingScannerKeys.Contains) == true;
 
     /// <summary>
     /// The keys in <see cref="ReferenceReadingScannerKeys"/> that the read only <em>feeds</em>:
@@ -131,13 +160,6 @@ internal static class LibraryMetadataService
             }
 
             var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
-            // The References, Dependencies and Audit sections all read assembly references, which
-            // are extracted during the metadata read below rather than by a registered scanner.
-            // Their scanner keys therefore have to be consulted here, before that read. Audit
-            // signals used to be tested by a separate condition beside this one, which made the
-            // claim that ReferenceReadingScannerKeys is the single source of truth for the read
-            // false; folding it in is what makes the claim true.
-            var needsReferences = scanners?.Any(ReferenceReadingScannerKeys.Contains) == true;
 
             var inspection = new LibraryInspection
             {
@@ -148,7 +170,8 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsReferences);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(
+                ReadsAssemblyReferences(scanners, options.IncludeReferences, options.IncludeDependencies));
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -573,11 +596,22 @@ internal static class LibraryMetadataService
     /// Windows device names, which resolve to devices rather than files in any directory and can
     /// block or hang a read. Compared without extension and case-insensitively.
     /// </summary>
+    /// <remarks>
+    /// The superscript spellings are listed <em>literally</em> because Windows reserves those exact
+    /// names, not because a superscript folds to a digit. Windows' matcher uppercases ASCII letters
+    /// and strips trailing dots and spaces; it performs no Unicode normalization and no best-fit
+    /// mapping. So <c>COM\u00b9</c> is a device while <c>COM\u2074</c>, <c>COM\uff11</c> and
+    /// <c>\uff23\uff2f\uff2d1</c> are ordinary names. An earlier revision folded every character
+    /// whose Unicode numeric value is a single digit, which refused a real SDK-built dependency
+    /// named <c>COM\uff14</c> and truncated the tree at it.
+    /// </remarks>
     private static readonly string[] ReservedDeviceNames =
     [
-        "CON", "PRN", "AUX", "NUL",
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "COM\u00b9", "COM\u00b2", "COM\u00b3",
+        "LPT\u00b9", "LPT\u00b2", "LPT\u00b3"
     ];
 
     /// <summary>
@@ -613,18 +647,39 @@ internal static class LibraryMetadataService
             return false;
         }
 
-        foreach (var c in name)
+        // Unpaired surrogates are checked before the rune scan, because EnumerateRunes replaces a
+        // lone half with U+FFFD -- which is not Format -- so a malformed name would otherwise be
+        // scanned as a well-formed one.
+        for (var i = 0; i < name.Length; i++)
         {
-            if (char.IsControl(c))
+            if (!char.IsSurrogate(name[i]))
+                continue;
+
+            if (i + 1 >= name.Length
+                || !char.IsHighSurrogate(name[i])
+                || !char.IsLowSurrogate(name[i + 1]))
+            {
                 return false;
+            }
+
+            i++;
+        }
+
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (!Rune.IsControl(rune) && Rune.GetUnicodeCategory(rune) != UnicodeCategory.Format)
+                continue;
 
             // Format characters are invisible: a zero-width space or a bidi override renders as
             // nothing, or reorders what follows it, so the name shown in the reference tree is not
             // the name being resolved. That is the Trojan Source problem (CVE-2021-42574) applied
-            // to an identifier read from untrusted metadata. char.IsControl does not cover these,
-            // and no legitimate assembly simple name contains one.
-            if (char.GetUnicodeCategory(c) == UnicodeCategory.Format)
-                return false;
+            // to an identifier read from untrusted metadata. char.IsControl does not cover these.
+            //
+            // The scan is over RUNES, not chars. The Plane 14 tag block (U+E0000-U+E007F) is
+            // entirely Format, but each of its code points is a surrogate pair, so a per-char scan
+            // sees two Surrogate halves, finds neither Control nor Format, and accepts a name that
+            // renders as nothing.
+            return false;
         }
 
         // Windows strips trailing spaces and dots from a path component, so "CON " and "CON"
@@ -642,30 +697,16 @@ internal static class LibraryMetadataService
             return false;
         }
 
-        // A device name is reserved with or without an extension, so compare the stem. The name is
-        // already free of trailing spaces and dots here, so the stem is the host's stem.
+        // A device name is reserved with or without an extension, so compare the stem.
         var stem = name;
         var dot = stem.IndexOf('.');
         if (dot >= 0)
             stem = stem[..dot];
 
-        // Windows accepts the superscript digits as the digit in COMn/LPTn, so "COM\u00b9" opens
-        // the same device as "COM1". Tools that only check the ASCII spelling have been bypassed
-        // this way before (the Wasmtime sandbox escape and the Node.js device-name fix are both
-        // this bug).
-        //
-        // Rather than enumerate spellings, fold any character whose Unicode numeric value is a
-        // single digit down to that digit before comparing. That covers the superscripts, the
-        // fullwidth digits, and the Arabic-Indic digits in one rule, which matters because these
-        // all collapse onto the ASCII digit under best-fit ANSI conversion -- a mapping Microsoft
-        // documents as a security consideration precisely because "COM4", "COM\u2074" and
-        // "COM\uff14" can reach the same device.
-        //
-        // Folding only affects a name whose *whole stem* becomes a device name, so it costs
-        // nothing in practice: no real assembly is named "COM\uff11", while "COM\u00b9Plus" and
-        // "Contoso.V\u00b2" fold to "COM1Plus" and "Contoso", match no device, and stay accepted.
-        if (ContainsNonAsciiDigit(stem))
-            stem = FoldDigits(stem);
+        // Windows also strips trailing dots and spaces from the STEM before matching, so
+        // "COM1 .txt" reaches COM1. The edge-whitespace rule above cannot cover this: the space is
+        // interior to the name, and only becomes trailing once the extension is split off.
+        stem = stem.TrimEnd(' ', '.');
 
         foreach (var reserved in ReservedDeviceNames)
         {
@@ -674,32 +715,6 @@ internal static class LibraryMetadataService
         }
 
         return true;
-    }
-
-    private static bool ContainsNonAsciiDigit(string value)
-    {
-        foreach (var c in value)
-        {
-            if (c > '\u007f' && char.GetNumericValue(c) is >= 0 and <= 9)
-                return true;
-        }
-
-        return false;
-    }
-
-    private static string FoldDigits(string value)
-    {
-        return string.Create(value.Length, value, static (span, source) =>
-        {
-            for (var i = 0; i < source.Length; i++)
-            {
-                var c = source[i];
-                var numeric = c > '\u007f' ? char.GetNumericValue(c) : -1;
-                span[i] = numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
-                    ? (char)('0' + (int)numeric)
-                    : c;
-            }
-        });
     }
 
     /// <summary>
@@ -787,29 +802,64 @@ internal static class LibraryMetadataService
     /// that differs only in case, and reports the comparison that answer implies.
     /// </summary>
     /// <remarks>
-    /// Every letter in the path is flipped, so the probe fails as soon as <em>any</em> component
-    /// along the path distinguishes case -- which is exactly when a differently-cased prefix
-    /// denotes a different directory. The host default is used only when the path carries no
-    /// letters to flip, or when it does not exist and so cannot be asked.
+    /// Existence of the flipped spelling is not on its own evidence of aliasing: a case-sensitive
+    /// volume can hold <c>dotnet</c> and <c>DOTNET</c> as two genuinely different directories, and
+    /// a probe that only asked whether the flipped path existed concluded "case-insensitive" there
+    /// and reported files under one tree as belonging to the other. So the parent's listing is
+    /// consulted too. If the flipped name is really there, both spellings coexist and the volume
+    /// plainly distinguishes case; if it is absent from the listing yet still resolves, the
+    /// filesystem is aliasing case. Both checks are read-only, which matters because platform
+    /// roots are not writable.
     /// </remarks>
     internal static StringComparison ComparisonForVolumeHolding(string directory) =>
-        ComparisonForVolumeHolding(directory, Directory.Exists);
+        ComparisonForVolumeHolding(directory, Directory.Exists, EnumerateDirectoryNames);
 
     /// <summary>
-    /// The probe over an explicit existence check, so a test can model a case-sensitive volume
-    /// this host cannot create.
+    /// The probe over explicit filesystem queries, so a test can model volumes this host cannot
+    /// create -- a case-sensitive one, and one holding both spellings as distinct directories.
     /// </summary>
     internal static StringComparison ComparisonForVolumeHolding(
         string directory,
-        Func<string, bool> directoryExists)
+        Func<string, bool> directoryExists,
+        Func<string, IEnumerable<string>> enumerateDirectoryNames)
     {
-        var flipped = FlipLetterCase(directory);
-        if (flipped is null || !directoryExists(directory))
+        var hostDefault = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        var trimmed = Path.TrimEndingDirectorySeparator(directory);
+        var parent = Path.GetDirectoryName(trimmed);
+        var name = Path.GetFileName(trimmed);
+
+        if (string.IsNullOrEmpty(parent) || FlipLetterCase(name) is not { } flippedName)
+            return hostDefault;
+
+        if (!directoryExists(directory))
+            return hostDefault;
+
+        // A real sibling under the flipped spelling means the volume is holding both, so it
+        // distinguishes case whatever the flipped path resolves to.
+        foreach (var entry in enumerateDirectoryNames(parent))
         {
-            return OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            if (string.Equals(entry, flippedName, StringComparison.Ordinal))
+                return StringComparison.Ordinal;
         }
 
-        return directoryExists(flipped) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return directoryExists(Path.Combine(parent, flippedName))
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+    }
+
+    private static IEnumerable<string> EnumerateDirectoryNames(string parent)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(parent).Select(Path.GetFileName).OfType<string>();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
     }
 
     private static string? FlipLetterCase(string value)
@@ -838,31 +888,56 @@ internal static class LibraryMetadataService
         return sawLetter ? new string(flipped) : null;
     }
 
-    private static string Canonicalize(string path)
+    /// <summary>
+    /// Resolves <paramref name="full"/> one component at a time, following a link wherever one
+    /// appears in the chain. Each component is visited once, so this terminates; following a chain
+    /// of links at a single component is bounded by <see cref="FileSystemInfo.ResolveLinkTarget"/>
+    /// itself.
+    /// </summary>
+    private static string ResolveLinkChain(string full)
+    {
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        var current = root;
+
+        foreach (var segment in full[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+
+            var target = Directory.Exists(current)
+                ? new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                : File.Exists(current)
+                    ? new FileInfo(current).ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                    : null;
+
+            if (!string.IsNullOrEmpty(target))
+            {
+                current = target;
+            }
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// Internal so a test can build a synthetic root the way <see cref="PlatformRoots"/> builds a
+    /// real one. A fixture root that skipped this was not comparable to the paths classification
+    /// canonicalizes: on macOS <c>/var</c> is a link to <c>/private/var</c>, so a root under the
+    /// temp directory failed to prefix-match a probe path beneath it.
+    /// </summary>
+    internal static string Canonicalize(string path)
     {
         var full = Path.GetFullPath(path);
         try
         {
-            // Resolves the whole chain, including symlinked parent directories, which
-            // Path.GetFullPath leaves alone.
-            var target = Directory.Exists(full)
-                ? new DirectoryInfo(full).ResolveLinkTarget(returnFinalTarget: true)?.FullName
-                : new FileInfo(full).ResolveLinkTarget(returnFinalTarget: true)?.FullName;
-
-            if (!string.IsNullOrEmpty(target))
-            {
-                return target;
-            }
-
-            var parent = Path.GetDirectoryName(full);
-            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
-            {
-                var parentTarget = new DirectoryInfo(parent).ResolveLinkTarget(returnFinalTarget: true)?.FullName;
-                if (!string.IsNullOrEmpty(parentTarget))
-                {
-                    return Path.Combine(parentTarget, Path.GetFileName(full));
-                }
-            }
+            // Every ancestor is resolved, not just the leaf and its immediate parent. A .NET
+            // install reached through a symlinked ancestor -- /opt/sdk -> /usr/local/share/dotnet,
+            // then /opt/sdk/shared/Microsoft.NETCore.App/9.0.0/System.Text.Json.dll -- has no link
+            // at the leaf and none at its parent, so resolving only those two returned the
+            // unresolved path, it matched no canonical platform root, and the assembly was
+            // reported resolved_from: "local". Path.GetFullPath does not resolve links at all.
+            return ResolveLinkChain(full);
         }
         catch (IOException)
         {

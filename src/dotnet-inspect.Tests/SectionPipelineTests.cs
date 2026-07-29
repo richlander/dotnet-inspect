@@ -1570,6 +1570,247 @@ public class SectionPipelineTests
             [typeof(SectionPipelineTests).Assembly.Location, platformPath!]);
     }
 
+    /// <summary>
+    /// Options this sweep cannot give a meaningful non-default value. Named rather than skipped
+    /// quietly: a new option is swept by default, and exempting one has to be a visible decision.
+    /// </summary>
+    private static readonly HashSet<string> OptionsTheSweepCannotVary = new(StringComparer.Ordinal)
+    {
+        // The two flags by which a user explicitly asks for references. They are part of the
+        // read's declared contract, so the sweep's expectation already accounts for them.
+        nameof(LibraryOptions.IncludeReferences),
+        nameof(LibraryOptions.IncludeDependencies),
+    };
+
+    /// <summary>
+    /// The shared read consults the requested scanner keys and the two explicit reference flags,
+    /// and nothing else about the request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other gate in this file quantifies over scanner key <em>sets</em> while holding the
+    /// rest of the request at a single shape, which made all of them blind to a condition keyed on
+    /// any other part of it. Adding <c>|| !string.IsNullOrWhiteSpace(options.AssemblyName)</c> to
+    /// the read compiled, made an ordinary <c>-v:n</c> inspection start rendering
+    /// <c>## References</c>, and left all 2561 tests green -- because the gate never set a name
+    /// and the CLI always does.
+    /// </para>
+    /// <para>
+    /// So this varies the request instead of the keys. It reflects over every settable option, so
+    /// an option added later is swept without anyone remembering to add it here, and asserts set
+    /// equality against the exemptions above so a stale or missing exemption fails rather than
+    /// silently shrinking the sweep. The expected answer is computed from the declaration, not by
+    /// calling the product predicate, which would agree with any implementation of it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task TheSharedRead_ConsultsNothingButTheScannerKeysAndTheExplicitFlags()
+    {
+        using var httpClient = new HttpClient();
+        var logger = new DotnetInspector.Output.VerboseLogger(false);
+        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys.ToList();
+
+        var readingKey = declared.First(LibraryMetadataService.ReferenceReadingScannerKeys.Contains);
+        var quietKey = declared.First(k => !LibraryMetadataService.ReferenceReadingScannerKeys.Contains(k));
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+
+        var settable = typeof(LibraryOptions).GetProperties()
+            .Where(p => p.CanWrite && p.GetSetMethod() is not null)
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.NotEmpty(settable);
+
+        var couldNotVary = new List<string>();
+        var leaked = new List<string>();
+
+        foreach (var property in settable)
+        {
+            if (OptionsTheSweepCannotVary.Contains(property.Name))
+                continue;
+
+            if (NonDefaultValuesFor(property) is { Count: > 0 } values)
+            {
+                foreach (var value in values)
+                {
+                    foreach (var (request, shouldRead) in new[]
+                    {
+                        (new List<string> { quietKey }, false),
+                        (new List<string> { readingKey }, true),
+                    })
+                    foreach (var isPlatformAssembly in new[] { false, true })
+                    {
+                        // Every probe carries an explicit section selection, which is what keeps
+                        // LibrarySourcePlan cache- and network-free. Without it, sweeping verbosity
+                        // up to Normal authorizes a cached PDB read, and the probe stops being a
+                        // pure metadata read.
+                        var options = new LibraryOptions
+                        {
+                            UserVerbosityOverride = Verbosity.Quiet,
+                            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                            {
+                                "Library Info",
+                            },
+                        };
+                        property.SetValue(options, value);
+
+                        var inspection = await LibraryMetadataService.InspectAsync(
+                            path,
+                            options,
+                            logger,
+                            null,
+                            null,
+                            httpClient,
+                            scanners: new HashSet<string>(request, StringComparer.Ordinal),
+                            scannerRegistry: LibrarySections.CreateScannerRegistry(),
+                            isPlatformAssembly: isPlatformAssembly);
+
+                        if (inspection is null)
+                        {
+                            couldNotVary.Add(property.Name);
+                            break;
+                        }
+
+                        if (inspection.AssemblyReferenceInspection.HasFindings() != shouldRead)
+                        {
+                            leaked.Add(
+                                $"{property.Name}={value} with {string.Join("+", request)} "
+                                    + $"(isPlatformAssembly: {isPlatformAssembly}, "
+                                    + $"expected reference extraction: {shouldRead})");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                couldNotVary.Add(property.Name);
+            }
+        }
+
+        Assert.True(
+            leaked.Count == 0,
+            "Setting an option unrelated to the scanner keys changed whether the shared read "
+                + $"extracted assembly references: {string.Join(" | ", leaked)}. The read's "
+                + "condition has grown a dependency on the request beyond its declared contract.");
+
+        Assert.True(
+            couldNotVary.Count == 0,
+            "The sweep could not exercise these options, so nothing constrains a condition keyed "
+                + $"on them: {string.Join(", ", couldNotVary.Distinct())}. Give them a value here "
+                + $"or name them in {nameof(OptionsTheSweepCannotVary)}.");
+    }
+
+    /// <summary>
+    /// Every value for <paramref name="property"/> that differs from what a default
+    /// <see cref="LibraryOptions"/> carries. All of them, not just the first: a condition keyed on
+    /// one particular enum member survives a sweep that only tries one other member, which is how
+    /// <c>&amp;&amp; options.UserVerbosity != Verbosity.Detailed</c> escaped an earlier revision.
+    /// An empty result fails the sweep rather than skipping, so an unexercised option is never
+    /// silent.
+    /// </summary>
+    private static List<object> NonDefaultValuesFor(System.Reflection.PropertyInfo property)
+    {
+        var current = property.GetValue(new LibraryOptions());
+
+        return CandidateValuesFor(property.PropertyType)
+            .Where(candidate => !Equals(candidate, current))
+            .ToList();
+    }
+
+    private static IEnumerable<object> CandidateValuesFor(Type type)
+    {
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+
+        if (underlying == typeof(bool))
+        {
+            yield return true;
+            yield return false;
+            yield break;
+        }
+
+        if (underlying == typeof(string))
+        {
+            yield return "sweep-probe";
+            yield break;
+        }
+
+        if (underlying == typeof(string[]))
+        {
+            yield return new[] { "sweep-probe" };
+            yield break;
+        }
+
+        if (underlying == typeof(int))
+        {
+            yield return 1;
+            yield return 2;
+            yield break;
+        }
+
+        if (underlying == typeof(HashSet<string>))
+        {
+            yield return new HashSet<string>(StringComparer.Ordinal) { "sweep-probe" };
+            yield break;
+        }
+
+        if (underlying.IsEnum)
+        {
+            foreach (var value in Enum.GetValues(underlying))
+                yield return value!;
+            yield break;
+        }
+
+        // Types that publish their own instances -- RowSelector.First, RowWindow.Take(...),
+        // PerformanceTriageOptions.Default. Reading them off the type keeps this sweep working for
+        // an option type added later without anyone editing this method.
+        foreach (var factory in underlying.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+        {
+            if (factory.PropertyType == underlying && factory.GetValue(null) is { } instance)
+                yield return instance;
+        }
+
+        if (!underlying.IsAbstract && underlying.GetConstructor(Type.EmptyTypes) is not null
+            && Activator.CreateInstance(underlying) is { } constructed)
+        {
+            yield return constructed;
+
+            // A record whose only published instance is its default (PerformanceTriageOptions.Default
+            // is `new()`) needs one of its own properties moved before it counts as a variation.
+            foreach (var nested in underlying.GetProperties())
+            {
+                if (!nested.CanWrite || nested.GetSetMethod() is null)
+                    continue;
+
+                var nestedValue = CandidateValuesFor(nested.PropertyType).FirstOrDefault();
+                if (nestedValue is null)
+                    continue;
+
+                var mutated = Activator.CreateInstance(underlying)!;
+                nested.SetValue(mutated, nestedValue);
+                yield return mutated;
+                break;
+            }
+        }
+
+        // Types whose instances come from factory methods -- RowWindow.Head(int), .Tail(int).
+        foreach (var factory in underlying.GetMethods(
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+        {
+            if (factory.ReturnType != underlying || factory.IsGenericMethod)
+                continue;
+
+            var parameters = factory.GetParameters();
+            if (parameters.Length == 0 || !parameters.All(p =>
+                (Nullable.GetUnderlyingType(p.ParameterType) ?? p.ParameterType) == typeof(int)))
+            {
+                continue;
+            }
+
+            if (factory.Invoke(null, [.. parameters.Select(object (_) => 1)]) is { } produced)
+                yield return produced;
+        }
+    }
+
     private static async Task AssertOnlyDeclaredKeysDriveTheSharedRead(IReadOnlyList<string> paths)
     {
         using var httpClient = new HttpClient();
@@ -2844,8 +3085,10 @@ public class SectionPipelineTests
     [InlineData("System.Text.Json.")]
     [InlineData(" System.Text.Json")]
     [InlineData(".")]
-    // Windows accepts the superscript digits as the digit in COMn/LPTn, so these open the same
-    // devices as COM1/COM2/COM3 and LPT1/LPT2/LPT3.
+    // Windows reserves these exact strings as device names. It is not that a superscript folds to
+    // a digit -- the matcher uppercases ASCII and strips trailing dots and spaces, and does no
+    // Unicode normalization -- so only the LITERAL superscripts one, two and three are reserved.
+    // COM\u2074 and COM\uff11 are ordinary names; see the accept theory.
     [InlineData("COM\u00b9")]
     [InlineData("COM\u00b2.txt")]
     [InlineData("COM\u00b3")]
@@ -2859,14 +3102,6 @@ public class SectionPipelineTests
     [InlineData("System.Text.Json\u3000")]
     [InlineData("\u3000System.Text.Json")]
     [InlineData("CON\u00a0")]
-    // Every non-ASCII digit folds, not just the three Latin-1 superscripts: these all collapse
-    // onto the ASCII digit under best-fit ANSI conversion, which Microsoft documents as a
-    // security consideration for exactly this reason.
-    [InlineData("COM\u2074")]
-    [InlineData("LPT\u2079")]
-    [InlineData("COM\uff11")]
-    [InlineData("COM\u0661")]
-    [InlineData("com\u2460")]
     // Format characters are invisible or reorder what follows, so the rendered name is not the
     // resolved name (Trojan Source, CVE-2021-42574).
     [InlineData("System.Text.Json\u200b")]
@@ -2880,6 +3115,16 @@ public class SectionPipelineTests
     // Trailing dots stay refused, but by the trailing-dot rule that runs earlier -- the host
     // strips them, so this would denote "TrailingDots". Narrowing the dot rule does not reach it.
     [InlineData("TrailingDots..")]
+    // Windows strips trailing dots and spaces from the STEM, so these reach the device. The space
+    // is interior to the whole name, so the edge-whitespace rule above cannot see it; only the
+    // stem TrimEnd does. Without that, these three are accepted.
+    [InlineData("COM1 .txt")]
+    [InlineData("CON .dll")]
+    [InlineData("COM1 . .ext")]
+    // Plane 14 tag characters are Format but each is a surrogate pair, so a per-char scan reports
+    // Surrogate for both halves and accepts a name that renders as nothing.
+    [InlineData("Valid\U000E0020Dependency")]
+    [InlineData("System.Text.Json\U000E0041")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2919,12 +3164,27 @@ public class SectionPipelineTests
     [InlineData("COM\u00b9Plus")]
     [InlineData("Contoso.V\u00b2")]
     [InlineData("COM\u00b94")]
-    // The fold only rejects a name whose *whole stem* becomes a device name, so a non-ASCII digit
-    // anywhere else is untouched. This is the boundary that keeps widening the fold from costing
-    // real dependencies -- these fold to "COM1Plus", "Contoso" and "COM14", which match nothing.
+    // Windows reserves the LITERAL superscript spellings only; it applies no Unicode
+    // normalization and no best-fit mapping to a path it opens. So every other numeric spelling
+    // names an ordinary file, and refusing it costs a real dependency. GPT built an SDK project
+    // with <AssemblyName>COM\uff14</AssemblyName>, which compiled and produced COM\uff14.dll --
+    // an earlier fold refused it and the tree showed the node unresolved, with no company and no
+    // children. Superscript four and nine are here for the same reason: only one, two and three
+    // have superscript forms Windows reserves.
+    [InlineData("COM\uff11")]
+    [InlineData("COM\uff14")]
+    [InlineData("COM\u2074")]
+    [InlineData("LPT\u2079")]
+    [InlineData("COM\u0661")]
+    [InlineData("com\u2460")]
+    [InlineData("\uff23\uff2f\uff2d1")]
     [InlineData("COM\uff11Plus")]
     [InlineData("Contoso.V\u2074")]
     [InlineData("COM\uff114")]
+    // Well-formed supplementary-plane characters are ordinary. The rune scan rejects by CATEGORY,
+    // not by plane, so it must not refuse an emoji or a CJK extension character.
+    [InlineData("Assembly\U0001F600")]
+    [InlineData("Assembly\U00020000")]
     // Interior non-ASCII whitespace is not padding and is not canonicalized.
     [InlineData("My\u00a0Assembly.Core")]
     // Consecutive dots inside a name are not traversal: this becomes one path component, and a
@@ -3088,6 +3348,59 @@ public class SectionPipelineTests
     /// dependency of a real platform assembly as local -- the mislabelling this is meant to
     /// prevent, reachable through an environment variable.
     /// </summary>
+    /// <summary>
+    /// A platform assembly reached through a symlinked ANCESTOR is still platform. The classifier
+    /// compares against canonical roots, so a path that is not itself canonicalized matches none
+    /// of them and falls through to "local".
+    /// </summary>
+    /// <remarks>
+    /// The link is planted several levels above the assembly, which is the case the previous
+    /// implementation missed: it resolved the leaf and its immediate parent only, while claiming
+    /// in its doc comment to resolve the whole chain. Neither of those two is a link here, so the
+    /// path came back unresolved and System.Private.CoreLib reported resolved_from: "local".
+    /// Skips rather than passes where symlinks are unavailable, so it can never assert nothing.
+    /// </remarks>
+    [Fact]
+    public void PlatformClassification_ResolvesInstallsReachedThroughASymlinkedAncestor()
+    {
+        var shared = PlatformResolver.GetAllSharedDirectories().FirstOrDefault(Directory.Exists);
+        Assert.SkipWhen(shared is null, "No shared framework directory on this machine.");
+
+        var assembly = Directory
+            .EnumerateFiles(shared!, "System.Private.CoreLib.dll", SearchOption.AllDirectories)
+            .FirstOrDefault();
+        Assert.SkipWhen(assembly is null, "No platform assembly under the shared framework.");
+
+        // Sanity: the direct path must already classify as platform, or the test proves nothing
+        // about the link.
+        Assert.Equal("platform", LibraryMetadataService.ProvenanceOf(assembly!));
+
+        var scratch = Path.Combine(Path.GetTempPath(), $"di-symlink-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(scratch);
+        try
+        {
+            var link = Path.Combine(scratch, "linked");
+            try
+            {
+                Directory.CreateSymbolicLink(link, shared!);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Assert.Skip("This host does not permit creating symbolic links.");
+                return;
+            }
+
+            var throughLink = Path.Combine(link, Path.GetRelativePath(shared!, assembly!));
+            Assert.True(File.Exists(throughLink), $"Planted link did not expose {throughLink}.");
+
+            Assert.Equal("platform", LibraryMetadataService.ProvenanceOf(throughLink));
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
     [Fact]
     public void PlatformClassification_DoesNotDependOnWhichInstallIsPreferred()
     {
@@ -3190,13 +3503,39 @@ public class SectionPipelineTests
             StringComparison.Ordinal,
             LibraryMetadataService.ComparisonForVolumeHolding(
                 Root,
-                p => p == Root));
+                p => Path.TrimEndingDirectorySeparator(p) == Path.TrimEndingDirectorySeparator(Root),
+                _ => ["shared"]));
 
         Assert.Equal(
             StringComparison.OrdinalIgnoreCase,
             LibraryMetadataService.ComparisonForVolumeHolding(
                 Root,
-                _ => true));
+                _ => true,
+                _ => ["shared"]));
+    }
+
+    /// <summary>
+    /// A case-sensitive volume can hold <c>shared</c> and <c>SHARED</c> as two different
+    /// directories. Both spellings then resolve, so existence alone says "case-insensitive" and
+    /// files under one tree get reported as belonging to the other.
+    /// </summary>
+    /// <remarks>
+    /// This is the case the first version of the probe got wrong, found by building a
+    /// case-sensitive APFS image and planting both spellings. The parent listing is what
+    /// distinguishes an alias from a genuinely distinct sibling, so this test fails if the probe
+    /// goes back to asking only whether the flipped path exists.
+    /// </remarks>
+    [Fact]
+    public void CaseSensitivityProbe_ReportsOrdinal_WhenBothSpellingsExistAsDistinctDirectories()
+    {
+        const string Root = "/volumes/case-sensitive/dotnet/shared/";
+
+        Assert.Equal(
+            StringComparison.Ordinal,
+            LibraryMetadataService.ComparisonForVolumeHolding(
+                Root,
+                _ => true,
+                _ => ["shared", "SHARED"]));
     }
 
     /// <summary>
@@ -3212,9 +3551,16 @@ public class SectionPipelineTests
     [Fact]
     public void CaseDifferingPath_IsPlatformOnlyWhenTheRootsVolumeIgnoresCase()
     {
-        var root = Path.Combine(Path.GetTempPath(), "di-roots", "Shared") + Path.DirectorySeparatorChar;
+        // Canonicalized exactly as PlatformRoots canonicalizes a real root. Without this the
+        // fixture is not comparable to the probe path, which classification canonicalizes: on
+        // macOS the temp directory sits under /var, a link to /private/var, so the two spellings
+        // could not prefix-match even ignoring case.
+        var root = LibraryMetadataService.Canonicalize(
+            Path.Combine(Path.GetTempPath(), "di-roots", "Shared")) + Path.DirectorySeparatorChar;
         var differingOnlyInCase = Path.Combine(
-            Path.GetTempPath(), "di-roots", "SHARED", "System.Private.CoreLib.dll");
+            Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(root))!,
+            "SHARED",
+            "System.Private.CoreLib.dll");
 
         Assert.Equal(
             "local",
