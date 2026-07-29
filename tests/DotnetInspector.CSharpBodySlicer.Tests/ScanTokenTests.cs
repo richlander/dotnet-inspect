@@ -1085,22 +1085,23 @@ public class ScanTokenTests
 
         // Four raw seeds can be four *non-interpolated* raw seeds, which would erase the
         // dollar-run ladder: the scanner tracks how many braces open a hole (`frame.DollarRun`),
-        // and only `$"""`, `$$"""` and `$$$""""` exercise runs of one, two and three. Pin the
-        // ladder by the run each seed actually needs, so the three cannot collapse onto one run
-        // or drop out of the seeds entirely.
+        // and only `$"""`, `$$"""` and `$$$""""` exercise runs of one, two and three. The same
+        // argument applies to the quote run a raw literal needs in order to close
+        // (`frame.QuoteRun`): the four raw seeds can all be spelled with runs of five, seven,
+        // nine and eleven, leaving no carried frame with a run of three.
+        //
+        // Pin the two together rather than one at a time. Separate distributions pin only the
+        // marginals, and the pairing is free between them: exchanging `$$"""` for `$$""""` and
+        // `$$$""""` for `$$$"""b` holds both marginals while the carried combination of dollar
+        // run three with quote run four disappears, after which a wrong depth on exactly that
+        // frame survives (adversarial review, GPT). The joint multiset implies both marginals,
+        // so it replaces them rather than joining them.
         int MinBraceRun(string opener) =>
             CodeOnSecondLine(opener, "{a}") ? 1
             : CodeOnSecondLine(opener, "{{a}}") ? 2
             : CodeOnSecondLine(opener, "{{{a}}}") ? 3
             : 0;
 
-        Assert.Equal([0, 0, 0, 0, 1, 1, 1, 2, 3], openers.Select(MinBraceRun).Order());
-
-        // The same argument applies to the quote run a raw literal needs in order to close
-        // (`frame.QuoteRun`): four raw seeds can all be spelled with runs of five, seven, nine
-        // and eleven, satisfying every pin above while leaving no carried frame with a run of
-        // three (adversarial review, GPT). Pin the closing run each seed actually needs, for the
-        // same reason and in the same way as the brace run.
         int MinCloseRun(string opener)
         {
             for (int run = 1; run <= 5; run++)
@@ -1112,7 +1113,9 @@ public class ScanTokenTests
             return 0;
         }
 
-        Assert.Equal([0, 1, 1, 1, 1, 3, 3, 3, 4], openers.Select(MinCloseRun).Order());
+        Assert.Equal(
+            [(0, 0), (0, 1), (0, 1), (0, 3), (1, 1), (1, 1), (1, 3), (2, 3), (3, 4)],
+            openers.Select(o => (Brace: MinBraceRun(o), Close: MinCloseRun(o))).Order());
 
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
