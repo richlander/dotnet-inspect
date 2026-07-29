@@ -1,5 +1,6 @@
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -171,6 +172,17 @@ internal static class ApiServices
 
         foreach (var (targetAssembly, forwardedTypeNames) in byAssembly)
         {
+            // The forwarder target is an AssemblyRef name read straight out of the inspected
+            // assembly's metadata, so it is attacker-controlled, and it is about to be joined
+            // onto the assembly's directory and opened. Path.Combine(root, untrustedValue) is
+            // not a containment check (docs/design/untrusted-data-threat-model.md, "Derived
+            // paths"), so refuse unsafe names rather than sanitize them.
+            if (!HardenedPath.IsSafePathComponent(targetAssembly))
+            {
+                logger.Log($"Warning: refusing to resolve forwarded types to library with unsafe assembly name: '{targetAssembly}'");
+                continue;
+            }
+
             var targetPath = Path.Combine(assemblyDir, targetAssembly + ".dll");
             if (!File.Exists(targetPath))
             {

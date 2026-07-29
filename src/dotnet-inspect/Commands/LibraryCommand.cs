@@ -2,6 +2,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -1789,6 +1790,13 @@ public class LibraryCommand
     private static string? TryFindLocalSiblingPackage(string originalPackageSource, string payloadId, string version)
     {
         if (!originalPackageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Both values come from the inspected package: payloadId from its DotnetToolSettings.xml
+        // and version from its nuspec. They are about to become a filename and a search pattern
+        // under a directory the tool did not choose, so validate them as path components first
+        // (docs/design/untrusted-data-threat-model.md, "Derived paths").
+        if (!HardenedPath.IsSafePathComponent(payloadId) || !HardenedPath.IsSafePathComponent(version))
             return null;
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(originalPackageSource));

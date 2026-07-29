@@ -1,6 +1,7 @@
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Inspectors;
 
@@ -24,6 +25,15 @@ public static class RidPackageVerifier
         {
             if (localDir != null)
             {
+                // PackageId comes from the inspected package's DotnetToolSettings.xml and is
+                // about to be joined onto a local directory, so validate it as a path component
+                // (docs/design/untrusted-data-threat-model.md, "Derived paths").
+                if (!HardenedPath.IsSafePathComponent(ridPkg.PackageId) || !HardenedPath.IsSafePathComponent(version))
+                {
+                    logger.Log($"  {ridPkg.RuntimeIdentifier}: refusing unsafe package coordinate '{ridPkg.PackageId}.{version}'");
+                    continue;
+                }
+
                 // Local verification: check if sibling .nupkg file exists
                 string expectedFileName = $"{ridPkg.PackageId}.{version}.nupkg";
                 string expectedPath = Path.Combine(localDir, expectedFileName);
