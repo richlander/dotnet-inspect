@@ -72,6 +72,9 @@ public class CommandErrorOwnershipTests
     /// argument it quoted reached stderr uncontained. Severity now belongs to
     /// the writer, and a call site that reaches for the old shape fails here.
     /// </remarks>
+    private static readonly Regex StderrSink =
+        new(@"[(,]\s*Console\s*\.\s*Error\s*[,)]", RegexOptions.Compiled);
+
     private static readonly Regex StderrWrite =
         new(@"Console\s*\.\s*Error\s*\.\s*Write(Line)?\s*\(", RegexOptions.Compiled);
 
@@ -131,10 +134,28 @@ public class CommandErrorOwnershipTests
     /// however it spelled it. That is a property of the code that runs, not of
     /// the text that appears in it.
     ///
-    /// Passing <c>Console.Error</c> to a serializer as a sink is a different
-    /// path and stays allowed: it renders a view through the same Markout
-    /// containment that this suite gates for stdout, rather than writing
-    /// caller-composed text.
+    /// Handing <c>Console.Error</c> to a renderer as a sink stays allowed,
+    /// because this scan cannot tell a containing renderer from a
+    /// non-containing one. That allowance is the rule's known blind spot and it
+    /// has already been exploited once: <c>--trace-mermaid</c> passed the
+    /// stream to a bespoke writer that escaped only the two Mermaid
+    /// metacharacters, so a line terminator in a package name forged an
+    /// unindented stderr line without a single <c>Console.Error.Write</c> in
+    /// the source. Two reviewers found it independently.
+    ///
+    /// Each sink is therefore accounted for by name rather than by category,
+    /// and a new one is a change this test cannot catch:
+    /// <list type="bullet">
+    /// <item><c>Output/Hints.cs</c> x2 -- Markout views whose untrusted field
+    /// is contained when the row is built.</item>
+    /// <item><c>Program.cs</c> --info -- a Markout view of counts and
+    /// durations, carrying no caller text.</item>
+    /// <item><c>Program.cs</c> --trace-mermaid -- contained at composition,
+    /// with containment a required parameter so no caller can omit it, and
+    /// gated end to end by the trace-mermaid channel.</item>
+    /// </list>
+    /// <see cref="StderrSinks_AreStillTheOnesAccountedFor"/> fails when this
+    /// list goes stale.
     /// </remarks>
     [Fact]
     public void CommandError_IsTheOnlyWriterOfStderr()
@@ -170,6 +191,40 @@ public class CommandErrorOwnershipTests
             "Only CommandError may write text to stderr, so that every line on the stream is "
                 + $"contained. Use CommandError.Write/WriteWarning/WriteNote/WriteLine/WriteDetail:{Environment.NewLine}"
                 + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// Pins the set of places that hand stderr to a renderer as a sink, which
+    /// is the one shape <see cref="CommandError_IsTheOnlyWriterOfStderr"/>
+    /// cannot check. A new sink is a real risk -- one of the four was a live
+    /// forgery -- so adding one must fail here and force a decision about how
+    /// its text is contained.
+    /// </summary>
+    [Fact]
+    public void StderrSinks_AreStillTheOnesAccountedFor()
+    {
+        string root = RepositoryRoot();
+        List<string> sinks = [];
+
+        foreach (string path in Directory.EnumerateFiles(
+            Path.Combine(root, "src", "dotnet-inspect"), "*.cs", SearchOption.AllDirectories))
+        {
+            string text = File.ReadAllText(path);
+            foreach (Match match in StderrSink.Matches(text))
+            {
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                sinks.Add($"{Path.GetRelativePath(root, path).Replace('\\', '/')}:{line}");
+            }
+        }
+
+        sinks.Sort(StringComparer.Ordinal);
+
+        Assert.True(
+            sinks.Count == 4,
+            "The set of stderr sinks changed. Each one bypasses the stream rule, so decide how "
+                + "its text is contained, gate it end to end, and update this list and the remarks "
+                + $"on CommandError_IsTheOnlyWriterOfStderr:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, sinks));
     }
 
     /// <summary>
