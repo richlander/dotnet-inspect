@@ -10,6 +10,7 @@ public class PackageSearchResultView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
 
+    [MarkoutSection(Headless = true)]
     [MarkoutIgnoreInTable]
     public List<PackageSearchRow>? Results { get; set; }
 }
