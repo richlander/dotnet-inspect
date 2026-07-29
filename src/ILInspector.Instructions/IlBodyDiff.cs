@@ -1008,78 +1008,54 @@ public static class IlBodyDiff
     /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
     /// for what the ordinal means and why it is not evidence.
     /// </summary>
+    /// <remarks>
+    /// The grammar is matched from the start of the identifier rather than by
+    /// scanning for <c>__</c>. Anchoring matters: a scan reaches separators
+    /// inside the enclosing method's own name, so an authored method named
+    /// <c>b__1_0</c> would have its digits rewritten and would then compare
+    /// equal to an authored <c>b__2_0</c>. Anchoring also removes the need to
+    /// guess where an identifier begins, which is what previously left
+    /// <c>&lt;.ctor&gt;b__1_0</c> unnormalized.
+    /// </remarks>
     internal static class SynthesizedOrdinals
     {
         internal const char Placeholder = '#';
 
+        /// <summary>
+        /// Normalizes every synthesized name inside a resolved operand string
+        /// (for example <c>[Asm]Ns.Type::&lt;Run&gt;b__103_0</c>), rewriting
+        /// only the containing-method ordinal in each.
+        /// </summary>
         public static string Normalize(string value)
         {
-            // Cheap reject: every recognized form contains this separator.
+            // Every recognized form opens with '<', which C# cannot spell, and
+            // carries the separator. Both checks are cheap rejects.
             if (!value.Contains("__", StringComparison.Ordinal))
                 return value;
 
             StringBuilder? builder = null;
             int copied = 0;
 
-            for (int i = 0; i + 2 < value.Length; i++)
+            for (int i = 0; i < value.Length; i++)
             {
-                if (value[i] != '_' || value[i + 1] != '_')
+                if (value[i] != '<')
                     continue;
 
-                // `<>9__N_M` (cache field) and `<Name>b__N_M` (lambda method)
-                // put the ordinal straight after the separator. `g__` is a
-                // local function: `<Name>g__Local|N_M`, so the ordinal sits
-                // after the `|` that follows the local's own name.
-                char marker = i > 0 ? value[i - 1] : '\0';
-                int digitsStart;
-                if (marker is '9' or 'b')
-                {
-                    digitsStart = i + 2;
-                }
-                else if (marker == 'g')
-                {
-                    int bar = value.IndexOf('|', i + 2);
-                    if (bar < 0)
-                        continue;
-                    // The local's name must not itself contain a separator we
-                    // would rather have matched; bail if one intervenes.
-                    if (value.AsSpan(i + 2, bar - (i + 2)).Contains("__", StringComparison.Ordinal))
-                        continue;
-                    digitsStart = bar + 1;
-                }
-                else
-                {
-                    continue;
-                }
-
-                // Every Roslyn closure name begins with '<' — `<>9__…` or
-                // `<Method>b__…`. C# cannot spell that, so requiring it keeps
-                // an authored identifier that merely ends in `b`/`g` before a
-                // digit run (`Grab__1_0`) out of the rewrite.
-                if (!StartsSynthesizedName(value, i))
+                // Only start at a '<' that opens a name. One preceded by an
+                // identifier character is interior text, and one preceded by
+                // '<' or '>' belongs to a nested name that the recursive call
+                // below already covers.
+                if (i > 0 && IsInteriorChar(value[i - 1]))
                     continue;
 
-                int digitsEnd = digitsStart;
-                while (digitsEnd < value.Length && char.IsAsciiDigit(value[digitsEnd]))
-                    digitsEnd++;
-
-                // Require at least one digit, and require the ordinal to be
-                // followed by `_M` — that trailing index is what distinguishes
-                // a closure name from an ordinary identifier ending in digits.
-                if (digitsEnd == digitsStart
-                    || digitsEnd >= value.Length
-                    || value[digitsEnd] != '_'
-                    || digitsEnd + 1 >= value.Length
-                    || !char.IsAsciiDigit(value[digitsEnd + 1]))
-                {
+                if (!TryNormalizeName(value, i, out string replacement, out int end))
                     continue;
-                }
 
                 builder ??= new StringBuilder(value.Length);
-                builder.Append(value, copied, digitsStart - copied);
-                builder.Append(Placeholder);
-                copied = digitsEnd;
-                i = digitsEnd - 1;
+                builder.Append(value, copied, i - copied);
+                builder.Append(replacement);
+                copied = end;
+                i = end - 1;
             }
 
             if (builder is null)
@@ -1090,20 +1066,112 @@ public static class IlBodyDiff
         }
 
         /// <summary>
-        /// True when the identifier containing <paramref name="index"/> opens
-        /// with <c>&lt;</c>, the marker Roslyn puts on every synthesized name.
+        /// Matches <c>&lt;&gt;9__N_M</c>, <c>&lt;Name&gt;b__N_M</c>, or
+        /// <c>&lt;Name&gt;g__Local|N_M</c> starting at <paramref name="start"/>
+        /// and rewrites only <c>N</c>. Any other identifier, including the
+        /// state-machine form <c>&lt;Name&gt;d__N</c>, is declined.
         /// </summary>
-        static bool StartsSynthesizedName(string value, int index)
+        static bool TryNormalizeName(string value, int start, out string replacement, out int end)
         {
-            int start = index;
-            while (start > 0 && IsNameChar(value[start - 1]))
-                start--;
+            replacement = "";
+            end = start;
 
-            return value[start] == '<';
+            // The enclosing name may itself be synthesized (a nested lambda),
+            // so match the '>' that closes this name rather than the first one.
+            int close = FindClosingAngle(value, start);
+            if (close < 0)
+                return false;
+
+            int marker = close + 1;
+            if (marker + 2 >= value.Length
+                || value[marker] is not ('9' or 'b' or 'g')
+                || value[marker + 1] != '_'
+                || value[marker + 2] != '_')
+            {
+                return false;
+            }
+
+            int digitsStart = marker + 3;
+            if (value[marker] == 'g')
+            {
+                // Local function: the ordinal follows the '|' that terminates
+                // the local's own name, which cannot contain '|'.
+                int bar = value.IndexOf('|', digitsStart);
+                if (bar < 0)
+                    return false;
+                digitsStart = bar + 1;
+            }
+
+            int digitsEnd = digitsStart;
+            while (digitsEnd < value.Length && char.IsAsciiDigit(value[digitsEnd]))
+                digitsEnd++;
+
+            // Require at least one digit followed by `_M`. That trailing index
+            // is what separates a closure name from an identifier that merely
+            // ends in digits, and it stays significant so a lambda bound to the
+            // wrong slot still differs.
+            if (digitsEnd == digitsStart
+                || digitsEnd >= value.Length
+                || value[digitsEnd] != '_'
+                || digitsEnd + 1 >= value.Length
+                || !char.IsAsciiDigit(value[digitsEnd + 1]))
+            {
+                return false;
+            }
+
+            // The trailing index must end the name. Roslyn emits nothing after
+            // it, so a name that continues (`<Run>b__103_0_extra`) is not one
+            // of these forms and must keep comparing literally.
+            int lambdaEnd = digitsEnd + 1;
+            while (lambdaEnd < value.Length && char.IsAsciiDigit(value[lambdaEnd]))
+                lambdaEnd++;
+
+            if (lambdaEnd < value.Length
+                && (char.IsAsciiLetter(value[lambdaEnd]) || value[lambdaEnd] == '_'))
+            {
+                return false;
+            }
+
+            // The enclosing name carries its own ordinal when it is itself a
+            // closure, so normalize it under the same grammar. Recursing rather
+            // than rescanning is what keeps an authored enclosing method named
+            // `b__1_0` distinct from one named `b__2_0`.
+            string inner = value[(start + 1)..close];
+            string normalizedInner = Normalize(inner);
+
+            replacement = string.Concat(
+                "<",
+                normalizedInner,
+                value.AsSpan(close, digitsStart - close),
+                Placeholder.ToString());
+            end = digitsEnd;
+            return true;
         }
 
-        static bool IsNameChar(char c)
-            => char.IsAsciiLetterOrDigit(c) || c is '_' or '<' or '>' or '|' or '`';
+        /// <summary>
+        /// Returns the index of the <c>&gt;</c> closing the <c>&lt;</c> at
+        /// <paramref name="start"/>, honoring nesting, or -1 when unbalanced.
+        /// </summary>
+        static int FindClosingAngle(string value, int start)
+        {
+            int depth = 0;
+            for (int i = start; i < value.Length; i++)
+            {
+                if (value[i] == '<')
+                {
+                    depth++;
+                }
+                else if (value[i] == '>' && --depth == 0)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        static bool IsInteriorChar(char c)
+            => char.IsAsciiLetterOrDigit(c) || c is '_' or '<' or '>';
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>

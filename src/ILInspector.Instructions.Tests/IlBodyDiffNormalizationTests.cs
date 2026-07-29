@@ -13,11 +13,23 @@ public class IlBodyDiffNormalizationTests
         Enum.GetValues<IlBodyDiffNormalization>()
             .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
 
+    /// <summary>
+    /// Every declared option must be accepted by <see cref="IlBodyDiff.Compare"/>,
+    /// which rejects any flag outside its internal <c>SupportedNormalizations</c>
+    /// mask. This is the wiring gate: declaring an enum member without adding it
+    /// to that mask makes every caller that requests it throw, and this fails
+    /// rather than letting the gap surface at a call site.
+    /// </summary>
     [Fact]
-    public void AllNormalizations_CoversEveryDeclaredOption()
+    public void EveryDeclaredNormalization_IsAcceptedByCompare()
     {
+        var body = Decode([0x2a]); // ret
+
         foreach (var option in Enum.GetValues<IlBodyDiffNormalization>())
-            Assert.Equal(option, AllNormalizations & option);
+        {
+            var result = Record.Exception(() => IlBodyDiff.Compare(body, body, option));
+            Assert.True(result is null, $"{option} was rejected by Compare: {result?.Message}");
+            }
     }
 
     [Fact]
@@ -214,6 +226,9 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<>9__103_0", "<>9__128_0")]                          // lambda cache field
     [InlineData("<Run>b__103_0", "<Run>b__128_0")]                    // lambda method
     [InlineData("<Run>g__Local|103_0", "<Run>g__Local|128_0")]        // local function
+    [InlineData("<.ctor>b__103_0", "<.ctor>b__128_0")]                // lambda in a constructor
+    [InlineData("<Run>g__A__B|103_0", "<Run>g__A__B|128_0")]          // local name containing `__`
+    [InlineData("<<Run>b__103_0>b__104_1", "<<Run>b__128_0>b__129_1")] // lambda nested in a lambda
     public void NormalizeSynthesizedMemberOrdinals_ToleratesContainingMethodRenumbering(
         string oldName,
         string newName)
@@ -238,6 +253,10 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<Run>g__Local|103_0", "<Run>g__Other|103_0")]  // different local function
     [InlineData("<Run>d__103", "<Run>d__128")]                  // state machine: not normalized
     [InlineData("Grab__103_0", "Grab__128_0")]                  // authored name, not synthesized
+    [InlineData("<b__1_0>b__103_0", "<b__2_0>b__128_0")]        // authored enclosing name that looks synthesized
+    [InlineData("<Run>c__DisplayClass103_0", "<Run>c__DisplayClass128_0")] // display class: not normalized
+    [InlineData("<Run>b__103_0_extra", "<Run>b__128_0_extra")]  // trailing text: not a closure name
+    [InlineData("<Run>g__Local|103_0x", "<Run>g__Local|128_0x")] // trailing text after a local function
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)
