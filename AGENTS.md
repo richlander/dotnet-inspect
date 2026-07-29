@@ -326,6 +326,15 @@ The executable also accepts a discoverable `--gate <preset>` flag that expands
 to these trait filters (e.g. `--gate fast`, `--gate no-corpus`); run
 `--gate list` for the table.
 
+The PR `decompiler-gates` job runs `--gate pre-merge` (the docket and
+byte-neutrality gates) and compares the result against
+`eng/decompiler-gate-known-red.txt`. That list is a record of *open, filed*
+failures, not an escape hatch: do not add an entry to make your own change go
+green. A new failure means either a regression to fix or a diff to docket in the
+owning gate with a rationale. Adding a pin requires an issue and a date, and the
+checker fails the job when a pinned test starts passing, so retire pins as fixes
+land. See `docs/decompiler-correctness-pipeline.md`.
+
 Pack and publish flows remain separate and build `src/dotnet-inspect`
 directly. Packaging is off by default (`IsPackable=false` in the root
 `Directory.Build.props`), so only `src/dotnet-inspect` and `src/runfaster` opt

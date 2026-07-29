@@ -27,6 +27,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
+      decompiler: ${{ steps.filter.outputs.decompiler }}
       docs: ${{ steps.filter.outputs.docs }}
       ildiff: ${{ steps.filter.outputs.ildiff }}
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
@@ -51,6 +52,7 @@ jobs:
           fi
           CODE=false
           CSHARPDIFF=false
+          DECOMPILER=false
           DOCS=false
           ILDIFF=false
           ILROUNDTRIP=false
@@ -102,6 +104,28 @@ jobs:
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
+            # The decompiler docket/byte-neutrality gates cost ~15 minutes, so
+            # they run as their own job rather than in the hot `test` lane, and
+            # only when something that can move a fidelity result changes: the
+            # decompiler and its IL/CFG/C# substrate, the compile-back harness,
+            # the fixtures the gates decompile, the gate tests and their
+            # dockets, and the known-red pin itself. Docs, packaging, and
+            # unrelated tools must not trip this.
+            case "$file" in
+              src/ILInspector.Decompiler/*) DECOMPILER=true ;;
+              src/ILInspector.Decompiler.Tests/*) DECOMPILER=true ;;
+              src/ILInspector.Instructions/*) DECOMPILER=true ;;
+              src/ILInspector.ControlFlow/*) DECOMPILER=true ;;
+              src/ILInspector.CSharp/*) DECOMPILER=true ;;
+              src/ILInspector.Metadata/*) DECOMPILER=true ;;
+              tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
+              tools/DecompilerHarness/*) DECOMPILER=true ;;
+              eng/check-decompiler-gate.cs) DECOMPILER=true ;;
+              eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
+              Directory.Packages.props) DECOMPILER=true ;;
+              *.props|*.targets|*.slnx) DECOMPILER=true ;;
+              .github/workflows/ci.yml) DECOMPILER=true ;;
+            esac
             # The IL round-trip oracle has a fast PR subset plus a slow assembly
             # sweep. It depends on ILInspector.Metadata ->
             # { DotnetInspector.Core, ILInspector.MetadataPrimitives } plus the
@@ -150,6 +174,7 @@ jobs:
           done <<< "$FILES"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "csharpdiff=$CSHARPDIFF" >> "$GITHUB_OUTPUT"
+          echo "decompiler=$DECOMPILER" >> "$GITHUB_OUTPUT"
           echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
           echo "ildiff=$ILDIFF" >> "$GITHUB_OUTPUT"
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
@@ -157,7 +182,7 @@ jobs:
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE csharpdiff=$CSHARPDIFF docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -350,6 +375,80 @@ jobs:
 
       - name: Build tool for net10.0 fallback
         run: dotnet build src/dotnet-inspect -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
+
+  # Decompiler docket and byte-neutrality gates, pre-merge.
+  #
+  # These gates carry doc comments asserting they fail CI, but every pre-merge
+  # lane runs `-trait- "Speed=Slow"` and they are all Slow, so until now they
+  # ran only in release.yml and the weekly Deep Inspect lane — where they were
+  # exceeding the job timeout, and a *cancelled* job does not satisfy Deep
+  # Inspect's `if: ... && failure()` notifier. Detection latency was unbounded,
+  # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
+  #
+  # This job runs the three gates whose failures are attributable to a specific
+  # fixture and docket entry, path-gated so it stays off most PRs, and as its
+  # own job so it never serializes with the hot `test` lane. Currently-open
+  # failures are pinned in eng/decompiler-gate-known-red.txt; the checker fails
+  # on any unpinned failure AND on any pin that starts passing, so the pin list
+  # is a ratchet in both directions rather than a permanent exemption.
+  #
+  # The remaining Fidelity-area classes are excluded on cost, not principle:
+  # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
+  # tests and want the #3495 type-filter treatment before they can be gated.
+  decompiler-gates:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      # The gates decompile and recompile the fixture assemblies, so the whole
+      # solution must be built: building only the test project leaves the
+      # fixtures absent and the gates fail with a FileNotFoundException that
+      # reads exactly like a product regression.
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      # continue-on-error so the pinned known-red failures do not fail the job
+      # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
+      # A crashed run produces no XML, which the checker treats as an error
+      # rather than an empty pass.
+      - name: Run decompiler gates
+        id: gates
+        continue-on-error: true
+        run: |
+          dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+            --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
+
+      - name: Compare against pinned known-red
+        run: |
+          dotnet run eng/check-decompiler-gate.cs -- \
+            "$RUNNER_TEMP/decompiler-gates.xml" eng/decompiler-gate-known-red.txt
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompiler-gates-report
+          path: ${{ runner.temp }}/decompiler-gates.xml
+          if-no-files-found: warn
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL

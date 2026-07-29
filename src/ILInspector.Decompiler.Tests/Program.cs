@@ -31,6 +31,12 @@ internal static class Program
         new("fast", "Skip every slow gate (fast unit lane; matches the PR CI test job).", "-trait-", "Speed=Slow"),
         new("slow", "Only the slow gates.", "-trait", "Speed=Slow"),
         new("no-corpus", "Everything except the multi-hour Corpus sweep.", "-trait-", "Area=Corpus"),
+        new(
+            "pre-merge",
+            "The docket and byte-neutrality gates only (matches the PR CI decompiler-gates job).",
+            "-class", "ILInspector.Decompiler.Tests.FidelityGateTests",
+            "-class", "ILInspector.Decompiler.Tests.LoweredFidelityGateTests",
+            "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests"),
         new("corpus", "Only the Corpus area (the multi-hour sweep).", "-trait", "Area=Corpus"),
         new("roundtrip", "Only the RoundTrip area (compile-back / ReturnToSender).", "-trait", "Area=RoundTrip"),
         new("fidelity", "Only the Fidelity area.", "-trait", "Area=Fidelity"),

@@ -205,6 +205,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
+| `pre-merge` | three `-class` filters | the docket + byte-neutrality gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -215,6 +216,58 @@ presets compose with any additional xUnit arguments (e.g.
 `--gate fast -class …`), and omitting `--gate` leaves invocation behavior
 unchanged. The preset table lives in the test executable's entry point; keep it
 in sync with the areas above when an area is added or renamed.
+
+`pre-merge` is the one preset that names classes rather than a trait, because
+the set it selects is a *cost* decision rather than a functional slice — see
+below.
+
+### Pre-merge gate and the known-red pin
+
+The docket and byte-neutrality gates carry doc comments asserting they fail CI,
+but they are all `Speed=Slow` and every pre-merge lane ran `-trait-
+"Speed=Slow"`. They therefore ran only in `release.yml` and the weekly Deep
+Inspect lane — where they were exceeding the job timeout, and a *cancelled* job
+does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
+notification was ever sent. Detection latency was unbounded, not weekly
+(#3432), and five regressions (#3489–#3493) accumulated unseen.
+
+The `decompiler-gates` CI job closes that hole. It is path-gated on the
+decompiler and its substrate, runs as its own job so it never serializes with
+the hot `test` lane, and runs `--gate pre-merge`:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  --gate pre-merge -xml /tmp/gates.xml
+dotnet run eng/check-decompiler-gate.cs -- \
+  /tmp/gates.xml eng/decompiler-gate-known-red.txt
+```
+
+The gate runs **red**. Turning it on was not made conditional on the open
+failures being fixed first: a gate's job is to make *new* breakage attributable,
+and waiting for green is what let the current backlog accumulate. Open failures
+are pinned in `eng/decompiler-gate-known-red.txt`, one fully qualified test name
+per line, each preceded by its issue and the date it was pinned.
+
+`eng/check-decompiler-gate.cs` decides the job's pass/fail from the run report,
+and treats drift in **both** directions as an error:
+
+| Condition | Meaning |
+| --- | --- |
+| a failure that is not pinned | new breakage — the gate did its job |
+| a pinned test that passed | the fix landed; retire the pin |
+| a pinned test that never ran | dead pin — the test was renamed or deleted |
+| no report, or a report with zero tests | a crashed or empty run is not a pass |
+
+The stale-pin check is what keeps the list a ratchet rather than a growing
+exemption set: a pin that outlives its failure silently un-gates the test it
+names. Pass `--partial` to suppress only the dead-pin check when deliberately
+running a subset locally.
+
+`pre-merge` deliberately selects three classes rather than the whole `Fidelity`
+area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
+principle — `ClusterCaptureTests` and `PrinterPrecedenceTests` alone are ~21
+minutes for *two* tests and want the #3495 type-filter treatment before they can
+be gated. Widen the preset as classes get cheap enough.
 
 ## Vocabulary
 
