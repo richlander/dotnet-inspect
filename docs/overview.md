@@ -30,6 +30,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 ## Important systems
 
 - [Architecture](architecture.md): command and metadata architecture.
+- [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
