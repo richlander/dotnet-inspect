@@ -507,6 +507,58 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
+    /// Windows device names, which resolve to devices rather than files in any directory and can
+    /// block or hang a read. Compared without extension and case-insensitively.
+    /// </summary>
+    private static readonly string[] ReservedDeviceNames =
+    [
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    ];
+
+    /// <summary>
+    /// Whether an assembly simple name read from untrusted metadata is safe to use as a single
+    /// path component. Mirrors <c>NuGetCache.ValidatePathComponent</c>'s rejection list — empty or
+    /// whitespace, traversal (<c>..</c>), separators, volume qualifiers (<c>:</c>), null and other
+    /// control characters, and rooted values — plus reserved device names and an upper length
+    /// bound. A legitimate assembly simple name contains none of these.
+    /// </summary>
+    internal static bool IsSafeAssemblySimpleName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)
+            || name.Length > 256
+            || name.Contains("..", StringComparison.Ordinal)
+            || name.Contains('/')
+            || name.Contains('\\')
+            || name.Contains(':')
+            || Path.IsPathRooted(name))
+        {
+            return false;
+        }
+
+        foreach (var c in name)
+        {
+            if (char.IsControl(c))
+                return false;
+        }
+
+        // A device name is reserved with or without an extension, so compare the stem.
+        var stem = name;
+        var dot = stem.IndexOf('.');
+        if (dot >= 0)
+            stem = stem[..dot];
+
+        foreach (var reserved in ReservedDeviceNames)
+        {
+            if (string.Equals(stem, reserved, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
@@ -552,6 +604,19 @@ internal static class LibraryMetadataService
             }
 
             visited.Add(reference.Name);
+
+            // Reference names come from the inspected assembly's metadata, which is attacker-
+            // controlled, and they are about to be joined onto a directory and probed. The threat
+            // model is explicit that Path.Combine(root, untrustedValue) is not a containment check
+            // (docs/design/untrusted-data-threat-model.md, "Derived paths"), so reject unsafe names
+            // rather than sanitize them. The node is still emitted -- the reference genuinely exists
+            // in the metadata, and dropping it would hide evidence; only resolution is refused.
+            if (!IsSafeAssemblySimpleName(reference.Name))
+            {
+                logger.Log($"Warning: refusing to resolve reference with unsafe assembly name: '{reference.Name}'");
+                nodes.Add(node);
+                continue;
+            }
 
             string? resolvedPath = null;
             string? resolvedFrom = null;

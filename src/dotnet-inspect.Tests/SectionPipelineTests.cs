@@ -1,3 +1,5 @@
+using DotnetInspector.Output;
+using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Findings;
 using ILInspector.Research;
@@ -2265,5 +2267,100 @@ public class SectionPipelineTests
                 SectionNames.IL
             ],
             categories[SectionCategoryNames.Source]);
+    }
+
+    // Assembly reference names come from the inspected assembly's metadata and are joined onto a
+    // directory and probed, so they are an untrusted path component. See
+    // docs/design/untrusted-data-threat-model.md, "Derived paths".
+    [Theory]
+    [InlineData("../../../etc/passwd")]
+    [InlineData("..")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    [InlineData("/etc/hosts")]
+    [InlineData("C:evil")]
+    [InlineData("C:\\Windows\\System32\\kernel32")]
+    [InlineData("\\\\server\\share\\evil")]
+    [InlineData("evil\u0000name")]
+    [InlineData("evil\nname")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("NUL")]
+    [InlineData("con")]
+    [InlineData("COM1")]
+    [InlineData("LPT9.dll")]
+    public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
+    {
+        Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
+    }
+
+    // Close negatives: real assembly names, including ones with dots, digits, dashes, unicode and
+    // a device name only as a prefix. Over-rejecting here would silently drop real dependencies.
+    [Theory]
+    [InlineData("System.Text.Json")]
+    [InlineData("System.Private.CoreLib")]
+    [InlineData("Newtonsoft.Json")]
+    [InlineData("System.Runtime.CompilerServices.Unsafe")]
+    [InlineData("My-Assembly_1.0")]
+    [InlineData("NULlable.Helpers")]
+    [InlineData("CONtoso.Library")]
+    [InlineData("COM1Plus")]
+    [InlineData("mscorlib")]
+    [InlineData("\u00dcmlaut.Assembly")]
+    public void LegitimateAssemblyReferenceName_IsAccepted(string name)
+    {
+        Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));
+    }
+
+    // Artifact canary for the predicate above: exercises the real resolution walk rather than the
+    // predicate alone, and proves the refusal is what stops the read. A payload is planted exactly
+    // where the traversal would land; on unguarded code the walk resolves and reads it, populating
+    // Path/ResolvedFrom/Company from a file outside the assembly's own directory.
+    [Fact]
+    public void BuildTransitiveReferences_TraversingName_RefusesToResolveOutsideSourceDir()
+    {
+        var root = Directory.CreateTempSubdirectory("di-traversal-");
+        try
+        {
+            var sourceDir = Directory.CreateDirectory(Path.Combine(root.FullName, "app")).FullName;
+
+            // A real, readable assembly one level above the assembly directory.
+            var realAssembly = typeof(SectionPipelineTests).Assembly.Location;
+            Assert.True(File.Exists(realAssembly));
+            File.Copy(realAssembly, Path.Combine(root.FullName, "payload.dll"), overwrite: true);
+
+            // ...and a legitimately-named one inside it, as the positive control.
+            File.Copy(realAssembly, Path.Combine(sourceDir, "Legit.Neighbor.dll"), overwrite: true);
+
+            var references = new List<AssemblyReference>
+            {
+                new("../payload", "1.0.0.0", null, null),
+                new("Legit.Neighbor", "1.0.0.0", null, null)
+            };
+
+            var nodes = LibraryMetadataService.BuildTransitiveReferences(
+                references,
+                sourceDir,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new VerboseLogger(false));
+
+            var traversing = Assert.Single(nodes, n => n.Name == "../payload");
+            Assert.Null(traversing.Path);
+            Assert.Null(traversing.ResolvedFrom);
+            Assert.Null(traversing.Company);
+
+            // The reference is still reported -- refusing to resolve must not hide the evidence.
+            Assert.Contains(nodes, n => n.Name == "../payload");
+
+            // Positive control: a normal sibling in the same directory still resolves, so the guard
+            // is refusing the traversal specifically and not simply disabling local resolution.
+            var legit = Assert.Single(nodes, n => n.Name == "Legit.Neighbor");
+            Assert.Equal("local", legit.ResolvedFrom);
+            Assert.NotNull(legit.Path);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
     }
 }
