@@ -19,6 +19,13 @@ namespace NuGetFetch.Tests;
 /// the failure mode is silent, so only a test keeps the boundary honest.
 /// </para>
 /// <para>
+/// Worth knowing while reading these: NuGet ranks credential mechanisms from most to least
+/// secure, and the one mechanism supported here is the one it ranks last and warns about
+/// leaking. The four it prefers — credential provider, encrypted password, environment-variable
+/// macros, and environment-variable credentials — are each covered below as unsupported. See
+/// docs/design/nuget-authentication.md.
+/// </para>
+/// <para>
 /// The "not supported" tests below assert current behaviour, not desired behaviour. Implementing
 /// any of them should turn the corresponding test red; update the test in the same change, so
 /// support is added deliberately and visibly rather than by accident.

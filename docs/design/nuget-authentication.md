@@ -55,25 +55,46 @@ written that way only to keep a secret out of the example.
 
 ## What is ignored
 
-Each of the following is dropped without a diagnostic. None of them authenticate anything.
+NuGet's own guidance in
+[Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#security-best-practices-for-managing-credentials)
+ranks credential mechanisms from most to least secure. Lining that ranking up against what this
+tool honors is the clearest statement of the gap:
 
-| Mechanism | Why it fails |
-| --- | --- |
-| Encrypted `<Password>` | Only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
-| `ClearTextPassword` with no `Username` | Both halves are required, though Azure DevOps ignores the username. |
-| `NuGetPackageSourceCredentials_<name>` | The environment is never consulted for credentials. |
-| `%VAR%` in config values | Values are taken verbatim, so the placeholder is sent as the password. |
-| `https://user:pass@host/...` | Userinfo is never turned into a header, and `HttpClient` does not send it. |
-| Azure Artifacts Credential Provider | No NuGet plugin is invoked, and no `ARTIFACTS_CREDENTIALPROVIDER_*` or `VSS_NUGET_*` variable is read. |
+| NuGet's rank | Mechanism | Supported here |
+| --- | --- | --- |
+| 1, "highly recommended" | Credential provider | **No** — no plugin is invoked, and no `ARTIFACTS_CREDENTIALPROVIDER_*` or `VSS_NUGET_*` variable is read. |
+| 2 | Encrypted `<Password>` in `nuget.config` | **No** — only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
+| 3 | `%VAR%` macros in `nuget.config` | **No** — values are taken verbatim, so the placeholder is sent as the password. |
+| 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
+| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes — the only one.** |
 
-The last row is the significant one: the credential provider is the mechanism the NuGet
-documentation above recommends, and a correctly configured CI pipeline supplies credentials
-that way. Such a pipeline still reaches a private feed unauthenticated.
+The tool therefore supports exactly the mechanism the documentation ranks last and attaches a
+leak warning to, and ignores all four that are preferred. The top rank is the costly one: a
+credential provider is what a correctly configured CI pipeline uses, so such a pipeline still
+reaches a private feed unauthenticated.
 
-Because an unauthenticated feed currently reports as *package not found* rather than as an
-authentication failure (issue #3417, bug 1), every row in this table is indistinguishable from
-a typo in the package name. That is what makes the silence expensive, and it is the argument
-for fixing the diagnosis before adding mechanisms.
+Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
+and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
+though Azure DevOps ignores the username), and userinfo in the source URL
+(`https://user:pass@host/...`, which is never turned into a header).
+
+Every one of these is dropped without a diagnostic. Because an unauthenticated feed currently
+reports as *package not found* rather than as an authentication failure (issue #3417, bug 1),
+each is indistinguishable from a typo in the package name. That is what makes the silence
+expensive, and it is the argument for fixing the diagnosis before adding mechanisms.
+
+## Preemptive credentials versus 401-driven credentials
+
+The official client is 401-driven: it "will make an unauthenticated request, and if the server
+responds with an HTTP 401 response, NuGet will search for credentials" — env var, then
+`nuget.config`, then credential provider. This tool instead attaches whatever credential it
+parsed up front and treats a 401 as terminal. It never re-requests, and never widens its search
+after a challenge.
+
+That difference is why adding a mechanism is not simply a parser change: the credential provider
+contract expects a caller that can detect a 401 and re-invoke with `-IsRetry`, which is
+[documented as required](https://github.com/microsoft/artifacts-credprovider) to avoid reusing
+invalid cached credentials. Bug 1 is a prerequisite for doing this properly.
 
 ## Service index discovery
 
