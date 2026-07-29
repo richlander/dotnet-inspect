@@ -126,12 +126,7 @@ if (packageCount is <= 0 or > 100)
 }
 
 string sourcePath = Path.Combine(root, "docs", "data", "nuget-top-packages.json");
-var jsonOptions = new JsonSerializerOptions
-{
-    PropertyNameCaseInsensitive = true,
-    WriteIndented = true,
-};
-var jsonContext = new PackageSweepJsonContext(jsonOptions);
+var jsonContext = SweepJsonContext();
 string pinPath = Path.Combine(root, "docs", "data", "nuget-top-packages.lock.json");
 
 // Reported rather than thrown, for the same reason as the usage errors below: a
@@ -812,6 +807,17 @@ static SweepPackageResult Failed(
         AssemblyPath: null,
         fromCache);
 
+// One set of options for both readers. --validate-pin exists so that the sweep's rules
+// about a pin are the only rules; two serializer configurations would put the drift back
+// one layer down, where "equivalent by inspection" is the same argument that failed three
+// times.
+static PackageSweepJsonContext SweepJsonContext() =>
+    new(new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+    });
+
 // Reading and shape-checking a pin file in one place, so --validate-pin and the sweep
 // proper cannot disagree about what a well-formed pin is. Returns null when the file
 // is usable, otherwise the reason, phrased to follow "Pin file '<path>' ".
@@ -831,12 +837,7 @@ static string? ValidatePinFile(string path)
     PackagePinFile? pinFile;
     try
     {
-        pinFile = JsonSerializer.Deserialize(
-            text,
-            new PackageSweepJsonContext(new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-            }).PackagePinFile);
+        pinFile = JsonSerializer.Deserialize(text, SweepJsonContext().PackagePinFile);
     }
     catch (JsonException ex)
     {
