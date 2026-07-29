@@ -92,6 +92,30 @@ cache entries use SHA-256-derived keys through `CoreCache`.
 Archive containment does not itself bound expanded bytes, entry count, or disk
 consumption. Resource budgets remain an open requirement below.
 
+### Untrusted JSON rejects duplicate properties
+
+JSON does not define how duplicate object keys resolve, so two readers of one payload can
+disagree. `DotnetInspector.Core.HardenedJson` (and its `ILInspector.Metadata.SourceLinkJson`
+counterpart, kept separate because Metadata sits below the Core infrastructure layer) parses with
+`AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
+several possible readings.
+
+This is generic hardening, not a fix for a known divergence. It does **not** close the SourceLink
+provenance gap. The repository-URL reader in `AssemblyInspector` stops at the first `documents`
+entry, while `SourceDocumentPathResolver` orders mappings by descending pattern length and takes
+the first match. A duplicated key keeps document order under a stable sort, so both readers land on
+the same entry and duplication alone cannot make them disagree. They diverge on **distinct** keys,
+which are well-formed and still accepted: a map whose first entry names a trusted host and whose
+longer-matching entry names another origin reports the trusted repository while resolving source
+from the other. That gap is open work below.
+
+Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
+parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
+duplicate-bearing JSON the same way; that is fail-closed, but it does not by itself convert those
+callers to explicit failure reporting, which remains open work below.
+
+`runfaster` still parses its trace inputs directly and is not yet covered.
+
 ### Artifact-derived source URLs use an SSRF-hardened client
 
 SourceLink and other artifact-derived fetches must use
@@ -211,22 +235,72 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained |
+| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
+| Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted delimiters/control characters cannot escape the selected format |
 
 ## Open work
 
-1. Define package, symbol, source-download, and decompressed-archive byte and
+1. Unify SourceLink provenance with source resolution. Today `AssemblyInspector`
+   reports the repository from the first `documents` entry while
+   `SourceDocumentPathResolver` selects by longest matching pattern, so a
+   well-formed map can resolve source from one origin while provenance names
+   another.
+
+   State the fix as an invariant rather than a list of blocked tricks, because
+   each enumerated mitigation has proven incomplete under review:
+
+   > Reported provenance must describe the origin that source content is
+   > actually fetched from, for every document the assembly resolves. When that
+   > cannot be established for all of them, report no repository.
+
+   Establish it on the **final resolved URL, after wildcard substitution and
+   canonicalization** — not on the mapping text, and not on the mapping prefix
+   alone. Four concrete ways the weaker forms fail, all reproduced:
+
+   - Agreement on `owner/repo` ignores the commit, and
+     `raw.githubusercontent.com` serves any commit reachable in a repository,
+     including the head of an unmerged pull request. Two entries on one
+     repository at different commits "agree" while serving different code.
+   - `System.Uri` applies RFC 3986 dot-segment removal, so a mapping value
+     containing `../` is fetched from the traversed-to path while a regex over
+     the raw string reports the literal one.
+   - Even a clean mapping is not enough. The wildcard suffix comes from the PDB
+     document path, which is equally attacker-controlled, and
+     `EscapeSourceLinkPath` leaves `..` intact. A benign
+     `.../dotnet/runtime/<commit>/*` resolves
+     `/_/../../../attacker/evil/main/Program.cs` to a URL that canonicalizes
+     into `attacker/evil`.
+   - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
+     `..%5c` survive canonicalization, so a "canonicalize, then prefix-check"
+     step passes while a server that percent-decodes before resolving dot
+     segments still traverses out. Reject encoded separators and encoded dot
+     segments rather than assuming canonicalization removed them.
+
+   These four are evidence that the weaker forms fail, not a specification of
+   what to block; each was found only by attacking a previous formulation of
+   this item, and no formulation reviewed so far has survived contact with the
+   next reviewer. Treat the invariant as the requirement and this list as a
+   regression floor: whatever check is implemented must ship with tests
+   covering at least these cases, and passing them is not evidence that the
+   invariant holds.
+
+2. Fix GitHub repository provenance. The precondition tests the value for
+   `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
+   not contain, so GitHub-hosted assemblies report no repository at all. Match
+   the URI host instead of a substring.
+3. Extend duplicate-property rejection to `runfaster` trace parsing.
+4. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
-2. Audit every product write against the derived-path rules, including symbol
+5. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
-3. Audit Markdown, plain-text, and stderr rendering for terminal control
+6. Audit Markdown, plain-text, and stderr rendering for terminal control
    characters and structure injection.
-4. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
+7. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
    migration and expand malformed PE/PDB product-entry-point coverage around
    graph depth, row count, and allocation limits.
-5. Migrate legacy metadata scanners that collapse malformed reads into empty or
+8. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
-6. Revisit filesystem containment if .NET exposes a portable atomic
+9. Revisit filesystem containment if .NET exposes a portable atomic
    no-follow/open-beneath primitive.

@@ -164,20 +164,20 @@ When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` 
 
 ## Package Sections
 
-The package command has 14 registered sections:
+The package command has 17 registered sections:
 
 | Section | MinVerbosity | Scanner Key | Notes |
 | ------- | ------------ | ----------- | ----- |
 | Summary | Quiet | — | Headless; compact inline fields |
 | Dependencies | Normal | — | Only when dependency groups present |
-| Files | Explicit | — | Full-depth package file listing with `Path` and `Size` |
-| Library Files | Normal | — | Files under lib/ across all target frameworks with `Path` and `Size` |
-| Markdown Files | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
+| Package files | Explicit | — | Full-depth package file listing with `Path` and `Size`; `Unbounded` cost, so verbosity never reaches it |
 | Package Info | Minimal | — | Full metadata field table |
-| Grounding | Explicit | — | Best grounding candidate with `Path` and `Size`; at most one row |
+| Package nuspec file | Minimal | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
+| Package README file | Minimal | — | Best README candidate with `Path` and `Size`; at most one row |
+| Package skill files | Normal | — | `skills/**/SKILL.md` files with `Path` and `Size`; only when the package ships skills |
 | Runtime Dependencies | Minimal | — | Only when runtime deps present |
-| Signals | Explicit | — | Opt-in package metadata/assets, dependency, provenance, and NuGet registry observations |
+| Signals | Detailed | — | Package metadata/assets, dependency, provenance, and NuGet registry observations; `Moderated` cost |
 | Signature | Normal | — | Only when signature information is available |
 | Statistics | Detailed | — | Published date, download counts |
 | Target Frameworks | Normal | — | Explicit package TFM directories |

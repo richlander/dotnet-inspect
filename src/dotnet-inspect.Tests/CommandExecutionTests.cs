@@ -1,9 +1,11 @@
 using System.Buffers;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
@@ -26,7 +28,7 @@ namespace DotnetInspector.Tests;
 /// </summary>
 [Collection("Console")]
 [Trait("Speed", "Slow")]
-public class CommandExecutionTests
+public partial class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
@@ -320,6 +322,7 @@ public class CommandExecutionTests
         string readmeFile,
         string readmeText,
         string? agentsText = null,
+        string? extraNuspecMetadata = null,
         params (string Path, string Content)[] extraFiles)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -342,7 +345,34 @@ public class CommandExecutionTests
                 <version>1.0.0</version>
                 <authors>tests</authors>
                 <description>test package</description>
-                <readme>{{readmeFile}}</readme>
+                <readme>{{readmeFile}}</readme>{{extraNuspecMetadata}}
+              </metadata>
+            </package>
+            """);
+
+        var packagePath = Path.Combine(tempDir, $"{id}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    /// <summary>
+    /// A package that ships a nuspec and a library but no README, so a README selection resolves
+    /// to a section with zero rows rather than to a missing section.
+    /// </summary>
+    private static (string PackagePath, string TempDir) CreateLocalPackageWithoutReadme(string id)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "lib", "net8.0"));
+        File.WriteAllText(Path.Combine(packageRoot, "lib", "net8.0", $"{id}.dll"), "not a real assembly");
+        File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>{{id}}</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
               </metadata>
             </package>
             """);
@@ -353,7 +383,6 @@ public class CommandExecutionTests
     }
 
     private sealed record ProjectSkillDoc(string Path, string Text);
-
     private sealed record ProjectDocPackage(
         string Id,
         string Version,
@@ -534,9 +563,9 @@ public class CommandExecutionTests
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
             // reimplement the check here.
-            if (CommandLineBuilder.TryGetStaleDirectionFlagError(args, out var staleDirectionError))
+            if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
             {
-                Console.Error.WriteLine($"Error: {staleDirectionError}");
+                Console.Error.WriteLine($"Error: {staleArgumentError}");
                 return 1;
             }
 
@@ -3559,15 +3588,18 @@ public class CommandExecutionTests
     [InlineData("--print")]
     public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
     {
-        // The whole-surface type listing renders sections but has no projection dispatch, so
-        // before the audit it answered a projection request with the full unprojected listing
-        // and exit 0. The audit turns that silent drop into a reported failure. When this route
-        // gains real column projection, this expectation changes to a projected payload.
-        var (exit, _, error) = await RunAppAsync(
+        // The whole-surface type listing is a name table that exposes no printable payload, so a
+        // payload projection cannot be honored. It used to render the full unprojected listing and
+        // then trip the audit (#3390); it now (#3386) rejects the projection up front with a
+        // targeted message, before rendering, so the audit never has to fire a second line.
+        var (exit, output, error) = await RunAppAsync(
             "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
 
         Assert.Equal(1, exit);
-        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+        Assert.Empty(output);
+        Assert.Contains("not supported when listing types", error);
+        Assert.Contains(projectionFlag, error);
+        Assert.DoesNotContain("produced unprojected output", error);
     }
 
     [Fact]
@@ -3602,6 +3634,88 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("produced unprojected output", error);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task TypeListing_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: --columns/--fields select table columns; document --json has no column-slicing
+        // facility. The combination used to silently drop the column filter and emit the whole
+        // typed document; it now fails closed instead.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task TypeListing_PayloadProjection_IsRejected()
+    {
+        // #3386: the type-listing surface exposes no printable payload, so a payload projection
+        // used to dump the whole ~20 MB surface and then trip the projection audit. It now fails
+        // closed before rendering, and the audit must not add a second, misleading line.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Runtime", "-S", "Classes", "--value", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not supported when listing types", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task SingleType_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: the same rejection applies on the single-type path.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Member_ColumnProjectionWithJson_IsRejected()
+    {
+        // #3386: the member path shares the single-type writer, so it inherits the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task ColumnProjectionWithValue_UnderJson_StillComposes()
+    {
+        // #3386 boundary: a scalar payload projection composes with --json (--fields picks which
+        // column feeds --value), so this must remain honored rather than swept into the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Library Info", "--fields", "Assembly Version", "--value", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"value\"", output);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task GlobListing_Discovery_IsHonoredNotRejected()
+    {
+        // #3386 regression guard: the glob (and prefix-browse) fallback routes ignored -D
+        // discovery and fell through to WriteFullApiOutput. Once that path rejects --fields+--json,
+        // a discovery request there would have been rejected with a misleading column message.
+        // Discovery must be dispatched before the projection guard, matching the main listing path.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.*", "--library", TestAssemblyPath, "-D", "Classes", "--fields", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.Contains("\"kind\":\"column\"", output);
     }
 
     [Fact]
@@ -3747,6 +3861,548 @@ public class CommandExecutionTests
         Assert.Contains("--count cannot be combined with --print", error);
     }
 
+    // ---- Lens-mode payload projections (issues #3395, #3396, #3398) ----
+    //
+    // Each of these modes renders its own payload and returns before the section pipeline, so
+    // the pipeline's projection dispatch never runs for them. Every test here asserts the
+    // projected payload rather than just a zero exit: the defect being guarded against is an
+    // accepted projection that produces well-formed but unprojected output.
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRows()
+    {
+        var (listExit, listOutput, _) = await RunAppAsync("project", "-D", "");
+        Assert.Equal(0, listExit);
+        // Data rows only: the markdown table adds a header and a separator line.
+        var expected = listOutput.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => line.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.True(expected > 0, "Discovery must list rows for this test to prove anything.");
+
+        var (exit, output, error) = await RunAppAsync("project", "-D", "", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsForLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--count", "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
+    {
+        // Effective discovery renders discovered rows, but the command's own --count branch sat
+        // ahead of the discovery branch and counted the inspection document instead — exiting 0
+        // with a plausible number for a different payload. Pin the count to the payload.
+        var (listExit, listOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--tips", "q");
+        Assert.Equal(0, listExit);
+
+        var rows = listOutput.Split('\n').Count(l => l.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.True(rows > 0, "Discovery must list rows for this test to prove anything.");
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(rows, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_ShapeProjection_IsRefusedRatherThanAnsweredFromTheDocument()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--value", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsForTypeSchema()
+    {
+        // The type/member discovery path branches in the command definition, before an options
+        // record exists, so it reads the request from the parse result instead.
+        var (exit, output, error) = await RunAppAsync("type", "--schema", "-D", "", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsStaticSchemaDiscoveryForLibrary()
+    {
+        // Static -D --schema returns before the library is resolved, a separate early return from
+        // the effective-discovery one below it.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "library", TestAssemblyPath, "--schema", "-D", "--count", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+
+        var (listExit, listOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "--schema", "-D", "--tips", "q");
+        Assert.Equal(0, listExit);
+
+        // The count must match the payload it stands in for: rendered rows less header and separator.
+        var rows = listOutput.Split('\n').Count(l => l.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.Equal(rows, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_CountsCoordinateRows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("2", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    // Head, tail, an absolute range, an open range, and a window wider than the batch.
+    [InlineData(new[] { "--rows", "2" }, 2)]
+    [InlineData(new[] { "--rows", "2", "--tail" }, 2)]
+    [InlineData(new[] { "--rows", "2..3" }, 2)]
+    [InlineData(new[] { "--rows", "3.." }, 1)]
+    [InlineData(new[] { "--rows", "9" }, 3)]
+    public async Task IlOffsetsFile_Count_CountsTheWindowItRenders(string[] window, int expected)
+    {
+        // --rows narrows the rendered table, so it has to narrow --count identically.
+        // Counting the unwindowed batch exits 0 with a plausible number describing a
+        // payload the caller never asked for, which the projection audit cannot see.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            third 0x06000002+0x0
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            string[] head = ["library", TestAssemblyPath, "--il-offsets", path];
+            string[] tail = ["--tips", "q"];
+
+            var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
+            var (countExit, counted, countError) = await RunAppAsync([.. head, .. window, "--count", .. tail]);
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.Empty(renderError);
+            Assert.Empty(countError);
+
+            // --jsonl emits exactly one object per rendered data row, so it states the
+            // payload size without depending on how the table is formatted.
+            var renderedRows = rendered
+                .Split('\n')
+                .Count(line => line.TrimStart().StartsWith('{'));
+
+            // Guard against the window emptying the table, which would let a broken
+            // count agree with a payload that proves nothing.
+            Assert.Equal(expected, renderedRows);
+            Assert.Equal(renderedRows, int.Parse(counted.Trim(), CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_WindowsTheSameRowsTheTableKeeps()
+    {
+        // A count can match the rendered row total while describing different rows.
+        // Head and tail must therefore be shown to select genuinely different labels,
+        // otherwise a window applier that ignored direction would still look correct.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000002+0x0
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (headExit, headOut, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--head", "--tips", "q");
+            var (tailExit, tailOut, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--tail", "--tips", "q");
+
+            Assert.Equal(0, headExit);
+            Assert.Equal(0, tailExit);
+            Assert.Contains("first", headOut, StringComparison.Ordinal);
+            Assert.DoesNotContain("second", headOut, StringComparison.Ordinal);
+            Assert.Contains("second", tailOut, StringComparison.Ordinal);
+            Assert.DoesNotContain("first", tailOut, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_DoesNotRequireASectionFilter()
+    {
+        // --count here counts coordinate rows, not section rows, so demanding -S would force
+        // the caller to name a section the batch does not render.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("requires -S/--select", error);
+            Assert.Equal("1", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_ShapeProjection_IsRefusedWithItsActualReason()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--value", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("--value is not available with --il-offsets", error);
+            // Not the section-count complaint, which is not the actual problem here.
+            Assert.DoesNotContain("requires -S/--select", error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Print_ProjectsTheSelectedDocumentSectionAndRefusesUnprintableOnes()
+    {
+        // --print names the section whose rows carry the document, like every other payload
+        // projection. There is no per-document flag to disagree with the selection.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--print");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+
+        // Printability is a row capability. The whole-package listing also contains assemblies
+        // and images, so it declares no printable payload and is refused rather than guessing.
+        var (selectedExit, selectedOutput, selectedError) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Files", "--print");
+
+        Assert.Equal(1, selectedExit);
+        Assert.Empty(selectedOutput);
+        Assert.Contains("exactly one printable section", selectedError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Content_Count_CountsMatchedFilesBecauseThePayloadIsAVector()
+    {
+        // --content renders text, but it yields one structured row per matched file rather than a
+        // single document, so it counts. The multi-match case is what proves it is not a scalar.
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "*.md", "--jsonl");
+        Assert.Equal(0, rowsExit);
+        var rows = rowsOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(rows > 1, "The pattern must match more than one file for this test to prove anything.");
+
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "*.md", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(rows, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Content_Count_IsZeroWhenNoFileMatches()
+    {
+        // A path that matches nothing still produces one row so the render can show it as absent.
+        // Counting rows would report one match where there were none.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "no-such-file.zzz", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Content_Count_CountsMatchesNotAbsentPlaceholders()
+    {
+        // A package that matches nothing still renders a placeholder block, so the default
+        // render emits one more row than there are files. The count follows the files:
+        // --skip-empty drops the placeholder, and then the render and the count agree
+        // exactly. Counting placeholders would report a match that never happened.
+        var (withFile, withDir) = CreateLocalReadmePackage("Test.Count.HasAgents", "README.md", "readme", "agents");
+        var (withoutFile, withoutDir) = CreateLocalReadmePackage("Test.Count.NoAgents", "README.md", "readme");
+        try
+        {
+            var (renderExit, rendered, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--jsonl");
+            var (skipExit, skipped, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--skip-empty", "--jsonl");
+            var (countExit, counted, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--count");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, skipExit);
+            Assert.Equal(0, countExit);
+
+            static int Rows(string output) =>
+                output.Split('\n').Count(line => line.TrimStart().StartsWith('{'));
+
+            // The placeholder is a rendered row, so the default render is deliberately larger.
+            Assert.Equal(2, Rows(rendered));
+            Assert.Equal(1, Rows(skipped));
+            Assert.Equal(1, int.Parse(counted.Trim(), CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            Directory.Delete(withDir, recursive: true);
+            Directory.Delete(withoutDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Discover_Count_EqualsTheRowsDiscoveryRenders(bool schema)
+    {
+        // The projection and the render each build their own row list, so a filter added to one
+        // call and not the other makes --count answer a row set the command never renders --
+        // at exit 0, with the audit satisfied because a count really was written.
+        string[] args = schema
+            ? ["library", TestAssemblyPath, "--schema", "-D", ""]
+            : ["library", TestAssemblyPath, "-D", ""];
+
+        var (countExit, countOutput, _) = await RunAppAsync([.. args, "--count"]);
+        var (rowsExit, rowsOutput, _) = await RunAppAsync([.. args, "--jsonl"]);
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+
+        var rendered = rowsOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => line.StartsWith('{'));
+
+        Assert.True(rendered > 0, "the probe must render rows, or it proves nothing.");
+        Assert.Equal(rendered, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Versions_IncludeUnlisted_Count_MatchesTheListingItRenders()
+    {
+        // --include-unlisted renders through a separate listing path, so it needs its own
+        // projection dispatch; without one the count is dropped and the audit fails the run.
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--count", "--tips", "q");
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "--include-unlisted", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+
+        var rendered = rowsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        Assert.True(rendered > 0, "the probe must render rows, or it proves nothing.");
+        Assert.Equal(rendered, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_Print_RefusesInsteadOfPrintingTheGroundingDocument()
+    {
+        // The grounding branch sat ahead of the discovery branch, so --print fell into it and
+        // returned the readme at exit 0 -- an unrelated payload for a projection of discovery.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-D", "", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("-D/--discover", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Json.NET", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LensCount_WritesToTheRequestedOutputFile()
+    {
+        // A count is the command's payload, so --out has to apply to it. Writing it to stdout
+        // instead leaves the requested file absent and silently ignores the option.
+        var path = Path.Combine(Path.GetTempPath(), $"lens-count-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", "Newtonsoft.Json@13.0.4", "--tfms", "--count", "--out", path);
+
+            Assert.Equal(0, exit);
+            Assert.True(File.Exists(path), "--out was ignored: the requested file was never written.");
+            Assert.Equal(8, int.Parse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture));
+            Assert.Empty(output.Trim());
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Discover_ShapeProjection_ReportsTheLensRefusalWithoutRequiringASelection()
+    {
+        // The ordinary shape gate ran first and reported a missing -S, which is not the actual
+        // problem: discovery renders its own payload and cannot answer a column projection.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-D", "--value", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("requires -S/--select", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadmeSection_Count_CountsTheRowItRenders()
+    {
+        // The README section is a listing of one row, so --count answers over the same rows the
+        // section renders rather than over the document body.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--count");
+        var (pathsExit, pathsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--paths");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, pathsExit);
+        Assert.Equal("1", output.Trim());
+        Assert.Single(pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task LensMode_SectionFilter_IsRefusedRatherThanIgnored()
+    {
+        // -S was previously accepted and then ignored by the lens, and --count required it,
+        // so the mode was reachable only through a filter it did not honor.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "1", "-S", "Files", "--count");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-S/--select is not available with --versions", error);
+    }
+
+    [Fact]
+    public async Task Tfms_Count_CountsTheListedFrameworks()
+    {
+        var (listExit, listOutput, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms");
+        Assert.Equal(0, listExit);
+        var expected = listOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(expected > 0, "The package must list frameworks for this test to prove anything.");
+
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Tfms_ShapeProjection_IsRefused()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--value");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--value is not available with --tfms", error);
+    }
+
+    [Fact]
+    public async Task Layout_Count_CountsFilesRatherThanRenderedTreeLines()
+    {
+        // The tree adds a line per directory, so a count taken from the rendered output would
+        // not equal the number of files the lens actually lists. The package carries 16 files
+        // under lib/ plus LICENSE.md, the nuspec, packageIcon.png, and README.md; the nuspec is
+        // counted because this branch makes it a reachable package file.
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout", "--count");
+        var (renderExit, rendered, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, renderExit);
+        Assert.Empty(error);
+
+        var count = int.Parse(output.Trim(), CultureInfo.InvariantCulture);
+        Assert.Equal(20, count);
+
+        // The point of the lens count is that it is a file count, not a line count. Pin the
+        // relationship rather than only the literal, so a tree that grows directory nodes
+        // cannot start agreeing with the count by coincidence.
+        var renderedLines = rendered.Split('\n').Count(line => line.Trim().Length > 0);
+        Assert.True(
+            renderedLines > count,
+            $"expected the tree to render more lines ({renderedLines}) than the {count} files it counts");
+        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AllLibraries_EmptyMatch_CountsZeroRatherThanReturningSilently()
+    {
+        // An empty match short-circuits ahead of the render path, which is exactly where a
+        // projection goes missing without an empty-result probe to catch it. The section has to
+        // be one this package genuinely has no rows for, not an unknown name: an unknown -S is
+        // rejected before the render path is ever reached, so it would prove nothing here.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--all-libraries", "-S", "Non-normalized Paths",
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Versions_Count_CountsVersionsRatherThanPrintingOne()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "1", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        // The defect printed the version itself here, which parses as neither a count nor a
+        // failure, so assert the count and not merely a zero exit.
+        Assert.Equal("1", output.Trim());
+    }
+
+
     [Fact]
     public async Task ProjectionFlags_ConflictIsMootUnderHelp()
     {
@@ -3769,6 +4425,71 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task Find_ColumnProjectionWithJson_IsRejected(string projectionFlag)
+    {
+        // Same category error as #3386: --fields/--columns select table columns, but find's
+        // --json emits the full per-result objects and has no column-slicing facility, so the
+        // combination used to silently drop the column filter. It now fails closed.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, projectionFlag, "Type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_ColumnProjectionWithJson_IsRejected()
+    {
+        // The member-search path shares ExecuteAsync's guard, so it rejects too.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--members", "--library", TestAssemblyPath, "--fields", "Member", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_ColumnProjectionWithJsonl_IsHonored()
+    {
+        // Boundary: the row-oriented formats keep honoring column projection. Only document
+        // --json is rejected.
+        var (exit, _, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Find_ColumnProjectionWithCountAndJson_IsHonored()
+    {
+        // --count reduces to a scalar and is excluded from the rejection.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--fields", "Type", "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Find_Discovery_ColumnProjectionWithJson_IsHonored()
+    {
+        // The -D discovery branch honors projection itself and returns before the guard, so a
+        // discovery request carrying --fields/--json must not be rejected.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "-D", "Results", "--fields", "Type", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.Contains("\"kind\":\"column\"", output);
     }
 
     [Fact]
@@ -7349,13 +8070,15 @@ public class CommandExecutionTests
         Assert.Contains(names, name => name.StartsWith("Integration: ", StringComparison.Ordinal));
 
         // The topical category doors lead the catalog: they are exactly the six doors, in
-        // alphabetical order, and every category row precedes every section row.
+        // alphabetical order, and every category row precedes every section row. @Metadata is
+        // among them because --schema surfaces the whole catalog, including the explicit-only
+        // lens the curated top-level -D still leaves out.
         var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Integrations", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
@@ -9633,9 +10356,12 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
-            Assert.Contains("| Signals | section (opt-in) |", output);
-            Assert.Contains("| Source Files | section (opt-in) |", output);
+            Assert.Contains("| Signals | section |", output);
             Assert.Contains("Manifest", output);
+            // SourceLink: Files is reachable through its door rather than the top-level
+            // catalog, so the door is what discovery has to advertise.
+            Assert.Contains("| @SourceLink | category |", output);
+            Assert.DoesNotContain("| SourceLink: Files | section |", output);
             Assert.DoesNotContain("Vulnerabilities", output);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -9660,17 +10386,17 @@ public class CommandExecutionTests
             Assert.Empty(error);
             var rows = ExtractDiscoveryRows(output);
 
-            Assert.Contains(rows, row => row.Name == "Files" && row.Kind == "section (opt-in)");
+            Assert.Contains(rows, row => row.Name == "Package files" && row.Kind == "section");
 
             var regular = rows.Where(row => row.Kind == "section").Select(row => row.Name).ToArray();
             var categories = rows.Where(row => row.Kind == "category").Select(row => row.Name).ToArray();
-            var optIn = rows.Where(row => row.Kind == "section (opt-in)").Select(row => row.Name).ToArray();
 
             Assert.Equal(regular.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), regular);
             Assert.Equal(categories.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), categories);
-            Assert.Equal(optIn.OrderBy(name => name, StringComparer.OrdinalIgnoreCase), optIn);
-            Assert.True(rows.FindLastIndex(row => row.Kind == "section") < rows.FindIndex(row => row.Kind == "category"));
-            Assert.True(rows.FindLastIndex(row => row.Kind == "category") < rows.FindIndex(row => row.Kind == "section (opt-in)"));
+            // Curated catalogs lead with the topical doors, then the sections, and no longer
+            // annotate rows as opt-in: the size-class and cost axes carry that instead.
+            Assert.True(rows.FindLastIndex(row => row.Kind == "category") < rows.FindIndex(row => row.Kind == "section"));
+            Assert.DoesNotContain(rows, row => row.Kind == "section (opt-in)");
         }
         finally
         {
@@ -9689,12 +10415,15 @@ public class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("Package Info", output);
             Assert.Contains("Signals", output);
-            Assert.Contains("Source Files", output);
+            Assert.Contains("SourceLink: Files", output);
             Assert.Contains("Manifest", output);
             Assert.Contains("Vulnerabilities", output);
-            Assert.Contains("@All", output);
-            Assert.Contains("@Default", output);
-            Assert.Contains("section (opt-in)", output);
+            // @All/@Default/@Hidden are internal computed poles, not doors: curated discovery
+            // advertises only the real category doors.
+            Assert.Contains("| @Files | category |", output);
+            Assert.Contains("| @SourceLink | category |", output);
+            Assert.DoesNotContain("@All", output);
+            Assert.DoesNotContain("@Default", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -9712,7 +10441,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Files", output);
+        Assert.Contains("## SourceLink: Files", output);
         Assert.Contains("| Library | Type | Url |", output);
         Assert.Contains("lib/net8.0/System.CommandLine.dll", output);
         Assert.Contains("System.CommandLine.Command", output);
@@ -9802,11 +10531,14 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
-            Assert.Contains("## Library Files", output);
+            Assert.Contains("## Manifest", output);
+            // Package-growing sections stay out of the fixed overview...
             Assert.DoesNotContain("## Dependencies", output);
-            Assert.DoesNotContain("## Manifest", output);
+            Assert.DoesNotContain("## Target Frameworks", output);
+            Assert.DoesNotContain("## Package files", output);
+            // ...as do the network-bound ones, however small their row set.
             Assert.DoesNotContain("## Signals", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Library Files", StringComparison.Ordinal));
+            Assert.DoesNotContain("## Statistics", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -9978,20 +10710,32 @@ public class CommandExecutionTests
         Assert.Contains("Select value 'Signature' not found.", error);
     }
 
+    /// <summary>
+    /// The package command drops the computed <c>@All</c> and <c>@Default</c> poles
+    /// (<see cref="DotnetInspector.Sections.SectionPipeline{TModel}.WithoutComputedPoles"/>):
+    /// its sections are reachable by name, by topical door, and by verbosity, so a pole that
+    /// renders a superset nobody asked for is a surface no discovery output describes. This is
+    /// the gate that keeps them from being reintroduced.
+    /// </summary>
     [Fact]
-    public async Task Package_SelectAll_IncludesOptInSignals()
+    public async Task Package_ComputedPoles_AreNotResolvable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "@All");
+            var (allExit, _, allError) = await RunAppAsync("package", packagePath, "-S", "@All");
+            Assert.Equal(1, allExit);
+            Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            Assert.Equal(0, exit);
-            Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
-            Assert.DoesNotContain("Version: 1.0.0 |", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Signals", StringComparison.Ordinal));
-            Assert.DoesNotContain("Tip:", error);
+            // @Default is still the internal encoding of bare -S, so it must not resolve as a
+            // category while bare -S keeps working.
+            var (comboExit, _, comboError) = await RunAppAsync("package", packagePath, "-S", "@Default,Manifest");
+            Assert.Equal(0, comboExit);
+            Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
+
+            var (bareExit, bareOutput, _) = await RunAppAsync("package", packagePath, "-S");
+            Assert.Equal(0, bareExit);
+            Assert.Contains("## Package Info", bareOutput);
         }
         finally
         {
@@ -10042,10 +10786,10 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Library Files");
+            // The lib/ slice is no longer its own section: --path is the scoping mechanism.
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "lib/**");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Library Files", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| lib/net10.0/Latest.One.dll |", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
@@ -10065,10 +10809,10 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-v:n");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Library Files", output);
+            Assert.Contains("## Package files", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
@@ -10079,20 +10823,153 @@ public class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_MarkdownFiles_RendersAllMarkdownFilesWithFileSchema()
+    /// <summary>
+    /// A package exercising every <c>Files:</c> family root at once: <c>lib/</c>, <c>ref/</c>,
+    /// <c>runtimes/</c>, a markdown file, and the <c>.nuspec</c> manifest.
+    /// </summary>
+    private static (string PackagePath, string TempDir) CreateLocalLayoutPackage()
     {
-        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.MarkdownFiles", "PACKAGE.md", "readme", "agents");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        var refDir = Path.Combine(packageRoot, "ref", "net8.0");
+        var runtimeDir = Path.Combine(packageRoot, "runtimes", "win-x64", "native");
+        Directory.CreateDirectory(libDir);
+        Directory.CreateDirectory(refDir);
+        Directory.CreateDirectory(runtimeDir);
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, "Layout.dll"));
+        File.Copy(TestAssemblyPath, Path.Combine(refDir, "Layout.dll"));
+        File.WriteAllText(Path.Combine(runtimeDir, "layout.native.txt"), "native");
+        File.WriteAllText(Path.Combine(packageRoot, "README.md"), "readme");
+        File.WriteAllText(
+            Path.Combine(packageRoot, "Test.Layout.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>Test.Layout</id>
+                <version>1.0.0</version>
+                <authors>Tests</authors>
+                <description>Layout fixture</description>
+              </metadata>
+            </package>
+            """);
+
+        var packagePath = Path.Combine(tempDir, "Test.Layout.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    [Fact]
+    public async Task Package_FilesFamily_RendersEachDocumentKind()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
+            var (readmeExit, readmeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package README file");
+            Assert.Equal(0, readmeExit);
+            Assert.Contains("## Package README file", readmeOutput);
+            Assert.Contains("| README.md |", readmeOutput);
+            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", readmeOutput);
+
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package nuspec file");
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("## Package nuspec file", nuspecOutput);
+            // The manifest section is a path listing, not the document itself.
+            Assert.Contains("| Test.Layout.nuspec |", nuspecOutput);
+            Assert.DoesNotContain("<package xmlns", nuspecOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Files_IncludesTheNuspecManifest()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            // Regression: the manifest used to be classified as zip plumbing, which made it
+            // unreachable through Files, --path, and --layout alike.
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files");
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Layout.nuspec", output);
+
+            var (pathExit, pathOutput, _) = await RunAppAsync("package", packagePath, "--path", "Test.Layout.nuspec");
+            Assert.Equal(0, pathExit);
+            Assert.Contains("Test.Layout.nuspec", pathOutput);
+
+            var (layoutExit, layoutOutput, _) = await RunAppAsync("package", packagePath, "--layout");
+            Assert.Equal(0, layoutExit);
+            Assert.Contains("Test.Layout.nuspec", layoutOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FilesNuspec_PrintRendersTheManifestDocument()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec", "--print");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Markdown Files", output);
-            Assert.Contains("| Path | Size |", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
-            Assert.Contains("| PACKAGE.md | 6 |", output);
-            Assert.DoesNotContain("Tip:", error);
+            Assert.Contains("<package xmlns", output);
+            Assert.Contains("<id>Test.Layout</id>", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FilesCategory_DropsEmptyMembersButStillCountsThem()
+    {
+        // CreateLocalLayoutPackage ships a README and a manifest but no skills/.
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (renderExit, renderOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files");
+            Assert.Equal(0, renderExit);
+            Assert.Contains("## Package nuspec file", renderOutput);
+            Assert.Contains("## Package README file", renderOutput);
+            Assert.DoesNotContain("## Package skill files", renderOutput);
+
+            // --count reports the whole category, including the members that rendered nothing.
+            var (countExit, countOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files", "--count");
+            Assert.Equal(0, countExit);
+            Assert.Contains("| Package skill files | 0 |", countOutput);
+            Assert.Contains("| Package nuspec file | 1 |", countOutput);
+            Assert.Contains("| Package README file | 1 |", countOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LegacyFileSectionNames_StillResolve()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            // "Grounding" was this section's canonical name, not a nickname, so scripts
+            // spelling it must keep working after the rename.
+            var (groundingExit, groundingOutput, _) = await RunAppAsync("package", packagePath, "-S", "Grounding");
+            Assert.Equal(0, groundingExit);
+            Assert.Contains("## Package README file", groundingOutput);
+
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("## Package nuspec file", nuspecOutput);
         }
         finally
         {
@@ -10109,8 +10986,8 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("| Readme | AGENTS.md |", output);
-            Assert.DoesNotContain("| Readme | README.md |", output);
+            Assert.Contains("| Readme | README.md |", output);
+            Assert.DoesNotContain("| Readme | AGENTS.md |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10125,13 +11002,13 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Section", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Grounding", output);
+            Assert.Contains("## Package README file", output);
             Assert.Contains("| Path | Size |", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
-            Assert.DoesNotContain("| README.md | 6 |", output);
+            Assert.Contains("| README.md | 6 |", output);
+            Assert.DoesNotContain("| AGENTS.md | 6 |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10141,7 +11018,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_GroundingSection_LegacyReadmeSelectorStillResolves()
+    public async Task Package_ReadmeSection_LegacyReadmeSelectorStillResolves()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Grounding.Alias", "README.md", "readme", "agents");
         try
@@ -10149,8 +11026,8 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Grounding", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
+            Assert.Contains("## Package README file", output);
+            Assert.Contains("| README.md | 6 |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10160,21 +11037,22 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Print_PrintsBestGroundingContent()
+    public async Task Package_Print_PrintsBestReadmeContent()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Print.Grounding",
             "README.md",
             "readme",
             "agents",
+            null,
             ("00-FIRST.txt", "wrong file"));
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--print", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents", output);
+            Assert.Equal("readme", output);
         }
         finally
         {
@@ -10225,11 +11103,11 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Content", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print");
 
             Assert.Equal(0, exit);
-            Assert.Contains("agents", output);
-            Assert.DoesNotContain("readme", output);
+            Assert.Contains("readme", output);
+            Assert.DoesNotContain("agents", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10244,11 +11122,15 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Bare", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+
+            // --print emits the document, not a rendering of it: no trailing newline is added
+            // to a document that does not end with one. The readme lens used to append one,
+            // which is the same class of edit that rewrote links inside the XML manifest.
+            Assert.Equal("readme", output);
         }
         finally
         {
@@ -10262,7 +11144,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--bare", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--bare", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -10284,7 +11166,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -10304,7 +11186,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -10323,7 +11205,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.RawLinks", "README.md", readme);
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print");
 
             Assert.Equal(0, exit);
             Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/src/File.cs", output);
@@ -10344,7 +11226,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--blob");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--blob");
 
             Assert.Equal(0, exit);
             Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);
@@ -10358,32 +11240,511 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ReadmeInfo_RecordsSelectedReadmeProvenance()
+    public async Task Package_ReadmePrint_ReportsTheSelectedDocumentInThePayload()
     {
+        // The selected readme used to be reported through an InfoTracker side channel that only
+        // the bespoke readme printer wrote. The generic print projection carries the path in the
+        // payload instead, so provenance survives without a printer of its own.
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
         try
         {
-            InfoTracker.ResetForTests();
-            var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
-            {
-                InfoTracker.Start();
-                return await PackageCommand.ExecuteAsync(new InspectionOptions
-                {
-                    PackageArgs = [packagePath],
-                    ShowReadme = true,
-                    TipLevel = TipLevel.Quiet
-                });
-            });
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--json");
 
             Assert.Equal(0, exit);
-            Assert.Contains("agents", output);
-            Assert.DoesNotContain("readme", output);
             Assert.Empty(error);
-            Assert.Equal("AGENTS.md (6 B)", InfoTracker.GetDetail("readme"));
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("README.md", document.RootElement.GetProperty("path").GetString());
+            Assert.Equal("readme", document.RootElement.GetProperty("content").GetString()?.Trim());
         }
         finally
         {
-            InfoTracker.ResetForTests();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_EmitsTheManifestExactlyAsShipped()
+    {
+        // The manifest is XML, so none of the Markdown treatment the README gets may touch it.
+        // The URL here is the shape the blob-to-raw rewriter matches, and it matches bare URLs
+        // anywhere in the text -- an XML element is not a Markdown link, but the regex cannot
+        // tell. A rewritten manifest still parses and still looks right, which is why this is
+        // pinned byte-for-byte against what the package actually contains.
+        const string ReleaseNotes = "https://github.com/owner/repo/blob/main/CHANGELOG.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Nuspec.Verbatim",
+            "README.md",
+            "readme",
+            null,
+            $"\n    <releaseNotes>See {ReleaseNotes} for details</releaseNotes>");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(ReleaseNotes, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            using var archive = ZipFile.OpenRead(packagePath);
+            var entry = Assert.Single(archive.Entries, e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+            using var entryStream = entry.Open();
+            using var shipped = new MemoryStream();
+            entryStream.CopyTo(shipped);
+
+            // Compare bytes, not decoded text. A StreamReader would strip a byte order mark from
+            // both sides and agree that a document three bytes shorter than the shipped one was
+            // identical to it, which is the assertion failing to test what the name claims.
+            Assert.Equal(shipped.ToArray(), Encoding.UTF8.GetBytes(output));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_KeepsAByteOrderMarkThePackageShipped()
+    {
+        // ReadAllText consumes a byte order mark, so a document that ships with one would be
+        // printed three bytes shorter than it exists in the package -- silently, and invisibly
+        // in any text comparison, because a StreamReader strips it from the expectation too.
+        // Real packages ship BOM'd manifests (EntityFramework does), and a caller printing a
+        // manifest to hash or diff it is asking for the bytes, not for an equivalent document.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        var nuspec = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.Bom.Nuspec</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+              </metadata>
+            </package>
+            """;
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var shipped = (byte[])[.. encoding.GetPreamble(), .. encoding.GetBytes(nuspec)];
+        File.WriteAllBytes(Path.Combine(packageRoot, "Test.Bom.Nuspec.nuspec"), shipped);
+        var packagePath = Path.Combine(tempDir, "Test.Bom.Nuspec.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            Assert.Equal(0xEF, shipped[0]);
+
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(shipped, Encoding.UTF8.GetBytes(output));
+            Assert.StartsWith("\uFEFF", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_RefusesMarkdownScopes()
+    {
+        // Frontmatter is a Markdown construct. XML can never carry it, so returning the whole
+        // manifest or an empty document would both report success for a question that was not
+        // answered.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Nuspec.Scope", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--frontmatter");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("apply to Markdown documents", error, StringComparison.Ordinal);
+            Assert.Contains("Test.Nuspec.Scope.nuspec", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_LeavesNonMarkdownFilesVerbatim()
+    {
+        // Same rewriter, reached through --content instead of --print. An MSBuild comment is
+        // not a Markdown link either.
+        const string Link = "https://github.com/owner/repo/blob/main/docs/config.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Content.Props",
+            "README.md",
+            $"[docs]({Link})",
+            null,
+            null,
+            ("build/Test.props", $"<Project>\n  <!-- See {Link} -->\n</Project>"));
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "build/Test.props", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(Link, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            // The README in the same package still gets the Markdown treatment, so this is a
+            // rule about the document's kind rather than the rewriter being switched off.
+            var (readmeExit, readmeOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, readmeExit);
+            Assert.Contains("raw.githubusercontent.com", readmeOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SkillsPrint_ResolvesCardinalityWithoutAPrinterOfItsOwn()
+    {
+        // Skill documents never had a bespoke printer. They are printable because the section
+        // lists rows that declare documents, which is the whole point of the generic path:
+        // cardinality, --row, and the guidance error all come from PrintProjectionOutput.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.Print",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "# Alpha skill"),
+            ("skills/beta/SKILL.md", "# Beta skill"));
+        try
+        {
+            var (ambiguousExit, ambiguousOutput, ambiguousError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print");
+
+            Assert.Equal(1, ambiguousExit);
+            Assert.Empty(ambiguousOutput);
+            Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
+
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--row", "2", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("# Beta skill", output);
+
+            // --row addresses the rendered position, so it must agree with the section listing.
+            var (pathsExit, pathsOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--paths");
+
+            Assert.Equal(0, pathsExit);
+            var paths = pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, paths.Length);
+            Assert.EndsWith("beta/SKILL.md", paths[1].Trim(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmePrint_NamesTheEmptySectionWhenThePackageShipsNoSuchDocument()
+    {
+        // The generic writer can only say "selected section" because an empty payload has no row
+        // to name it from. A package ships several document kinds, so the caller needs to know
+        // which one is absent -- the bespoke printer used to say so, and that must not be lost.
+        var (packagePath, tempDir) = CreateLocalPackageWithoutReadme("Test.NoReadme.Print");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Package README file", error, StringComparison.Ordinal);
+
+            // The nuspec is always present, so the empty refusal must be about the selected
+            // section rather than about printing being unavailable on this package.
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("Test.NoReadme.Print", nuspecOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_RemovedReadmeFlag_PointsAtItsReplacement()
+    {
+        // A removed spelling answered with "Unrecognized option" is true but leaves the caller to
+        // find the replacement. This repo already answers the stale '--head N' spelling with its
+        // replacement, so a removed flag does the same -- for every form that used to accept it.
+        foreach (var args in new[]
+        {
+            new[] { "package", "Newtonsoft.Json@13.0.3", "--readme" },
+            ["Newtonsoft.Json@13.0.3", "--readme"],
+            // The removed option was boolean, so the parser also took --readme=true. Answering
+            // only the bare spelling would leave the assigned one on a bare parser complaint.
+            ["package", "Newtonsoft.Json@13.0.3", "--readme=true"],
+            new[] { "package", "Newtonsoft.Json@13.0.3", "--readme", "--json" }
+        })
+        {
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("no longer valid", error, StringComparison.Ordinal);
+            Assert.Contains("--print", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    // A name with no dot in it says nothing about the document's kind, so the role answers. The
+    // directory a nested readme sits in may carry dots without that being a claim about the file.
+    [InlineData("README")]
+    [InlineData("docs/GUIDE")]
+    [InlineData("docs/v1.0/GUIDE")]
+    public async Task Package_ExtensionlessReadme_IsStillTreatedAsMarkdown(string readmePath)
+    {
+        // The readme's kind comes from its role, not its extension: the manifest declared this
+        // file as the readme, and NuGet renders it as Markdown. Keying only on the extension
+        // would refuse --frontmatter and drop blob-to-raw rewriting for a document that is
+        // genuinely Markdown, which is a capability the bespoke readme printer had.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        var readmeFullPath = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(readmeFullPath)!);
+        File.WriteAllText(
+            readmeFullPath,
+            "---\ntitle: Demo\n---\n\nSee https://github.com/owner/repo/blob/main/x.md for more.\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.Extensionless.nuspec"), $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.Extensionless</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>{readmePath}</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.Extensionless.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter", "--bare");
+
+            Assert.Equal(0, scopeExit);
+            Assert.Empty(scopeError);
+            Assert.Contains("title: Demo", scopeOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("See https://", scopeOutput, StringComparison.Ordinal);
+
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            // The nuspec in the same package is not the readme, so it stays verbatim. Role, not
+            // a blanket relaxation of the rule, is what makes the readme Markdown.
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains($"<readme>{readmePath}</readme>", nuspecOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DeclaredReadme_KeepsItsRoleWhenTheConventionalNameAlsoExists()
+    {
+        // ResolvePackageReadme prefers README.md so the README section shows the document a reader
+        // expects, but the manifest still declares docs/GUIDE a readme. Which file the section
+        // displays is a presentation choice; the manifest declaration is what makes the document
+        // Markdown, so scoping and link rewriting have to follow the declaration.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "docs"));
+        File.WriteAllText(Path.Combine(packageRoot, "README.md"), "conventional readme\n");
+        File.WriteAllText(
+            Path.Combine(packageRoot, "docs", "GUIDE"),
+            "---\ntitle: Declared\n---\n\nSee https://github.com/owner/repo/blob/main/x.md for more.\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.DeclaredReadme.nuspec"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.DeclaredReadme</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>docs/GUIDE</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.DeclaredReadme.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--frontmatter", "--bare");
+
+            Assert.Equal(0, scopeExit);
+            Assert.Empty(scopeError);
+            Assert.Contains("title: Declared", scopeOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("See https://", scopeOutput, StringComparison.Ordinal);
+
+            // The role is carried by the declaration alone, so a sibling that the manifest does
+            // not name stays verbatim and keeps its blob link.
+            var (plainExit, plainOutput, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--bare");
+
+            Assert.Equal(0, plainExit);
+            Assert.Contains("raw.githubusercontent.com", plainOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    // A stated suffix, obviously.
+    [InlineData("images/logo.png")]
+    // A stray trailing dot does not unstate it.
+    [InlineData("images/logo.png.")]
+    // A suffix spelled as a hidden basename. Telling this apart from a hidden word like .README
+    // needs a list of known suffixes that would go stale, so a dot is read conservatively: the
+    // cost of guessing wrong here is a corrupted file at exit 0, and there it is a loud refusal.
+    [InlineData(".png")]
+    [InlineData(".README")]
+    public async Task Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown(string readmePath)
+    {
+        // A manifest can declare anything as the readme, including a file that names itself
+        // something else. The role answers a document's kind only where the name is silent;
+        // letting a declaration override a stated kind would run the link rewriter over a PNG
+        // and hand back a corrupted file, which is the outcome this command prevents.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var declared = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(declared)!);
+        File.WriteAllText(declared, "PNGish see https://github.com/owner/repo/blob/main/x.md here\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.BinaryReadme.nuspec"), $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.BinaryReadme</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>{readmePath}</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.BinaryReadme.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", readmePath, "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(File.ReadAllText(declared), output);
+            Assert.Contains("github.com/owner/repo/blob/main", output, StringComparison.Ordinal);
+
+            // And a Markdown scope over it is refused rather than answered from the whole file.
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", readmePath, "--frontmatter", "--bare");
+
+            Assert.Equal(1, scopeExit);
+            Assert.Empty(scopeOutput);
+            Assert.Contains("is not Markdown", scopeError, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeInAValuePosition_IsNotMistakenForTheRemovedFlag()
+    {
+        // The replacement guidance answers a parse failure, not a token scan. '--out --readme'
+        // names an output file and parses, so second-guessing it would refuse a valid request in
+        // the name of explaining an option the caller never used.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.ReadmeValue", "README.md", "value body");
+        var outputPath = Path.Combine(tempDir, "--readme");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare", "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("no longer valid", error, StringComparison.Ordinal);
+            Assert.True(File.Exists(outputPath));
+            Assert.Contains("value body", File.ReadAllText(outputPath), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeTip_RecommendsAGestureThatActuallyRuns()
+    {
+        // Removing a flag leaves the suggestions that named it behind, and a tip is a command the
+        // user is invited to paste. Parse the gesture out of the emitted tip and run it, so the
+        // tip cannot drift into naming an option the parser no longer recognizes.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Tip.Readme", "README.md", "tip readme body");
+        try
+        {
+            var (_, _, tipError) = await RunAppAsync("package", packagePath, "-T:d");
+
+            var tipLine = tipError
+                .Split('\n')
+                .FirstOrDefault(line => line.Contains("# view README", StringComparison.Ordinal));
+            Assert.NotNull(tipLine);
+
+            var gesture = tipLine!.Split('#')[0].Trim();
+            Assert.StartsWith("package ", gesture, StringComparison.Ordinal);
+            Assert.Contains("--print", gesture, StringComparison.Ordinal);
+
+            // Re-split the way a shell would, so the quoted section name survives as one token.
+            var args = System.Text.RegularExpressions.Regex
+                .Matches(gesture, "\"[^\"]*\"|\\S+")
+                .Select(match => match.Value.Trim('"'))
+                .ToArray();
+            args[1] = packagePath;
+
+            var (exit, output, error) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Unrecognized option", error, StringComparison.Ordinal);
+            Assert.Contains("tip readme body", output, StringComparison.Ordinal);
+        }
+        finally
+        {
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -10774,7 +12135,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--frontmatter");
+                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter");
 
             Assert.Equal(0, exit);
             Assert.Contains("name: test", output);
@@ -10800,7 +12161,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--body");
+                "package", packagePath, "-S", "Package README file", "--print", "--body");
 
             Assert.Equal(0, exit);
             Assert.Contains("# Body", output);
@@ -10813,21 +12174,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ReadmeJsonl_IncludesPathSizeAndContent()
+    public async Task Package_ReadmePrintJsonl_CarriesTheSelectedDocumentPath()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.Jsonl", "PACKAGE.md", "package docs");
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--jsonl");
+                "package", packagePath, "-S", "Package README file", "--print", "--jsonl");
 
             Assert.Equal(0, exit);
             var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
             using var document = JsonDocument.Parse(line);
-            Assert.Equal("Test.Readme.Jsonl", document.RootElement.GetProperty("package").GetString());
-            Assert.Equal("1.0.0", document.RootElement.GetProperty("version").GetString());
+
+            // Which document was selected is part of the payload rather than a side channel, so
+            // a caller can tell PACKAGE.md from README.md without parsing rendered text.
+            Assert.Equal("Package README file", document.RootElement.GetProperty("section").GetString());
             Assert.Equal("PACKAGE.md", document.RootElement.GetProperty("path").GetString());
-            Assert.True(document.RootElement.GetProperty("size").GetInt64() > 0);
+            Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
             Assert.Equal("package docs", document.RootElement.GetProperty("content").GetString());
         }
         finally
@@ -10856,14 +12219,14 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", firstPackage, secondPackage, "--readme", "--frontmatter");
+                "package", firstPackage, secondPackage, "--content", "--path", "@readme", "--frontmatter");
 
             Assert.Equal(0, exit);
             Assert.Contains("name: first", output);
             Assert.Contains("name: second", output);
             Assert.DoesNotContain("# First Body", output);
             Assert.DoesNotContain("# Second Body", output);
-            Assert.DoesNotContain("Multiple package inspection cannot be combined with --readme", error);
+            Assert.DoesNotContain("cannot be combined", error);
         }
         finally
         {

@@ -3,7 +3,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Options;
 
-public record ProjectOptions
+public record ProjectOptions : IProjectionOptions
 {
     public string ProjectPath { get; init; } = ".";
 

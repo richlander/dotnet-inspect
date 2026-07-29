@@ -176,6 +176,47 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
+A printed document is the document the package shipped. Markdown conventions --
+YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
+`blob` links to `raw` so the target is fetchable -- apply only to Markdown. A
+document's kind comes from its extension, except for the package README, whose
+kind comes from its role: the manifest declared it as the readme and NuGet
+renders it as Markdown, so an extensionless or unconventionally named README is
+still Markdown. That role follows the manifest declaration, not the file the
+README section displays. A package that ships `README.md` and also declares a
+different file has declared both readmes, and the declared one keeps its kind
+even though the section shows the conventional name. The role answers only where
+the extension is silent: a manifest can declare anything, and
+`<readme>logo.png</readme>` is malformed but shippable, so a declaration never
+overrides a name that says what the document is. Any dot in the file name counts
+as saying something: `logo.png` names a suffix, `logo.png.` names one with a
+stray dot after it, and `.png` spells one as a hidden basename. Telling a hidden
+suffix from a hidden word like `.README` would take a list of known suffixes that
+goes stale and still guesses wrong at the edges, so the tie goes to the
+conservative reading -- refusing a scope on `.README` is loud and leaves the
+document readable, while handing a declared PNG to the link rewriter returns a
+corrupted file and exit 0.
+Applied to anything else they are corruption rather than presentation: the link
+rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
+or an MSBuild comment is rewritten and the printed manifest silently stops
+matching the one the feed serves. Asking for a Markdown scope on a document that
+is not Markdown is refused, because both other answers -- the whole document, or
+an empty one -- report success for a question that was never answered. The
+refusal belongs to the request, not to one flag, so `--content` refuses it on
+the same terms as `--print`.
+
+The refusal covers the whole request rather than skipping the documents it does
+not apply to. A selection that matches Markdown and non-Markdown alike --
+`--path "*" --frontmatter` -- is one request, and answering part of it while
+dropping the rest reports success for files that were never scoped. The refusal
+names the first such document so the selection can be narrowed, for example with
+`--path "*.md"`.
+
+A document that receives no Markdown treatment is emitted verbatim, including
+any byte order mark it ships with. A caller printing a manifest in order to hash
+or diff it is asking for its bytes, and a document silently three bytes shorter
+than the one in the package is not that document.
+
 `-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
@@ -237,6 +278,13 @@ enforced structurally rather than per command — the request is recorded from t
 parse result and the projection writers report which projection they honored, so
 a route that drops one fails loudly instead of shipping the wrong payload.
 
+The whole-surface type listing (`type` with no type name — the Classes, Structs,
+Interfaces, Enums, and Delegates sections) is a name table that exposes no
+printable payload, so `--print`/`--value`/`--urls`/`--paths` there is rejected up
+front rather than dumping the full surface and then tripping this audit. Inspect
+a single type (for example `type <Name>`) to project a member payload. `--count`
+is the one payload projection the surface does honor.
+
 Writers report *which* flag they honored rather than merely acknowledging one.
 A writer can be reached for more than one reason — the print writer also serves
 `--bare` — so an untyped signal would let it satisfy an unrelated request and let
@@ -246,12 +294,62 @@ The projections are mutually exclusive. Two of them cannot both shape one
 payload, so a combination is rejected before the command runs rather than
 resolved by discarding one.
 
+### Lens modes project their own payload
+
+A few flags select a *lens* rather than a section of the normal document:
+`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
+
+The lens payload is still a payload, so the two-outcome rule above applies
+unchanged. Because the lens owns the shape, its answers are fixed:
+
+- `--count` counts the lens payload — versions, target frameworks, package
+  files, IL offsets, discovered artifacts — not the lines used to render it. A
+  layout count is a count of files, even though the rendered tree also shows the
+  directories that contain them.
+- `--content` yields one structured row per matched file despite rendering
+  text, so its count is the number of files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
+- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
+  not approximated. They address a cell or a column of a selected section, and a
+  lens payload has neither; answering anyway would require inferring structure
+  from rendered text.
+- `-S`/`--select` is refused when the caller typed it, rather than ignored. A
+  lens and a section selection are competing answers to *what am I looking at*,
+  and silently honoring the lens hides that the selection did nothing.
+
+There is deliberately no lens for printing a document. A flag that renders one
+document is a second answer to *which document*, competing with the section the
+caller selected, and the two can disagree — which is exactly how a lens that
+printed the package README came to print the XML manifest through the README's
+Markdown pipeline. Printable documents are therefore reached only by selecting
+the section that lists them, and `--print` projects that section's rows like
+every other payload projection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
+
+`-S` here means an explicit selection. Some options are sugar that synthesize a
+selection internally, and a synthesized one must not be mistaken for a request
+the caller made.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`) |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

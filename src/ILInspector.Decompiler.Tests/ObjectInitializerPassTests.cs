@@ -563,6 +563,55 @@ public class ObjectInitializerPassTests
             CSharpPrinter.Print(function).Output);
     }
 
+    // #3336 stage 2: a branchy member value (`f ? PickTag(..) : null`) that
+    // Roslyn spilled to a reused temp beneath the dup chain. The early pass
+    // declines it (the value is a cross-block ternary diamond at stage 18); the
+    // post-structuring late spill pass folds it once the diamond has collapsed
+    // to a single Conditional in one straight-line block.
+    [Fact]
+    public void ReusedTempSpill_BranchyMemberValues_FoldsWholeInitializer()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeBranchyReusedTempSpill));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["A", "B"], initializer.Members);
+        // Both member values are the raised ternaries, not spilled version copies.
+        Assert.Equal(2, initializer.Entries.Count(entry => entry.Arguments.OfType<Conditional>().Any()));
+
+        // The whole dup chain, its version copies, and the reused spill temps are gone.
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+
+        Assert.Contains(
+            "new Branchy { A = f ? PickTag(x) : null, B = f ? PickTag(-x) : null }",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3336 stage 3: the outer initializer's Inner member is itself a branchy
+    // reused-temp spill initializer. The late pass folds inner-first (the inner
+    // initializer becomes the outer member's value), then the enclosing chain.
+    [Fact]
+    public void ReusedTempSpill_NestedInitializer_FoldsBothLevels()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeNestedReusedTempSpill));
+
+        var initializers = function.Descendants.OfType<ObjectInitializerExpression>().ToList();
+        Assert.Equal(2, initializers.Count);
+
+        var outer = Assert.Single(initializers, init => init.Members.SequenceEqual(["Inner", "Tag"]));
+        var inner = Assert.Single(initializers, init => init.Members.SequenceEqual(["A", "B"]));
+        // The inner initializer lands as the outer Inner member's value.
+        Assert.Contains(outer.Entries, entry => entry.Arguments.Contains(inner));
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+
+        Assert.Contains(
+            "new InitOuter { Inner = new Branchy { A = f ? PickTag(x) : null, B = f ? PickTag(-x) : null }, Tag = x }",
+            CSharpPrinter.Print(function).Output);
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");

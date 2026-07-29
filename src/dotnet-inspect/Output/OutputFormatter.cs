@@ -1,5 +1,7 @@
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 using DotnetInspector.Views;
+using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -153,6 +155,23 @@ public static class OutputFormatter
         });
     }
 
+    /// <summary>
+    /// Writes a version list annotated with listing status as a two-column Version/Listing table.
+    /// Used by <c>--versions --include-unlisted</c> so unlisted versions are marked rather than
+    /// silently included.
+    /// </summary>
+    public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
+        bool tsv, bool jsonl, TextWriter output)
+    {
+        var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
+        WriteTable(output, showHeader: false, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
+            markoutWriter.Flush();
+        });
+    }
+
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
@@ -172,7 +191,18 @@ public static class OutputFormatter
         else if (selectInfo)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-        return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
+        if (!options.Count)
+            return markdown;
+
+        // A category selects many sections at once; report each member's count, including the
+        // members that rendered nothing, so the map describes the whole category.
+        if (options.IncludeSections is { Count: > 1 })
+        {
+            var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
+            return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
+        }
+
+        return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
 
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
@@ -205,7 +235,7 @@ public static class OutputFormatter
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
-            result, options.Verbosity, options.IncludeSections, selectAll);
+            result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         if (includeContext && includeSections is { Count: > 0 })
             includeSections = [PackageSections.Summary, .. includeSections];
 
@@ -233,8 +263,7 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
@@ -265,25 +294,51 @@ public static class OutputFormatter
         if (options.Format == OutputFormat.PlainText)
         {
             MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
+                Console.WriteLine(plainMetadata);
         }
         else if (options.VerbosityEnabled)
         {
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, writerOpts, options);
+            WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    /// <summary>
+    /// Serializes the library view and, when the <c>@Metadata</c> lens is selected, composes its
+    /// sections into the same Markdown document before ordering.
+    ///
+    /// Metadata sections cannot be attributed view properties (their columns differ per table), so
+    /// they are rendered separately and appended. Ordering runs *after* the append, which is what
+    /// places them among the other sections rather than in a block at the end; every downstream
+    /// step — <c>--rows</c> windowing, <c>--count</c> — then treats them as ordinary sections.
+    /// </summary>
+    private static string SerializeLibraryMarkdown(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+
+        if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
+        {
+            var body = markdown.TrimEnd();
+            markdown = body.Length == 0 ? metadata : body + Environment.NewLine + Environment.NewLine + metadata;
+        }
+
+        return MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
     }
 
     /// <summary>
@@ -295,8 +350,25 @@ public static class OutputFormatter
     /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
     /// </summary>
     private static void WriteLibraryTabular(
-        LibraryInspectionView auditView, MarkoutWriterOptions writerOpts, LibraryOptions options)
+        LibraryInspectionView auditView, LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts, LibraryOptions options)
     {
+        // The metadata lens owns its own tabular rendering for the same reason it owns its
+        // Markdown rendering: per-table column shapes have no static row type for Markout to bind.
+        // Its rows already self-identify with a leading Table/Section column. It still goes through
+        // WriteTable so `--rows` windows it exactly as it windows every other tabular section —
+        // the limiter operates on rendered text and needs no knowledge of the lens.
+        if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
+        {
+            var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
+            WriteTable(Console.Out, !options.NoHeader,
+                (writer, _) => MetadataLensRenderer.TryRenderTabular(
+                    inspection, writerOpts.IncludeSections, format, writer, Console.Error,
+                    writerOpts.Projection?.IncludeColumns),
+                options.Rows);
+            return;
+        }
+
         if (writerOpts.IncludeSections is { Count: > 1 }
             && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
         {
@@ -375,7 +447,7 @@ public static class OutputFormatter
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(auditView, writerOpts, options);
+                WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
     }

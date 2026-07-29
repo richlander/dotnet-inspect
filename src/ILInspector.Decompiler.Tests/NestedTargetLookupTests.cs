@@ -21,7 +21,10 @@ public class NestedTargetLookupTests
     [Fact]
     public void TargetedPath_ReachesNestedTypeIdentity()
     {
-        var collectible = FidelityCheck.CollectibleFullTypeNames(FixtureAssembly);
+        // Admits both names so the assertions below still discriminate: the
+        // point of the test is that Inner is reachable, not that it was asked for.
+        var collectible = FidelityCheck.CollectibleFullTypeNames(
+            FixtureAssembly, type => type == Outer || type == Inner);
 
         Assert.Contains(Outer, collectible);
         // The fix: the nested type is now part of the identity surface a delta
@@ -36,7 +39,9 @@ public class NestedTargetLookupTests
         // Preserve existing --fidelity-check behavior: the non-targeted corpus
         // sweep roots at top-level types only, so a nested type's methods never
         // enter the broad sweep even though the targeted path can now reach them.
-        var swept = FidelityCheck.Evaluate(FixtureAssembly);
+        // The filter admits both the outer and nested names, so the nested type's
+        // absence below is CollectType's top-level rooting -- not the filter.
+        var swept = FidelityCheck.Evaluate(FixtureAssembly, type => type == Outer || type == Inner);
 
         Assert.Contains(swept, r => r.Type == Outer && r.Method == "OuterAdd");
         Assert.DoesNotContain(swept, r => r.Type == Inner);

@@ -46,6 +46,7 @@ public sealed class SectionPipeline<TModel>
     private readonly List<SectionEntry<TModel>> _entries = [];
     private readonly List<SectionCategory> _categories = [];
     private bool _curatedCatalog;
+    private bool _computedPoles = true;
 
     public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
@@ -66,13 +67,34 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Drops the computed <c>@All</c> and <c>@Default</c> poles from this pipeline's category map,
+    /// making them unresolvable as selectors rather than merely undiscoverable. They are artifacts
+    /// of the legacy catalog: <c>@All</c> renders a superset nobody asked for, and <c>@Default</c>
+    /// restates what bare <c>-S</c> already means. A command whose sections are reachable through
+    /// topical doors and verbosity does not need either, and keeping them resolvable-but-unlisted
+    /// leaves a surface no discovery output describes.
+    /// </summary>
+    public SectionPipeline<TModel> WithoutComputedPoles()
+    {
+        _computedPoles = false;
+        return this;
+    }
+
+    /// <summary>
     /// Membership test for the visible <c>@All</c> pole (curated catalogs only), computed from flags
     /// alone so it is independent of any model: a section is included when it is cheap and is either
     /// auto-selectable by verbosity or an explicitly opt-in <see cref="SectionEntry{TModel}.Noisy"/>
     /// surface section. Expensive sections and non-noisy feeders are excluded.
     /// </summary>
+    /// <summary>
+    /// Whether a section joins the <c>@All</c> pole, which renders every member. A
+    /// <see cref="SectionEntry{TModel}.Noisy"/> section is deliberately excluded: it is a
+    /// superset of narrower sections, so rendering it alongside them would emit the same
+    /// rows twice. Noisy sections stay listed in the discovery catalog
+    /// (<see cref="GetCatalogHiddenSections"/>) so they remain reachable by name.
+    /// </summary>
     private static bool IsAllMember(SectionEntry<TModel> entry)
-        => !entry.IsExpensive && (!entry.ExplicitOnly || entry.Noisy);
+        => !entry.IsExpensive && !entry.ExplicitOnly;
 
     /// <summary>
     /// Registers a section descriptor. The descriptor type is never instantiated —
@@ -111,6 +133,16 @@ public sealed class SectionPipeline<TModel>
             throw new InvalidOperationException(
                 $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
                 "provide a structural applicability predicate.");
+
+        // @All renders every member, so an Unbounded section must not be able to join it.
+        // IsAllMember reads IsExpensive/ExplicitOnly rather than Cost, so without this check
+        // the two axes could disagree and a section costing unbounded work would be pulled in
+        // by -S @All. Enforcing the implication here makes that state unrepresentable instead
+        // of leaving it to a comment on each descriptor.
+        if (entry.Cost == SectionCost.Unbounded && !entry.IsExpensive && !entry.ExplicitOnly)
+            throw new InvalidOperationException(
+                $"{entry.Name} declares Cost=Unbounded and must also declare IsExpensive=true " +
+                "or ExplicitOnly=true, otherwise it joins the @All pole.");
 
         _entries.Add(entry);
         return this;
@@ -154,6 +186,21 @@ public sealed class SectionPipeline<TModel>
         .ToList();
 
     /// <summary>
+    /// Every distinct non-null <see cref="SectionEntry{TModel}.ScannerKey"/> declared by a
+    /// registered section, independent of verbosity or selection. This is the demand side of the
+    /// section-to-scanner binding; the supply side is
+    /// <see cref="ScannerRegistry.RegisteredKeys"/>. The two must agree exactly — a key declared
+    /// here but not registered is a section whose data silently never gets collected, and a key
+    /// registered but not declared here is a scanner nothing can ask for. Gate for the library
+    /// pipeline: <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c>.
+    /// Other pipelines declare no scanner keys today, so nothing gates them.
+    /// </summary>
+    public IReadOnlySet<string> DeclaredScannerKeys => _entries
+        .Select(e => e.ScannerKey)
+        .Where(key => key != null)
+        .ToHashSet(StringComparer.Ordinal)!;
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.
@@ -177,13 +224,14 @@ public sealed class SectionPipeline<TModel>
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
     {
-        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
+        if (_computedPoles)
         {
-            [DefaultCategory] = InfoSectionNames,
-            [AllCategory] = _curatedCatalog
+            categories[DefaultCategory] = InfoSectionNames;
+            categories[AllCategory] = _curatedCatalog
                 ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
-                : SelectableSectionNames
-        };
+                : SelectableSectionNames;
+        }
 
         foreach (var category in _categories)
             categories[category.Name] = category.Sections;
@@ -218,7 +266,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public IReadOnlySet<string> GetCatalogHiddenSections()
         => _curatedCatalog
-            ? _entries.Where(e => IsSelectable(e) && (!IsAllMember(e) || !e.ListedInCatalog))
+            ? _entries.Where(e => IsSelectable(e) && ((!IsAllMember(e) && !e.Noisy) || !e.ListedInCatalog))
                 .Select(e => e.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
             : _entries.Where(e => !e.ListedInCatalog)
@@ -598,7 +646,10 @@ public sealed class SectionPipeline<TModel>
     /// <see cref="SectionEntry{TModel}.SizeClass"/> and <see cref="SectionEntry{TModel}.Cost"/>
     /// fit the view:
     /// <list type="bullet">
-    ///   <item><b>Quiet</b>: no sections (the identity line is rendered by the view model).</item>
+    ///   <item><b>Quiet</b>: the headless <c>Summary</c> preamble only, for commands that
+    ///   register one. <c>Summary</c> carries the compact identity fields and is not selectable,
+    ///   so it sits outside the size/cost ladder rather than on it; commands with no
+    ///   <c>Summary</c> section render their identity line from the view model instead.</item>
     ///   <item><b>Minimal</b>: the target section(s) only (<see cref="SectionEntry{TModel}.Info"/>).</item>
     ///   <item><b>Normal</b>: Terse + Informative, network-free.</item>
     ///   <item><b>Detailed</b>: all size classes, network-free or moderated cost (never unbounded).</item>
@@ -609,12 +660,15 @@ public sealed class SectionPipeline<TModel>
     private static bool IsCuratedAutoRendered(SectionEntry<TModel> entry, Verbosity verbosity)
         => verbosity switch
         {
-            Verbosity.Quiet => false,
-            Verbosity.Minimal => entry.Info,
+            Verbosity.Quiet => IsHeadlessSummary(entry),
+            Verbosity.Minimal => entry.Info || IsHeadlessSummary(entry),
             Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
                 && entry.Cost == SectionCost.NetworkFree,
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost
         };
+
+    private static bool IsHeadlessSummary(SectionEntry<TModel> entry)
+        => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSelectable(SectionEntry<TModel> entry)
         => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);

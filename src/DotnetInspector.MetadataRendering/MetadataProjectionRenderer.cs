@@ -317,6 +317,18 @@ public static class MetadataProjectionRenderer
 
     static void WriteImageTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection)
     {
+        WriteSectionTable(
+            writer, identifySection, "image",
+            ["Property", "Value"], ["property", "value"], ImageFactRows(overview));
+    }
+
+    /// <summary>
+    /// The image-level metadata facts as <c>Property</c>/<c>Value</c> rows. Shared by the
+    /// multi-section overview and by <see cref="RenderImageFacts"/> so the two cannot report
+    /// different facts about the same image.
+    /// </summary>
+    static List<string[]> ImageFactRows(MetadataImageOverview overview)
+    {
         var rows = new List<string[]>();
         Add("Metadata version", overview.MetadataVersion);
         Add("Metadata kind", overview.Kind.ToString());
@@ -342,9 +354,74 @@ public static class MetadataProjectionRenderer
             Add("CLI header", "absent");
         }
 
-        WriteSectionTable(writer, identifySection, "image", ["Property", "Value"], ["property", "value"], rows);
+        return rows;
 
         void Add(string property, string value) => rows.Add([property, value]);
+    }
+
+    /// <summary>
+    /// Renders the image-level facts as a single heading-free <c>Property</c>/<c>Value</c> table:
+    /// the metadata root identity and PE/CLI header facts, followed by one row per heap giving its
+    /// size and addressing.
+    ///
+    /// This is the shape the CLI's <c>Metadata: Image</c> section needs. That section is one
+    /// section, so it must be one heading and one table, whereas
+    /// <see cref="Render(MetadataImageOverview, TextWriter, MetadataTableFormat)"/> deliberately
+    /// emits three headings for a standalone report. The per-table row counts that report also
+    /// carries are omitted here rather than flattened in: they are rows of the table sections this
+    /// lens already registers, reachable as <c>-S @Metadata --count</c>.
+    ///
+    /// <paramref name="columns"/> narrows the rendered table to the named columns of
+    /// <c>Property</c>/<c>Value</c>; null or empty renders both. The facts themselves are rows, so
+    /// selecting *which facts* is <c>--rows</c>'s job, not this parameter's.
+    /// </summary>
+    public static void RenderImageFacts(
+        MetadataImageOverview overview,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        ArgumentNullException.ThrowIfNull(output);
+
+        var rows = ImageFactRows(overview);
+        foreach (var heap in overview.Heaps)
+        {
+            string addressing = heap.Addressing == MetadataHeapAddressing.Index ? "index" : "byte offset";
+            rows.Add([
+                $"{heap.Heap} heap",
+                $"{heap.SizeInBytes} bytes, addressed by {addressing}, max address {heap.MaxAddress}",
+            ]);
+        }
+
+        string[] headers = ["Property", "Value"];
+        string[] headerNames = ["property", "value"];
+        if (columns is { Count: > 0 })
+        {
+            var wanted = new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase);
+            var keep = Enumerable.Range(0, headers.Length).Where(i => wanted.Contains(headers[i])).ToArray();
+
+            // An empty selection means neither column was named — the request was aimed at a
+            // sibling section — so the full table stands rather than rendering as blank rows.
+            if (keep.Length > 0)
+            {
+                headers = [.. keep.Select(i => headers[i])];
+                headerNames = [.. keep.Select(i => headerNames[i])];
+                rows = [.. rows.Select(row => keep.Select(i => row[i]).ToArray())];
+            }
+        }
+
+        var writer = format == MetadataTableFormat.Markdown
+            ? new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions())
+            : new MarkoutWriter(
+                output,
+                new TableFormatter(showHeader: true),
+                new MarkoutWriterOptions
+                {
+                    TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+                });
+        writer.WriteTable(headers, headerNames, rows);
+        writer.Flush();
     }
 
     static string DescribeEntryPoint(MetadataCorHeaderSummary cor)
@@ -498,6 +575,57 @@ public static class MetadataProjectionRenderer
         var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
         writer.WriteTable(headers, headerNames, [row]);
         writer.Flush();
+    }
+
+    /// <summary>
+    /// Renders one table's rows as a Markdown table with no heading of its own.
+    ///
+    /// Exists for callers that must own their section heading: the CLI's <c>@Metadata</c> lens
+    /// renders each table under the exact section name the section pipeline registered
+    /// (<c>## Metadata: TypeRef</c>), because the section orderer, the section filter, and
+    /// <c>--count</c> all key off that heading text. Such a caller still needs this type's cell
+    /// rendering — one <see cref="MetadataValue"/> case per cell, malformed cells visibly marked,
+    /// bounded previews suffixed — so it reuses it here instead of forking a second decoder.
+    ///
+    /// The row-extent facts that <see cref="Render(MetadataTableProjection, TextWriter, MetadataTableFormat)"/>
+    /// puts in its heading are not lost: they are available as caveats from
+    /// <see cref="Caveats(MetadataTableView)"/>, which such a caller must render.
+    /// </summary>
+    public static void RenderRows(MetadataTableView table, TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(output);
+
+        var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+        WriteTable(writer, table, identifyTable: false);
+        writer.Flush();
+    }
+
+    /// <summary>
+    /// What a projected table's rows leave out, as caveats a reader must see.
+    ///
+    /// A table rendered without <see cref="HeadingText"/>'s extent suffix carries no other signal
+    /// that its rows are a window rather than the whole table, so a truncated projection must say
+    /// so here or the reader would take a partial dump for a complete one.
+    /// </summary>
+    public static IEnumerable<string> Caveats(MetadataTableView table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        if (table.Truncation is not { } truncation)
+            yield break;
+
+        if (table.Rows.IsEmpty)
+        {
+            yield return $"{table.Name}: showing 0 of {truncation.RowCount} rows; the row window starts past the end of the table.";
+            yield break;
+        }
+
+        int first = table.Rows[0].RowId;
+        int last = table.Rows[^1].RowId;
+        yield return first == 1
+            ? $"{table.Name}: showing {truncation.ProjectedRows} of {truncation.RowCount} rows."
+            : $"{table.Name}: showing rows {first}\u2013{last} of {truncation.RowCount}.";
     }
 
     static string HeadingText(MetadataTableView table)
