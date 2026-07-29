@@ -1135,6 +1135,109 @@ public class SectionPipelineTests
             registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    // ===== Scanner prerequisite tests =====
+
+    [Fact]
+    public void RunScanners_RunsPrerequisitesFirstAndEachScannerOnce()
+    {
+        // The property that replaced the fan-out: a scanner declares what it reads, and the
+        // registry runs that prerequisite before it and exactly once for the whole run, however
+        // many other scanners also require it. Without this, deduping is impossible and a
+        // scanner has to defensively re-scan.
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => order.Add("leaf"))
+            .Add("mid", _ => order.Add("mid"), "leaf")
+            .Add("top", _ => order.Add("top"), "mid", "leaf");
+
+        registry.RunScanners(["top"], NullScannerContext());
+
+        Assert.Equal(["leaf", "mid", "top"], order);
+    }
+
+    [Fact]
+    public void RunScanners_SharedPrerequisiteRunsOnceAcrossRequestedScanners()
+    {
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => order.Add("leaf"))
+            .Add("a", _ => order.Add("a"), "leaf")
+            .Add("b", _ => order.Add("b"), "leaf");
+
+        registry.RunScanners(["a", "b"], NullScannerContext());
+
+        Assert.Equal(["leaf", "a", "b"], order);
+    }
+
+    [Fact]
+    public void AddBundle_RunsItsPrerequisitesAndNoWorkOfItsOwn()
+    {
+        // A bundle exists only because ISectionDescriptor.ScannerKey names a single key, so a
+        // section fed by several scanners needs one key that stands for all of them.
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("a", _ => order.Add("a"))
+            .Add("b", _ => order.Add("b"))
+            .AddBundle("bundle", "a", "b");
+
+        registry.RunScanners(["bundle"], NullScannerContext());
+
+        Assert.Equal(["a", "b"], order);
+    }
+
+    [Fact]
+    public void ExpandRequired_IncludesTransitivePrerequisites()
+    {
+        // Callers that reason about the work a run will do — body-analysis feature selection in
+        // particular — must see prerequisites, or they narrow away work the run still performs.
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => { })
+            .Add("mid", _ => { }, "leaf")
+            .Add("top", _ => { }, "mid");
+
+        Assert.Equal(
+            ["leaf", "mid", "top"],
+            registry.ExpandRequired(["top"]).OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void RunScanners_ThrowsOnPrerequisiteCycle()
+    {
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "b")
+            .Add("b", _ => { }, "a");
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => registry.RunScanners(["a"], NullScannerContext()));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()
+    {
+        // Derived from the registry rather than restated, so a new prerequisite naming a key that
+        // does not exist fails here instead of silently never running. RunScanners skips an
+        // unregistered prerequisite, so nothing else would notice.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var registered = registry.RegisteredKeys.ToHashSet(StringComparer.Ordinal);
+
+        foreach (var key in registered)
+        {
+            foreach (var required in registry.RequirementsOf(key))
+                Assert.Contains(required, registered);
+        }
+
+        // ExpandRequired recurses; a cycle would stack-overflow rather than return.
+        Assert.Equal(registered, registry.ExpandRequired(registered));
+    }
+
+    private static ScannerContext NullScannerContext() => new()
+    {
+        AssemblyPath = "unused.dll",
+        Model = new LibraryInspection(),
+        Logger = new Output.VerboseLogger(false),
+    };
+
     // ===== Presence flag / CanRender discovery tests =====
 
     [Fact]

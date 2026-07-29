@@ -128,10 +128,16 @@ public static class LibrarySections
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
                 ctx.Model.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerInfoCounts, ctx =>
-                LibraryMetadataService.ScanInfoCounts(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .AddBundle(
+                ScannerInfoCounts,
+                ScannerExtensionMethods,
+                ScannerClassifiedMethods,
+                ScannerResources,
+                ScannerCustomAttributes,
+                ScannerTypeForwarders)
             .Add(ScannerAuditSignals, ctx =>
-                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                ScannerClassifiedMethods)
             .Add(ScannerSwitches, ctx =>
                 ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerUnsafeMembers, ctx =>
@@ -154,7 +160,8 @@ public static class LibrarySections
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
-                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                ScannerIntegrations);
     }
 
     // ===== Primary section =====

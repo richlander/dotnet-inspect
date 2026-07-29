@@ -28,6 +28,12 @@ internal static class AuditSignalBuilder
         DirectDependencySelection DirectDependencies,
         DependencySignalSummary DependencySignals);
 
+    /// <summary>
+    /// Signals derived from classified methods (unsafe public signatures, async kind) read
+    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. That data is supplied by the
+    /// declared <c>ScannerClassifiedMethods</c> prerequisite on this scanner's registration, not
+    /// by a scan performed here.
+    /// </summary>
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
         List<AuditSignal> signals = [];
@@ -39,11 +45,6 @@ internal static class AuditSignalBuilder
             using var session = AssemblyInspectionSession.Open(assemblyPath);
             metadata = session.AuditMetadata();
             pInvokeMethodCount = metadata.PInvokeMethodCount;
-
-            // Reuse the same session for the classified-methods scan rather than re-opening the file.
-            if (inspection.ClassifiedMethodInspection is null)
-                inspection.Apply(
-                    LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, logger));
         }
         catch (Exception ex)
         {

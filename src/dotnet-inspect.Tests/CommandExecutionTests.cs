@@ -8993,6 +8993,100 @@ public class CommandExecutionTests
             sectionHeaders);
     }
 
+    [Theory]
+    // System.Runtime.InteropServices is not decoration: it has public pointer signatures, so the
+    // Signals section's unsafe count is non-zero only when the classified-method prerequisite
+    // actually ran. System.Text.Json reports 0 either way and would not catch a missing
+    // prerequisite; it is kept because it renders far more sections.
+    [InlineData("System.Text.Json")]
+    [InlineData("System.Runtime.InteropServices")]
+    public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
+    {
+        // The gate for removing the scanner fan-out. Every scanner-bound section must render the
+        // same content whether it is asked for alone or alongside all the others. Asking for a
+        // section alone runs only its declared scanner closure, so a scanner that reads data it
+        // did not declare a prerequisite for renders less in isolation — which is exactly the
+        // failure the old fan-out hid by re-scanning from inside the scanner body.
+        //
+        // The section set is derived from the pipeline, not from the prerequisite declarations,
+        // so deleting a declaration does not also delete the coverage that would catch it.
+        // Both runs select by name and therefore share a verbosity, isolating prerequisite
+        // sufficiency from verbosity-dependent rendering.
+        //
+        // Body-index-backed scanners are excluded for run time only, not correctness: each costs
+        // seconds and this test does one run per section. A new body-index scanner added here
+        // would only make the test slower, never wrong.
+        string[] bodyIndexScanners =
+        [
+            LibrarySections.ScannerUnsafeMembers,
+            LibrarySections.ScannerTopLeverage,
+            LibrarySections.ScannerOptimizationOpportunities,
+            LibrarySections.ScannerResourceTriage,
+        ];
+
+        var registry = LibrarySections.CreateScannerRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var names = pipeline.ScannerBoundSections
+            .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
+            .Select(b => b.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.NotEmpty(names);
+
+        var (togetherExit, togetherOutput, _) = await RunAppAsync(
+            "library", assembly, "-S", string.Join(',', names), "--tips", "q");
+        Assert.Equal(0, togetherExit);
+
+        var rendered = 0;
+        foreach (var name in names)
+        {
+            var (aloneExit, aloneOutput, _) = await RunAppAsync(
+                "library", assembly, "-S", name, "--tips", "q");
+            Assert.Equal(0, aloneExit);
+
+            var alone = TryExtractSectionBody(aloneOutput, name);
+            Assert.Equal(TryExtractSectionBody(togetherOutput, name), alone);
+
+            if (alone != null)
+                rendered++;
+        }
+
+        // Non-vacuity: comparing two absent sections would pass without proving anything, so the
+        // sections that carry the removed fan-out's data must actually have rendered.
+        Assert.True(rendered > 2, $"Only {rendered} sections rendered; the comparison was near-vacuous.");
+    }
+
+    private static string? TryExtractSectionBody(string output, string sectionName)
+    {
+        // Split on '\n' and strip '\r' rather than on Environment.NewLine: captured output does
+        // not always carry the host's line ending, and a mismatch would silently yield one line
+        // and report every section as missing.
+        var lines = output.Split('\n').Select(l => l.TrimEnd('\r'));
+        var header = "## " + sectionName;
+        List<string> body = [];
+        var inSection = false;
+        var found = false;
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                if (inSection)
+                    break;
+                inSection = string.Equals(line, header, StringComparison.Ordinal);
+                found |= inSection;
+                continue;
+            }
+
+            if (inSection)
+                body.Add(line);
+        }
+
+        return found ? string.Join('\n', body).Trim() : null;
+    }
+
     [Fact]
     public async Task LibraryCommand_CountMap_RendersSectionsAlphabetically()
     {
