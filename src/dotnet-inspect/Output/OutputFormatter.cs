@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using System.Text.Json;
 using DotnetInspector.Options;
@@ -149,6 +150,23 @@ public static class OutputFormatter
                 markoutWriter.WriteTable([displayName], [stableName], rows);
             else
                 markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
+            markoutWriter.Flush();
+        });
+    }
+
+    /// <summary>
+    /// Writes a version list annotated with listing status as a two-column Version/Listing table.
+    /// Used by <c>--versions --include-unlisted</c> so unlisted versions are marked rather than
+    /// silently included.
+    /// </summary>
+    public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
+        bool tsv, bool jsonl, TextWriter output)
+    {
+        var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
+        WriteTable(output, showHeader: false, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
             markoutWriter.Flush();
         });
     }
