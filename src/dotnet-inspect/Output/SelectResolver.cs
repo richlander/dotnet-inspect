@@ -39,21 +39,48 @@ public static class SelectResolver
     {
         ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
         ["IL Offset"] = SectionNames.ILOffset,
+        ["Source Location"] = SectionNames.ILOffset,
+        ["Member Context"] = SectionNames.MemberContext,
+        ["Instruction Context"] = SectionNames.InstructionContext,
+        ["Exception Context"] = SectionNames.ExceptionContext,
+        ["Callsite Context"] = SectionNames.CallsiteContext,
+        ["Return Address Context"] = SectionNames.ReturnAddressContext,
+        ["Allocation Context"] = SectionNames.AllocationContext,
+        ["Safety Context"] = SectionNames.SafetyContext,
+        ["Cost Context"] = SectionNames.CostContext,
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
+        ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
+        ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
+        ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Source Files"] = SectionNames.SourceLinkFiles,
+        ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
+        ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
+        ["SourceLink Integrity"] = SectionNames.SourceLinkIntegrity,
+        ["Escape: Array Pool"] = SectionNames.ArrayPoolEscapes,
+        ["Source Link: Files"] = SectionNames.SourceLinkFiles,
+        ["Source Link: Availability"] = SectionNames.SourceLinkAvailability,
+        ["Source Link: Missing Files"] = SectionNames.SourceLinkMissingFiles,
+        ["Source Link: Integrity"] = SectionNames.SourceLinkIntegrity,
+        ["Performance: Closures and delegates"] = SectionNames.PerformanceClosures,
+        ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
+        ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
     };
 
     /// <summary>
-    /// Bare names that expand to a whole category. Used so the retired library "Performance
-    /// Triage" monolith, and the ergonomic bare "Performance", resolve to the curated
-    /// <c>@Performance</c> group. Only applied when the category exists in the current command's
-    /// section set and the value is not itself an exact section name (so the type/member
-    /// "Performance Triage" section still resolves directly).
+    /// Bare names that expand to a whole category. Used so retired library rollup sections — the
+    /// "Performance Triage" monolith and the "Integrations" rollup — and the ergonomic bare
+    /// "Performance" resolve to their curated group. Only applied when the category exists in the
+    /// current command's section set and the value is not itself an exact section name (so the
+    /// type/member "Performance Triage" section still resolves directly).
     /// </summary>
     static readonly Dictionary<string, string> CategoryAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Performance"] = SectionCategoryNames.Performance,
         ["Performance Triage"] = SectionCategoryNames.Performance,
         ["Optimization Opportunities"] = SectionCategoryNames.Performance,
+        ["SourceLink"] = SectionCategoryNames.SourceLink,
+        ["Source Link"] = SectionCategoryNames.SourceLink,
+        [EcosystemIntegrationNames.Integrations] = SectionCategoryNames.Integrations,
     };
 
     public static bool IsAllSelector(string[]? select)
