@@ -11,6 +11,12 @@ namespace DotnetInspector.Output;
 /// every message carries untrusted text by construction. Containment therefore
 /// belongs here, at the one write, rather than at the hundred-odd call sites
 /// that compose the text (issue #3319).
+///
+/// Enforced by <c>CommandErrorOwnershipTests.CommandError_IsTheOnlyWriterOfStderr</c>,
+/// which fails if this class writes to the stream itself instead of routing
+/// through <see cref="CommandError"/>, and demonstrated end to end by the
+/// <c>verbose-progress</c> channel of
+/// <c>UntrustedArgumentDiagnosticContainmentTests</c>.
 /// </remarks>
 public class VerboseLogger(bool enabled)
 {

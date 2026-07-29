@@ -493,17 +493,24 @@ internal static class NetworkClientKinds
 // pipeline, so a write that targeted the ambient Console.Error could land after a
 // test had swapped/disposed it (issue #705); binding the sink up front removes that
 // coupling, and the caller scopes the subscription's lifetime around the sink's.
-internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink) : IObserver<NetworkRequestObservation>
+//
+// The observed URL carries the package id the user asked for, so every line here is
+// attacker-reachable and lands on stderr at column 0. Containment is a required
+// constructor parameter for the same reason it is one on RequestMermaidDiagram: this
+// assembly cannot reach ILInspector.CSharp (runfaster depends on Core and must not
+// grow a metadata dependency), and a defaulted seam is one a caller can forget.
+internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink, Func<string, string> contain)
+    : IObserver<NetworkRequestObservation>
 {
     public void OnNext(NetworkRequestObservation observation)
     {
-        sink.WriteLine(
-            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}");
+        sink.WriteLine(contain(
+            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}"));
 
         if (observation is { TrafficKind: NetworkTrafficKind.VulnerabilityData, IsAllowedByPolicy: false })
         {
-            sink.WriteLine(
-                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}");
+            sink.WriteLine(contain(
+                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}"));
         }
     }
 

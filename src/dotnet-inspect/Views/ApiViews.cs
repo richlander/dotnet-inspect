@@ -1004,8 +1004,29 @@ public record UnsafeMemberRow(
     string Reason,
     string Detail,
     string Kind,
-    [property: MarkoutSkipNull] string? IL,
-    [property: MarkoutSkipNull] string? Token);
+    string? IL,
+    string? Token)
+{
+    // Every positional property is redeclared, in constructor order, because
+    // PositionalRecordPropertyOrderTests requires all or none: a partial
+    // redeclaration reorders the reflected properties and so reorders the
+    // rendered columns.
+    public string Member { get; init; } = Member;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Reason { get; init; } = LibraryViewText.Contain(Reason);
+
+    public string Detail { get; init; } = Detail;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    [MarkoutSkipNull]
+    public string? IL { get; init; } = IL;
+
+    [MarkoutSkipNull]
+    public string? Token { get; init; } = Token;
+}
 
 [MarkoutSerializable]
 public record OptimizationOpportunityRow(
@@ -1055,7 +1076,34 @@ public record TopLeverageRow(
     string Fanout,
     string Depth,
     string LoopCalls,
-    [property: MarkoutSkipNull] string? Visibility = null,
-    [property: MarkoutSkipNull] string? Generated = null,
-    [property: MarkoutSkipNull] string? Stable = null,
-    [property: MarkoutSkipNull] string? Selector = null);
+    string? Visibility = null,
+    string? Generated = null,
+    string? Stable = null,
+    string? Selector = null)
+{
+    // All or none, in constructor order — see UnsafeMemberRow.
+    public string Member { get; init; } = Member;
+
+    public string Callers { get; init; } = Callers;
+
+    public string RootReach { get; init; } = RootReach;
+
+    public string Fanout { get; init; } = Fanout;
+
+    public string Depth { get; init; } = Depth;
+
+    public string LoopCalls { get; init; } = LoopCalls;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Visibility { get; init; } = LibraryViewText.Contain(Visibility);
+
+    [MarkoutSkipNull]
+    public string? Generated { get; init; } = Generated;
+
+    [MarkoutSkipNull]
+    public string? Stable { get; init; } = Stable;
+
+    [MarkoutSkipNull]
+    public string? Selector { get; init; } = Selector;
+}

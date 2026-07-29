@@ -22,48 +22,55 @@ public class LibraryInspectionView
     }
 
     [MarkoutIgnore]
-    public string? Tfm => _topFieldsOnly ? null : _data.Tfm;
+    public string? Tfm => _topFieldsOnly ? null : LibraryViewText.Contain(_data.Tfm);
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("File")]
-    public string FileName => _data.FileName;
+    public string FileName => LibraryViewText.Contain(_data.FileName);
 
     // ===== Top fields (first 7 auto-fields, rendered inline for -v:q compact summary) =====
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Name => _topFieldsOnly ? _data.AssemblyInfo?.AssemblyName : null;
+    public string? Name => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.AssemblyName) : null;
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Version => _topFieldsOnly ? LibraryInspectionDisplay.ResolveVersion(_data) : null;
+    public string? Version => _topFieldsOnly ? LibraryViewText.Contain(LibraryInspectionDisplay.ResolveVersion(_data)) : null;
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("TFM")]
     [MarkoutSkipNull]
-    public string? TargetFramework => _topFieldsOnly ? _data.AssemblyInfo?.TargetFramework : null;
+    public string? TargetFramework => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.TargetFramework) : null;
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Arch")]
     [MarkoutSkipNull]
-    public string? Architecture => _topFieldsOnly ? _data.AssemblyInfo?.Architecture : null;
+    public string? Architecture => _topFieldsOnly ? LibraryViewText.Contain(_data.AssemblyInfo?.Architecture) : null;
 
     [MarkoutPropertyName("Size")]
     [MarkoutSkipNull]
     public string? FileSize => _topFieldsOnly ? (_data.FileSize > 0 ? ByteSizeFormatter.FormatBytes(_data.FileSize) : null) : null;
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Source => _topFieldsOnly ? _data.Source : null;
+    public string? Source => _topFieldsOnly ? LibraryViewText.Contain(_data.Source) : null;
 
     [MarkoutSkipNull]
     public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Library")]
     public string? AssemblySummary => _data.AssemblyInfo switch
     {
         null => null,
-        var info => string.Join(", ", new[]
+        var info => LibraryViewText.Contain(string.Join(", ", new[]
         {
             info.Architecture,
             info.TargetFramework,
             info.CompilationType,
             info.IsSigned ? "Signed" : null
-        }.Where(s => !string.IsNullOrEmpty(s)))
+        }.Where(s => !string.IsNullOrEmpty(s))))
     };
 
     [MarkoutPropertyName("API")]
@@ -1039,7 +1046,8 @@ public record ExtensionMethodRow(
     /// <inheritdoc cref="LibraryViewText"/>
     public string Name { get; init; } = LibraryViewText.Contain(Name);
 
-    public string Kind { get; init; } = Kind;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Extended Type")]
@@ -1096,7 +1104,8 @@ public record AsyncMethodRow(
     [MarkoutPropertyName("Declaring Type")]
     public string DeclaringType { get; init; } = DeclaringType;
 
-    public string Kind { get; init; } = Kind;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
     public string Signature { get; init; } = Signature;
 }
@@ -1463,11 +1472,33 @@ public record ResourceTriageRow(
 public record PerformanceRow(
     string Member,
     string Evidence,
-    [property: MarkoutSkipNull] string? Allocation,
-    [property: MarkoutSkipNull] string? Loop,
+    string? Allocation,
+    string? Loop,
     string Reach,
-    [property: MarkoutSkipNull] string? Weight,
-    string Confidence);
+    string? Weight,
+    string Confidence)
+{
+    // All or none, in constructor order — see UnsafeMemberRow.
+    public string Member { get; init; } = Member;
+
+    public string Evidence { get; init; } = Evidence;
+
+    [MarkoutSkipNull]
+    public string? Allocation { get; init; } = Allocation;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Loop { get; init; } = LibraryViewText.Contain(Loop);
+
+    public string Reach { get; init; } = Reach;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Weight { get; init; } = LibraryViewText.Contain(Weight);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Confidence { get; init; } = LibraryViewText.Contain(Confidence);
+}
 
 /// <summary>
 /// A <see cref="PerformanceRow"/> prefixed with its kind label, used to flatten the per-kind
@@ -1649,7 +1680,8 @@ public record UnionTypeRow(
     /// <inheritdoc cref="LibraryViewText"/>
     public string Type { get; init; } = LibraryViewText.Contain(Type);
 
-    public string Kind { get; init; } = Kind;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
     [MarkoutPropertyName("IUnion")]
     public string IUnion { get; init; } = IUnion;

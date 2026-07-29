@@ -43,12 +43,26 @@ public class UntrustedArgumentDiagnosticContainmentTests
     private const string LineSeparator = "\u2028";
     private const string ParagraphSeparator = "\u2029";
 
+    /// <remarks>
+    /// A raw line feed and carriage return are the most direct forgery of all --
+    /// they need no rendering hazard, just a new line -- and the first version
+    /// of this gate omitted both, testing only the exotic terminators. A
+    /// reviewer pointed out that the one character the whole issue is about was
+    /// the one character never sent.
+    /// </remarks>
+    private const string LineFeed = "\n";
+    private const string CarriageReturn = "\r";
+
     public static TheoryData<string, string[]> HostileArgumentChannels()
     {
         var data = new TheoryData<string, string[]>();
         string library = ProductAssemblyPath();
 
-        foreach (string hazard in new[] { Bidi, VerticalTab, Escape, LineSeparator, ParagraphSeparator })
+        foreach (string hazard in new[]
+        {
+            Bidi, VerticalTab, Escape, LineSeparator, ParagraphSeparator, LineFeed, CarriageReturn,
+        })
+
         {
             string hostile = $"HOSTILE{hazard}INJECTEDARG";
 
@@ -225,8 +239,89 @@ public class UntrustedArgumentDiagnosticContainmentTests
         }
     }
 
-    private static void WriteEntry(ZipArchive archive, string name, string content)
+    /// <summary>
+    /// Pins the writer nobody in this repository owns: the one that prints an
+    /// exception nothing caught.
+    /// </summary>
+    /// <remarks>
+    /// System.CommandLine's default exception handler printed
+    /// <c>Unhandled exception: </c> and the raw exception to stderr at column 0.
+    /// That made it a second writer of this stream, outside every gate here --
+    /// the source scans see no <c>Console.Error.Write</c> and no severity
+    /// literal, because the code doing the writing is not in this repository.
+    /// An exception message routinely quotes attacker-reachable text, so
+    /// <c>--out "&lt;missing&gt;/x\nError: ..."</c> forged a complete diagnostic
+    /// with no product code involved, and a hostile .nupkg reached the same
+    /// printer through a zip-traversal or nuspec-parse throw. A plain user
+    /// mistake -- writing to a directory that does not exist -- was enough to
+    /// trigger it, so this was not an exotic path.
+    ///
+    /// The default handler is now off and the throw lands in the CLI's error
+    /// contract instead: one contained <c>Error:</c> line, with the full
+    /// exception detail preserved underneath as indented lines.
+    ///
+    /// Only path-legal hazards are exercised. U+000B, U+001B, LF, and CR are
+    /// invalid in a Windows path, so there the failure would come from path
+    /// validation without ever quoting the argument, and the non-vacuity
+    /// assertion would correctly refuse to call that a pass.
+    /// </remarks>
+    [Theory]
+    [InlineData(Bidi)]
+    [InlineData(LineSeparator)]
+    [InlineData(ParagraphSeparator)]
+    public void EscapingException_IsContainedRatherThanPrintedByTheRuntime(string hazard)
     {
+        string directory = Path.Combine(Path.GetTempPath(), "escape-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            string package = Path.Combine(directory, "Benign.Out.1.0.0.nupkg");
+            using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
+            {
+                WriteEntry(archive, "Benign.Out.nuspec", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package><metadata><id>Benign.Out</id><version>1.0.0</version>
+                    <description>d</description><authors>a</authors></metadata></package>
+                    """);
+                WriteEntry(archive, "lib/net8.0/Benign.Out.dll", "MZ");
+            }
+
+            // The parent directory is absent, so writing the output throws and
+            // the exception message quotes the whole path back.
+            string destination = Path.Combine(
+                directory, "missing", $"HOSTILE{hazard}INJECTEDARG", "out.md");
+
+            var (output, error) = RunCli(["package", package, "--out", destination]);
+            string combined = output + error;
+
+            HostileOutputAssert.MarkersRendered(combined, "escaping-exception", "INJECTEDARG");
+            HostileOutputAssert.NoRenderingHazard(combined, "escaping-exception");
+            HostileOutputAssert.NoLineSplit(combined, "INJECTEDARG");
+
+            // The runtime's printer is gone, not merely quieter: its banner is
+            // the tell, and its absence is what makes the line count meaningful.
+            Assert.DoesNotContain("Unhandled exception", combined, StringComparison.Ordinal);
+
+            // Every line the reader could mistake for a diagnostic must have
+            // come from the writer, so the exception detail is indented and the
+            // severity line is the only unindented one.
+            string[] unindented = [.. error.ReplaceLineEndings("\n").Split('\n')
+                .Where(l => l.Length > 0 && !l.StartsWith(' '))];
+            Assert.StartsWith("Error: ", Assert.Single(unindented), StringComparison.Ordinal);
+
+            // Nothing is dropped in exchange: the stack still reaches the
+            // reader, as indented detail.
+            Assert.Contains("DirectoryNotFoundException", error, StringComparison.Ordinal);
+            Assert.Contains("   at ", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static void WriteEntry(ZipArchive archive, string name, string content)    {
         using var stream = archive.CreateEntry(name).Open();
         using var writer = new StreamWriter(stream);
         writer.Write(content);

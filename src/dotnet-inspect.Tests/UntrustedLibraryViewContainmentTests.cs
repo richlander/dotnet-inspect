@@ -1262,3 +1262,172 @@ public class UntrustedErrorChannelContainmentTests
         HostileOutputAssert.NoLineSplit(combined, [marker]);
     }
 }
+
+/// <summary>
+/// Gate for <see cref="LibraryInspectionView"/> derived from the model's shape
+/// rather than from a list of fields someone remembered to write down.
+/// </summary>
+/// <remarks>
+/// Every hand-written fixture in this file is a bet that its author enumerated
+/// the whole surface, and that bet has now lost twice on the same view. The
+/// second time is the instructive one: <see cref="UntrustedILOffsetContainmentTests"/>
+/// says in its own comment that "enumerating by hand is what failed... the
+/// fields are listed here so the omission cannot repeat silently", and the very
+/// next line hard-codes <c>FileName = "hostile.dll"</c>. The view's <c>File</c>
+/// heading, its <c>Name</c>, <c>Version</c>, <c>TFM</c>, <c>Arch</c>,
+/// <c>Source</c>, and <c>Library</c> fields were all raw, and a reviewer read a
+/// bidi override straight off a heading on stdout while every gate here was
+/// green.
+///
+/// So the fixture is generated from <see cref="LibraryInspection"/> by
+/// reflection: every string anywhere in the graph carries the hazard, and a
+/// property added to the model is hostile the day it is added. That is the same
+/// move that fixed the stderr scan -- derive the scope from the structure, so
+/// the set cannot go stale -- and it is the only version of this test that
+/// stays true as the model grows.
+///
+/// The boundary: this gate covers <see cref="LibraryInspection"/> only. The
+/// other view roots still hold their containment by construction-site
+/// discipline rather than by the type -- roughly 290 raw string members, none
+/// of which a real hostile assembly reaches today. That is an unverified
+/// invariant, not a verified one, and it is tracked as #3463. Pointing this
+/// fixture at another view root is the intended way to close it.
+/// </remarks>
+public class LibraryViewShapeDerivedContainmentTests
+{
+    private const string Hazard = "\u000B";
+    private const string Hostile = $"H{Hazard}INJECTED";
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EveryStringInTheModel_RendersContained(bool topFieldsOnly)
+    {
+        var inspection = new LibraryInspection();
+        int filled = FillStrings(inspection, depth: 0);
+
+        // Non-vacuity for the filler itself: a reflection walk that silently
+        // stopped early would leave a clean model and prove nothing.
+        Assert.True(filled > 40, $"the filler only reached {filled} strings, so it is not covering the model");
+
+        var output = MarkoutSerializer.Serialize(
+            new LibraryInspectionView(inspection, topFieldsOnly), InspectionContext.Default);
+
+        // Non-vacuity for the render: the hostile text has to have reached the
+        // output, or the hazard scan below is asserting nothing.
+        int rendered = 0;
+        for (int i = output.IndexOf("INJECTED", StringComparison.Ordinal); i >= 0;
+             i = output.IndexOf("INJECTED", i + 1, StringComparison.Ordinal))
+        {
+            rendered++;
+        }
+
+        Assert.True(rendered > 0, "no hostile text rendered, so this gate proves nothing about the view");
+
+        HostileOutputAssert.NoRenderingHazard(output, "library-view-shape");
+        HostileOutputAssert.NoLineSplit(output, "INJECTED");
+    }
+
+    /// <summary>
+    /// Sets every reachable string to the hostile value, creating nested models
+    /// and single-element lists on the way. Returns the number of strings set.
+    /// </summary>
+    /// <remarks>
+    /// Numbers and booleans are left alone. Several sections are gated on a
+    /// count being positive, so filling those would render more -- but it would
+    /// also invent states the analyzers never produce, and a gate that fails on
+    /// an impossible model teaches nothing. The strings are the untrusted part;
+    /// they are what this walks.
+    /// </remarks>
+    private static int FillStrings(object target, int depth)
+    {
+        if (depth > 4)
+        {
+            return 0;
+        }
+
+        int count = 0;
+        foreach (var property in target.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length > 0)
+            {
+                continue;
+            }
+
+            var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+
+            if (type == typeof(string))
+            {
+                if (property.CanWrite)
+                {
+                    property.SetValue(target, Hostile);
+                    count++;
+                }
+
+                continue;
+            }
+
+            if (type.IsPrimitive || type.IsEnum || type == typeof(DateTime) || type == typeof(decimal))
+            {
+                continue;
+            }
+
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                if (!property.CanWrite)
+                {
+                    continue;
+                }
+
+                // The list is always assigned, even when its element cannot be
+                // filled. Leaving one null produces a model no analyzer emits,
+                // and the view then throws on it -- a failure that says nothing
+                // about containment.
+                var element = type.GetGenericArguments()[0];
+                var list = (System.Collections.IList)Activator.CreateInstance(type)!;
+
+                if (element == typeof(string))
+                {
+                    list.Add(Hostile);
+                    count++;
+                }
+                else if (CanCreate(element))
+                {
+                    var item = Activator.CreateInstance(element)!;
+                    count += FillStrings(item, depth + 1);
+                    list.Add(item);
+                }
+
+                property.SetValue(target, list);
+                continue;
+            }
+
+            if (!CanCreate(type))
+            {
+                continue;
+            }
+
+            var existing = property.GetValue(target);
+            if (existing is null)
+            {
+                if (!property.CanWrite)
+                {
+                    continue;
+                }
+
+                existing = Activator.CreateInstance(type)!;
+                property.SetValue(target, existing);
+            }
+
+            count += FillStrings(existing, depth + 1);
+        }
+
+        return count;
+    }
+
+    private static bool CanCreate(Type type) =>
+        type.IsClass
+            && !type.IsAbstract
+            && type.Namespace?.StartsWith("DotnetInspector", StringComparison.Ordinal) == true
+            && type.GetConstructor(Type.EmptyTypes) is not null;
+}

@@ -72,8 +72,26 @@ public class CommandErrorOwnershipTests
     /// argument it quoted reached stderr uncontained. Severity now belongs to
     /// the writer, and a call site that reaches for the old shape fails here.
     /// </remarks>
+    /// <summary>
+    /// Matches stderr reaching code as anything other than a direct write --
+    /// aliased into a local, passed as an argument, or taken as a raw handle.
+    /// </summary>
+    /// <remarks>
+    /// The first version matched only the argument position,
+    /// <c>[(,]\s*Console\s*\.\s*Error\s*[,)]</c>, and a reviewer defeated it in
+    /// one line: <c>var sink = Console.Error;</c> followed by
+    /// <c>Serialize(view, sink, ...)</c> added a fifth uncontained sink and the
+    /// test stayed green, because the count it asserts never moved.
+    /// <c>writer: Console.Error</c>, <c>Console.OpenStandardError()</c> and
+    /// <c>Console.SetError</c> were invisible the same way.
+    ///
+    /// So the rule is the complement of the one next to it: every mention of
+    /// the stream that is not <c>Console.Error.Write</c> hands it to something
+    /// else, and that is precisely the shape
+    /// <see cref="CommandError_IsTheOnlyWriterOfStderr"/> cannot judge.
+    /// </remarks>
     private static readonly Regex StderrSink =
-        new(@"[(,]\s*Console\s*\.\s*Error\s*[,)]", RegexOptions.Compiled);
+        new(@"Console\s*\.\s*(Error\b(?!\s*\.\s*Write)|OpenStandardError|SetError)", RegexOptions.Compiled);
 
     private static readonly Regex StderrWrite =
         new(@"Console\s*\.\s*Error\s*\.\s*Write(Line)?\s*\(", RegexOptions.Compiled);
@@ -113,6 +131,40 @@ public class CommandErrorOwnershipTests
         return seen;
     }
 
+    /// <summary>
+    /// Every C# file belonging to code that runs inside the CLI process.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the CLI's transitive ProjectReference closure rather than a
+    /// directory. Scoping the stream rule to <c>src/dotnet-inspect</c> left its
+    /// sibling <c>CommandError_IsTheOnlyWriterOfTheErrorPrefix</c> correct and
+    /// this one blind: a reviewer added <c>Console.Error.WriteLine(untrusted)</c>
+    /// to <c>DotnetInspector.Services</c> -- in-process, on a hostile-nuspec
+    /// path -- and the suite stayed green. The closure is the exact set, and it
+    /// found a real uncontained sink in <c>DotnetInspector.Core</c> the moment
+    /// it was applied.
+    /// </remarks>
+    private static IEnumerable<string> CliSourceFiles(string root) =>
+        ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj"))
+            .Select(Path.GetDirectoryName)
+            .OfType<string>()
+            .SelectMany(d => Directory.EnumerateFiles(d, "*.cs", SearchOption.AllDirectories));
+
+    /// <summary>
+    /// True when the match at <paramref name="index"/> sits inside a comment.
+    /// </summary>
+    /// <remarks>
+    /// These rules are about code, and both of them describe their own subject
+    /// in prose directly above it, so a scan that cannot tell the two apart
+    /// reports its own documentation.
+    /// </remarks>
+    private static bool IsInComment(string text, int index)
+    {
+        int lineStart = text.LastIndexOf('\n', Math.Max(index - 1, 0)) + 1;
+        string before = text[lineStart..index];
+        return before.Contains("//", StringComparison.Ordinal)
+            || before.TrimStart().StartsWith('*');
+    }
 
     /// <summary>
     /// Pins the rule that actually closes this class of defect: outside the
@@ -148,11 +200,14 @@ public class CommandErrorOwnershipTests
     /// <list type="bullet">
     /// <item><c>Output/Hints.cs</c> x2 -- Markout views whose untrusted field
     /// is contained when the row is built.</item>
-    /// <item><c>Program.cs</c> --info -- a Markout view of counts and
-    /// durations, carrying no caller text.</item>
+    /// <item><c>Program.cs</c> --info -- a Markout view of counts, durations,
+    /// and the readme path from inside the .nupkg.</item>
     /// <item><c>Program.cs</c> --trace-mermaid -- contained at composition,
     /// with containment a required parameter so no caller can omit it, and
     /// gated end to end by the trace-mermaid channel.</item>
+    /// <item><c>DotnetInspector.Core/HttpClientFactory.cs</c> -- the DEBUG-only
+    /// network traffic log, whose URL carries the package id from argv;
+    /// contained through a required constructor parameter.</item>
     /// </list>
     /// <see cref="StderrSinks_AreStillTheOnesAccountedFor"/> fails when this
     /// list goes stale.
@@ -164,8 +219,7 @@ public class CommandErrorOwnershipTests
         string owner = Path.Combine(root, "src", "dotnet-inspect", "Output", "CommandError.cs");
 
         List<string> offenders = [];
-        foreach (string path in Directory.EnumerateFiles(
-            Path.Combine(root, "src", "dotnet-inspect"), "*.cs", SearchOption.AllDirectories))
+        foreach (string path in CliSourceFiles(root))
         {
             if (string.Equals(path, owner, StringComparison.Ordinal))
             {
@@ -175,13 +229,12 @@ public class CommandErrorOwnershipTests
             string text = File.ReadAllText(path);
             foreach (Match match in StderrWrite.Matches(text))
             {
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                string source = text[match.Index..];
-                if (source.TrimStart().StartsWith("///", StringComparison.Ordinal))
+                if (IsInComment(text, match.Index))
                 {
                     continue;
                 }
 
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
                 offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value}");
             }
         }
@@ -194,37 +247,60 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
-    /// Pins the set of places that hand stderr to a renderer as a sink, which
-    /// is the one shape <see cref="CommandError_IsTheOnlyWriterOfStderr"/>
-    /// cannot check. A new sink is a real risk -- one of the four was a live
-    /// forgery -- so adding one must fail here and force a decision about how
-    /// its text is contained.
+    /// Pins the set of places that hand stderr to something other than a direct
+    /// write, which is the one shape
+    /// <see cref="CommandError_IsTheOnlyWriterOfStderr"/> cannot check. A new
+    /// sink is a real risk -- two of these five were live forgeries -- so adding
+    /// one must fail here and force a decision about how its text is contained.
     /// </summary>
+    /// <remarks>
+    /// The assertion is the set of sites, not their number. Asserting
+    /// <c>sinks.Count == 4</c> made the test blind in exactly the direction it
+    /// exists to watch: a reviewer aliased <c>Console.Error</c> into a local,
+    /// added a fifth uncontained sink alongside the four real ones, and the
+    /// count-based version passed. A per-file tally moves with any addition,
+    /// including one that replaces a site it also removes.
+    /// </remarks>
     [Fact]
     public void StderrSinks_AreStillTheOnesAccountedFor()
     {
         string root = RepositoryRoot();
-        List<string> sinks = [];
+        Dictionary<string, int> sinks = new(StringComparer.Ordinal);
 
-        foreach (string path in Directory.EnumerateFiles(
-            Path.Combine(root, "src", "dotnet-inspect"), "*.cs", SearchOption.AllDirectories))
+        foreach (string path in CliSourceFiles(root))
         {
             string text = File.ReadAllText(path);
             foreach (Match match in StderrSink.Matches(text))
             {
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                sinks.Add($"{Path.GetRelativePath(root, path).Replace('\\', '/')}:{line}");
+                if (IsInComment(text, match.Index))
+                {
+                    continue;
+                }
+
+                string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+                sinks[relative] = sinks.TryGetValue(relative, out int count) ? count + 1 : 1;
             }
         }
 
-        sinks.Sort(StringComparer.Ordinal);
+        Dictionary<string, int> accounted = new(StringComparer.Ordinal)
+        {
+            // Markout views of the tips and legend; every field of both rows is
+            // contained where the row is built.
+            ["src/dotnet-inspect/Output/Hints.cs"] = 2,
 
-        Assert.True(
-            sinks.Count == 4,
-            "The set of stderr sinks changed. Each one bypasses the stream rule, so decide how "
-                + "its text is contained, gate it end to end, and update this list and the remarks "
-                + $"on CommandError_IsTheOnlyWriterOfStderr:{Environment.NewLine}"
-                + string.Join(Environment.NewLine, sinks));
+            // --info (a view of counts and durations, plus the readme path from
+            // inside the .nupkg, contained at row construction) and
+            // --trace-mermaid (contained at composition, containment a required
+            // parameter so no caller can omit it).
+            ["src/dotnet-inspect/Program.cs"] = 2,
+
+            // DEBUG-only network traffic log. Not in the shipped build, but the
+            // logged URL carries the package id from argv, so its consumer takes
+            // containment as a required constructor parameter.
+            ["src/DotnetInspector.Core/HttpClientFactory.cs"] = 1,
+        };
+
+        Assert.Equal(accounted, sinks);
     }
 
     /// <summary>
@@ -237,6 +313,21 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrWrite, "        Console.Error.WriteLine($\"{a}\");");
         Assert.Matches(StderrWrite, "Console.Error.Write(x);");
         Assert.DoesNotMatch(StderrWrite, "MarkoutSerializer.Serialize(view, Console.Error, ctx);");
+
+        // The sink scan has to see the stream however it is handed over, not
+        // only in argument position: each of these was green under the earlier
+        // pattern, and the first is the one a reviewer used to smuggle a fifth
+        // sink past a passing test.
+        Assert.Matches(StderrSink, "var sink = Console.Error;");
+        Assert.Matches(StderrSink, "Serialize(view, writer: Console.Error, ctx);");
+        Assert.Matches(StderrSink, "using var s = Console.OpenStandardError();");
+        Assert.Matches(StderrSink, "Console.SetError(w);");
+        Assert.DoesNotMatch(StderrSink, "Console.Error.WriteLine(x);");
+
+        // The comment filter must exempt prose without exempting code that
+        // merely follows a comment on an earlier line.
+        Assert.True(IsInComment("// see Console.Error for why\n", 10));
+        Assert.False(IsInComment("// prose\nvar sink = Console.Error;\n", 20));
 
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
@@ -262,6 +353,10 @@ public class CommandErrorOwnershipTests
         // points and cannot reach this writer at all. The closure is the exact
         // set: a project newly referenced by the CLI is covered automatically,
         // and a separate tool never is.
+        //
+        // Excluding mdi is mechanically right and substantively a gap: it reads
+        // the same untrusted metadata and renders it uncontained. That is
+        // tracked as its own issue (#3444), not silently inherited from here.
         string[] products = [.. ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj"))
             .Select(Path.GetDirectoryName)
             .OfType<string>()];

@@ -23,6 +23,9 @@ public enum ShapeProjectionKind
 /// path does not go through the section views that contain them. Containing at
 /// each producer would restate the rule fourteen times, so it lives on the
 /// record instead: a new projection cannot reopen the hole (issue #3319).
+/// Enforced by
+/// <c>UntrustedProjectionContainmentTests.ShapeProjectionRow_WithHostileText_ContainsEveryUntrustedField</c>,
+/// which sets every field hostile and fails if one renders raw.
 ///
 /// <c>Row</c> and <c>Section</c> are tool-owned -- a row number and a section
 /// name drawn from a fixed set -- so neither is contained. Every positional

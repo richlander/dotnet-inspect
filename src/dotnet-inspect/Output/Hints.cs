@@ -40,6 +40,11 @@ public static class Hints
             // comment is a literal, but that is a fact about the seven current
             // tips rather than a property of the type, and containing a literal
             // costs nothing.
+            //
+            // This write hands the stream to a serializer, which the stream
+            // rule cannot inspect, so the site itself is pinned by
+            // CommandErrorOwnershipTests.StderrSinks_AreStillTheOnesAccountedFor:
+            // adding a sink here changes that test's per-file tally and fails.
             Commands = visible.Select(t => new TipRow(
                 CSharpIdentifier.ContainRenderedText(t.CommandText),
                 CSharpIdentifier.ContainRenderedText(t.Comment))).ToList()

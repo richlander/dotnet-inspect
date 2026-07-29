@@ -53,6 +53,29 @@ internal static class CommandError
         => WriteDiagnostic("Error", message, details);
 
     /// <summary>
+    /// Writes an exception that escaped every handler, as one contained
+    /// <c>Error:</c> line followed by its full detail indented.
+    /// </summary>
+    /// <remarks>
+    /// Without this, the .NET runtime prints the escaping exception itself, at
+    /// column 0, with the message interpolated raw -- the one writer of this
+    /// stream that cannot be routed through here, because it is not product
+    /// code. An exception message routinely quotes attacker-reachable text (an
+    /// <c>--out</c> path, a zip entry name, a nuspec fragment), so that printer
+    /// emitted forged unindented diagnostics for free.
+    ///
+    /// Nothing is dropped: the whole <see cref="Exception.ToString"/>, stack
+    /// frames and inner exceptions included, still reaches the reader. It
+    /// arrives as indented detail because an unindented line is the thing that
+    /// can be mistaken for a diagnostic, not the text itself.
+    /// </remarks>
+    public static void WriteUnhandled(Exception ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        Write(ex.Message, [.. ex.ToString().ReplaceLineEndings("\n").Split('\n')]);
+    }
+
+    /// <summary>
     /// Writes <c>Warning: &lt;message&gt;</c> to stderr with the message
     /// contained.
     /// </summary>

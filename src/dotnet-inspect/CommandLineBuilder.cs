@@ -55,6 +55,15 @@ public static class CommandLineBuilder
     /// invoke choke point: the product entry point and the test harness both call it, so a
     /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
     /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
+    ///
+    /// It is also where an escaping exception is turned back into the CLI's error
+    /// contract. System.CommandLine's own default handler would otherwise print
+    /// <c>Unhandled exception: </c> and the raw exception to stderr at column 0, which
+    /// makes it a second, uncontained writer of this stream: an exception message quotes
+    /// attacker-reachable text (an <c>--out</c> path, a zip entry name, a nuspec
+    /// fragment), so a line terminator in that text forged a diagnostic outright. Turning
+    /// the default handler off and catching here rather than only at the entry point
+    /// keeps the containment on the path the test harness exercises too.
     /// </summary>
     public static async Task<int> InvokeAsync(ParseResult parseResult)
     {
@@ -63,9 +72,35 @@ public static class CommandLineBuilder
         if (!ProjectionAudit.ValidateExclusive(parseResult))
             return 1;
 
-        using var scope = ProjectionAudit.BeginRequest(parseResult);
-        return ProjectionAudit.Verify(await parseResult.InvokeAsync());
+        try
+        {
+            using var scope = ProjectionAudit.BeginRequest(parseResult);
+            return ProjectionAudit.Verify(await parseResult.InvokeAsync(ExceptionsReachTheCliErrorContract));
+        }
+        catch (RowWindowValidationException ex)
+        {
+            // Defensive: the --rows head/tail window is rejected at parse time by the
+            // command validator (SharedOptions.AddOutputOptionsTo), so this is not the
+            // primary path. Its message names no untrusted subject and needs no stack, so
+            // it keeps the plain one-line error contract.
+            CommandError.Write(ex);
+            return 1;
+        }
+        catch (OperationCanceledException)
+        {
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            CommandError.WriteUnhandled(ex);
+            return 1;
+        }
     }
+
+    private static readonly InvocationConfiguration ExceptionsReachTheCliErrorContract = new()
+    {
+        EnableDefaultExceptionHandler = false,
+    };
 
     /// <summary>
     /// Creates the root command with all subcommands configured.

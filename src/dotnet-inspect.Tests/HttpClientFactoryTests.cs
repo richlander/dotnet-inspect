@@ -111,7 +111,7 @@ public class HttpClientFactoryTests : IDisposable
     public async Task EnableNetworkTrafficLogging_PrintsTrafficKindWithoutBlocking()
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
@@ -139,7 +139,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -179,7 +179,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -325,7 +325,7 @@ public class HttpClientFactoryTests : IDisposable
         bool allowTrafficKind)
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
