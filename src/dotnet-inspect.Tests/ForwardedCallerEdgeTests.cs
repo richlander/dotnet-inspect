@@ -145,4 +145,34 @@ public class ForwardedCallerEdgeTests
         Assert.NotNull(scopes);
         Assert.NotEmpty(scopes);
     }
+
+    /// <summary>
+    /// Order independence. <c>DirectCallerScopes</c> reuses a scope another lens already opened, and
+    /// that shared scope is selected by a closure seeded on the target's own assembly name — so it
+    /// cannot contain an assembly that names the target only through a facade. Reusing it without
+    /// widening returns pre-#3419 behavior, and hands the matcher no aliases, for any request that
+    /// happens to resolve the shared scope first.
+    ///
+    /// <para>The CLI renders <c>Callers</c> before <c>Call Graph</c> today, so this is latent rather
+    /// than user-visible. It is pinned anyway because nothing in the type system enforces that
+    /// order, the failure is silent, and it is one section-ordering change away from shipping.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CallerEdges_FindTheForwardedCaller_EvenWhenAnotherLensResolvedTheScopeFirst(
+        bool includeAllocations)
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        var inspection = CreateForCallers(target!, [SelfPath]);
+
+        // The poisoning step: resolves and caches the shared, un-widened scope.
+        inspection.CallerScopes(includeAllocations);
+
+        var edges = inspection.CallerEdges(CreateFromUriToken(target!));
+
+        Assert.Contains(edges, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+    }
 }

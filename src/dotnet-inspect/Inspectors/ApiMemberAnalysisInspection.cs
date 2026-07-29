@@ -233,29 +233,45 @@ internal sealed class ApiMemberAnalysisInspection
         if (_callerScopeAssemblies is not { Count: > 0 })
             return null;
 
-        if (_graphScopesResolved && _graphScopes is not null)
-            return _graphScopes;
-        if (_callerScopesResolved && _callerScopes is not null)
-            return _callerScopes;
-
         var declaringType = Session.BodyIndex.Methods
             .FirstOrDefault(m => m.MetadataToken == methodToken)?.DeclaringType;
+        var openDeclaringType = declaringType is null
+            ? null
+            : Analysis.GenericMemberIdentity.OpenDeclaringType(declaringType);
+
+        // Resolved before the shared-scope reuse below, not after it. The matcher is handed this
+        // instance whichever scope set is returned, so populating it only on the narrowing path
+        // would leave the matcher alias-blind exactly when another lens had already resolved a
+        // scope — an order-dependent, silent loss of forwarded callers (found in review of #3419,
+        // reproducible with --allocations, which resolves the graph scope first).
+        var aliases = openDeclaringType is null
+            ? Analysis.ForwardedTypeAliases.None
+            : AliasesFor(openDeclaringType);
+
+        if (_graphScopesResolved && _graphScopes is not null)
+        {
+            return openDeclaringType is null
+                ? _graphScopes
+                : SharedScopeWidenedForAliases(
+                    openDeclaringType, _graphScopes, aliases, _includeAllocations);
+        }
+
+        if (_callerScopesResolved && _callerScopes is not null)
+        {
+            return openDeclaringType is null
+                ? _callerScopes
+                : SharedScopeWidenedForAliases(
+                    openDeclaringType, _callerScopes, aliases, includeAllocations: false);
+        }
 
         // Without a typed declaring identity there is nothing to narrow on, and the matcher falls
         // back to comparing display names, which are not assembly-qualified — an assembly-qualified
         // filter would then be stricter than the matcher and drop real callers.
-        if (declaringType is null)
+        if (openDeclaringType is null)
             return CallerScopes(includeAllocations: false);
 
-        var openDeclaringType = Analysis.GenericMemberIdentity.OpenDeclaringType(declaringType);
         if (_directCallerScopes.TryGetValue(openDeclaringType, out var cached))
             return cached;
-
-        // Computed once per target, before any candidate is classified, because both prefilters and
-        // the matcher have to be given the same instance. Reads only ExportedType tables.
-        var aliases = Analysis.ForwardedTypeAliases.ForTarget(
-            openDeclaringType, AliasEvidencePaths(), AliasSeedSpellings());
-        _directCallerAliases[openDeclaringType] = aliases;
 
         // SelectedScopePaths() is called unconditionally so its side effects — the shared cache and
         // the builder-routing evidence — happen exactly as they do today. When there are no aliases
@@ -280,6 +296,89 @@ internal sealed class ApiMemberAnalysisInspection
                     scopePath,
                     ApiAnalysisInspection.CreateReferenceResolver(scopePath, _options),
                     includeAllocations: false,
+                    includeOpportunities: false));
+            }
+            catch
+            {
+                // Caller scope is best-effort; unreadable assemblies do not contribute edges.
+            }
+        }
+
+        _directCallerScopes[openDeclaringType] = opened;
+        return opened;
+    }
+
+    /// <summary>
+    /// The forwarding aliases for one target type, resolved at most once per type.
+    ///
+    /// <para>This is deliberately reachable from every path that can return a caller scope. The
+    /// matcher is handed whatever this produced, so a path that returns a scope without visiting
+    /// here hands the matcher <see cref="Analysis.ForwardedTypeAliases.None"/> while the scope was
+    /// selected on other terms — the mismatch the type filter's own doc calls out as the one
+    /// arrangement that loses callers.</para>
+    /// </summary>
+    Analysis.ForwardedTypeAliases AliasesFor(Analysis.TypeRef openDeclaringType)
+    {
+        if (_directCallerAliases.TryGetValue(openDeclaringType, out var cached))
+            return cached;
+
+        // Reads only ExportedType tables.
+        var aliases = Analysis.ForwardedTypeAliases.ForTarget(
+            openDeclaringType, AliasEvidencePaths(), AliasSeedSpellings());
+        _directCallerAliases[openDeclaringType] = aliases;
+        return aliases;
+    }
+
+    /// <summary>
+    /// An already-opened shared scope, plus the assemblies only a facade spelling reaches.
+    ///
+    /// <para>Reusing the wider shared scope as-is is right for everything it contains — re-deciding
+    /// sessions whose decode is already paid for saves nothing. But it is not <em>sufficient</em>,
+    /// because that scope was selected by a closure seeded on the target's own assembly name. An
+    /// assembly that names the target only through a facade is absent from it by construction, so
+    /// reuse alone silently returns to pre-#3419 behavior for exactly the callers this change
+    /// exists to find.</para>
+    ///
+    /// <para>Only the paths the shared selection lacks are opened, so the reuse property is kept
+    /// and the added cost is bounded by the widening itself. The shared list is never mutated;
+    /// the graph lens keeps its own scope unchanged.</para>
+    /// </summary>
+    IReadOnlyList<MethodBodyInspectionSession> SharedScopeWidenedForAliases(
+        Analysis.TypeRef openDeclaringType,
+        IReadOnlyList<MethodBodyInspectionSession> shared,
+        Analysis.ForwardedTypeAliases aliases,
+        bool includeAllocations)
+    {
+        if (aliases.IsEmpty)
+            return shared;
+
+        if (_directCallerScopes.TryGetValue(openDeclaringType, out var cached))
+            return cached;
+
+        var selected = SelectedScopePaths();
+        var widened = ScopePathsWideningForAliases(selected, aliases);
+        if (widened.Count == selected.Count)
+            return shared;
+
+        var already = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var opened = new List<MethodBodyInspectionSession>(shared);
+        foreach (string scopePath in widened)
+        {
+            if (already.Contains(scopePath))
+                continue;
+
+            if (Analysis.CallerScopeTypeFilter.Classify(scopePath, openDeclaringType, aliases)
+                is Analysis.CallerScopeTypeFilter.TypeReferenceState.DoesNotName)
+            {
+                continue;
+            }
+
+            try
+            {
+                opened.Add(MethodBodyInspectionSession.Open(
+                    scopePath,
+                    ApiAnalysisInspection.CreateReferenceResolver(scopePath, _options),
+                    includeAllocations,
                     includeOpportunities: false));
             }
             catch

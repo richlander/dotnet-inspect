@@ -35,17 +35,23 @@ public sealed class ForwardedTypeAliases
 
     readonly HashSet<string> _aliases;
     readonly HashSet<string> _rawSpellings;
+    readonly Dictionary<string, byte[]> _spellingTokens;
 
-    ForwardedTypeAliases(HashSet<string> aliases, HashSet<string> rawSpellings)
+    ForwardedTypeAliases(
+        HashSet<string> aliases,
+        HashSet<string> rawSpellings,
+        Dictionary<string, byte[]> spellingTokens)
     {
         _aliases = aliases;
         _rawSpellings = rawSpellings;
+        _spellingTokens = spellingTokens;
     }
 
     /// <summary>No aliases: every comparison falls back to plain identity.</summary>
     public static ForwardedTypeAliases None { get; } = new(
         new HashSet<string>(StringComparer.Ordinal),
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase));
 
     public bool IsEmpty => _aliases.Count == 0;
 
@@ -68,6 +74,60 @@ public sealed class ForwardedTypeAliases
 
     /// <summary>Whether an assembly spells its name as one of the facades that forward the type.</summary>
     public bool IncludesRawSpelling(string assembly) => _rawSpellings.Contains(assembly);
+
+    /// <summary>
+    /// Whether a reference to <paramref name="rawSpelling"/> carrying
+    /// <paramref name="referenceToken"/> is a reference to the very assembly that supplied the
+    /// forwarder evidence for this alias.
+    ///
+    /// <para><b>Why this exists.</b> An alias is a bare assembly <em>name</em>, because that is all
+    /// a <see cref="TypeRef"/> records. Two different assemblies can share a simple name and differ
+    /// in strong-name identity, and without this check a forwarder read from one of them is applied
+    /// to a caller that bound against the other — reporting a call to an unrelated type as a call to
+    /// the target. That is a fabricated caller, which is worse than a missing one, and it is a
+    /// regression this change would otherwise introduce (found in review of #3419).</para>
+    ///
+    /// <para>Unrecorded spellings answer <see langword="true"/>: there is no evidence to contradict,
+    /// and this must never be the reason a candidate is ruled out.</para>
+    ///
+    /// <para>An absent token on <em>either</em> side also answers <see langword="true"/>. Only a
+    /// present-and-different token is evidence of a different assembly; a missing one is merely
+    /// unknown, and narrowing on unknown input is how a prefilter silently drops real callers. This
+    /// check exists to reject a demonstrated collision, not to require strong naming.</para>
+    /// </summary>
+    public bool EvidenceIdentityAgrees(string rawSpelling, ReadOnlySpan<byte> referenceToken)
+    {
+        if (referenceToken.IsEmpty)
+            return true;
+
+        if (!_spellingTokens.TryGetValue(rawSpelling, out byte[]? evidenceToken)
+            || evidenceToken.Length == 0)
+        {
+            return true;
+        }
+
+        return referenceToken.SequenceEqual(evidenceToken);
+    }
+
+    /// <summary>
+    /// The public key token an assembly reference would carry for an assembly whose full public
+    /// key is <paramref name="publicKey"/>: the low 8 bytes of its SHA-1, reversed. An unsigned
+    /// assembly has an empty token, which compares equal only to another empty token.
+    /// </summary>
+    static byte[] PublicKeyTokenOf(ReadOnlySpan<byte> publicKey)
+    {
+        if (publicKey.IsEmpty)
+            return [];
+
+        Span<byte> hash = stackalloc byte[20];
+        System.Security.Cryptography.SHA1.HashData(publicKey, hash);
+
+        var token = new byte[8];
+        for (int i = 0; i < 8; i++)
+            token[i] = hash[hash.Length - 1 - i];
+
+        return token;
+    }
 
     /// <summary>
     /// Whether <paramref name="assembly"/> is a facade spelling that forwards the target type to
@@ -154,7 +214,8 @@ public sealed class ForwardedTypeAliases
 
         // File name to path, for following a chain to its next hop without reopening the world.
         // A file whose name differs from its assembly name is simply not found here, which costs an
-        // alias and never invents one.
+        // alias and never invents one. Tracked as #3479; indexing by metadata identity instead would
+        // mean opening every evidence file, which is exactly what the seeded walk avoids.
         var pathsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string path in paths)
             pathsByName.TryAdd(Path.GetFileNameWithoutExtension(path), path);
@@ -171,6 +232,7 @@ public sealed class ForwardedTypeAliases
         // are already indistinguishable to the matcher.
         var forwardsTo = new Dictionary<string, string>(StringComparer.Ordinal);
         var rawByCanonical = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var tokensBySpelling = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var probed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int hop = 0; hop <= MaxHops && frontier.Count > 0; hop++)
@@ -195,6 +257,19 @@ public sealed class ForwardedTypeAliases
                     rawByCanonical[canonical] = raw = [];
                 raw.Add(edge.Assembly);
 
+                // Two files claiming one simple name cannot both answer for it. Recording only the
+                // first would let the loser's callers be validated against the winner's key, so an
+                // ambiguous spelling is marked unusable (empty token never matches a real one).
+                if (tokensBySpelling.TryGetValue(edge.Assembly, out byte[]? seen)
+                    && !seen.AsSpan().SequenceEqual(edge.Token))
+                {
+                    tokensBySpelling[edge.Assembly] = [0];
+                }
+                else
+                {
+                    tokensBySpelling.TryAdd(edge.Assembly, edge.Token);
+                }
+
                 // Follow the chain: the assembly this one forwards to may itself be a facade that
                 // no caller names, and dropping it would break a multi-hop chain.
                 if (pathsByName.TryGetValue(edge.Target, out string? nextPath)
@@ -212,6 +287,7 @@ public sealed class ForwardedTypeAliases
 
         var aliases = new HashSet<string>(StringComparer.Ordinal);
         var rawSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var spellingTokens = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         foreach (string spelling in forwardsTo.Keys)
         {
             // A spelling that already equals the target is not an alias; identity answers it.
@@ -220,11 +296,17 @@ public sealed class ForwardedTypeAliases
             {
                 aliases.Add(spelling);
                 foreach (string raw in rawByCanonical[spelling])
+                {
                     rawSpellings.Add(raw);
+                    if (tokensBySpelling.TryGetValue(raw, out byte[]? token))
+                        spellingTokens[raw] = token;
+                }
             }
         }
 
-        return aliases.Count == 0 ? None : new ForwardedTypeAliases(aliases, rawSpellings);
+        return aliases.Count == 0
+            ? None
+            : new ForwardedTypeAliases(aliases, rawSpellings, spellingTokens);
     }
 
     /// <summary>
@@ -266,7 +348,7 @@ public sealed class ForwardedTypeAliases
     /// points at, or null when it carries no such forwarder. Reads metadata only; an unreadable
     /// image contributes no alias, which leaves the matcher exactly where it is today.
     /// </summary>
-    static (string Assembly, string Target)? ReadForwarder(string path, string fullName)
+    static (string Assembly, string Target, byte[] Token)? ReadForwarder(string path, string fullName)
     {
         try
         {
@@ -280,12 +362,17 @@ public sealed class ForwardedTypeAliases
                 return null;
 
             string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
+            byte[] token = PublicKeyTokenOf(
+                reader.GetBlobContent(reader.GetAssemblyDefinition().PublicKey).AsSpan());
 
             foreach (var handle in reader.ExportedTypes)
             {
                 var exported = reader.GetExportedType(handle);
                 if (!exported.IsForwarder)
                     continue;
+                // A nested forwarded type's implementation is the enclosing ExportedType, not an
+                // AssemblyReference, so Outer+Inner forwarders are not recognized here. That loses an
+                // alias and never invents one; tracked as #3480.
                 if (exported.Implementation.Kind != HandleKind.AssemblyReference)
                     continue;
 
@@ -297,7 +384,7 @@ public sealed class ForwardedTypeAliases
 
                 var target = reader.GetAssemblyReference(
                     (AssemblyReferenceHandle)exported.Implementation);
-                return (assembly, reader.GetString(target.Name));
+                return (assembly, reader.GetString(target.Name), token);
             }
 
             return null;

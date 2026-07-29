@@ -140,7 +140,18 @@ public static class CallerScopeTypeFilter
                 if (decoded.Kind == TypeRefKind.Unsupported)
                     return TypeReferenceState.Undecidable;
 
-                if (ForwardedTypeAliases.DenotesSameType(decoded, openDeclaringType, aliases))
+                if (decoded.Equals(openDeclaringType))
+                    return TypeReferenceState.Names;
+
+                if (!ForwardedTypeAliases.DenotesSameType(decoded, openDeclaringType, aliases))
+                    continue;
+
+                // Matched only through an alias, so the strong-name identity behind the spelling is
+                // checked here — the one place that still has it. A TypeRef records a bare assembly
+                // name, so the matcher cannot tell two same-named assemblies apart; admitting this
+                // row without the check would let a forwarder read from one of them fabricate a
+                // caller that bound against the other.
+                if (AliasedScopeIsTheEvidenceAssembly(reader, handle, aliases!))
                     return TypeReferenceState.Names;
             }
         }
@@ -150,6 +161,32 @@ public static class CallerScopeTypeFilter
         }
 
         return TypeReferenceState.DoesNotName;
+    }
+
+    /// <summary>
+    /// Whether the assembly reference a type-forwarded row resolves through really is the assembly
+    /// that supplied the forwarder evidence, compared on public key token.
+    ///
+    /// <para>A row whose resolution scope is not an assembly reference — a nested type, or a
+    /// module-scoped row — carries no identity to contradict, and is admitted. This check may only
+    /// ever reject a spelling collision; it must never be the reason an ordinary candidate is ruled
+    /// out, because that would make this filter narrower than the matcher.</para>
+    /// </summary>
+    static bool AliasedScopeIsTheEvidenceAssembly(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        ForwardedTypeAliases aliases)
+    {
+        var typeReference = reader.GetTypeReference(handle);
+        if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+            return true;
+
+        var reference = reader.GetAssemblyReference(
+            (AssemblyReferenceHandle)typeReference.ResolutionScope);
+
+        return aliases.EvidenceIdentityAgrees(
+            reader.GetString(reference.Name),
+            reader.GetBlobContent(reference.PublicKeyOrToken).AsSpan());
     }
 
     /// <summary>

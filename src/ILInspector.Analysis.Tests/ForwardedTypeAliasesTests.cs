@@ -240,6 +240,59 @@ public class ForwardedTypeAliasesTests
         Assert.False(aliases.IncludesRawSpelling("System.Private.CoreLib"));
     }
 
+    /// <summary>
+    /// A forwarder is evidence about <em>one</em> assembly, not about every assembly that happens
+    /// to share its simple name. An alias records only a name, because that is all a
+    /// <see cref="TypeRef"/> carries, so without a strong-name check a facade signed with one key
+    /// would vouch for a caller that bound against a different assembly of the same name — and the
+    /// tool would report a call to an unrelated type as a call to the target.
+    ///
+    /// <para>Fabricating a caller is worse than missing one: a missing row is visibly absent, while
+    /// an invented row is indistinguishable from a real finding. Found in adversarial review of
+    /// #3419 against a real reproduction, so both directions are pinned here.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterRejectsAFacadeSpellingFromADifferentlySignedAssembly()
+    {
+        byte[] evidenceKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+        byte[] impostorKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", evidenceKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(
+            target, Directory.GetFiles(directory, "*.dll"));
+
+        Assert.False(aliases.IsEmpty);
+
+        using (var agreeing = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(evidenceKey)))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(agreeing.GetMetadataReader(), target, aliases));
+        }
+
+        using var impostor = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(impostorKey));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(impostor.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// The public key token for a public key, restated from ECMA-335 II.6.3 rather than shared with
+    /// the product code, so this is an independent oracle rather than the same computation twice.
+    /// </summary>
+    static byte[] TokenOf(byte[] publicKey)
+    {
+        byte[] hash = System.Security.Cryptography.SHA1.HashData(publicKey);
+        return [.. hash.Skip(hash.Length - 8).Reverse()];
+    }
+
     static string NewTempDirectory()    {
         string directory = Path.Combine(Path.GetTempPath(), "fwd-alias-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(directory);
@@ -248,8 +301,21 @@ public class ForwardedTypeAliasesTests
 
     /// <summary>Writes an assembly that forwards one type to another assembly.</summary>
     static void WriteForwarder(string directory, string name, string target, string ns, string typeName)
+        => WriteForwarder(directory, name, target, ns, typeName, publicKey: null);
+
+    /// <summary>
+    /// Writes a forwarder, optionally strong-named, so a test can vary the identity behind a
+    /// spelling while holding the spelling itself fixed.
+    /// </summary>
+    static void WriteForwarder(
+        string directory,
+        string name,
+        string target,
+        string ns,
+        string typeName,
+        byte[]? publicKey)
     {
-        var metadata = NewAssembly(name);
+        var metadata = NewAssembly(name, publicKey);
         var targetReference = metadata.AddAssemblyReference(
             metadata.GetOrAddString(target),
             new Version(1, 0, 0, 0),
@@ -270,13 +336,26 @@ public class ForwardedTypeAliasesTests
 
     /// <summary>Metadata for an image whose only TypeRef names one type in one assembly.</summary>
     static MetadataReaderProvider BuildCallerNaming(string assembly, string ns, string typeName)
+        => BuildCallerNaming(assembly, ns, typeName, publicKeyOrToken: null);
+
+    /// <summary>
+    /// The same, with an explicit public key token on the assembly reference — the identity a real
+    /// compiler emits when the referenced assembly is strong-named.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNaming(
+        string assembly,
+        string ns,
+        string typeName,
+        byte[]? publicKeyOrToken)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var reference = metadata.AddAssemblyReference(
             metadata.GetOrAddString(assembly),
             new Version(1, 0, 0, 0),
             culture: default,
-            publicKeyOrToken: default,
+            publicKeyOrToken: publicKeyOrToken is null
+                ? default
+                : metadata.GetOrAddBlob(publicKeyOrToken),
             flags: default,
             hashValue: default);
         metadata.AddTypeReference(
@@ -290,7 +369,9 @@ public class ForwardedTypeAliasesTests
         return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
     }
 
-    static MetadataBuilder NewAssembly(string name)
+    static MetadataBuilder NewAssembly(string name) => NewAssembly(name, publicKey: null);
+
+    static MetadataBuilder NewAssembly(string name, byte[]? publicKey)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -303,7 +384,7 @@ public class ForwardedTypeAliasesTests
             metadata.GetOrAddString(name),
             new Version(1, 0, 0, 0),
             culture: default,
-            publicKey: default,
+            publicKey: publicKey is null ? default : metadata.GetOrAddBlob(publicKey),
             flags: default,
             hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
 
