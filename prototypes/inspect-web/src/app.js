@@ -161,6 +161,8 @@ const state = {
   styleOptions: null,
   taste: loadStoredTaste(),
   tasteOpen: false,
+  settings: false,
+  settingsReturn: "home",
   typeCursor: 0,
   history: [],
   loading: true,
@@ -1015,6 +1017,14 @@ function updateCommandSuggestions() {
 }
 
 function render() {
+  // The Settings page is a modal-style full view layered over whatever the user came from
+  // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
+  // so it renders first and returns; closeSettings restores the underlying view.
+  if (state.settings) {
+    loadingBotSrc = null;
+    renderSettingsView();
+    return;
+  }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
@@ -1064,6 +1074,7 @@ function render() {
         <div class="title-actions">
           <button id="go-home" title="Back to the home page">home</button>
           <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
+          <button id="open-settings" title="Settings" aria-label="Open settings">⚙</button>
           <button id="share">share</button>
           <button id="help" aria-label="Keyboard help">?</button>
         </div>
@@ -2915,11 +2926,17 @@ function bindEvents() {
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#go-home").addEventListener("click", goHome);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
+  document.querySelector("#open-settings")?.addEventListener("click", () => openSettings("workbench"));
   document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
 function toggleTheme() {
-  state.theme = state.theme === "dark" ? "light" : "dark";
+  setTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+// Apply and persist a specific theme, refreshing any live graphs whose colors are theme-bound.
+function setTheme(theme) {
+  state.theme = theme === "light" ? "light" : "dark";
   localStorage.setItem("inspect-theme", state.theme);
   document.documentElement.dataset.theme = state.theme;
   render();
@@ -4311,6 +4328,7 @@ function renderHomeView() {
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
+          <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
@@ -4355,6 +4373,7 @@ function homeArtSvg() {
 
 function bindHomeEvents() {
   document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
+  document.querySelector("#home-settings")?.addEventListener("click", () => openSettings("home"));
   const input = document.querySelector("#spotlight-input");
   if (input) {
     input.addEventListener("input", event => {
@@ -5889,24 +5908,31 @@ const TASTE_TIERS = [
   ["Synthesis", "Name synthesis"]
 ];
 
-function renderTastePopover() {
+// The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
+// detail-view taste popover and the Settings page so both stay in lockstep with the engine's
+// StyleOptionCatalog (fetched once into state.styleOptions).
+function styleCatalogGroupsHtml() {
   const options = state.styleOptions || [];
-  const body = options.length
-    ? TASTE_TIERS
-        .filter(([tier]) => options.some(option => option.tier === tier))
-        .map(([tier, label]) => `
-          <div class="taste-group">
-            <div class="taste-group-title">${escapeHtml(label)}</div>
-            ${options.filter(option => option.tier === tier).map(option => `
-              <label class="taste-item">
-                <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
-                <span class="taste-item-text">
-                  <span class="taste-item-title">${escapeHtml(option.title)}${option.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
-                  <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
-                </span>
-              </label>`).join("")}
-          </div>`).join("")
-    : '<div class="taste-empty">Style catalog unavailable.</div>';
+  if (!options.length) return "";
+  return TASTE_TIERS
+    .filter(([tier]) => options.some(option => option.tier === tier))
+    .map(([tier, label]) => `
+      <div class="taste-group">
+        <div class="taste-group-title">${escapeHtml(label)}</div>
+        ${options.filter(option => option.tier === tier).map(option => `
+          <label class="taste-item">
+            <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
+            <span class="taste-item-text">
+              <span class="taste-item-title">${escapeHtml(option.title)}${option.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
+              <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
+            </span>
+          </label>`).join("")}
+      </div>`).join("");
+}
+
+function renderTastePopover() {
+  const groups = styleCatalogGroupsHtml();
+  const body = groups || '<div class="taste-empty">Style catalog unavailable.</div>';
   return `
     <div class="taste-popover" id="taste-popover" role="dialog" aria-label="Decompiler taste">
       <div class="taste-head"><strong>Taste</strong><span>decompiler style knobs</span></div>
@@ -5956,6 +5982,80 @@ function clearTaste() {
   invalidateSourceCaches();
   reloadVisibleSource();
   render();
+}
+
+// Open the Settings page, remembering where to return (the home page vs. the workbench) so
+// closing restores that view without touching the URL.
+function openSettings(from) {
+  state.settingsReturn = from === "workbench" ? "workbench" : "home";
+  state.settings = true;
+  state.tasteOpen = false;
+  render();
+}
+
+function closeSettings() {
+  state.settings = false;
+  render();
+}
+
+// The Settings page: a persistent preferences panel. Every control here writes straight to
+// localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
+// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
+// style-option catalog the detail-view taste popover shows.
+function renderSettingsView() {
+  const catalog = styleCatalogGroupsHtml();
+  const styleBody = catalog
+    || '<div class="taste-empty">Style catalog is still loading — reopen Settings in a moment.</div>';
+  const activeCount = state.taste.length;
+  app.innerHTML = `
+    <div class="settings-page">
+      <header class="settings-bar">
+        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <button id="settings-close" class="settings-close">${state.settingsReturn === "workbench" ? "back to workbench" : "back to home"} ✕</button>
+      </header>
+      <main class="settings-main">
+        <div class="settings-head">
+          <h1>Settings</h1>
+          <p class="settings-lede">Preferences are stored locally in your browser and persist across sessions. Nothing is uploaded.</p>
+        </div>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <h2>Appearance</h2>
+            <p>Choose the color theme for the whole app.</p>
+          </div>
+          <div class="settings-control">
+            <div class="settings-segment" role="group" aria-label="Theme">
+              <button type="button" class="settings-seg ${state.theme === "dark" ? "active" : ""}" data-theme="dark" aria-pressed="${state.theme === "dark"}">Dark</button>
+              <button type="button" class="settings-seg ${state.theme === "light" ? "active" : ""}" data-theme="light" aria-pressed="${state.theme === "light"}">Light</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
+            <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
+          </div>
+          <div class="settings-taste">${styleBody}</div>
+          <div class="settings-taste-foot">
+            ${activeCount
+              ? '<button id="settings-taste-clear" type="button" class="settings-reset">Reset to default</button>'
+              : '<span class="settings-muted">Default · opcode-faithful</span>'}
+          </div>
+        </section>
+      </main>
+    </div>`;
+  bindSettingsEvents();
+}
+
+function bindSettingsEvents() {
+  document.querySelector("#settings-close")?.addEventListener("click", closeSettings);
+  document.querySelectorAll(".settings-seg[data-theme]").forEach(button =>
+    button.addEventListener("click", () => setTheme(button.dataset.theme)));
+  document.querySelectorAll(".settings-taste [data-taste]").forEach(checkbox =>
+    checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
+  document.querySelector("#settings-taste-clear")?.addEventListener("click", clearTaste);
 }
 
 function renderGraphSource() {
@@ -6514,6 +6614,15 @@ function fmtBytes(bytes) {
 }
 
 document.addEventListener("keydown", event => {
+  // Settings is a modal-style page reachable from home too, so handle its Escape before the
+  // home bail below (which otherwise swallows the keystroke on the home page).
+  if (state.settings) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSettings();
+    }
+    return;
+  }
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
   // The home page has its own scoped input handling (search box); global workbench
   // shortcuts assume a loaded package, so stay out of the way here.
