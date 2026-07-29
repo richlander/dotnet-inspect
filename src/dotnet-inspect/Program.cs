@@ -163,8 +163,24 @@ catch (RowWindowValidationException ex)
     Console.Error.WriteLine($"Error: {ex.Message}");
     return 1;
 }
+catch (DotnetInspector.CommandLine.PrefixResolutionException ex)
+{
+    // --package-prefix expansion needs the network, so unlike the row window it cannot be
+    // settled at parse time. This is its primary path, not a defensive one.
+    Console.Error.WriteLine($"Error: {ex.Message}");
+    return 1;
+}
 catch (OperationCanceledException)
 {
+    return 1;
+}
+catch (Exception ex)
+{
+    // Replaces System.CommandLine's default exception handler, which CommandLineBuilder
+    // disables so deliberate, user-facing failures above can be reported as `Error:` lines
+    // instead of stack traces. An exception reaching here is a bug, not a reportable
+    // condition, so it keeps the full trace.
+    Console.Error.WriteLine($"Unhandled exception: {ex}");
     return 1;
 }
 

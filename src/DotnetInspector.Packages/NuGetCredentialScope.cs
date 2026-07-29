@@ -47,6 +47,31 @@ public static class NuGetCredentialScope
     }
 
     /// <summary>
+    /// Returns true when both URLs name the same endpoint: the same origin, plus the same escaped
+    /// path and query. Unparseable URLs fall back to an ordinal comparison.
+    /// </summary>
+    /// <remarks>
+    /// Origin is compared with <see cref="IsSameOrigin"/>, which folds case because scheme and
+    /// host are case-insensitive by definition. Path and query are compared ordinally: HTTP paths
+    /// are case-sensitive, so <c>/FeedA</c> and <c>/feeda</c> may be different feeds, and treating
+    /// them as one would let a caller adopt the wrong feed's credentials. A trailing slash is
+    /// ignored because no feed distinguishes on it.
+    /// </remarks>
+    public static bool IsSameEndpoint(string? a, string? b)
+    {
+        if (!Uri.TryCreate(a, UriKind.Absolute, out var x)
+            || !Uri.TryCreate(b, UriKind.Absolute, out var y))
+        {
+            return string.Equals(a, b, StringComparison.Ordinal);
+        }
+
+        return IsSameOrigin(a, b)
+            && string.Equals(
+                x.AbsolutePath.TrimEnd('/'), y.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal)
+            && string.Equals(x.Query, y.Query, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Returns <paramref name="source"/>'s credentials when <paramref name="endpointUrl"/> is on
     /// the source's own origin, and null otherwise. Sources without credentials return null either
     /// way, and are not reported — there is nothing to withhold.

@@ -1,5 +1,7 @@
+using System.CommandLine;
 using System.Net;
 using System.Net.Http.Headers;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Packages;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
@@ -271,6 +273,115 @@ public class NuGetSearchSourcesTests
                 NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = path }));
 
             Assert.Contains("not valid XML", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("package", "Newtonsoft.Json")]
+    [InlineData("package", "search", "Newtonsoft.Json")]
+    [InlineData("type", "JsonSerializer", "--package", "System.Text.Json")]
+    public void UnusableNuGetConfig_IsRejectedAtParseTime(params string[] leadingArgs)
+    {
+        // ResolveSources throws for an unusable explicit config, but only `package search` wraps
+        // its invocation in a try/catch. Without a parse-time validator on the shared option, every
+        // other source-aware command reports the same mistake as an unhandled stack trace. This
+        // test is the gate on that wiring: it fails if the validator is removed from SharedOptions.
+        string missing = Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.config");
+
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse([.. leadingArgs, "--nugetconfig", missing]);
+
+        Assert.Contains(result.Errors, e => e.Message.Contains(missing, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    // Same endpoint under canonicalization the URL grammar allows.
+    [InlineData("https://feed.example/v3/index.json", "https://FEED.example/v3/index.json", true)]
+    [InlineData("https://feed.example/v3/", "https://feed.example/v3", true)]
+    [InlineData("https://feed.example:443/v3/index.json", "https://feed.example/v3/index.json", true)]
+    [InlineData("https://bücher.example/v3/index.json", "https://xn--bcher-kva.example/v3/index.json", true)]
+    // Different endpoints. Paths and queries are case-sensitive over HTTP, so folding them would
+    // hand one feed's credentials to another feed on the same host.
+    [InlineData("https://feed.example/FeedA/index.json", "https://feed.example/feeda/index.json", false)]
+    [InlineData("https://feed.example/v3/index.json?id=A", "https://feed.example/v3/index.json?id=a", false)]
+    [InlineData("https://feed.example/v3/index.json", "https://feed.example/v4/index.json", false)]
+    [InlineData("https://feed.example/v3/index.json", "http://feed.example/v3/index.json", false)]
+    [InlineData("https://feed.example/v3/index.json", "https://feed.example:8443/v3/index.json", false)]
+    [InlineData("https://feed.example/v3/index.json", "https://feed.example.attacker.com/v3/index.json", false)]
+    public void IsSameEndpoint_DistinguishesFeedsThatDifferOutsideTheOrigin(
+        string a, string b, bool expected)
+    {
+        Assert.Equal(expected, NuGetCredentialScope.IsSameEndpoint(a, b));
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitSourceMatchingConfig_AdoptsCredentialsAndKeepsTheGivenUrl()
+    {
+        using var config = new TempNuGetConfig(IndexUrl);
+
+        // Same endpoint, spelled with a host case the user chose.
+        string asTyped = IndexUrl.Replace("feed.example", "FEED.example", StringComparison.Ordinal);
+
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(
+            new NuGetSourceOptions { ConfigFile = config.Path, Sources = [asTyped] });
+
+        NuGetSource source = Assert.Single(sources);
+        Assert.NotNull(source.Credential);
+        // The request must go where the user pointed it, not to the config's spelling.
+        Assert.Equal(asTyped, source.Url);
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitSourceOnAnotherPath_DoesNotAdoptCredentials()
+    {
+        using var config = new TempNuGetConfig(IndexUrl);
+
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(
+            new NuGetSourceOptions
+            {
+                ConfigFile = config.Path,
+                Sources = ["https://feed.example/PRIVATE/index.json"],
+            });
+
+        Assert.Null(Assert.Single(sources).Credential);
+    }
+
+    [Fact]
+    public void ResolveSources_WellFormedConfigDeclaringNoSources_ThrowsRatherThanDefaultingToNuGetOrg()
+    {
+        // Well-formed XML is not enough: any XML file parses, including a .csproj passed by
+        // mistake, and SourceResolver would then substitute nuget.org and answer with packages
+        // from a feed the user never chose.
+        string path = Path.Combine(Path.GetTempPath(), $"notaconfig-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup /></Project>");
+        try
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                NuGetSourceResolver.ResolveSources(new NuGetSourceOptions { ConfigFile = path }));
+
+            Assert.Contains("no usable package sources", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResolveConfiguredSources_NoConfiguredSources_DoesNotSubstituteNuGetOrg()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"empty-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, "<configuration><packageSources><clear /></packageSources></configuration>");
+        try
+        {
+            Assert.Empty(NuGetFetch.SourceResolver.ResolveConfiguredSources(path));
+
+            // The fallback still belongs to ResolveSources, which discovered configs rely on.
+            Assert.Equal("nuget.org", Assert.Single(NuGetFetch.SourceResolver.ResolveSources(configPath: path)).Name);
         }
         finally
         {

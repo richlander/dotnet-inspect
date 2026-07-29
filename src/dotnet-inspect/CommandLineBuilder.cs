@@ -58,7 +58,13 @@ public static class CommandLineBuilder
             return 1;
 
         using var scope = ProjectionAudit.BeginRequest(parseResult);
-        return ProjectionAudit.Verify(await parseResult.InvokeAsync());
+
+        // The default handler prints a raw stack trace for every escaping exception, including
+        // ones the tool raises deliberately to report a user-facing failure. Disabling it lets
+        // those reach Program.cs, which owns the `Error:` contract and keeps a general handler
+        // for genuinely unexpected exceptions.
+        var configuration = new InvocationConfiguration { EnableDefaultExceptionHandler = false };
+        return ProjectionAudit.Verify(await parseResult.InvokeAsync(configuration));
     }
 
     /// <summary>

@@ -6,6 +6,20 @@ using DotnetInspector.Packages;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
+/// Thrown when <c>--package-prefix</c> could not be expanded because the feed could not be
+/// reached or understood.
+/// </summary>
+/// <remarks>
+/// Distinct from a prefix that expands to nothing. An empty expansion is an answer: the feed was
+/// searched and matched no package, so the command proceeds and exits 0. A failed expansion is
+/// not an answer — the set of packages the user asked about is unknown, and continuing with an
+/// empty set reports "nothing found" for packages that were never looked at. It is carried as an
+/// exception because expansion happens while binding options, before a command has any result to
+/// attach a failure to; Program.cs renders it as the standard <c>Error:</c> line and exit 1.
+/// </remarks>
+public sealed class PrefixResolutionException(string message) : Exception(message);
+
+/// <summary>
 /// Shared helper methods for command-line argument processing.
 /// Provides file path classification and version number detection.
 /// </summary>
@@ -76,11 +90,11 @@ public static class CommandLineHelpers
         catch (Exception ex) when (ex is HttpRequestException or JsonException
             or InvalidOperationException or TaskCanceledException)
         {
-            // Prefix expansion is a convenience over arguments the user could have typed out.
-            // A feed that cannot be reached or parsed degrades to "no matches" with a warning
-            // rather than aborting the command the prefix was only decorating.
-            Console.Error.WriteLine($"Warning: could not resolve prefix \"{prefix}\": {ex.Message}");
-            return [];
+            // The command cannot proceed honestly: it does not know which packages the prefix
+            // named. Reported as a clean CLI error rather than an escaping stack trace, and never
+            // as an empty expansion, which would exit 0 having inspected nothing.
+            throw new PrefixResolutionException(
+                $"Could not resolve packages for prefix \"{prefix}\": {ex.Message}");
         }
 
         if (results.Count == 0)

@@ -51,6 +51,39 @@ public static class NuGetSourceResolver
     }
 
     /// <summary>
+    /// Returns a description of why <paramref name="configFile"/> cannot be used as a NuGet
+    /// config, or null when it can. Exposed so the CLI can report the same problem at parse
+    /// time rather than letting it surface as an exception from whichever service resolves
+    /// sources first.
+    /// </summary>
+    public static string? DescribeConfigProblem(string configFile)
+    {
+        if (!File.Exists(configFile))
+        {
+            return $"NuGet config file not found: '{configFile}'.";
+        }
+
+        try
+        {
+            XDocument.Load(configFile);
+        }
+        catch (XmlException ex)
+        {
+            return $"NuGet config file '{configFile}' is not valid XML: {ex.Message}";
+        }
+
+        // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
+        // reaches this point — and SourceResolver then finds no packageSources and substitutes
+        // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
+        if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+        {
+            return $"NuGet config file '{configFile}' declares no usable package sources.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Validates a user-supplied <c>--nugetconfig</c> path before it is used.
     /// </summary>
     /// <remarks>
@@ -63,20 +96,14 @@ public static class NuGetSourceResolver
     /// </remarks>
     private static void ValidateExplicitConfig(string configFile)
     {
-        if (!File.Exists(configFile))
+        if (DescribeConfigProblem(configFile) is not string problem)
         {
-            throw new FileNotFoundException($"NuGet config file not found: '{configFile}'.", configFile);
+            return;
         }
 
-        try
-        {
-            XDocument.Load(configFile);
-        }
-        catch (XmlException ex)
-        {
-            throw new InvalidOperationException(
-                $"NuGet config file '{configFile}' is not valid XML: {ex.Message}", ex);
-        }
+        throw File.Exists(configFile)
+            ? new InvalidOperationException(problem)
+            : new FileNotFoundException(problem, configFile);
     }
 
     /// <summary>
@@ -95,16 +122,35 @@ public static class NuGetSourceResolver
     /// </remarks>
     private static List<NuGetSource> SelectExplicitSources(NuGetSourceOptions options)
     {
-        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveSources(configPath: options.ConfigFile);
+        IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveConfiguredSources(options.ConfigFile);
 
         List<NuGetSource> selected = [.. options.Sources.Select(url => Match(url, configured))];
         selected.AddRange(options.AdditionalSources.Select(url => Match(url, configured)));
         return selected;
     }
 
-    private static NuGetSource Match(string url, IReadOnlyList<NuGetSource> configured) =>
-        configured.FirstOrDefault(s => string.Equals(s.Url, url, StringComparison.OrdinalIgnoreCase))
-        ?? new NuGetSource("explicit", url);
+    /// <summary>
+    /// Finds the configured source that names the same endpoint as <paramref name="url"/>, so an
+    /// explicitly requested feed can use the credentials configured for it.
+    /// </summary>
+    /// <remarks>
+    /// The match is deliberately narrow. Comparing whole URLs case-insensitively would alias
+    /// <c>/FeedA</c> and <c>/feeda</c>, which are different feeds on servers with case-sensitive
+    /// paths, and would hand one feed's credentials to the other. Origin is compared
+    /// case-insensitively because scheme and host are case-insensitive by definition; path and
+    /// query are compared ordinally on their escaped form because they are not. A trailing slash
+    /// is not a distinction any feed makes, so it is ignored.
+    ///
+    /// On a match only the credentials are adopted. The URL stays exactly as the user spelled it,
+    /// so a request never silently goes somewhere other than where it was pointed.
+    /// </remarks>
+    private static NuGetSource Match(string url, IReadOnlyList<NuGetSource> configured)
+    {
+        NuGetSource? match = configured.FirstOrDefault(
+            s => NuGetCredentialScope.IsSameEndpoint(s.Url, url));
+
+        return match is null ? new NuGetSource("explicit", url) : match with { Url = url };
+    }
 }
 
 /// <summary>
