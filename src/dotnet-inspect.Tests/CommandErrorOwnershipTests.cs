@@ -1,8 +1,9 @@
-using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace DotnetInspector.Tests;
 
@@ -482,352 +483,168 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
-    /// <paramref name="text"/> with every comment blanked to spaces, so that a
-    /// match in the result is code.
+    /// Every reading of <paramref name="source"/> the rules must be checked
+    /// against: the compiler's own token stream, once per configuration the CLI
+    /// is built in. A match in any reading is a match.
     /// </summary>
     /// <remarks>
-    /// These rules are about code, and each of them describes its own subject in
-    /// prose directly above it, so a scan that cannot tell the two apart reports
-    /// its own documentation. The first answer to that was a predicate asking
-    /// whether <c>//</c> appeared earlier on the match's line -- and a reviewer
-    /// wrote <c>_ = "https://"; Console.Error.WriteLine(untrusted);</c>, which
-    /// the predicate read as a comment and skipped. The gate named as this
-    /// issue's central guarantee passed over a raw multiline write.
+    /// Every rule in this file is a claim about the program the compiler sees,
+    /// so the text they match has to be that program. Six rounds of review were
+    /// spent discovering that a hand-written approximation of the C# lexer is
+    /// not that program, each round by the same route -- a construction the
+    /// approximation read differently than the compiler:
     ///
-    /// The defect was not the predicate's rule but its form. Deciding whether an
-    /// offset is inside a comment requires knowing where the literals are, and a
-    /// line-local substring search cannot know that. So this scans the file once
-    /// instead of guessing per match: literals are skipped as literals, comments
-    /// are blanked, and every rule then matches against a text in which a comment
-    /// cannot appear. That is the same move as owning the stream rather than
-    /// policing prefixes -- remove the ambiguous case instead of classifying it.
+    /// <list type="bullet">
+    /// <item>a line-anchored comment test beaten by a leading comment;</item>
+    /// <item><c>//</c> inside a string literal, blanking the write after it;</item>
+    /// <item><c>System.\u0043onsole</c>, an identifier the scan never decoded;</item>
+    /// <item><c>Console.@Error</c>, and then <c>@\u0045rror</c>, where the
+    /// <c>@</c>-drop was decided against the undecoded next character;</item>
+    /// <item>an interpolation hole, which is literal content and code at once;</item>
+    /// <item>and finally <c>$" { "} /* " } ";</c>, where an unescaped quote
+    /// inside a hole ended the literal early, so the <c>/*</c> the compiler
+    /// reads as string content opened a comment that blanked the real write
+    /// after it -- in <i>both</i> of the two readings that replaced the single
+    /// one, because a desynchronized literal scan and a literal-blind scan
+    /// agree about exactly this.</item>
+    /// </list>
     ///
-    /// Length and line structure are preserved so reported line numbers stay
-    /// those of the original file.
+    /// The pattern is not that the approximation had six bugs. It is that a
+    /// second implementation of a lexer is a place for bugs to be, and here a
+    /// bug is silence rather than a false report. So this stops approximating
+    /// and tokenizes with the compiler's own lexer, which the repository already
+    /// takes as a test-only dependency. Comments arrive as trivia, an
+    /// interpolation hole arrives as ordinary tokens, a literal arrives as one
+    /// token however it is quoted, and <c>ValueText</c> gives an identifier the
+    /// name it binds to with escapes decoded and the <c>@</c> gone. All four
+    /// helpers this replaced were approximations of those four facts.
     ///
-    /// Literal <i>contents</i> are deliberately left intact. Blanking them would
-    /// suppress a real write inside an interpolation hole, and the failure this
-    /// direction produces is a false report on a source file that quotes
-    /// <c>Console.Error</c> in a string -- loud, and fixed by rewording. The
-    /// other direction is silence.
+    /// Token text is written back at its own offset, so line numbers stay the
+    /// source's. Literal <i>contents</i> are still kept: a write inside a hole
+    /// is a separate token and is seen on its own, so blanking is not needed to
+    /// find it, and quoting <c>Console.Error.WriteLine(</c> in a string remains
+    /// a false report by design -- loud, and fixed by rewording.
     ///
-    /// That reasoning is sound for the literal's <i>value</i> and wrong for an
-    /// interpolation hole, whose contents are code the compiler compiles.
-    /// <paramref name="ignoreLiterals"/> exists for that: see
-    /// <see cref="NormalizedVariants"/>, which scans both readings so that
-    /// neither can hide a write from the other.
+    /// Excluded code is the other half. Code inside a <c>#if</c> whose symbol
+    /// is undefined is disabled text -- no tokens, so no rule can see it -- and
+    /// the DEBUG-only sink in <c>HttpClientFactory.cs</c> is a live example of
+    /// code that reaches the stream in one configuration only. Reading each
+    /// file once would make <c>#if</c> a way to hide a write.
+    ///
+    /// The symbols are taken from the file rather than listed here, because a
+    /// list is the same mistake as the lexer: a first draft of this defined
+    /// <c>DEBUG</c> and nothing else, and the CLI turned out to test
+    /// <c>NET11_0_OR_GREATER</c> too, so a write under that condition would
+    /// have been invisible in every reading. Three parses -- none defined, all
+    /// defined, all defined but <c>DEBUG</c> -- put every symbol the file names
+    /// on both sides of at least one reading. That this suffices depends on the
+    /// conditions being simple, so
+    /// <see cref="StderrScan_MatchesTheShapeItIsMeantToCatch"/> asserts they
+    /// are: a compound condition would need a reading none of these three is,
+    /// and must fail here rather than quietly go unread.
     /// </remarks>
-    private static string BlankComments(string text, bool ignoreLiterals = false)
+    private static string Code(string source) => CodeText(source, []);
+
+    private static IEnumerable<string> CodeReadings(string source)
     {
-        char[] result = text.ToCharArray();
-        int i = 0;
+        string[] all = ConditionalSymbols(source).Distinct(StringComparer.Ordinal).ToArray();
+        string[] withoutDebug = all.Where(s => !string.Equals(s, "DEBUG", StringComparison.Ordinal)).ToArray();
 
-        while (i < text.Length)
+        yield return CodeText(source, []);
+        yield return CodeText(source, withoutDebug);
+        yield return CodeText(source, [.. withoutDebug, "DEBUG"]);
+    }
+
+    /// <summary>
+    /// Whether every <c>#if</c>/<c>#elif</c> in <paramref name="source"/> tests
+    /// one symbol, optionally negated -- the shape
+    /// <see cref="CodeReadings"/>'s three parses are exhaustive for.
+    /// </summary>
+    private static bool ConditionsAreSimple(string source)
+    {
+        SyntaxTree tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+
+        foreach (SyntaxTrivia trivia in tree.GetRoot().DescendantTrivia())
         {
-            char c = text[i];
-
-            if (c == '/' && i + 1 < text.Length && (text[i + 1] == '/' || text[i + 1] == '*'))
+            if (trivia.GetStructure() is not ConditionalDirectiveTriviaSyntax directive)
             {
-                bool line = text[i + 1] == '/';
-                int end = line
-                    ? text.IndexOf('\n', i) is var n and >= 0 ? n : text.Length
-                    : text.IndexOf("*/", i + 2, StringComparison.Ordinal) is var b and >= 0 ? b + 2 : text.Length;
-
-                for (int j = i; j < end; j++)
-                {
-                    if (result[j] != '\n' && result[j] != '\r')
-                    {
-                        result[j] = ' ';
-                    }
-                }
-
-                i = end;
                 continue;
             }
 
-            if (!ignoreLiterals && (c == '"' || c == '\''))
+            ExpressionSyntax condition = directive.Condition;
+            if (condition is PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.LogicalNotExpression } negation)
             {
-                i = SkipLiteral(text, i);
-                continue;
+                condition = negation.Operand;
             }
 
-            i++;
+            if (condition is not IdentifierNameSyntax)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// <paramref name="source"/> reduced to the tokens the compiler produces
+    /// for it under <paramref name="symbols"/>, each written back at its own
+    /// offset with identifiers spelled the way they bind.
+    /// </summary>
+    private static string CodeText(string source, string[] symbols)
+    {
+        SyntaxTree tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview, preprocessorSymbols: symbols));
+
+        // Everything not covered by a token -- comments, disabled regions,
+        // whitespace -- becomes a space, with line breaks kept so that a
+        // reported line number is the one in the file.
+        char[] result = new char[source.Length];
+        for (int i = 0; i < source.Length; i++)
+        {
+            result[i] = source[i] is '\n' or '\r' ? source[i] : ' ';
+        }
+
+        foreach (SyntaxToken token in tree.GetRoot().DescendantTokens())
+        {
+            // ValueText decodes \uXXXX and drops the @ of a verbatim
+            // identifier, which is what "the name it binds to" means. It is
+            // never longer than the text it replaces, so writing it at the
+            // token's own offset cannot disturb a later token.
+            string text = token.IsKind(SyntaxKind.IdentifierToken) ? token.ValueText : token.Text;
+            Assert.True(text.Length <= token.Span.Length);
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                result[token.Span.Start + i] = text[i];
+            }
         }
 
         return new string(result);
     }
 
     /// <summary>
-    /// Every reading of <paramref name="text"/> the rules must be checked
-    /// against. A match in any of them is a match.
+    /// The preprocessor symbols <paramref name="source"/> tests, whether or not
+    /// they are defined.
     /// </summary>
-    /// <remarks>
-    /// A C# file is not one text. An interpolated string is literal content and
-    /// code at the same time: <c>$"{Console.Error.WriteLine(x)}"</c> compiles the
-    /// hole, so treating the whole literal as opaque hides a real write, while
-    /// treating none of it as literal reintroduces the round-20 defect where a
-    /// <c>//</c> inside a string blanked the rest of the line -- including the
-    /// write after it.
-    ///
-    /// Both readings are wrong in one direction and right in the other, and the
-    /// directions are opposite, so scanning both is exact where either alone is
-    /// not: whatever one reading hides, the other sees. That costs a wider class
-    /// of false report and buys no silence, which is the trade this file makes
-    /// everywhere.
-    ///
-    /// The alternative -- lexing interpolated strings properly, with nested
-    /// literals in holes, doubled-brace escapes, and the raw-string dollar/brace
-    /// count -- puts a second C# lexer in the test, where a bug is a hole rather
-    /// than a false report.
-    ///
-    /// Escape decoding needs no such split. It is restricted to identifier
-    /// characters, so it cannot synthesize a quote or a brace and cannot move a
-    /// literal boundary; it therefore runs over the whole text, which is what
-    /// catches an escaped name inside a hole.
-    /// </remarks>
-    private static IEnumerable<string> NormalizedVariants(string text)
+    private static IEnumerable<string> ConditionalSymbols(string source)
     {
-        yield return DecodeIdentifierEscapes(BlankComments(text));
-        yield return DecodeIdentifierEscapes(BlankComments(text, ignoreLiterals: true));
-    }
+        SyntaxTree tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
 
-    /// <summary>
-    /// <paramref name="text"/> reduced to the identifiers the compiler binds:
-    /// <c>\uXXXX</c>/<c>\UXXXXXXXX</c> escapes outside literals are replaced by
-    /// the characters they denote, and the <c>@</c> of a verbatim identifier is
-    /// dropped.
-    /// </summary>
-    /// <remarks>
-    /// C# lets an identifier be spelled with Unicode escapes, and the compiler
-    /// resolves the result: <c>System.\u0043onsole.Error.WriteLine(untrusted)</c>
-    /// binds to <see cref="Console"/> and writes to the stream, while matching
-    /// none of the patterns in this file. A reviewer landed exactly that with
-    /// all five tests green.
-    ///
-    /// Every rule here is a claim about the program the compiler sees, so the
-    /// text they match has to be that program. This is the third form of the
-    /// same correction: blank comments so a match is code, read project
-    /// references as XML so attribute order is XML's problem, and decode
-    /// identifier escapes so a name is the name it binds to. Each replaces a
-    /// guess about the source's surface with the structure underneath it.
-    ///
-    /// The same pass drops the <c>@</c> from a verbatim identifier, for the same
-    /// reason and after the same kind of report: <c>Console.@Error.WriteLine</c>
-    /// binds to the property and reaches the stream while matching nothing here.
-    /// Round 20 had already fixed this for the *alias* position
-    /// (<c>using @C = System.Console;</c>) by widening one regex, which left the
-    /// receiver and member positions open -- enumerating the places an <c>@</c>
-    /// can appear is the same mistake as enumerating spellings. Normalizing it
-    /// away once covers every position at once.
-    ///
-    /// This runs over literal text too. Exempting it looks right -- an escape in
-    /// a string is part of that string's value -- but an interpolated string is
-    /// literal content and code at once, and an escaped name inside a hole is an
-    /// identifier the compiler binds. The exemption made
-    /// <c>$"""{System.\u0043onsole.Error.WriteLineAsync(x)}"""</c> invisible, and
-    /// a reviewer landed it with every test green. Deciding which spans of a
-    /// literal are code needs an interpolated-string lexer, whose bugs would be
-    /// holes; not deciding needs only that this rewrite be harmless on literal
-    /// text, which the identifier-character restriction already guarantees --
-    /// it cannot produce a quote or a brace, so no literal boundary can move.
-    /// The residue is a false report on a source file that spells an escaped
-    /// <see cref="Console"/> in a string, which is the report
-    /// <see cref="BlankComments"/> already accepts for the plain spelling.
-    ///
-    /// An <c>@</c> immediately before a quote opens a verbatim string rather
-    /// than naming an identifier, so it is not dropped and <c>@"a""b"</c> stays
-    /// one literal for the comment blanker.
-    ///
-    /// Newlines are preserved, so reported line numbers stay those of the
-    /// original file. Offsets within a line are not preserved, and nothing here
-    /// reports them.
-    /// </remarks>
-    private static string Normalize(string text) => DecodeIdentifierEscapes(BlankComments(text));
-
-    private static string DecodeIdentifierEscapes(string text)
-    {
-        if (!text.Contains('\\') && !text.Contains('@'))
+        foreach (SyntaxTrivia trivia in tree.GetRoot().DescendantTrivia())
         {
-            return text;
-        }
-
-        StringBuilder result = new(text.Length);
-        int i = 0;
-
-        while (i < text.Length)
-        {
-            char c = text[i];
-
-            // A verbatim identifier binds to the same member as the plain one:
-            // `Console.@Error.WriteLine(untrusted)` reaches the stream while
-            // matching no pattern here. The `@` before a quote opens a verbatim
-            // *string* and is left alone by the identifier-start test below, so
-            // `@"a""b"` stays one literal for the comment blanker.
-            //
-            // What follows the `@` is judged after decoding, not before. Asking
-            // whether the raw next character is a letter reads `@\u0045rror` as
-            // "not an identifier", keeps the `@`, and then decodes the escape
-            // anyway -- producing `@Error`, which matches nothing. The two
-            // rewrites are one rewrite, so neither may be decided against the
-            // other's input.
-            if (c == '@' && StartsIdentifier(text, i + 1))
+            if (trivia.GetStructure() is ConditionalDirectiveTriviaSyntax directive)
             {
-                i++;
-                continue;
-            }
-
-            if (TryDecodeEscape(text, i, out Rune rune, out int consumed))
-            {
-                result.Append(rune.ToString());
-                i += consumed;
-                continue;
-            }
-
-            result.Append(c);
-            i++;
-        }
-
-        return result.ToString();
-    }
-
-    /// <summary>
-    /// Whether an identifier begins at <paramref name="index"/>, seeing through
-    /// a Unicode escape the way the compiler does.
-    /// </summary>
-    private static bool StartsIdentifier(string text, int index)
-    {
-        if (index >= text.Length)
-        {
-            return false;
-        }
-
-        if (TryDecodeEscape(text, index, out Rune escaped, out _))
-        {
-            return Rune.IsLetter(escaped) || escaped.Value == '_';
-        }
-
-        return char.IsLetter(text[index]) || text[index] == '_';
-    }
-
-    /// <summary>
-    /// Decodes the <c>\uXXXX</c>/<c>\UXXXXXXXX</c> escape at
-    /// <paramref name="index"/>, if there is one and it spells an identifier
-    /// character.
-    /// </summary>
-    /// <remarks>
-    /// The identifier-character restriction is what the compiler enforces: an
-    /// escape in identifier position may only spell something an identifier can
-    /// contain. It also keeps this rewrite from inventing syntax. Decoding
-    /// <c>\u0022</c> outside a literal would put a quote into the text and
-    /// desynchronize the literal scan for the rest of the file, turning code
-    /// into "string" and hiding every write after it -- a decoder that is more
-    /// permissive than the compiler is a hole, not a safety margin.
-    /// </remarks>
-    private static bool TryDecodeEscape(string text, int index, out Rune rune, out int consumed)
-    {
-        rune = default;
-        consumed = 0;
-
-        if (index + 1 >= text.Length || text[index] != '\\')
-        {
-            return false;
-        }
-
-        int digits = text[index + 1] switch { 'u' => 4, 'U' => 8, _ => 0 };
-        if (digits == 0 || index + 2 + digits > text.Length)
-        {
-            return false;
-        }
-
-        if (!uint.TryParse(
-                text.AsSpan(index + 2, digits),
-                NumberStyles.HexNumber,
-                CultureInfo.InvariantCulture,
-                out uint code)
-            || !Rune.IsValid((int)code))
-        {
-            return false;
-        }
-
-        Rune candidate = new((int)code);
-        if (!Rune.IsLetterOrDigit(candidate) && candidate.Value != '_')
-        {
-            return false;
-        }
-
-        rune = candidate;
-        consumed = 2 + digits;
-        return true;
-    }
-
-    /// <summary>
-    /// The index just past the literal starting at <paramref name="start"/>.
-    /// </summary>
-    private static int SkipLiteral(string text, int start)
-    {
-        char quote = text[start];
-
-        // Raw string literal: three or more quotes, closed by the same run.
-        if (quote == '"' && start + 2 < text.Length && text[start + 1] == '"' && text[start + 2] == '"')
-        {
-            int open = 0;
-            while (start + open < text.Length && text[start + open] == '"')
-            {
-                open++;
-            }
-
-            string fence = new('"', open);
-            int close = text.IndexOf(fence, start + open, StringComparison.Ordinal);
-            return close < 0 ? text.Length : close + open;
-        }
-
-        bool verbatim = start > 0 && (text[start - 1] == '@'
-            || (start > 1 && text[start - 1] == '$' && text[start - 2] == '@')
-            || (start > 1 && text[start - 1] == '@' && text[start - 2] == '$'));
-
-        int i = start + 1;
-        while (i < text.Length)
-        {
-            char c = text[i];
-
-            if (verbatim)
-            {
-                if (c == quote)
+                foreach (SyntaxToken token in directive.Condition.DescendantTokens())
                 {
-                    if (i + 1 < text.Length && text[i + 1] == quote)
+                    if (token.IsKind(SyntaxKind.IdentifierToken))
                     {
-                        i += 2;
-                        continue;
+                        yield return token.ValueText;
                     }
-
-                    return i + 1;
                 }
             }
-            else
-            {
-                if (c == '\\')
-                {
-                    i += 2;
-                    continue;
-                }
-
-                // An unterminated non-verbatim literal cannot span a line; stop
-                // rather than swallowing the rest of the file.
-                if (c == '\n')
-                {
-                    return i;
-                }
-
-                if (c == quote)
-                {
-                    return i + 1;
-                }
-            }
-
-            i++;
         }
-
-        return text.Length;
     }
 
     /// <summary>
@@ -891,7 +708,7 @@ public class CommandErrorOwnershipTests
             }
 
             string source = File.ReadAllText(path);
-            foreach (string text in NormalizedVariants(source))
+            foreach (string text in CodeReadings(source))
             {
                 foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
                 {
@@ -986,11 +803,24 @@ public class CommandErrorOwnershipTests
 
         foreach (string path in CliSourceFiles(root))
         {
-            string text = DecodeIdentifierEscapes(BlankComments(File.ReadAllText(path)));
-            foreach (Match match in StderrSink.Matches(text))
+            // Counted across every configuration, and deduplicated by offset:
+            // each token is written back at its own position, so a sink visible
+            // in two readings is the same sink at the same offset in both. A
+            // sink compiled in only one configuration -- the DEBUG-only one
+            // below is real -- still counts once.
+            string source = File.ReadAllText(path);
+            HashSet<int> offsets = [];
+            foreach (string text in CodeReadings(source))
             {
-                string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
-                sinks[relative] = sinks.TryGetValue(relative, out int count) ? count + 1 : 1;
+                foreach (Match match in StderrSink.Matches(text))
+                {
+                    offsets.Add(match.Index);
+                }
+            }
+
+            if (offsets.Count > 0)
+            {
+                sinks[Path.GetRelativePath(root, path).Replace('\\', '/')] = offsets.Count;
             }
         }
 
@@ -1066,82 +896,92 @@ public class CommandErrorOwnershipTests
         Assert.Matches(MsBuildStaticUsing, "<Using Include=\"System.Console\" Static=\"true\" />");
         Assert.Matches(MsBuildStaticUsing, "<Using Static=\"true\" Include=\"$(Reviewer)\" />");
 
-        // The comment filter must exempt prose without exempting code that
-        // merely follows a comment on an earlier line.
-        // A comment is blanked; the code on the next line survives.
-        Assert.DoesNotMatch(StderrSink, BlankComments("// see Console.Error for why\n"));
-        Assert.Matches(StderrSink, BlankComments("// prose\nvar sink = Console.Error;\n"));
+        // Every construction that defeated an earlier version of this scan.
+        // The rules now run over the compiler's token stream, so each of these
+        // is a regression case for a specific way a hand-written lexer read the
+        // file differently than the compiler did.
+        //
+        // Prose is exempt; code that merely follows prose is not.
+        Assert.DoesNotMatch(StderrSink, Code("// see Console.Error for why\n"));
+        Assert.Matches(StderrSink, Code("// prose\nvar sink = Console.Error;\n"));
+        Assert.Matches(StderrWrite, Code("// it's fine\nConsole.Error.WriteLine(x);"));
 
-        // The reported bypass: `//` inside a string literal is not a comment.
-        Assert.Matches(StderrWrite, BlankComments("_ = \"https://\"; Console.Error.WriteLine(x);"));
+        // `//` inside a literal is not a comment, in any spelling of literal.
+        Assert.Matches(StderrWrite, Code("_ = \"https://\"; Console.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("_ = @\"c://p\"; Console.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("_ = \"\"\"a//b\"\"\"; Console.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("_ = \"a\\\"//b\"; Console.Error.WriteLine(x);"));
 
-        // ...including the verbatim and raw spellings of the same literal.
-        Assert.Matches(StderrWrite, BlankComments("_ = @\"c://p\"; Console.Error.WriteLine(x);"));
-        Assert.Matches(StderrWrite, BlankComments("_ = \"\"\"a//b\"\"\"; Console.Error.WriteLine(x);"));
-
-        // A quote inside a comment must not open a literal and swallow the code.
-        Assert.Matches(StderrWrite, BlankComments("// it's fine\nConsole.Error.WriteLine(x);"));
-
-        // An escaped quote does not end a literal early.
-        Assert.Matches(StderrWrite, BlankComments("_ = \"a\\\"//b\"; Console.Error.WriteLine(x);"));
-
-        // Verbatim identifiers alias the type just as plain ones do.
-        Assert.Matches(ConsoleImport, "using @C = System.Console;");
-
-        // A Unicode-escaped identifier binds to the same type.
-        Assert.Matches(StderrWrite, Normalize("System.\\u0043onsole.Error.WriteLine(x);"));
-        Assert.Matches(StderrWrite, Normalize("System.\\U00000043onsole.Error.WriteLine(x);"));
-        Assert.Matches(ConsoleImport, Normalize("using static System.\\u0043onsole;"));
-
-        // ...including inside a literal, because a literal is not only a value.
-        // An interpolation hole is code the compiler compiles, so an escape in
-        // one names an identifier: this exact write landed with all five tests
-        // green. Decoding is restricted to identifier characters, so running it
-        // over literal text cannot invent a quote or move a boundary; the only
-        // cost is that quoting an escaped name in a string reports, which is the
-        // same false report BlankComments already accepts for the plain
-        // spelling.
+        // ...including one that ends a literal early only for a lexer that does
+        // not track interpolation holes. Both readings of the previous scan
+        // blanked the write after this as a comment.
         Assert.Matches(
             StderrWrite,
-            Normalize("_ = $\"\"\"{System.\\u0043onsole.Error.WriteLineAsync(args[0])}\"\"\";"));
-        Assert.Matches(StderrWrite, Normalize("_ = \"System.\\u0043onsole.Error.WriteLine(\";"));
+            Code("string s = $\" { \"} /* \" } \";\nConsole.Error.WriteLine(x);\n/* */"));
 
-        // A comment inside an interpolation hole is a comment, so the literal-
-        // aware reading leaves it in place and the rule stops matching through
-        // it. The literal-blind reading blanks it -- and would blank a `//`
-        // inside a genuine string, erasing the write after it, which is why both
-        // readings are scanned rather than either one chosen.
-        string hidden = "_ = $\"{Console./*x*/Error.WriteLine(y)}\";";
-        Assert.DoesNotMatch(StderrWrite, Normalize(hidden));
-        Assert.Contains(NormalizedVariants(hidden), v => StderrWrite.IsMatch(v));
+        // A Unicode-escaped identifier binds to the same type...
+        Assert.Matches(StderrWrite, Code("System.\\u0043onsole.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("System.\\U00000043onsole.Error.WriteLine(x);"));
+        Assert.Matches(ConsoleImport, Code("using static System.\\u0043onsole;"));
 
-        string shadowed = "_ = \"https://\"; Console.Error.WriteLine(x);";
-        Assert.DoesNotMatch(StderrWrite, DecodeIdentifierEscapes(BlankComments(shadowed, ignoreLiterals: true)));
-        Assert.Contains(NormalizedVariants(shadowed), v => StderrWrite.IsMatch(v));
+        // ...including inside an interpolation hole, which is code however the
+        // string around it is quoted.
+        Assert.Matches(
+            StderrWrite,
+            Code("_ = $\"\"\"{System.\\u0043onsole.Error.WriteLineAsync(args[0])}\"\"\";"));
+        Assert.Matches(StderrWrite, Code("_ = $\"{System.Console./*x*/Error.WriteLineAsync(y)}\";"));
 
         // A verbatim identifier binds to the same member, in every position.
-        Assert.Matches(StderrWrite, Normalize("System.Console.@Error.WriteLine(x);"));
-        Assert.Matches(StderrWrite, Normalize("System.@Console.@Error.@WriteLine(x);"));
-        Assert.Matches(StderrSink, Normalize("var sink = Console.@Error;"));
-        Assert.Matches(ConsoleImport, Normalize("using static System.@Console;"));
-
-        // The `@` of a verbatim string is not an identifier prefix. It must
-        // survive, because dropping it would turn the verbatim literal that
-        // follows into a regular one and desynchronize the literal scan --
-        // `@"a""b"` is one string, `"a""b"` is two.
-        Assert.Contains("@\"", Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"), StringComparison.Ordinal);
-        Assert.Matches(StderrWrite, Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("System.Console.@Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Code("System.@Console.@Error.@WriteLine(x);"));
+        Assert.Matches(StderrSink, Code("var sink = Console.@Error;"));
+        Assert.Matches(ConsoleImport, Code("using static System.@Console;"));
+        Assert.Matches(ConsoleImport, Code("using @C = System.Console;"));
 
         // A `@` before an escape is still an identifier prefix. Deciding that
         // against the raw next character kept the `@`, decoded to `@Error`, and
         // matched nothing.
-        Assert.Matches(StderrWrite, Normalize("Console.@\\u0045rror.WriteLine(x);"));
-        Assert.Matches(ConsoleImport, Normalize("using static System.@\\u0043onsole;"));
+        Assert.Matches(StderrWrite, Code("Console.@\\u0045rror.WriteLine(x);"));
+        Assert.Matches(ConsoleImport, Code("using static System.@\\u0043onsole;"));
 
-        // An escape that does not spell an identifier character is not decoded.
-        // Turning `\u0022` into a quote outside a literal would open one and
-        // hide every write in the rest of the file.
-        Assert.DoesNotContain("\"", Normalize("var x = a\\u0022b;"), StringComparison.Ordinal);
+        // A literal is kept as a literal, so an escape inside one stays part of
+        // its value and cannot forge syntax. Quoting the call in a string is
+        // still a false report by design -- loud, and fixed by rewording.
+        Assert.DoesNotContain("\"", Code("var x = a\\u0022b;"), StringComparison.Ordinal);
+        Assert.Matches(StderrWrite, Code("_ = \"Console.Error.WriteLine(\";"));
+
+        // Code excluded by the configuration being parsed contributes no
+        // tokens, which is why the CLI is read once per configuration it is
+        // built in.
+        const string Conditional = "#if DEBUG\nConsole.Error.WriteLine(x);\n#endif\n";
+        Assert.DoesNotMatch(StderrWrite, CodeText(Conditional, []));
+        Assert.Matches(StderrWrite, CodeText(Conditional, ["DEBUG"]));
+        Assert.Contains(CodeReadings(Conditional), r => StderrWrite.IsMatch(r));
+
+        // A symbol nobody thought to list is read out of the file, and both
+        // polarities of it are covered.
+        const string Unlisted = "#if NET11_0_OR_GREATER\nConsole.Error.WriteLine(x);\n#endif\n";
+        Assert.Contains(CodeReadings(Unlisted), r => StderrWrite.IsMatch(r));
+        const string Negated = "#if !DEBUG\nConsole.Error.WriteLine(x);\n#endif\n";
+        Assert.Contains(CodeReadings(Negated), r => StderrWrite.IsMatch(r));
+        Assert.False(ConditionsAreSimple("#if DEBUG && TRACE\n#endif\n"));
+
+        // Three readings are exhaustive only for conditions that test one
+        // symbol, so that is checked rather than assumed. A compound condition
+        // would need a reading none of the three is, and is code no rule here
+        // would read.
+        Assert.All(
+            CliSourceFiles(RepositoryRoot()),
+            f => Assert.True(ConditionsAreSimple(File.ReadAllText(f)), f));
+
+        // The symbols really are read from the file: the CLI tests more than
+        // DEBUG, which is what retired the hard-coded list.
+        string[] symbols = CliSourceFiles(RepositoryRoot())
+            .SelectMany(f => ConditionalSymbols(File.ReadAllText(f)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Contains("DEBUG", symbols);
+        Assert.True(symbols.Length > 1, string.Join(", ", symbols));
 
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
