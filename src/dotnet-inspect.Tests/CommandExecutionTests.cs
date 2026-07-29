@@ -9660,7 +9660,7 @@ public class CommandExecutionTests
             Assert.Empty(error);
             var rows = ExtractDiscoveryRows(output);
 
-            Assert.Contains(rows, row => row.Name == "Files" && row.Kind == "section (opt-in)");
+            Assert.Contains(rows, row => row.Name == "Package files" && row.Kind == "section (opt-in)");
 
             var regular = rows.Where(row => row.Kind == "section").Select(row => row.Name).ToArray();
             var categories = rows.Where(row => row.Kind == "category").Select(row => row.Name).ToArray();
@@ -9802,11 +9802,11 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
-            Assert.Contains("## Files: Library", output);
+            Assert.Contains("## Package library files", output);
             Assert.DoesNotContain("## Dependencies", output);
             Assert.DoesNotContain("## Manifest", output);
             Assert.DoesNotContain("## Signals", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Files: Library", StringComparison.Ordinal));
+            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Package library files", StringComparison.Ordinal));
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10045,7 +10045,7 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Library Files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Files: Library", output);
+            Assert.Contains("## Package library files", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| lib/net10.0/Latest.One.dll |", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
@@ -10068,7 +10068,7 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-v:n");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Files: Library", output);
+            Assert.Contains("## Package library files", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
@@ -10124,18 +10124,18 @@ public class CommandExecutionTests
         {
             var (refExit, refOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Reference");
             Assert.Equal(0, refExit);
-            Assert.Contains("## Files: Reference", refOutput);
+            Assert.Contains("## Package reference files", refOutput);
             Assert.Contains("| ref/net8.0/Layout.dll |", refOutput);
             Assert.DoesNotContain("| lib/net8.0/Layout.dll |", refOutput);
 
             var (runtimeExit, runtimeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Runtime");
             Assert.Equal(0, runtimeExit);
-            Assert.Contains("## Files: Runtime", runtimeOutput);
+            Assert.Contains("## Package runtime files", runtimeOutput);
             Assert.Contains("| runtimes/win-x64/native/layout.native.txt |", runtimeOutput);
 
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
             Assert.Equal(0, nuspecExit);
-            Assert.Contains("## Files: Nuspec", nuspecOutput);
+            Assert.Contains("## Package nuspec file", nuspecOutput);
             // The manifest section is a path listing, not the document itself.
             Assert.Contains("| Test.Layout.nuspec |", nuspecOutput);
             Assert.DoesNotContain("<package xmlns", nuspecOutput);
@@ -10199,16 +10199,16 @@ public class CommandExecutionTests
         {
             var (renderExit, renderOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files");
             Assert.Equal(0, renderExit);
-            Assert.Contains("## Files: Library", renderOutput);
-            Assert.DoesNotContain("## Files: Reference", renderOutput);
-            Assert.DoesNotContain("## Files: Runtime", renderOutput);
+            Assert.Contains("## Package library files", renderOutput);
+            Assert.DoesNotContain("## Package reference files", renderOutput);
+            Assert.DoesNotContain("## Package runtime files", renderOutput);
 
             // --count reports the whole category, including the members that rendered nothing.
             var (countExit, countOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files", "--count");
             Assert.Equal(0, countExit);
-            Assert.Contains("| Files: Reference | 0 |", countOutput);
-            Assert.Contains("| Files: Runtime | 0 |", countOutput);
-            Assert.Contains("| Files: Library | 4 |", countOutput);
+            Assert.Contains("| Package reference files | 0 |", countOutput);
+            Assert.Contains("| Package runtime files | 0 |", countOutput);
+            Assert.Contains("| Package library files | 4 |", countOutput);
         }
         finally
         {
@@ -10224,11 +10224,11 @@ public class CommandExecutionTests
         {
             var (libExit, libOutput, _) = await RunAppAsync("package", packagePath, "-S", "Library Files");
             Assert.Equal(0, libExit);
-            Assert.Contains("## Files: Library", libOutput);
+            Assert.Contains("## Package library files", libOutput);
 
             var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
             Assert.Equal(0, mdExit);
-            Assert.Contains("## Files: Markdown", mdOutput);
+            Assert.Contains("## Package markdown files", mdOutput);
         }
         finally
         {
@@ -10245,7 +10245,7 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Files: Markdown", output);
+            Assert.Contains("## Package markdown files", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| AGENTS.md | 6 |", output);
             Assert.Contains("| PACKAGE.md | 6 |", output);
@@ -10266,8 +10266,8 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("| Readme | AGENTS.md |", output);
-            Assert.DoesNotContain("| Readme | README.md |", output);
+            Assert.Contains("| Readme | README.md |", output);
+            Assert.DoesNotContain("| Readme | AGENTS.md |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10285,10 +10285,10 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Grounding");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Grounding", output);
+            Assert.Contains("## Package README file", output);
             Assert.Contains("| Path | Size |", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
-            Assert.DoesNotContain("| README.md | 6 |", output);
+            Assert.Contains("| README.md | 6 |", output);
+            Assert.DoesNotContain("| AGENTS.md | 6 |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10306,8 +10306,8 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Grounding", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
+            Assert.Contains("## Package README file", output);
+            Assert.Contains("| README.md | 6 |", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10331,7 +10331,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents", output);
+            Assert.Equal("readme", output);
         }
         finally
         {
@@ -10385,8 +10385,8 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
 
             Assert.Equal(0, exit);
-            Assert.Contains("agents", output);
-            Assert.DoesNotContain("readme", output);
+            Assert.Contains("readme", output);
+            Assert.DoesNotContain("agents", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10405,7 +10405,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -10441,7 +10441,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -10461,7 +10461,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("agents body\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
         }
         finally
         {
@@ -10533,10 +10533,10 @@ public class CommandExecutionTests
             });
 
             Assert.Equal(0, exit);
-            Assert.Contains("agents", output);
-            Assert.DoesNotContain("readme", output);
+            Assert.Contains("readme", output);
+            Assert.DoesNotContain("agents", output);
             Assert.Empty(error);
-            Assert.Equal("AGENTS.md (6 B)", InfoTracker.GetDetail("readme"));
+            Assert.Equal("README.md (6 B)", InfoTracker.GetDetail("readme"));
         }
         finally
         {

@@ -170,15 +170,16 @@ The package command has 17 registered sections:
 | ------- | ------------ | ----------- | ----- |
 | Summary | Quiet | — | Headless; compact inline fields |
 | Dependencies | Normal | — | Only when dependency groups present |
-| Files | Explicit | — | Full-depth package file listing with `Path` and `Size` |
-| Files: Library | Normal | — | Files under `lib/` across all target frameworks with `Path` and `Size` |
-| Files: Reference | Normal | — | Files under `ref/` with `Path` and `Size`; only when the package ships reference assemblies |
-| Files: Runtime | Normal | — | Files under `runtimes/` with `Path` and `Size`; only when the package ships RID-specific assets |
-| Files: Markdown | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
-| Files: Nuspec | Explicit | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
+| Package files | Explicit | — | Full-depth package file listing with `Path` and `Size` |
 | Package Info | Minimal | — | Full metadata field table |
-| Grounding | Explicit | — | Best grounding candidate with `Path` and `Size`; at most one row |
+| Package library files | Normal | — | Files under `lib/` across all target frameworks with `Path` and `Size` |
+| Package markdown files | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
+| Package nuspec file | Explicit | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
+| Package README file | Explicit | — | Best README candidate with `Path` and `Size`; at most one row |
+| Package reference files | Normal | — | Files under `ref/` with `Path` and `Size`; only when the package ships reference assemblies |
+| Package runtime files | Normal | — | Files under `runtimes/` with `Path` and `Size`; only when the package ships RID-specific assets |
+| Package skill files | Explicit | — | `skills/**/SKILL.md` files with `Path` and `Size`; only when the package ships skills |
 | Runtime Dependencies | Minimal | — | Only when runtime deps present |
 | Signals | Explicit | — | Opt-in package metadata/assets, dependency, provenance, and NuGet registry observations |
 | Signature | Normal | — | Only when signature information is available |

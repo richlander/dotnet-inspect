@@ -55,40 +55,6 @@ public class InspectionResultView
             .ToList()
         : null;
 
-    [MarkoutSection(Name = PackageSections.Files)]
-    public List<PackageFileRow>? Files => _data.Files?
-        .Select(ToFileRow)
-        .ToList();
-
-    [MarkoutSection(Name = PackageSections.PackageReadme)]
-    public List<PackageFileRow>? PackageReadme => PackageReadmeFiles()
-        ?.Select(ToFileRow)
-        .ToList();
-
-    [MarkoutSection(Name = PackageSections.FilesLibrary)]
-    public List<PackageFileRow>? LibraryFiles => LibraryPackageFiles()
-        ?.Select(ToFileRow)
-        .ToList();
-
-    [MarkoutSection(Name = PackageSections.FilesMarkdown)]
-    public List<PackageFileRow>? MarkdownFiles => FamilyRows(PackageSections.FilesMarkdown);
-
-    [MarkoutSection(Name = PackageSections.FilesReference)]
-    public List<PackageFileRow>? ReferenceFiles => FamilyRows(PackageSections.FilesReference);
-
-    [MarkoutSection(Name = PackageSections.FilesRuntime)]
-    public List<PackageFileRow>? RuntimeFiles => FamilyRows(PackageSections.FilesRuntime);
-
-    // The manifest is listed as a path row rather than printed, so the section
-    // stays a listing like its siblings; --print renders the document.
-    [MarkoutSection(Name = PackageSections.FilesNuspec)]
-    public List<PackageFileRow>? NuspecFiles => FamilyRows(PackageSections.FilesNuspec);
-
-    [MarkoutSection(Name = PackageSections.SourceLinkFiles, EmptyText = "No SourceLink source files found for this package.")]
-    public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
-        .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
-        .ToList();
-
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
 
@@ -99,8 +65,41 @@ public class InspectionResultView
         || _data.ToolCommands is { Count: > 0 }
         || _data.RuntimeIdentifierPackages is { Count: > 0 };
 
+    [MarkoutSection(Name = PackageSections.Files)]
+    public List<PackageFileRow>? Files => _data.Files?
+        .Select(ToFileRow)
+        .ToList();
+
     [MarkoutSection(Name = PackageSections.PackageInfo, FieldOrder = MarkoutFieldOrder.Alphabetical)]
     public List<MarkoutField> Metadata => GetMetadataFields();
+
+    [MarkoutSection(Name = PackageSections.FilesLibrary)]
+    public List<PackageFileRow>? LibraryFiles => LibraryPackageFiles()
+        ?.Select(ToFileRow)
+        .ToList();
+
+    [MarkoutSection(Name = PackageSections.FilesMarkdown)]
+    public List<PackageFileRow>? MarkdownFiles => FamilyRows(PackageSections.FilesMarkdown);
+
+    // The manifest is listed as a path row rather than printed, so the section
+    // stays a listing like its siblings; --print renders the document.
+    [MarkoutSection(Name = PackageSections.FilesNuspec)]
+    public List<PackageFileRow>? NuspecFiles => FamilyRows(PackageSections.FilesNuspec);
+
+    // IsReadme is set by PackageFileLister.ListAll on exactly the file that
+    // ResolvePackageReadme selected, so this goes through the same family predicate as
+    // its siblings instead of re-deriving the readme from PackageReadmeFile.
+    [MarkoutSection(Name = PackageSections.FilesReadme)]
+    public List<PackageFileRow>? PackageReadme => FamilyRows(PackageSections.FilesReadme);
+
+    [MarkoutSection(Name = PackageSections.FilesReference)]
+    public List<PackageFileRow>? ReferenceFiles => FamilyRows(PackageSections.FilesReference);
+
+    [MarkoutSection(Name = PackageSections.FilesRuntime)]
+    public List<PackageFileRow>? RuntimeFiles => FamilyRows(PackageSections.FilesRuntime);
+
+    [MarkoutSection(Name = PackageSections.FilesSkills)]
+    public List<PackageFileRow>? SkillFiles => FamilyRows(PackageSections.FilesSkills);
 
     [MarkoutSection(Name = PackageSections.RuntimeDependencies)]
     public List<PackageDependency>? RuntimeDependencies => _data.RuntimeDependencies;
@@ -128,6 +127,11 @@ public class InspectionResultView
         : null;
 
     [MarkoutFormat("yyyy-MM-dd")]
+    [MarkoutSection(Name = PackageSections.SourceLinkFiles, EmptyText = "No SourceLink source files found for this package.")]
+    public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
+        .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
+        .ToList();
+
     [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutPropertyName("Published")]
     public DateTimeOffset? Published => _data.Published;
@@ -274,18 +278,6 @@ public class InspectionResultView
         return _data.LibraryFiles?
             .Select(path => new PackageFile(path, 0))
             .ToList();
-    }
-
-    private List<PackageFile>? PackageReadmeFiles()
-    {
-        if (_data.PackageFiles is not { Count: > 0 } files || string.IsNullOrWhiteSpace(_data.PackageReadmeFile))
-            return null;
-
-        var readme = files
-            .Where(file => string.Equals(file.Path, _data.PackageReadmeFile, StringComparison.OrdinalIgnoreCase))
-            .Take(1)
-            .ToList();
-        return readme.Count > 0 ? readme : null;
     }
 
     private static PackageFileRow ToFileRow(PackageFile file)

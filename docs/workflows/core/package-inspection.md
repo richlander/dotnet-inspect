@@ -188,12 +188,12 @@ netstandard2.0
 wc -l | tr -d ' '
 ```
 
-## 6. View package grounding
+## 6. View the package README
 
-> Goal: Read the best grounding document from inside the nupkg.
+> Goal: Read the best README document from inside the nupkg.
 
 ```bash
-dotnet-inspect package System.CommandLine -S Grounding --print
+dotnet-inspect package System.CommandLine -S "Package README file" --print
 ```
 
 ```expect
@@ -205,14 +205,14 @@ to print selected file bodies. Markdown content can be scoped to the YAML header
 or body:
 
 ```bash
-dotnet-inspect package Markout -S "Grounding"
+dotnet-inspect package Markout -S "Package README file"
 dotnet-inspect package Markout -S "Package Info" --fields Version --value
-dotnet-inspect package Markout -S "Grounding" --print
+dotnet-inspect package Markout -S "Package README file" --print
 dotnet-inspect project ./src/App -S "Skills"
 dotnet-inspect project ./src/App -S "Skills" --paths
 dotnet-inspect project ./src/App -S "Skills" --print --row 1
 dotnet-inspect project ./src/App -S "Skills" --print --row 1 --jsonl
-dotnet-inspect package Markout -S "Files: Markdown"
+dotnet-inspect package Markout -S "Package markdown files"
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl
 ```

@@ -233,13 +233,18 @@ public class PackageFileListerTests
         Assert.True(result[0].IsAgents);
     }
 
+    /// <summary>
+    /// README.md then PACKAGE.md. AGENTS.md is deliberately not in the chain: agent-facing
+    /// package documentation is carried by skills/**/SKILL.md ("Package skill files"), so an
+    /// AGENTS.md in the package must not displace the human-readable README.
+    /// </summary>
     [Fact]
-    public void ResolvePackageReadme_PrefersAgentsThenReadmeThenPackage()
+    public void ResolvePackageReadme_PrefersReadmeThenPackage_AndIgnoresAgents()
     {
         var root = CreateExtractDir("PACKAGE.md", "README.md", "AGENTS.md");
         try
         {
-            Assert.Equal("AGENTS.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
+            Assert.Equal("README.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
             File.Delete(Path.Combine(root, "AGENTS.md"));
             Assert.Equal("README.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
             File.Delete(Path.Combine(root, "README.md"));

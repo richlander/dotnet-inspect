@@ -3,7 +3,8 @@ namespace DotnetInspector.Views;
 using DotnetInspector.Models;
 
 /// <summary>
-/// The <c>Files: &lt;X&gt;</c> family: package file listings scoped to one layout root.
+/// The package file family: <c>Package &lt;X&gt; file(s)</c> listings, each scoped to one
+/// slice of the package layout.
 ///
 /// This is the single declaration of which sections are in the family and what each
 /// one matches. The section descriptors, the view's row projections, the command's
@@ -23,6 +24,11 @@ public static class PackageFileFamily
         (PackageSections.FilesRuntime, static file => HasRoot(file, "runtimes/")),
         (PackageSections.FilesMarkdown, static file => HasExtension(file, ".md")),
         (PackageSections.FilesNuspec, static file => HasExtension(file, ".nuspec")),
+        // At most one row: IsReadme is set on the single file that ResolvePackageReadme
+        // picked (README.md, then PACKAGE.md, then the declared readme), so the priority
+        // chain lives in one place rather than being restated as a predicate here.
+        (PackageSections.FilesReadme, static file => file.IsReadme),
+        (PackageSections.FilesSkills, IsSkillDocument),
     ];
 
     /// <summary>Section names in the family, in catalog order.</summary>
@@ -52,4 +58,13 @@ public static class PackageFileFamily
 
     static bool HasExtension(PackageFile file, string extension)
         => file.Path.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <c>skills/SKILL.md</c> or <c>skills/**/SKILL.md</c>, matching the globs the project
+    /// command's skill discovery uses.
+    /// </summary>
+    static bool IsSkillDocument(PackageFile file)
+        => HasRoot(file, "skills/")
+           && (file.Path.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase)
+               || file.Path.Equals("skills/SKILL.md", StringComparison.OrdinalIgnoreCase));
 }

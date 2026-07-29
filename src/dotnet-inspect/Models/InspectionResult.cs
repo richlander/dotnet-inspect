@@ -91,7 +91,7 @@ public class InspectionResult
     public string? ReadmeFile { get; set; }
 
     /// <summary>
-    /// Best package README path: AGENTS.md, README.md, PACKAGE.md, then the declared readme fallback.
+    /// Best package README path: README.md, PACKAGE.md, then the declared readme fallback.
     /// </summary>
     [JsonIgnore]
     public string? PackageReadmeFile { get; set; }

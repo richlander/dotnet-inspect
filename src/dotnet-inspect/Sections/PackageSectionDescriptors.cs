@@ -25,6 +25,7 @@ public static class PackageSectionDescriptors
             .Add<RuntimeFiles>()
             .Add<MarkdownFiles>()
             .Add<NuspecFiles>()
+            .Add<SkillFiles>()
             .Add<SourceFiles>()
             .Add<Signature>()
             .Add<Dependencies>()
@@ -62,9 +63,12 @@ public static class PackageSectionDescriptors
         public static bool CanRender(InspectionResult model) => true;
     }
 
+    /// <summary>
+    /// The best package README (README.md, then PACKAGE.md). Formerly named "Grounding".
+    /// </summary>
     public sealed class PackageReadme : ISectionDescriptor<InspectionResult>
     {
-        public static string Name => PackageSections.PackageReadme;
+        public static string Name => PackageSections.FilesReadme;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
@@ -150,6 +154,16 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesRuntime);
+    }
+
+    public sealed class SkillFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.FilesSkills;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => Matches(model, PackageSections.FilesSkills);
     }
 
     public sealed class NuspecFiles : ISectionDescriptor<InspectionResult>

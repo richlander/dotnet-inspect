@@ -52,7 +52,8 @@ Two orthogonal facts round out a section's placement:
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
 - **Topical category membership** — which visible doors (library: `@Surface`,
-  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`; package: `@Files`)
+  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`; package: `@Files`,
+  `@SourceLink`)
   surface the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
 
@@ -71,24 +72,41 @@ still correct, because the prefix already advertises it and because the name has
 to agree across commands for identical data. Cross-command agreement, not member
 count, is what earns the door in that case.
 
-**A prefix and a category door are two halves of one claim.** A `Group: Leaf`
-prefix advertises membership in a family, so every prefixed section must be
-reachable through that family's door, and a prefix is only appropriate when the
-family is *exclusively* owned by one door. `P/Invoke Methods` belongs to both
-`@Audit` and `@Surface`, so no prefix can describe it — cross-cutting lenses
-stay unprefixed, and only exclusive families (`Performance:`, `Integration:`,
-`SourceLink:`, `Files:`) carry a prefix. The `SourceLink` and `Files` families
-each enforce their half of this with a test that pins the door's membership to
-the set of correspondingly prefixed sections, so a new prefixed section that
-skips the door — or a member that loses its prefix — fails rather than quietly
-opening a discoverability hole.
+**A name that advertises a family and a category door are two halves of one
+claim.** Whatever the name does to signal membership, every section that signals
+it must be reachable through that family's door, and the signal is only
+appropriate when the family is *exclusively* owned by one door. `P/Invoke
+Methods` belongs to both `@Audit` and `@Surface`, so nothing in its name can
+claim a family — cross-cutting lenses stay plain.
 
-The converse also holds: an *unprefixed* section stays out of the door. The
-package command's plain `Files` is the unfiltered full-depth listing, a superset
-of every `Files: X` slice, so it is neither prefixed nor a member of `@Files`.
-Admitting it would make `-S @Files` render each `lib/` path twice. This is the
-one place where a name reads like a family root without being one, and it is
-deliberate: `Files` answers "what is in this package", while the family answers
+There are two ways to carry the signal, and the choice is a readability call
+rather than a mechanism change:
+
+- A `Group: Leaf` **prefix**, used by `Performance:`, `Integration:`, and
+  `SourceLink:`. This suits families whose leaf names are only meaningful under
+  the group.
+- A shared **noun-phrase suffix**, used by the package file family:
+  `Package library files`, `Package reference files`, `Package runtime files`,
+  `Package markdown files`, `Package skill files`, `Package nuspec file`, and
+  `Package README file`. These read as English rather than as a namespace, and
+  their singular/plural form carries real information — a singular name means
+  the section yields at most one row.
+
+Both are enforced the same way: a test pins the door's membership to the set of
+sections the naming rule selects, so a new section that adopts the naming but
+skips the door — or a member that loses the naming — fails rather than quietly
+opening a discoverability hole. The two signals do not compete: the package
+file rule matches on `Package … file(s)` and explicitly excludes any name
+carrying a `Group: Leaf` prefix, because a prefix claims the section for that
+group's door instead. That is why `SourceLink: Files` ends in "Files" without
+being a package file section.
+
+The converse also holds: a section that does not carry the signal stays out of
+the door. The package command's plain `Package files` is the unfiltered
+full-depth listing, a superset of every slice, so it is deliberately not a
+member of `@Files`. Admitting it would make `-S @Files` render each `lib/` path
+twice. This is the one place where a name reads like a family root without being
+one: `Package files` answers "what is in this package", while the family answers
 "what is in this package *of a given kind*".
 
 **A section lists in `-D` only when >0 rows can be established cheaply.** If
@@ -299,9 +317,9 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 | Name | Kind |
 | ---- | ---- |
 | Dependencies | section |
-| Files: Library | section |
 | Manifest | section |
 | Package Info | section |
+| Package library files | section |
 | Signature | section |
 | Statistics | section |
 | Target Frameworks | section |
@@ -309,18 +327,19 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 | @Default | category |
 | @Files | category |
 | @SourceLink | category |
-| Files | section (opt-in) |
-| Files: Markdown | section (opt-in) |
-| Files: Nuspec | section (opt-in) |
-| Grounding | section (opt-in) |
+| Package files | section (opt-in) |
+| Package markdown files | section (opt-in) |
+| Package nuspec file | section (opt-in) |
+| Package README file | section (opt-in) |
 | Signals | section (opt-in) |
 | SourceLink: Files | section (opt-in) |
 ```
 
 Discovery is data-aware, so this listing is a property of the target and not a
-static catalog. `System.CommandLine` ships no `ref/` or `runtimes/` assets, so
-`Files: Reference` and `Files: Runtime` do not list for it; they appear for a
-package such as `Microsoft.Data.SqlClient` that does. This is the same rule that
+static catalog. `System.CommandLine` ships no `ref/`, `runtimes/`, or `skills/` assets, so
+`Package reference files`, `Package runtime files`, and `Package skill files` do
+not list for it; the first two appear for a package such as
+`Microsoft.Data.SqlClient` that ships them. This is the same rule that
 keeps `Vulnerabilities` and `Runtime Dependencies` out of the listing when they
 would be empty.
 

@@ -12,7 +12,10 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 public static class PackageFileLister
 {
-    private static readonly string[] PackageReadmeCandidates = ["AGENTS.md", "README.md", "PACKAGE.md"];
+    // AGENTS.md is deliberately not a candidate. Agent-facing package documentation is
+    // carried by skills/**/SKILL.md (the "Package skill files" section), so the README
+    // chain is the plain human-readable one.
+    private static readonly string[] PackageReadmeCandidates = ["README.md", "PACKAGE.md"];
 
     public static string? ResolvePackageReadme(string extractPath, string? declaredReadme = null)
     {
@@ -35,7 +38,7 @@ public static class PackageFileLister
     /// Enumerates every package file (excluding zip plumbing) with its size,
     /// ordered by path. Paths are package-relative with forward slashes.
     /// <paramref name="declaredReadme"/> is the package-relative path selected
-    /// as the package readme (e.g. <c>AGENTS.md</c> or <c>PACKAGE.md</c>); the
+    /// as the package readme (e.g. <c>README.md</c> or <c>PACKAGE.md</c>); the
     /// matching row is flagged <see cref="PackageFile.IsReadme"/>.
     /// </summary>
     public static List<PackageFile> ListAll(string extractPath, string? declaredReadme = null)
@@ -124,7 +127,7 @@ public static class PackageFileLister
 
     // The .nuspec is deliberately absent: it is authored content (the package
     // manifest), not packaging plumbing, so it belongs in the file listings and
-    // behind the Files: Nuspec section.
+    // behind the Package nuspec file section.
     internal static bool IsPlumbing(string rel)
         // Zip plumbing (OPC packaging artifacts inside the .nupkg).
         => rel.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase)
