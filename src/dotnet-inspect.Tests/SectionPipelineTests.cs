@@ -1620,6 +1620,187 @@ public class SectionPipelineTests
         Assert.NotEmpty(model.InspectionFailures!);
     }
 
+    [Fact]
+    public void SharedSessionScanners_DoNotObserveAPathRetargetedMidRun()
+    {
+        // The actual attack, run in-process rather than described in a comment.
+        //
+        // A directory link points at assembly A. One scanner runs, which opens the shared session.
+        // The link is then retargeted to assembly B and the remaining scanners run. Every scanner
+        // must still report A: an open handle keeps reading its original target, so sharing one
+        // open is what makes the run coherent. Without it each scanner reopens through the link
+        // and picks up B, and the command still exits 0 with output that looks correct.
+        //
+        // The counter in SharedSessionScanners_AllObserveOneSession cannot see this, because
+        // anything that lives inside ScannerContext.Scan can be defeated by editing Scan. This
+        // test observes only scanner OUTPUT, so no edit to the plumbing can fake it.
+        var pathA = typeof(SectionPipelineTests).Assembly.Location;
+        var pathB = typeof(AssemblyInspectionSession).Assembly.Location;
+
+        var root = Path.Combine(Path.GetTempPath(), $"retarget-{Guid.NewGuid():N}");
+        var dirA = Path.Combine(root, "a");
+        var dirB = Path.Combine(root, "b");
+        var link = Path.Combine(root, "active");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+        File.Copy(pathA, Path.Combine(dirA, "lib.dll"));
+        File.Copy(pathB, Path.Combine(dirB, "lib.dll"));
+
+        try
+        {
+            if (!TryLinkDirectory(link, dirA))
+            {
+                // Deliberately not Assert.Skip: a silent skip here would retire the gate. Windows
+                // needs Developer Mode or admin for symbolic links; the junction fallback covers
+                // the rest. If both fail the environment cannot host this test at all.
+                throw new InvalidOperationException(
+                    $"Could not create a directory link at '{link}'. On Windows this needs " +
+                    "Developer Mode, admin, or working `mklink /J`.");
+            }
+
+            var linkedAssembly = Path.Combine(link, "lib.dll");
+
+            // Control: what each assembly looks like when nothing moves underneath it.
+            var expectedA = CensusSignature(pathA);
+            var expectedB = CensusSignature(pathB);
+
+            // Non-vacuity: if the two fixtures censused the same, the retarget could not be seen
+            // and this test would pass no matter what the product did.
+            Assert.NotEqual(expectedA, expectedB);
+
+            var registry = LibrarySections.CreateScannerRegistry();
+            var model = new LibraryInspection();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = linkedAssembly,
+                Model = model,
+                Logger = new Output.VerboseLogger(false),
+            };
+
+            // First scanner opens the shared session against A.
+            registry.RunScanners([LibrarySections.ScannerExtensionMethods], context);
+
+            Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
+
+            registry.RunScanners(
+                registry.ExpandRequired(
+                [
+                    LibrarySections.ScannerClassifiedMethods,
+                    LibrarySections.ScannerResources,
+                    LibrarySections.ScannerCustomAttributes,
+                    LibrarySections.ScannerTypeForwarders,
+                ]),
+                context);
+
+            Assert.Equal(expectedA, SignatureOf(model));
+        }
+        finally
+        {
+            // Delete the link before the tree so the target is not followed.
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Runs the census scanners over an untouched path and returns their signature.</summary>
+    private static string CensusSignature(string assemblyPath)
+    {
+        var model = new LibraryInspection();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = assemblyPath,
+            Model = model,
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        LibrarySections.CreateScannerRegistry().RunScanners(
+            [
+                LibrarySections.ScannerExtensionMethods,
+                LibrarySections.ScannerClassifiedMethods,
+                LibrarySections.ScannerResources,
+                LibrarySections.ScannerCustomAttributes,
+                LibrarySections.ScannerTypeForwarders,
+            ],
+            context);
+
+        return SignatureOf(model);
+    }
+
+    private static string SignatureOf(LibraryInspection model) => string.Join(
+        "|",
+        $"ext={model.ExtensionMethods?.Count}",
+        $"attrs={model.CustomAttributes?.Count}",
+        $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
+        $"resources={PayloadCount(model.ResourceInspection)}",
+        $"forwarders={PayloadCount(model.TypeForwarderInspection)}");
+
+    private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
+        => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;
+
+    /// <summary>
+    /// Points <paramref name="link"/> at <paramref name="target"/>, replacing any existing link.
+    /// Prefers a symbolic link and falls back to a Windows junction, which needs no privilege.
+    /// </summary>
+    private static bool TryLinkDirectory(string link, string target)
+    {
+        if (Directory.Exists(link))
+            Directory.Delete(link);
+
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return true;
+        }
+        catch (Exception) when (OperatingSystem.IsWindows())
+        {
+            var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+
+            process!.WaitForExit();
+            return process.ExitCode == 0 && Directory.Exists(link);
+        }
+    }
+
+    [Fact]
+    public void AuditSignalRefresh_DoesNotReopenTheAssembly()
+    {
+        // GPT's finding: the Signals section was NOT protected by the shared session. InspectAsync
+        // recomputes audit signals after the source-audit and integrity passes, and each recompute
+        // used to call PopulateLibraryAudit(path, ...) — a fresh open, AFTER the ScannerContext was
+        // disposed. So Signals could still mix two assemblies (proved out-of-process by retargeting
+        // a junction during the recompute), and a healthy run opened the assembly up to four times.
+        //
+        // Only the model-derived half of the computation changes between recomputes, so the
+        // assembly-derived half is captured once and reused. Refresh must therefore work against a
+        // path that can no longer be opened at all: if it still reopens, this fails.
+        var model = new LibraryInspection();
+        AuditSignalBuilder.PopulateLibraryAudit(
+            typeof(SectionPipelineTests).Assembly.Location,
+            model,
+            new Output.VerboseLogger(false));
+
+        Assert.NotNull(model.AuditMetadata);
+        var captured = model.AuditMetadata;
+        var signals = model.AuditSignals;
+        Assert.NotNull(signals);
+
+        // A path that cannot be opened. A reopen would null out the metadata and change signals.
+        AuditSignalBuilder.RefreshLibraryAudit(
+            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
+            model,
+            new Output.VerboseLogger(false));
+
+        Assert.Same(captured, model.AuditMetadata);
+        Assert.Equal(signals!.Count, model.AuditSignals!.Count);
+    }
+
     private static ScannerContext NullScannerContext() => new()
     {
         AssemblyPath = "unused.dll",

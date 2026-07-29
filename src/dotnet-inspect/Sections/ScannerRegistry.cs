@@ -40,6 +40,12 @@ public sealed class ScannerContext : IDisposable
     /// path between opens (a symlink swap, or a build replacing the file) yields an incoherent
     /// result with a zero exit code. Sharing one open closes it.
     ///
+    /// The guarantee is scoped to the scanners. It is NOT whole-run atomicity: assembly info comes
+    /// from the PdbContext that InspectAsync opens separately and earlier, so a retarget between
+    /// that open and this one can still mix assembly identity with scanner output. That hole
+    /// predates the prerequisite work — it is measurable at this PR's base — and closing it means
+    /// threading one session through all of InspectAsync, which is not attempted here.
+    ///
     /// Returns <see langword="null"/> when the assembly cannot be opened, so the caller falls back
     /// to the path-based overload. That is deliberate: each path overload maps its own open
     /// failure onto its own inspection type, and reproducing those mappings here would duplicate

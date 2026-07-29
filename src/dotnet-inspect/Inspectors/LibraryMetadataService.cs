@@ -246,7 +246,7 @@ internal static class LibraryMetadataService
                 sourceSubject);
 
             if (needsAuditSignals)
-                AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+                AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
 
             if (sourcePlan.RunHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
             {
@@ -258,7 +258,7 @@ internal static class LibraryMetadataService
                     DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
                     logger);
                 if (needsAuditSignals)
-                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+                    AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
             }
 
             if (sourcePlan.RunIntegrity && service.HasSourceLink && pdbContext.HasPdb)
@@ -268,7 +268,7 @@ internal static class LibraryMetadataService
                     inspection,
                     logger);
                 if (needsAuditSignals)
-                    AuditSignalBuilder.PopulateLibraryAudit(path, inspection, logger);
+                    AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
             }
 
             if (sourcePlan.CollectSourceFiles)

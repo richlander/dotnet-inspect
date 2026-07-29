@@ -72,9 +72,45 @@ internal static class AuditSignalBuilder
         ApplyLibraryAudit(inspection, metadata);
     }
 
+    /// <summary>
+    /// Recomputes audit signals after a later pass has added evidence, reusing the metadata the
+    /// audit scanner already captured. Falls back to a full populate when no scanner captured any
+    /// — an unopenable assembly, or a caller that bypassed the scanner registry — so this is safe
+    /// to call unconditionally.
+    /// </summary>
+    public static void RefreshLibraryAudit(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        if (inspection.AuditMetadata is null)
+        {
+            PopulateLibraryAudit(path, inspection, logger);
+            return;
+        }
+
+        RefreshLibraryAuditSignals(inspection);
+    }
+
     private static void ApplyLibraryAudit(LibraryInspection inspection, AssemblyAuditMetadata? metadata)
     {
+        inspection.AuditMetadata = metadata;
+        RefreshLibraryAuditSignals(inspection);
+    }
+
+    /// <summary>
+    /// Recomputes audit signals from already-captured metadata plus the current model, without
+    /// reopening the assembly.
+    ///
+    /// The source-audit and integrity passes run after the scanners and add evidence that signals
+    /// depend on, so signals have to be recomputed once each pass lands. Only the model-derived
+    /// half of the computation changes; reopening the assembly to redo the other half wasted up to
+    /// three extra opens and reintroduced the window the shared session closes, since those opens
+    /// happen after the scanner context is disposed.
+    ///
+    /// Gated by <c>AuditSignalRefresh_DoesNotReopenTheAssembly</c>.
+    /// </summary>
+    public static void RefreshLibraryAuditSignals(LibraryInspection inspection)
+    {
         List<AuditSignal> signals = [];
+        var metadata = inspection.AuditMetadata;
         var context = new LibrarySignalContext(inspection, metadata, metadata?.PInvokeMethodCount);
         AddLibrarySignals(signals, in context);
 
