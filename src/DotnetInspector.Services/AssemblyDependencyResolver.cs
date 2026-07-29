@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -660,7 +661,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(depsPath));
+            using var doc = HardenedJson.Parse(File.ReadAllText(depsPath));
             var root = doc.RootElement;
             if (!root.TryGetProperty("targets", out var targets) ||
                 targets.ValueKind != JsonValueKind.Object ||

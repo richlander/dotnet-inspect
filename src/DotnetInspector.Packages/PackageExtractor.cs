@@ -560,7 +560,7 @@ public static class PackageExtractor
 
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             var resources = doc.RootElement.GetProperty("resources");
 
             foreach (var resource in resources.EnumerateArray())
@@ -804,7 +804,7 @@ public static class PackageExtractor
 
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             if (doc.RootElement.TryGetProperty("versions", out var versions))
             {
                 return versions.EnumerateArray()
@@ -1065,7 +1065,7 @@ public static class PackageExtractor
             if (json == null)
                 return null;
 
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             if (doc.RootElement.TryGetProperty("data", out var data) &&
                 data.GetArrayLength() > 0)
             {
@@ -1097,7 +1097,7 @@ public static class PackageExtractor
 
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             var versions = doc.RootElement.GetProperty("versions");
             if (versions.GetArrayLength() > 0)
             {
