@@ -934,9 +934,19 @@ public class ScanTokenTests
 
         void Check(string[] content)
         {
-            seedFirstLines?.Add(content[0]);
-
             var bare = BodySlicer.ScanTokens(content);
+
+            // Record only calls that actually did the seeded arm's work: two lines, whose
+            // second one opens with a fragment carried in from the first. Recording the first
+            // line alone would let a single-line call stand in for the two-line one.
+            if (seedFirstLines is not null
+                && content.Length > 1
+                && bare.FirstOrDefault(t => t.Line == 1) is
+                    { Kind: ScanTokenKind.StringLiteral or ScanTokenKind.Comment })
+            {
+                seedFirstLines.Add(content[0]);
+            }
+
             string[] wrapped = ["{", "[", .. content];
             var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
 
@@ -1030,7 +1040,9 @@ public class ScanTokenTests
         //
         // The record is scoped to the seeded arm rather than collected across all three. Seven
         // of the nine openers are spellable from the single-line alphabet, so a set shared with
-        // the earlier arms would already contain them and pin nothing.
+        // the earlier arms would already contain them and pin nothing. It is further restricted
+        // to calls that carry a fragment onto a second line, so a single-line call cannot stand
+        // in for the two-line one (adversarial review, GPT).
         Assert.All(openers, opener => Assert.Contains(opener, seedFirstLines));
     }
 
