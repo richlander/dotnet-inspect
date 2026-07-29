@@ -312,7 +312,7 @@ public static class ApiOutputFormatter
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
                 : string.Join(", ", memberFilter);
-            Console.Error.WriteLine($"No matching members for filter: {filterDesc}");
+            CommandError.WriteLine($"No matching members for filter: {filterDesc}");
         }
         else
         {

@@ -53,7 +53,7 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine(
+                CommandError.WriteLine(
                     $"Type '{ContainLabel(result.MatchedType ?? options.TargetType)}' has no type dependencies beyond System.Object.");
                 return 0;
             }
@@ -130,7 +130,7 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
+                CommandError.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
                 return 0;
             }
 
@@ -179,9 +179,11 @@ public class DependsCommand
                 context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);
             if (result is PackageDependencyGraphResult.Error error)
             {
-                CommandError.Write($"{error.Message}");
-                if (error.Detail != null)
-                    Console.Error.WriteLine(error.Detail);
+                // Detail lists the TFMs a package actually offers, which comes
+                // straight out of its .nuspec. It used to go out as its own
+                // unindented line, so a hostile targetFramework attribute
+                // containing a line separator forged a diagnostic under it.
+                CommandError.Write(error.Message, error.Detail is null ? [] : [error.Detail]);
                 return 1;
             }
             if (result is PackageDependencyGraphResult.Empty empty)
@@ -192,7 +194,7 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine(empty.Message);
+                CommandError.WriteLine(empty.Message);
                 return 0;
             }
 

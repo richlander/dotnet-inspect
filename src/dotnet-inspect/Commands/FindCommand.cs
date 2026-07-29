@@ -128,7 +128,7 @@ public class FindCommand
 
         if (view.Results == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 
@@ -159,7 +159,7 @@ public class FindCommand
 
         if (view.Results == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 

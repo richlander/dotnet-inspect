@@ -73,10 +73,10 @@ public class DiffCommand
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
             CommandError.Write("--package, --platform, or --library with version range required.");
-            Console.Error.WriteLine("Examples:");
-            Console.Error.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
-            Console.Error.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
-            Console.Error.WriteLine("  --library old/Foo.dll..new/Foo.dll");
+            CommandError.WriteLine("Examples:");
+            CommandError.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
+            CommandError.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
+            CommandError.WriteLine("  --library old/Foo.dll..new/Foo.dll");
             return 1;
         }
 

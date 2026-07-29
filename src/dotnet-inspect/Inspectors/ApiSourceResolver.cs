@@ -55,7 +55,7 @@ internal static class ApiSourceResolver
                 {
                     CommandError.Write(
                         $"Package range '{packagePath}' requires --at <version|#N|first|last>.");
-                    Console.Error.WriteLine(
+                    CommandError.WriteLine(
                         $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
                     return (null!, 1);
                 }
@@ -307,10 +307,10 @@ internal static class ApiSourceResolver
         else
         {
             CommandError.Write("No package, library, or platform specified.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Examples:");
-            Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
-            Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Examples:");
+            CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+            CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
             return (null!, 1);
         }
 

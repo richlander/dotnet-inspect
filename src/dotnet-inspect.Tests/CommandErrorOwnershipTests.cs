@@ -72,6 +72,9 @@ public class CommandErrorOwnershipTests
     /// argument it quoted reached stderr uncontained. Severity now belongs to
     /// the writer, and a call site that reaches for the old shape fails here.
     /// </remarks>
+    private static readonly Regex StderrWrite =
+        new(@"Console\s*\.\s*Error\s*\.\s*Write(Line)?\s*\(", RegexOptions.Compiled);
+
     private static readonly Regex ProjectReference =
         new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -105,6 +108,84 @@ public class CommandErrorOwnershipTests
         }
 
         return seen;
+    }
+
+
+    /// <summary>
+    /// Pins the rule that actually closes this class of defect: outside the
+    /// owner, no code in the CLI process writes text to stderr.
+    /// </summary>
+    /// <remarks>
+    /// The severity-literal scan below is a spelling rule, and a spelling rule
+    /// is evadable by construction -- <c>"Error" + ": "</c>,
+    /// <c>string.Format("Error: {0}", m)</c>, or <c>$"{severity}: {m}"</c> all
+    /// produce the same forged line without ever spelling it. Worse, it only
+    /// describes lines that carry a severity, and stderr also carries
+    /// suggestion lists, TFM lists, and progress text. Thirty-four such sites
+    /// wrote untrusted text raw; <c>depends</c> printed a hostile package's
+    /// <c>targetFramework</c> attribute unindented, forging a diagnostic with
+    /// no severity literal anywhere in the source.
+    ///
+    /// Owning the stream subsumes all of it: if every line comes from the
+    /// writer, every line is contained, whatever the caller composed and
+    /// however it spelled it. That is a property of the code that runs, not of
+    /// the text that appears in it.
+    ///
+    /// Passing <c>Console.Error</c> to a serializer as a sink is a different
+    /// path and stays allowed: it renders a view through the same Markout
+    /// containment that this suite gates for stdout, rather than writing
+    /// caller-composed text.
+    /// </remarks>
+    [Fact]
+    public void CommandError_IsTheOnlyWriterOfStderr()
+    {
+        string root = RepositoryRoot();
+        string owner = Path.Combine(root, "src", "dotnet-inspect", "Output", "CommandError.cs");
+
+        List<string> offenders = [];
+        foreach (string path in Directory.EnumerateFiles(
+            Path.Combine(root, "src", "dotnet-inspect"), "*.cs", SearchOption.AllDirectories))
+        {
+            if (string.Equals(path, owner, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string text = File.ReadAllText(path);
+            foreach (Match match in StderrWrite.Matches(text))
+            {
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                string source = text[match.Index..];
+                if (source.TrimStart().StartsWith("///", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value}");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "Only CommandError may write text to stderr, so that every line on the stream is "
+                + $"contained. Use CommandError.Write/WriteWarning/WriteNote/WriteLine/WriteDetail:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// Guards the stream rule against becoming vacuous if the pattern or the
+    /// scanned root stops matching real code.
+    /// </summary>
+    [Fact]
+    public void StderrScan_MatchesTheShapeItIsMeantToCatch()
+    {
+        Assert.Matches(StderrWrite, "        Console.Error.WriteLine($\"{a}\");");
+        Assert.Matches(StderrWrite, "Console.Error.Write(x);");
+        Assert.DoesNotMatch(StderrWrite, "MarkoutSerializer.Serialize(view, Console.Error, ctx);");
+
+        // The owner still writes, so the rule is about who, not about whether.
+        string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
+        Assert.Matches(StderrWrite, File.ReadAllText(owner));
     }
 
     [Fact]

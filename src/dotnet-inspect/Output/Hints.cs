@@ -41,7 +41,7 @@ public static class Hints
         };
 
         Console.Out.Flush();
-        Console.Error.WriteLine();
+        CommandError.WriteBlankLine();
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
     }
 
@@ -52,7 +52,7 @@ public static class Hints
         var view = new LegendView { Entries = [.. entries] };
 
         Console.Out.Flush();
-        Console.Error.WriteLine();
+        CommandError.WriteBlankLine();
         MarkoutSerializer.Serialize(view, Console.Error, new PlainTextFormatter(), TipsViewContext.Default);
     }
 

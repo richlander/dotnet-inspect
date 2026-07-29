@@ -106,7 +106,7 @@ public class CacheCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error clearing cache: {ex.Message}");
+            CommandError.WriteLine($"Error clearing cache: {ex.Message}");
             return 1;
         }
     }
@@ -143,7 +143,7 @@ public class CacheCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error clearing session '{sessionName}': {ex.Message}");
+            CommandError.WriteLine($"Error clearing session '{sessionName}': {ex.Message}");
             return 1;
         }
     }

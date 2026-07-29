@@ -23,15 +23,15 @@ public static class ApiCommandDefinitions
         deprecatedApiCommand.TreatUnmatchedTokensAsErrors = false;
         deprecatedApiCommand.SetAction(_ =>
         {
-            Console.Error.WriteLine("The 'api' command is deprecated. Please use:");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("  type   - Discover types in a package/library (compact table, no docs by default)");
-            Console.Error.WriteLine("  member - Inspect type members (docs by default)");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Examples:");
-            Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
-            Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
-            Console.Error.WriteLine("  dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json");
+            CommandError.WriteLine("The 'api' command is deprecated. Please use:");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("  type   - Discover types in a package/library (compact table, no docs by default)");
+            CommandError.WriteLine("  member - Inspect type members (docs by default)");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Examples:");
+            CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+            CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+            CommandError.WriteLine("  dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json");
             return 1;
         });
         return deprecatedApiCommand;
@@ -133,7 +133,7 @@ public static class ApiCommandDefinitions
 
                 case TypeOptionsParser.ShowHelp:
                     CommandError.Write("Type name, pattern, or source required.");
-                    Console.Error.WriteLine("Run 'dotnet-inspect type --help' for usage.");
+                    CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
                     return 1;
 
                 case TypeOptionsParser.VersionError error:
@@ -277,7 +277,7 @@ public static class ApiCommandDefinitions
 
                 case MemberOptionsParser.ShowHelp:
                     CommandError.Write("Type name or source required.");
-                    Console.Error.WriteLine("Run 'dotnet-inspect member --help' for usage.");
+                    CommandError.WriteLine("Run 'dotnet-inspect member --help' for usage.");
                     return 1;
 
                 case MemberOptionsParser.VersionError error:

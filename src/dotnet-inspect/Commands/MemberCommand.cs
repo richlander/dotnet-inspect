@@ -25,8 +25,8 @@ public static class MemberCommand
                 return findIfMissExitCode;
 
             CommandError.Write("member requires a type name.");
-            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
-            Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
+            CommandError.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
+            CommandError.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.PlatformAssembly ?? "");
             return 1;
         }
@@ -214,7 +214,7 @@ public static class MemberCommand
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
                     CommandError.Write($"{sectionLabel} a single selected overload for member '{memberName}'.");
-                    Console.Error.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
                     return 1;
                 }
             }

@@ -87,14 +87,14 @@ public class SkillCommand
         if (entry is null)
         {
             CommandError.Write($"Unknown skill '{name}'.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Available skills:");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Available skills:");
             foreach (var s in Skills)
             {
-                Console.Error.WriteLine($"  {s.Name}");
+                CommandError.WriteLine($"  {s.Name}");
             }
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Run 'dotnet-inspect skill list' for descriptions.");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Run 'dotnet-inspect skill list' for descriptions.");
             return 1;
         }
 

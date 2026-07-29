@@ -39,7 +39,7 @@ public class PackageSearchCommand
 
             if (results.Count == 0)
             {
-                Console.Error.WriteLine($"No packages found for \"{options.Query}\".");
+                CommandError.WriteLine($"No packages found for \"{options.Query}\".");
                 return 0;
             }
 

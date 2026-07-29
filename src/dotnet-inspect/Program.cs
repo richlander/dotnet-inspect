@@ -196,7 +196,7 @@ if (showInfo)
         Readme = InfoTracker.GetDetail("readme")
     };
 
-    Console.Error.WriteLine();
+    CommandError.WriteBlankLine();
     MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
 }
 
@@ -258,15 +258,15 @@ static bool TryParseCannotParseArgument(string message, out string value, out st
 
 if (traceMermaid != null)
 {
-    Console.Error.WriteLine();
+    CommandError.WriteBlankLine();
     traceMermaid.WriteTo(Console.Error);
 }
 
 var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 if (cacheMaintenance.BytesFreed > 0)
 {
-    Console.Error.WriteLine();
-    Console.Error.WriteLine($"Removed {CacheOutputFormatter.FormatSize(cacheMaintenance.BytesFreed)} from obsolete cache entries.");
+    CommandError.WriteBlankLine();
+    CommandError.WriteLine($"Removed {CacheOutputFormatter.FormatSize(cacheMaintenance.BytesFreed)} from obsolete cache entries.");
 }
 
 return exitCode;

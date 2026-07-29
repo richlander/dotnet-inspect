@@ -19,10 +19,10 @@ public static class SelectOutput
             CommandError.Write($"Select value '{miss.Value}' not found.");
             if (miss.Suggestions.Count > 0)
             {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
                 foreach (var s in miss.Suggestions)
-                    Console.Error.WriteLine($"  {s}");
+                    CommandError.WriteLine($"  {s}");
             }
         }
         return true;
@@ -58,10 +58,10 @@ public static class SelectOutput
                 WriteDiagnostic($"No sections match '{miss.Value}'.");
                 if (totalFailure && miss.Suggestions.Count > 0)
                 {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Available sections:");
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine("Available sections:");
                     foreach (var s in miss.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
+                        CommandError.WriteLine($"  {s}");
                 }
             }
             else
@@ -69,14 +69,14 @@ public static class SelectOutput
                 WriteDiagnostic($"Select value '{miss.Value}' not found.");
                 if (miss.Suggestions.Count > 0)
                 {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
                     foreach (var s in miss.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
+                        CommandError.WriteLine($"  {s}");
                     if (miss.ListsAllSections)
                     {
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Run with -D to discover sections for this target.");
+                        CommandError.WriteBlankLine();
+                        CommandError.WriteLine("Run with -D to discover sections for this target.");
                     }
                 }
             }

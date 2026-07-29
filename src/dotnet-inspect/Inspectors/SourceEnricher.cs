@@ -119,19 +119,19 @@ internal static class SourceEnricher
                     return;
                 }
 
-                Console.Error.WriteLine();
+                CommandError.WriteBlankLine();
                 if (context.WindowsPdbDetected)
                 {
                     CommandError.WriteWarning("PDB could not be read (Windows PDB format is not supported).");
-                    Console.Error.WriteLine("         Only Portable PDBs are supported. Consider asking the maintainer");
-                    Console.Error.WriteLine("         to publish Portable PDBs (embedded or in .snupkg).");
+                    CommandError.WriteLine("         Only Portable PDBs are supported. Consider asking the maintainer");
+                    CommandError.WriteLine("         to publish Portable PDBs (embedded or in .snupkg).");
                 }
                 else
                 {
                     CommandError.WriteWarning("No readable PDB found.");
                 }
-                Console.Error.WriteLine("         Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
-                Console.Error.WriteLine();
+                CommandError.WriteLine("         Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
+                CommandError.WriteBlankLine();
                 return;
             }
 
@@ -282,10 +282,10 @@ internal static class SourceEnricher
         {
             if (context.WindowsPdbDetected)
             {
-                Console.Error.WriteLine();
+                CommandError.WriteBlankLine();
                 CommandError.WriteWarning("PDB could not be read (Windows PDB format is not supported).");
-                Console.Error.WriteLine("         Only Portable PDBs are supported.");
-                Console.Error.WriteLine();
+                CommandError.WriteLine("         Only Portable PDBs are supported.");
+                CommandError.WriteBlankLine();
             }
             return;
         }

@@ -450,7 +450,7 @@ public static class DiscoverOutput
         if (miss != null && miss.IsGlob && matches.Count > 1)
         {
             CommandError.Write($"'{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
-            Console.Error.WriteLine("Discovery requires exactly one section. Be more specific.");
+            CommandError.WriteLine("Discovery requires exactly one section. Be more specific.");
             return null;
         }
 
@@ -460,10 +460,10 @@ public static class DiscoverOutput
             CommandError.Write($"Section '{miss.Value}' not found.");
             if (miss.Suggestions.Count > 0)
             {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
                 foreach (var s in miss.Suggestions)
-                    Console.Error.WriteLine($"  {s}");
+                    CommandError.WriteLine($"  {s}");
             }
         }
 
@@ -676,10 +676,10 @@ public static class DiscoverOutput
         if (categories is not { Count: > 0 })
             return;
 
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Available categories:");
+        CommandError.WriteBlankLine();
+        CommandError.WriteLine("Available categories:");
         foreach (var category in categories.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
-            Console.Error.WriteLine($"  {category}");
+            CommandError.WriteLine($"  {category}");
     }
 }
 

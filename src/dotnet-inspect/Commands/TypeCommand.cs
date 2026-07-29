@@ -200,7 +200,7 @@ public static class TypeCommand
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
                         CommandError.Write("-v:q is not supported by the type shape renderer.");
-                        Console.Error.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                        CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
                         return 1;
                     }
 

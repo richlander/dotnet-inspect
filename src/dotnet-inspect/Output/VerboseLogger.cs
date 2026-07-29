@@ -20,7 +20,7 @@ public class VerboseLogger(bool enabled)
     {
         if (Enabled)
         {
-            Console.Error.WriteLine(CSharpIdentifier.ContainRenderedText(message));
+            CommandError.WriteLine(message);
         }
     }
 

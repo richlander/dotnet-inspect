@@ -152,7 +152,7 @@ public class ImplementsCommand
 
         if (view.Rows == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 

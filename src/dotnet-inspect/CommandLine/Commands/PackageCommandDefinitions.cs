@@ -178,12 +178,12 @@ public static class PackageCommandDefinitions
 
             if (string.IsNullOrEmpty(query))
             {
-                Console.Error.WriteLine("Usage: package search <query>");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Examples:");
-                Console.Error.WriteLine("  package search Azure.AI");
-                Console.Error.WriteLine("  package search AWSSDK --take 50");
-                Console.Error.WriteLine("  package search \"json serializer\" --json");
+                CommandError.WriteLine("Usage: package search <query>");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Examples:");
+                CommandError.WriteLine("  package search Azure.AI");
+                CommandError.WriteLine("  package search AWSSDK --take 50");
+                CommandError.WriteLine("  package search \"json serializer\" --json");
                 return 0;
             }
 

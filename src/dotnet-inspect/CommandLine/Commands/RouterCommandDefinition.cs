@@ -45,17 +45,17 @@ public static class RouterCommandDefinition
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
             {
                 CommandError.Write($"Unknown command '{tokens[0]}'.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
-                Console.Error.WriteLine($"  {suggestion}");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
+                CommandError.WriteLine($"  {suggestion}");
                 return 1;
             }
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
             {
                 CommandError.WriteNote($"interpreting bare token '{tokens[0]}' as a package or platform target.");
-                Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
-                Console.Error.WriteLine();
+                CommandError.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
+                CommandError.WriteBlankLine();
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));

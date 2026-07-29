@@ -223,7 +223,7 @@ public class LibraryCommand
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
             CommandError.Write("Library path, package name, or --platform required.");
-            Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
+            CommandError.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }
 
@@ -1540,14 +1540,14 @@ public class LibraryCommand
         var extracted = session.ExtractResources(options.ExtractResources);
         if (extracted.Count == 0)
         {
-            Console.Error.WriteLine("No embedded resources found.");
+            CommandError.WriteLine("No embedded resources found.");
         }
         else
         {
-            Console.Error.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
+            CommandError.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
             foreach (var path in extracted)
             {
-                Console.Error.WriteLine($"  {Path.GetFileName(path)}");
+                CommandError.WriteLine($"  {Path.GetFileName(path)}");
             }
         }
     }
@@ -1661,11 +1661,11 @@ public class LibraryCommand
             if (tfmAssembly == null)
             {
                 CommandError.Write($"No library found for TFM '{tfm}'.");
-                Console.Error.WriteLine("Available TFMs:");
+                CommandError.WriteLine("Available TFMs:");
                 var tfms = TfmSelector.GetPackageTfms(allDlls, extractPath);
                 foreach (var t in tfms)
                 {
-                    Console.Error.WriteLine($"  {t}");
+                    CommandError.WriteLine($"  {t}");
                 }
                 DeleteTempDir(tempDir);
                 return null;
@@ -1700,7 +1700,7 @@ public class LibraryCommand
         if (matchedAssembly == null)
         {
             CommandError.Write($"Library '{assemblyName}' not found in package.");
-            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+            CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
             DeleteTempDir(tempDir);
             return null;
         }

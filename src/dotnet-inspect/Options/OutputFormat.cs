@@ -106,7 +106,7 @@ public static class OutputFormatResolver
     {
         if (tabular && verbosity >= Verbosity.Normal && includeSections == null)
         {
-            Console.Error.WriteLine("--table, --tsv, and --jsonl show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
+            CommandError.WriteLine("--table, --tsv, and --jsonl show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
             return true;
         }
         return false;
@@ -127,9 +127,9 @@ public static class OutputFormatResolver
             return true;
 
         CommandError.Write($"Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
-        Console.Error.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
+        CommandError.WriteBlankLine();
+        CommandError.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
+        CommandError.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
         return false;
     }
 
