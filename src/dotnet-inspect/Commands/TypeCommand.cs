@@ -109,7 +109,8 @@ public static class TypeCommand
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap());
+                        sectionCategories: typePipeline.GetCategoryMap(),
+                        projection: options);
                 }
 
                 ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
@@ -487,7 +488,8 @@ public static class TypeCommand
                 tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.Tabular && !browseOptions.JsonOutput,
                 verbosity: (int)browseOptions.Verbosity,
                 sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                sectionCategories: typePipeline.GetCategoryMap());
+                sectionCategories: typePipeline.GetCategoryMap(),
+                projection: browseOptions);
         }
 
         ApiCommand.WriteFullApiOutput(api, browseOptions);
