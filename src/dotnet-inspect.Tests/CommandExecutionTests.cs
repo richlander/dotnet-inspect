@@ -4047,6 +4047,43 @@ public class CommandExecutionTests
         Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
     }
 
+    [Fact]
+    public async Task Content_Count_CountsMatchesNotAbsentPlaceholders()
+    {
+        // A package that matches nothing still renders a placeholder block, so the default
+        // render emits one more row than there are files. The count follows the files:
+        // --skip-empty drops the placeholder, and then the render and the count agree
+        // exactly. Counting placeholders would report a match that never happened.
+        var (withFile, withDir) = CreateLocalReadmePackage("Test.Count.HasAgents", "README.md", "readme", "agents");
+        var (withoutFile, withoutDir) = CreateLocalReadmePackage("Test.Count.NoAgents", "README.md", "readme");
+        try
+        {
+            var (renderExit, rendered, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--jsonl");
+            var (skipExit, skipped, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--skip-empty", "--jsonl");
+            var (countExit, counted, _) = await RunAppAsync(
+                "package", withFile, withoutFile, "--path", "@agents", "--content", "--count");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, skipExit);
+            Assert.Equal(0, countExit);
+
+            static int Rows(string output) =>
+                output.Split('\n').Count(line => line.TrimStart().StartsWith('{'));
+
+            // The placeholder is a rendered row, so the default render is deliberately larger.
+            Assert.Equal(2, Rows(rendered));
+            Assert.Equal(1, Rows(skipped));
+            Assert.Equal(1, int.Parse(counted.Trim(), CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            Directory.Delete(withDir, recursive: true);
+            Directory.Delete(withoutDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

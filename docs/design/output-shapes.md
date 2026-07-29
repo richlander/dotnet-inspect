@@ -267,6 +267,14 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   for. `--content` is *not* in this category despite also rendering text: it
   yields one structured row per matched file, so its count is the number of
   files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
 - `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
   not approximated. They address a cell or a column of a selected section, and a
   lens payload has neither; answering anyway would require inferring structure
