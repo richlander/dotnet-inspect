@@ -1410,6 +1410,34 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ExpandRequired_ThrowsOnUnregisteredPrerequisite()
+    {
+        // A prerequisite naming a scanner that does not exist is a typo or a stale rename, and it
+        // silently drops a dependency: the scanner runs without the data it declared it needs and
+        // produces output that looks correct. Requested keys are different -- callers derive those
+        // from descriptors across registries and an unknown one is skipped on purpose -- so only
+        // the prerequisite edge is validated here.
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "typo");
+
+        var expand = Assert.Throws<InvalidOperationException>(
+            () => registry.ExpandRequired(["a"]));
+        Assert.Contains("typo", expand.Message, StringComparison.Ordinal);
+
+        // RunScanners is reachable without expanding first, so it enforces the same rule.
+        var run = Assert.Throws<InvalidOperationException>(
+            () => registry.RunScanners(["a"], NullScannerContext()));
+        Assert.Contains("typo", run.Message, StringComparison.Ordinal);
+
+        // Non-vacuity: an unregistered key that was merely REQUESTED must still be skipped, or
+        // this test would be passing for the wrong reason.
+        var ran = false;
+        var tolerant = new ScannerRegistry().Add("a", _ => ran = true);
+        tolerant.RunScanners(["a", "not-registered"], NullScannerContext());
+        Assert.True(ran);
+    }
+
+    [Fact]
     public void RunScanners_ThrowsOnPrerequisiteCycle()
     {
         var registry = new ScannerRegistry()

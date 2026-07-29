@@ -241,10 +241,31 @@ public sealed class ScannerRegistry
         if (closure.Add(key))
         {
             foreach (var required in RequirementsOf(key))
+            {
+                RequireRegistered(key, required);
                 AddWithRequirements(required, closure, visiting);
+            }
         }
 
         visiting.Remove(key);
+    }
+
+    /// <summary>
+    /// Rejects a declared prerequisite that names no registered scanner.
+    ///
+    /// A <em>requested</em> key with no registration is skipped on purpose: callers derive requests
+    /// from section descriptors across several registries, and the library registry's own
+    /// supply/demand equality is held by a separate gate. A <em>declared prerequisite</em> is not
+    /// the same thing — it is written next to the scanner that needs it, so a typo or a rename
+    /// silently drops a dependency the scanner is relying on and leaves output that looks correct.
+    ///
+    /// Gate: <c>ExpandRequired_ThrowsOnUnregisteredPrerequisite</c>.
+    /// </summary>
+    private void RequireRegistered(string key, string required)
+    {
+        if (!_scanners.ContainsKey(required))
+            throw new InvalidOperationException(
+                $"Scanner '{key}' requires '{required}', which is not registered.");
     }
 
     /// <summary>
@@ -277,7 +298,10 @@ public sealed class ScannerRegistry
                 $"Scanner prerequisite cycle detected at '{key}'.");
 
         foreach (var required in RequirementsOf(key))
+        {
+            RequireRegistered(key, required);
             RunWithRequirements(required, context, ran, running);
+        }
 
         running.Remove(key);
         ran.Add(key);
