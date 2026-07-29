@@ -201,6 +201,43 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
         return this;
     }
 
+    /// <summary>
+    /// Where <paramref name="node"/>'s characters sit in text coordinates: the
+    /// 0-based <paramref name="line"/>, the 0-based <paramref name="column"/>
+    /// within it, and the <paramref name="length"/> in characters.
+    /// </summary>
+    /// <remarks>
+    /// This is the projection that lets a range leave the process. A
+    /// <see cref="PrintedRange"/> is keyed by <see cref="IrNode"/>, whose identity
+    /// is the object reference, so it is meaningless outside the decompiler that
+    /// built it; a line/column/length triple is meaningful to anything that has
+    /// the text.
+    /// <para>
+    /// Returns false for a range that spans a line break. Such a range has no
+    /// single column, and silently reporting its first line would hand a caller a
+    /// position that understates the extent — the failure is explicit so that a
+    /// consumer chooses what to do rather than being given a wrong answer.
+    /// </para>
+    /// </remarks>
+    public bool TryGetLineColumn(IrNode node, out int line, out int column, out int length)
+    {
+        line = column = length = 0;
+        if (!TryGetRange(node, out var range))
+            return false;
+
+        int start = range.Start.GetOffset(Output.Length);
+        int end = range.End.GetOffset(Output.Length);
+        int startLine = LineAt(start);
+        if (LineAt(end) != startLine)
+            return false;
+
+        var starts = _lineStarts ??= BuildLineStarts(Output);
+        line = startLine;
+        column = start - starts[startLine];
+        length = end - start;
+        return true;
+    }
+
     int LineAt(int position)
     {
         var starts = _lineStarts ??= BuildLineStarts(Output);
