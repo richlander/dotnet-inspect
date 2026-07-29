@@ -53,7 +53,8 @@ public class LibraryCommand
                     // --schema reveals the full catalog including the @Hidden pole; a static -D
                     // without --schema keeps the curated top-level view.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                    projection: options);
             }
         }
 
@@ -134,7 +135,14 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
+        // section filter to make --count meaningful.
+        var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        // Discovery renders its own rows, so a section requirement describes a filter it does
+        // not use. -S still narrows effective discovery, so it stays permitted.
+        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
+
+        if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
         if (options.Count && options.Print)
@@ -153,7 +161,9 @@ public class LibraryCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // The batch path refuses shape projections with an accurate reason; a section
+            // requirement reported first would not be the actual problem.
+            if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {
@@ -179,7 +189,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Print && !ValidateLibraryPrintSelection(options.IncludeSections))
+        if (options.Print && !rendersOwnPayload && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
         if (options.Print && options.Rows is not null)
@@ -526,9 +536,23 @@ public class LibraryCommand
                 : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
+        var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
+
+        // --rows narrows what the table renders, so it has to narrow the count by
+        // the same window; counting the unwindowed batch answers a question the
+        // user did not ask, and the audit cannot see the difference. The exit code
+        // still reports every coordinate that failed to resolve, windowed out of
+        // view or not, because that is a resolution result rather than a display
+        // concern.
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
+
+        // A coordinate that failed to resolve is still a reported row, so it counts; the
+        // non-zero exit remains the signal that some coordinate did not resolve.
+        if (LensProjection.TryProject(options, "--il-offsets", visibleRows.Count, out var projectionExitCode))
+            return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
+
         WriteILCoordinateBatchRows(rows, options);
-        return rows.Any(row => row.Meaning == "error") ? 1 : 0;
-    }
+        return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
     [
@@ -1353,7 +1377,8 @@ public class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            projection: options);
     }
 
     // ── Effective sections cache ──
@@ -1428,7 +1453,8 @@ public class LibraryCommand
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
-            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors());
+            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors(),
+            projection: options);
     }
 
     /// <summary>
@@ -1507,8 +1533,7 @@ public class LibraryCommand
     internal static void WarnSectionsWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        // --count consumes the same row projection, so it belongs here: a tree counts zero rows.
-        if (!options.Tabular && !options.Tsv && !options.Jsonl && !options.Count)
+        if (!options.ConsumesRowProjection)
             return;
 
         if (options.IncludeSections is not { Count: > 0 })

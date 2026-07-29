@@ -176,23 +176,31 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
-`-n N` / `--head N` and `--tail N` are rendered-line windows applied after
+`-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
 
 ```text
---print --head 1
+--print -n 1
   multi-row selection -> error; does not choose the first row
 
---print --row 2 --head 20
+--print --row 2 -n 20
   select row 2 -> fetch one payload -> render its first 20 lines
 ```
 
-`--rows` changes head/tail from rendered-line windows into per-table data-row
-windows:
+`--rows <spec>` switches to per-table data-row windows and carries its own
+count, so three concerns stay on three flags: `--rows` sets the unit,
+its value sets the count or the rows, and `--head`/`--tail` set the direction.
 
-- `--rows --head N` keeps the first N data rows;
-- `--rows --tail N` keeps the last N data rows.
+- `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
+- `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
+- `--rows 2+10` keeps ten rows starting at row 2.
+- `--rows 10..` keeps row 10 through the last row.
+
+A count and a range are different kinds, not two spellings of one: a count
+anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
+rather than silently resolved. Bare `--rows` is an error — it once meant
+"interpret `-n` as rows", which put the count on a different flag than the unit.
 
 Both row-window forms are incompatible with `--print`;
 `--row N|first|last` is the explicit row selector. The CLI implements
@@ -238,6 +246,56 @@ The projections are mutually exclusive. Two of them cannot both shape one
 payload, so a combination is rejected before the command runs rather than
 resolved by discarding one.
 
+### Lens modes project their own payload
+
+A few flags select a *lens* rather than a section of the normal document:
+`package --versions`, `--layout`, `--tfms`, `--content`, and `--readme`, along
+with `library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
+
+The lens payload is still a payload, so the two-outcome rule above applies
+unchanged. Because the lens owns the shape, its answers are fixed:
+
+- `--count` counts the lens payload — versions, target frameworks, package
+  files, IL offsets, discovered artifacts — not the lines used to render it. A
+  layout count is a count of files, even though the rendered tree also shows the
+  directories that contain them.
+- `--count` is refused by `--readme`, whose payload is a single document rather
+  than a list. A README is a Scalar in the shape model, and `--count` collapses
+  a Vector, so counting it could only ever report that one document was asked
+  for. `--content` is *not* in this category despite also rendering text: it
+  yields one structured row per matched file, so its count is the number of
+  files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
+- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
+  not approximated. They address a cell or a column of a selected section, and a
+  lens payload has neither; answering anyway would require inferring structure
+  from rendered text. The one exception is `--readme --print`, where the lens
+  renders exactly the printable document `--print` asks for, so it prints it
+  without needing a selection to name it.
+- `-S`/`--select` is refused when the caller typed it, rather than ignored. A
+  lens and a section selection are competing answers to *what am I looking at*,
+  and silently honoring the lens hides that the selection did nothing. The
+  refusal is unconditional: excusing it for `--print` would let `-S <other
+  section> --readme --print` pass while ignoring the selection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
+
+`-S` here means an explicit selection. Some options are sugar that synthesize a
+selection internally, and a synthesized one must not be mistaken for a request
+the caller made.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
@@ -247,10 +305,11 @@ resolved by discarding one.
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
-| `--tail N` | keep the last N rendered output lines unless `--rows` is active |
-| `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
-| `--rows --tail N` | keep the last N **data rows per table**, across Markdown, TSV, and JSONL |
+| `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
+| `-n N --tail` | keep the last N rendered output lines |
+| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
+| `--rows N --tail` | keep the last N **data rows per table** |
+| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -450,10 +509,11 @@ The stable vocabulary is:
 - `--print` is an exactly-one row-payload projection: it never chooses the first
   of multiple rows implicitly, does not make rows without a payload printable,
   and does not evaluate new addresses.
-- `--head` / `--tail` are post-projection line windows: they do not select rows
+- `--head` / `--tail` name a direction, not a count. Outside `--rows` they
+  choose which end of the rendered lines `-n N` keeps; they do not select rows
   or constrain payload acquisition.
-- `--rows` promotes head/tail to first/last data-row windows, but those windows
-  remain presentation limits rather than row selectors.
+- `--rows` makes the window a first/last or absolute data-row window, but those
+  windows remain presentation limits rather than row selectors.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no

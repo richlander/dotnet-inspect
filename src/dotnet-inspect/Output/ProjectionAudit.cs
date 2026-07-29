@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using DotnetInspector.Options;
 
 namespace DotnetInspector.Output;
 
@@ -123,6 +124,28 @@ public static class ProjectionAudit
     {
         public void Dispose() => Current.Value = displaced as Request;
     }
+
+    /// <summary>
+    /// The projection request as parsed, for alternate render paths that branch before the
+    /// command's options record has been built.
+    /// </summary>
+    /// <remarks>
+    /// This reuses the audit's own view of the request — including its walk of the command chain —
+    /// so a render path's dispatch and the audit cannot disagree about what the caller asked for.
+    /// </remarks>
+    public static IProjectionOptions Requested(ParseResult parseResult)
+    {
+        var flags = RequestedFlags(parseResult);
+        return new ParsedProjection(
+            flags.Contains(Count),
+            flags.Contains(Print),
+            flags.Contains(Value),
+            flags.Contains(Urls),
+            flags.Contains(Paths));
+    }
+
+    private sealed record ParsedProjection(bool Count, bool Print, bool Value, bool Urls, bool Paths)
+        : IProjectionOptions;
 
     private static List<string> RequestedFlags(ParseResult parseResult)
     {

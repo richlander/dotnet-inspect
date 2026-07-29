@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for the find command.
 /// </summary>
-public record FindOptions : IAssemblySourceOptions
+public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.

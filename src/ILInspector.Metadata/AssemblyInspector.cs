@@ -402,7 +402,7 @@ public static class AssemblyInspector
         List<string> nonNormalizedPaths = [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(sourceLink);
+            using var doc = SourceLinkJson.Parse(sourceLink);
             if (doc.RootElement.TryGetProperty("documents", out var documents))
             {
                 foreach (var prop in documents.EnumerateObject())
@@ -425,7 +425,7 @@ public static class AssemblyInspector
     {
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(sourceLink);
+            using var doc = SourceLinkJson.Parse(sourceLink);
             if (doc.RootElement.TryGetProperty("documents", out var documents))
             {
                 foreach (var prop in documents.EnumerateObject())

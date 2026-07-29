@@ -19,7 +19,7 @@ public class TopLeverageSectionTests
             AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
             IncludeSections = [SectionNames.TopLeverage],
             Tsv = true,
-            Rows = new RowWindow(2, FromEnd: false),
+            Rows = RowWindow.Head(2),
             Tabular = true,
             TabularExplicitlySet = true,
             TipLevel = TipLevel.Quiet,

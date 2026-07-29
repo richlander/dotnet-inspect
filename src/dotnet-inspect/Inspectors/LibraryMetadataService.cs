@@ -24,6 +24,31 @@ namespace DotnetInspector.Inspectors;
 internal static class LibraryMetadataService
 {
     /// <summary>
+    /// Scanner keys whose data the shared metadata read produces, rather than a registered
+    /// scanner. <see cref="SharedReadScannerKeys"/> is the subset a section may declare.
+    /// </summary>
+    /// <remarks>
+    /// <c>ScannerTransitiveRefs</c> appears here because the transitive scan needs the reference
+    /// list the read extracts, not because the read satisfies it; a registered scanner still does
+    /// that work. Keeping the two sets distinct is what lets
+    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c> assert
+    /// equality rather than containment: a key that no scanner registers and no read satisfies
+    /// still fails, which is the silence #3453 found.
+    /// </remarks>
+    private static readonly HashSet<string> ReferenceReadingScannerKeys =
+    [
+        LibrarySections.ScannerReferences,
+        LibrarySections.ScannerTransitiveRefs
+    ];
+
+    /// <summary>
+    /// The keys the shared metadata read alone satisfies. Unioned with the registry's registered
+    /// keys to form the set a section is allowed to declare.
+    /// </summary>
+    internal static IReadOnlySet<string> SharedReadScannerKeys { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { LibrarySections.ScannerReferences };
+
+    /// <summary>
     /// Full inspection pipeline for a single assembly.
     /// </summary>
     public static async Task<LibraryInspection?> InspectAsync(
@@ -73,8 +98,7 @@ internal static class LibraryMetadataService
             // The References and Dependencies sections both read assembly references, which are
             // extracted during the metadata read below rather than by a registered scanner. Their
             // scanner keys therefore have to be consulted here, before that read.
-            var needsReferences = scanners?.Contains(LibrarySections.ScannerReferences) == true
-                || scanners?.Contains(LibrarySections.ScannerTransitiveRefs) == true;
+            var needsReferences = scanners?.Any(ReferenceReadingScannerKeys.Contains) == true;
 
             var inspection = new LibraryInspection
             {
@@ -542,15 +566,27 @@ internal static class LibraryMetadataService
         {
             if (char.IsControl(c))
                 return false;
+
+            // Format characters are invisible: a zero-width space or a bidi override renders as
+            // nothing, or reorders what follows it, so the name shown in the reference tree is not
+            // the name being resolved. That is the Trojan Source problem (CVE-2021-42574) applied
+            // to an identifier read from untrusted metadata. char.IsControl does not cover these,
+            // and no legitimate assembly simple name contains one.
+            if (char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+                return false;
         }
 
         // Windows strips trailing spaces and dots from a path component, so "CON " and "CON"
         // name the same thing there and "Foo." opens "Foo". A name that the host would rewrite
         // is ambiguous: it denotes one assembly in metadata and another on disk. Reject it rather
         // than trim it, for the same reason the caller rejects instead of sanitizing -- a trimmed
-        // name silently designates a different assembly. Leading whitespace is not canonicalized
-        // away, but no legitimate assembly simple name carries it and it reads as padding.
-        if (name.Length != name.TrimEnd(' ', '.').Length || name.Length != name.TrimStart(' ').Length)
+        // name silently designates a different assembly.
+        //
+        // Only the ASCII space and dot are canonicalized away, so only those make a name ambiguous
+        // on disk. Edge whitespace is tested with char.IsWhiteSpace anyway: a name padded with
+        // U+00A0 or U+3000 renders indistinguishably from the unpadded one in the reference tree
+        // while denoting a different assembly, and no legitimate simple name carries it.
+        if (char.IsWhiteSpace(name[0]) || char.IsWhiteSpace(name[^1]) || name[^1] == '.')
         {
             return false;
         }
@@ -562,6 +598,24 @@ internal static class LibraryMetadataService
         if (dot >= 0)
             stem = stem[..dot];
 
+        // Windows accepts the superscript digits as the digit in COMn/LPTn, so "COM\u00b9" opens
+        // the same device as "COM1". Tools that only check the ASCII spelling have been bypassed
+        // this way before (the Wasmtime sandbox escape and the Node.js device-name fix are both
+        // this bug).
+        //
+        // Rather than enumerate spellings, fold any character whose Unicode numeric value is a
+        // single digit down to that digit before comparing. That covers the superscripts, the
+        // fullwidth digits, and the Arabic-Indic digits in one rule, which matters because these
+        // all collapse onto the ASCII digit under best-fit ANSI conversion -- a mapping Microsoft
+        // documents as a security consideration precisely because "COM4", "COM\u2074" and
+        // "COM\uff14" can reach the same device.
+        //
+        // Folding only affects a name whose *whole stem* becomes a device name, so it costs
+        // nothing in practice: no real assembly is named "COM\uff11", while "COM\u00b9Plus" and
+        // "Contoso.V\u00b2" fold to "COM1Plus" and "Contoso", match no device, and stay accepted.
+        if (ContainsNonAsciiDigit(stem))
+            stem = FoldDigits(stem);
+
         foreach (var reserved in ReservedDeviceNames)
         {
             if (string.Equals(stem, reserved, StringComparison.OrdinalIgnoreCase))
@@ -569,6 +623,32 @@ internal static class LibraryMetadataService
         }
 
         return true;
+    }
+
+    private static bool ContainsNonAsciiDigit(string value)
+    {
+        foreach (var c in value)
+        {
+            if (c > '\u007f' && char.GetNumericValue(c) is >= 0 and <= 9)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string FoldDigits(string value)
+    {
+        return string.Create(value.Length, value, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                var c = source[i];
+                var numeric = c > '\u007f' ? char.GetNumericValue(c) : -1;
+                span[i] = numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
+                    ? (char)('0' + (int)numeric)
+                    : c;
+            }
+        });
     }
 
     /// <summary>

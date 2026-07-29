@@ -1122,17 +1122,28 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryScannerRegistry_HasAllDetailedScanners()
+    public void LibraryScannerRegistry_RegistrationMatchesDeclaration()
     {
+        // Set equality, not containment, so both failure directions are caught: a section
+        // declaring a key nobody honors (its data silently never collected) and a collection step
+        // no section asks for (dead code). Derived from the pipeline, the registry, and the shared
+        // read rather than restated as a literal list, so adding a section or a scanner cannot
+        // drift past this test.
+        //
+        // The right-hand side is a union because a key is satisfied one of two ways: a registered
+        // scanner that runs after the shared metadata read, or the read itself. #3453 asserted
+        // equality against the registry alone, which is only sound while no section declares work
+        // the read performs; the References section does, so the read declares its keys rather
+        // than the test knowing them.
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        // All scanner keys from detailed sections should be registered
-        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
+        var honored = registry.RegisteredKeys
+            .Union(LibraryMetadataService.SharedReadScannerKeys, StringComparer.Ordinal);
 
-        // Registry should handle all of them without throwing
-        // (we can't easily inspect the registry, but we can verify it runs)
-        Assert.NotEmpty(detailedScanners);
+        Assert.Equal(
+            pipeline.DeclaredScannerKeys.OrderBy(k => k, StringComparer.Ordinal),
+            honored.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     // ===== Presence flag / CanRender discovery tests =====
@@ -2300,6 +2311,36 @@ public class SectionPipelineTests
     [InlineData("System.Text.Json.")]
     [InlineData(" System.Text.Json")]
     [InlineData(".")]
+    // Windows accepts the superscript digits as the digit in COMn/LPTn, so these open the same
+    // devices as COM1/COM2/COM3 and LPT1/LPT2/LPT3.
+    [InlineData("COM\u00b9")]
+    [InlineData("COM\u00b2.txt")]
+    [InlineData("COM\u00b3")]
+    [InlineData("LPT\u00b9")]
+    [InlineData("LPT\u00b2.dll")]
+    [InlineData("lpt\u00b3")]
+    // Non-ASCII edge whitespace is not stripped by the host, but it renders identically to the
+    // unpadded name while denoting a different assembly.
+    [InlineData("System.Text.Json\u00a0")]
+    [InlineData("\u00a0System.Text.Json")]
+    [InlineData("System.Text.Json\u3000")]
+    [InlineData("\u3000System.Text.Json")]
+    [InlineData("CON\u00a0")]
+    // Every non-ASCII digit folds, not just the three Latin-1 superscripts: these all collapse
+    // onto the ASCII digit under best-fit ANSI conversion, which Microsoft documents as a
+    // security consideration for exactly this reason.
+    [InlineData("COM\u2074")]
+    [InlineData("LPT\u2079")]
+    [InlineData("COM\uff11")]
+    [InlineData("COM\u0661")]
+    [InlineData("com\u2460")]
+    // Format characters are invisible or reorder what follows, so the rendered name is not the
+    // resolved name (Trojan Source, CVE-2021-42574).
+    [InlineData("System.Text.Json\u200b")]
+    [InlineData("\u200bSystem.Text.Json")]
+    [InlineData("System.\u202eJson")]
+    [InlineData("COM1\u200b")]
+    [InlineData("\ufeffSystem.Text.Json")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2321,6 +2362,19 @@ public class SectionPipelineTests
     // Interior spaces and dots are not canonicalized away, so these stay distinct and legitimate.
     [InlineData("My Assembly.Core")]
     [InlineData("CON Toso.Library")]
+    // COM4-COM9 take no superscript form, and a superscript outside a device stem is just a
+    // character. Folding the superscripts must not grow into rejecting these.
+    [InlineData("COM\u00b9Plus")]
+    [InlineData("Contoso.V\u00b2")]
+    [InlineData("COM\u00b94")]
+    // The fold only rejects a name whose *whole stem* becomes a device name, so a non-ASCII digit
+    // anywhere else is untouched. This is the boundary that keeps widening the fold from costing
+    // real dependencies -- these fold to "COM1Plus", "Contoso" and "COM14", which match nothing.
+    [InlineData("COM\uff11Plus")]
+    [InlineData("Contoso.V\u2074")]
+    [InlineData("COM\uff114")]
+    // Interior non-ASCII whitespace is not padding and is not canonicalized.
+    [InlineData("My\u00a0Assembly.Core")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));

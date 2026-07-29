@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -135,6 +136,84 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly()
+    {
+        // A framework TypeRef names the assembly the compiler bound against, which is a
+        // facade that defines nothing and forwards to the definer. This resolver hands back
+        // exactly the assembly a TypeRef names -- no implementation-preference redirect --
+        // so the definition is reachable only by following the facade's ExportedType
+        // forwarder. Dropping that hop makes this return null, which was the #3400 bug.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        Assert.True(peReader.HasMetadata);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new FrameworkDirectoryResolver(frameworkDir));
+
+        bool exercisedForwarder = false;
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+
+            string referencedName = reader.GetString(
+                reader.GetAssemblyReference((AssemblyReferenceHandle)typeReference.ResolutionScope).Name);
+            string ns = reader.GetString(typeReference.Namespace);
+            string name = reader.GetString(typeReference.Name);
+            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
+            string namedPath = Path.Combine(frameworkDir, referencedName + ".dll");
+
+            // Only a TypeRef whose named assembly forwards rather than defines exercises the hop.
+            if (!File.Exists(namedPath) || !TypeForwardResolver.ForwardsType(namedPath, fullTypeName))
+                continue;
+
+            var definition = builder.TryResolveExternalTypeDefinition(handle);
+            Assert.True(
+                definition is not null,
+                $"{fullTypeName} is forwarded by {referencedName} and must resolve through that forwarder");
+
+            var definingReader = definition!.Value.DefiningReader;
+            string definingName = definingReader.GetString(definingReader.GetAssemblyDefinition().Name);
+            Assert.NotEqual(referencedName, definingName);
+            Assert.Equal(name, definingReader.GetString(
+                definingReader.GetTypeDefinition(definition.Value.Definition).Name));
+
+            exercisedForwarder = true;
+            break;
+        }
+
+        Assert.True(exercisedForwarder, "expected a framework TypeRef whose named assembly forwards the type");
+    }
+
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ForwarderCycleTerminatesWithoutResolving()
+    {
+        // Answering every identity with the same facade turns the forwarder chain into a
+        // cycle. Resolution must terminate and report nothing rather than spin or invent
+        // a definition.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string facade = Path.Combine(frameworkDir, "netstandard.dll");
+        Assert.True(File.Exists(facade));
+        Assert.True(TypeForwardResolver.ForwardsType(facade, "System.Object"));
+
+        string targetPath = typeof(Console).Assembly.Location;
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(
+            targetPath, reader, peReader, new ConstantResolver(facade));
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is null);
+    }
+
+    [Fact]
     public void CrossAssemblyMetadataResolver_NullResolverFailsHonest()
     {
         string targetPath = typeof(Console).Assembly.Location;
@@ -180,6 +259,259 @@ public class LibraryBodyIndexTests
         }
 
         throw new InvalidOperationException("Expected at least one external TypeRef.");
+    }
+
+    /// <summary>
+    /// A chain that starts Platform-scoped stays Platform-scoped for every hop. This gates the
+    /// non-downgrade half of <see cref="LibraryBodyIndex.IndexBuilder.NextHopScope"/> against a
+    /// real framework forwarder chain; it does NOT gate tightening, because a framework TypeRef
+    /// makes <c>ScopeForReference</c> return Platform at hop 0 and the chain never starts at Any.
+    /// <see cref="ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope"/> is the
+    /// tightening gate.
+    /// </summary>
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ResolvesEveryForwarderHopUnderPlatformScope()
+    {
+        // Resolving a hop under Any would let a confusable local copy satisfy it -- see
+        // ILInspector.Analysis.SpoofRuntimeFixtures, an unsigned assembly literally named
+        // System.Runtime.
+        string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        string targetPath = typeof(Console).Assembly.Location;
+        var recorder = new RecordingResolver(new FrameworkDirectoryResolver(frameworkDir));
+
+        using var stream = File.OpenRead(targetPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, recorder);
+
+        var objectReference = FindExternalTypeReference(reader, "System", "Object");
+        Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
+        Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is not null);
+
+        // Non-empty rather than "> 1": whether System.Object takes a forwarder hop from
+        // System.Console depends on the framework layout, but that this test observed real
+        // resolution at all does not.
+        Assert.NotEmpty(recorder.Requests);
+        Assert.All(recorder.Requests, request =>
+            Assert.Equal(AssemblyResolutionScope.Platform, request.Scope));
+    }
+
+    /// <summary>
+    /// The tightening gate, and the only test that fails if the <c>scope = NextHopScope(...)</c>
+    /// call is deleted from the forwarder loop: the unit tests below cover the function in
+    /// isolation and would all still pass with the wiring removed.
+    ///
+    /// The chain is synthetic because no natural artifact pairs an Any-scoped TypeRef with a
+    /// framework-signed forwarder target -- a real framework TypeRef is already Platform at hop 0.
+    /// Contoso.App references unsigned Contoso.Facade (Any), which forwards Sample.Widget to a
+    /// framework-signed identity. That hop must be requested under Platform, or a confusable
+    /// local copy could answer for a framework-signed name.
+    /// </summary>
+    [Fact]
+    public void ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "fwd-scope-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // 7cec85d7bea7798e is System.Private.CoreLib's key, so the forwarded identity is
+            // framework-signed while nothing else in the chain is.
+            byte[] frameworkToken = Convert.FromHexString("7cec85d7bea7798e");
+            string appPath = Path.Combine(directory, "Contoso.App.dll");
+            string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
+            string corelibPath = Path.Combine(directory, "Fake.CoreLib.dll");
+
+            File.WriteAllBytes(appPath, EmitAssembly("Contoso.App", metadata =>
+            {
+                var facadeReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Contoso.Facade"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default, // unsigned -> ScopeForReference yields Any
+                    flags: default,
+                    hashValue: default);
+                metadata.AddTypeReference(
+                    facadeReference,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"));
+            }));
+
+            File.WriteAllBytes(facadePath, EmitAssembly("Contoso.Facade", metadata =>
+            {
+                var corelibReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Fake.CoreLib"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: metadata.GetOrAddBlob(frameworkToken),
+                    flags: default,
+                    hashValue: default);
+                metadata.AddExportedType(
+                    // tdForwarder (ECMA-335 II.23.1.15); not named in System.Reflection.TypeAttributes.
+                    (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    corelibReference,
+                    typeDefinitionId: 0);
+            }));
+
+            File.WriteAllBytes(corelibPath, EmitAssembly("Fake.CoreLib", metadata =>
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1))));
+
+            var recorder = new RecordingResolver(new FrameworkDirectoryResolver(directory));
+
+            using var stream = File.OpenRead(appPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            using var builder = new LibraryBodyIndex.IndexBuilder(appPath, reader, peReader, recorder);
+
+            var widgetReference = FindExternalTypeReference(reader, "Sample", "Widget");
+            Assert.False(widgetReference.IsNil);
+            Assert.NotNull(builder.TryResolveExternalTypeDefinition(widgetReference));
+
+            // The premise: the chain really does start unconstrained. Without this the test
+            // would pass for an implementation that scoped everything Platform from hop 0.
+            Assert.Equal(
+                AssemblyResolutionScope.Any,
+                Assert.Single(recorder.Requests, request => request.Name == "Contoso.Facade").Scope);
+
+            // The property.
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                Assert.Single(recorder.Requests, request => request.Name == "Fake.CoreLib").Scope);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
+    static byte[] EmitAssembly(string name, Action<MetadataBuilder> addContent)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(name + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        // Row 1 is always <Module>, exactly as a compiler emits.
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        addContent(metadata);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Theory]
+    [InlineData("7cec85d7bea7798e")] // System.Private.CoreLib
+    [InlineData("b03f5f7f11d50a3a")] // System.* contracts
+    [InlineData("cc7b13ffcd2ddd51")] // netstandard
+    public void NextHopScope_AnyForwardedToFrameworkSignedAssembly_TightensToPlatform(string token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Private.CoreLib", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Platform,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Theory]
+    [InlineData(null)] // unsigned -- the SpoofRuntimeFixtures adversary
+    [InlineData("1234567890abcdef")] // signed, but not a framework key
+    public void NextHopScope_AnyForwardedToUnsignedOrThirdPartyAssembly_StaysAny(string? token)
+    {
+        var forwarded = new AssemblyReferenceIdentity("System.Runtime", Version: null, Culture: null, token);
+
+        Assert.Equal(
+            AssemblyResolutionScope.Any,
+            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
+    }
+
+    [Fact]
+    public void NextHopScope_PlatformIsNeverDowngraded()
+    {
+        foreach (string? token in new[] { null, "1234567890abcdef", "7cec85d7bea7798e" })
+        {
+            var forwarded = new AssemblyReferenceIdentity("Whatever", Version: null, Culture: null, token);
+
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Platform, forwarded));
+        }
+    }
+
+    static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)
+    {
+        foreach (var handle in reader.TypeReferences)
+        {
+            var typeReference = reader.GetTypeReference(handle);
+            if (typeReference.ResolutionScope.Kind != HandleKind.AssemblyReference)
+                continue;
+            if (reader.StringComparer.Equals(typeReference.Namespace, ns)
+                && reader.StringComparer.Equals(typeReference.Name, name))
+                return handle;
+        }
+
+        return default;
+    }
+
+    /// <summary>Resolves an identity to the same-named assembly in a directory, with no redirect.</summary>
+    sealed class FrameworkDirectoryResolver(string directory) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            string candidate = Path.Combine(directory, identity.Name + ".dll");
+            return File.Exists(candidate)
+                ? new ResolvedAssemblyReference(identity, candidate, () => File.OpenRead(candidate), "test")
+                : null;
+        }
+    }
+
+    /// <summary>Answers every identity with one assembly, so any forwarder chain cycles.</summary>
+    sealed class ConstantResolver(string path) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => new(identity, path, () => File.OpenRead(path), "test");
+    }
+
+    /// <summary>Records every identity and scope the builder asks for.</summary>
+    sealed class RecordingResolver(IAssemblyReferenceResolver inner) : IAssemblyReferenceResolver
+    {
+        public List<(string Name, AssemblyResolutionScope Scope)> Requests { get; } = [];
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            Requests.Add((identity.Name, scope));
+            return inner.Resolve(identity, scope);
+        }
     }
 
     sealed class CountingResolver : IAssemblyReferenceResolver
