@@ -153,14 +153,15 @@ internal static class LibraryMetadataService
             // Run registered scanners for the requested sections
             if (scannerRegistry != null && requiredScanners != null)
             {
-                scannerRegistry.RunScanners(requiredScanners, new Sections.ScannerContext
+                using var scannerContext = new Sections.ScannerContext
                 {
                     AssemblyPath = path,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
-                });
+                };
+                scannerRegistry.RunScanners(requiredScanners, scannerContext);
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {

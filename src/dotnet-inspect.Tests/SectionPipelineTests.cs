@@ -1496,6 +1496,80 @@ public class SectionPipelineTests
             registry.RequirementsOf(LibrarySections.ScannerIntegrationOpportunities));
     }
 
+    [Fact]
+    public void SharedSessionScanners_AllObserveOneSession()
+    {
+        // Named by ScannerContext.SharedScanCount as the gate for its atomicity claim.
+        //
+        // Each of the three fan-out sites this change deleted held its callees inside ONE open, so
+        // a run could not mix two assemblies. Prerequisites restore the ordering but not, by
+        // themselves, the single open: a registration that calls the path overload reopens the
+        // file, and retargeting the path between opens (symlink swap, or a build replacing the
+        // file) then yields an incoherent result with exit code 0.
+        //
+        // That regression is invisible to every other test — the output still looks correct — so
+        // it needs its own gate. The set below is pinned rather than derived because the property
+        // is historical: it is exactly what the deleted fan-out covered. Reverting any one of
+        // these registrations to LibraryMetadataService.ScanX(ctx.AssemblyPath, ...) drops the
+        // count and fails here.
+        //
+        // What this does NOT do is simulate a concurrent retarget. AssemblyImage.Open uses
+        // File.OpenRead (FileShare.Read), so a live session blocks delete and rename on Windows,
+        // and directory symlinks need Developer Mode. Routing through the shared session is the
+        // observable that stands in for it.
+        string[] sharedSessionScanners =
+        [
+            // was ScanInfoCounts's five-way fan-out
+            LibrarySections.ScannerExtensionMethods,
+            LibrarySections.ScannerClassifiedMethods,
+            LibrarySections.ScannerResources,
+            LibrarySections.ScannerCustomAttributes,
+            LibrarySections.ScannerTypeForwarders,
+            // was ScanIntegrationOpportunities re-running ScanIntegrations
+            LibrarySections.ScannerIntegrations,
+            LibrarySections.ScannerIntegrationOpportunities,
+            // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
+            LibrarySections.ScannerAuditSignals,
+        ];
+
+        var registry = LibrarySections.CreateScannerRegistry();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        registry.RunScanners(registry.ExpandRequired(sharedSessionScanners), context);
+
+        Assert.Equal(sharedSessionScanners.Length, context.SharedScanCount);
+        Assert.NotNull(context.Session());
+    }
+
+    [Fact]
+    public void SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened()
+    {
+        // The shared session returns null rather than throwing so each scanner keeps its own
+        // open-failure mapping. Without this, SharedSessionScanners_AllObserveOneSession could be
+        // satisfied by a Session() that throws, and an unopenable assembly would surface as one
+        // generic failure instead of a typed failed inspection per scanner.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var model = new LibraryInspection();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
+            Model = model,
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        registry.RunScanners([LibrarySections.ScannerResources], context);
+
+        Assert.Null(context.Session());
+        Assert.Equal(0, context.SharedScanCount);
+        Assert.NotNull(model.ResourceInspection);
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
+    }
+
     private static ScannerContext NullScannerContext() => new()
     {
         AssemblyPath = "unused.dll",

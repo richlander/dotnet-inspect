@@ -9,7 +9,7 @@ namespace DotnetInspector.Sections;
 /// <summary>
 /// Context passed to each scanner during data collection.
 /// </summary>
-public sealed class ScannerContext
+public sealed class ScannerContext : IDisposable
 {
     public required string AssemblyPath { get; init; }
     public required LibraryInspection Model { get; init; }
@@ -25,8 +25,91 @@ public sealed class ScannerContext
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
     private MethodBodyInspectionSession? _bodySession;
+    private AssemblyInspectionSession? _session;
+    private bool _sessionOpenAttempted;
     private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
         _drillMap;
+
+    /// <summary>
+    /// One metadata session over <see cref="AssemblyPath"/>, opened on first use and shared by the
+    /// scanners that ask for it through <see cref="Scan{TScan}"/>.
+    ///
+    /// This exists for atomicity, not speed. Each of the three scanner fan-out sites that declared
+    /// prerequisites replaced held its callees inside one open, so a single run could not mix two
+    /// assemblies. Reopening the path per scanner would reintroduce that window: retargeting the
+    /// path between opens (a symlink swap, or a build replacing the file) yields an incoherent
+    /// result with a zero exit code. Sharing one open closes it.
+    ///
+    /// Returns <see langword="null"/> when the assembly cannot be opened, so the caller falls back
+    /// to the path-based overload. That is deliberate: each path overload maps its own open
+    /// failure onto its own inspection type, and reproducing those mappings here would duplicate
+    /// them. The fallback reopens and fails again, which costs an extra open only on a path that is
+    /// already failing.
+    ///
+    /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
+    /// synchronization is required.
+    ///
+    /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c> and
+    /// <c>SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened</c>.
+    /// </summary>
+    public AssemblyInspectionSession? Session()
+    {
+        if (_sessionOpenAttempted)
+            return _session;
+
+        _sessionOpenAttempted = true;
+        try
+        {
+            _session = AssemblyInspectionSession.Open(AssemblyPath);
+        }
+        catch (Exception)
+        {
+            // Left to the fallback path overload, which logs and produces the failed inspection.
+            _session = null;
+        }
+
+        return _session;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="shared"/> against the shared session when the assembly opened, and
+    /// <paramref name="reopen"/> otherwise, so a scanner keeps its own open-failure mapping.
+    /// </summary>
+    public TScan Scan<TScan>(
+        Func<AssemblyInspectionSession, TScan> shared,
+        Func<TScan> reopen)
+    {
+        if (Session() is not { } session)
+            return reopen();
+
+        SharedScanCount++;
+        return shared(session);
+    }
+
+    /// <inheritdoc cref="Scan{TScan}"/>
+    public void Scan(Action<AssemblyInspectionSession> shared, Action reopen)
+    {
+        if (Session() is not { } session)
+        {
+            reopen();
+            return;
+        }
+
+        SharedScanCount++;
+        shared(session);
+    }
+
+    /// <summary>
+    /// How many scans have taken the shared-session branch of <see cref="Scan{TScan}"/>.
+    ///
+    /// This exists so the atomicity property above can be gated rather than asserted. A scanner
+    /// that reverts to opening <see cref="AssemblyPath"/> itself still produces correct-looking
+    /// output, so nothing else in the suite would notice; the count drops, and
+    /// <c>SharedSessionScanners_AllObserveOneSession</c> fails.
+    /// </summary>
+    public int SharedScanCount { get; private set; }
+
+    public void Dispose() => _session?.Dispose();
 
     /// <summary>
     /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.

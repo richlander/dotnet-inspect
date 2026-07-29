@@ -119,17 +119,27 @@ public static class LibrarySections
     {
         return new ScannerRegistry()
             .Add(ScannerExtensionMethods, ctx =>
-                ctx.Model.Apply(LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger)))
+                ctx.Model.Apply(ctx.Scan(
+                    session => LibraryMetadataService.ScanExtensionMembers(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerClassifiedMethods, ctx =>
-                ctx.Model.Apply(LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger)))
+                ctx.Model.Apply(ctx.Scan(
+                    session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerResources, ctx =>
-                ctx.Model.ResourceInspection = LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.ResourceInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerCustomAttributes, ctx =>
-                ctx.Model.Apply(LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger)))
+                ctx.Model.Apply(ctx.Scan(
+                    session => LibraryMetadataService.ScanCustomAttributes(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerUnionTypes, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, ctx =>
-                ctx.Model.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.TypeForwarderInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger)))
             .AddBundle(
                 ScannerInfoCounts,
                 ScannerExtensionMethods,
@@ -138,7 +148,9 @@ public static class LibrarySections
                 ScannerCustomAttributes,
                 ScannerTypeForwarders)
             .Add(ScannerAuditSignals, ctx =>
-                AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                ctx.Scan(
+                    session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                    () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
             .Add(ScannerSwitches, ctx =>
                 ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
@@ -160,9 +172,13 @@ public static class LibrarySections
                     ctx.AssemblyPath,
                     ctx.Logger)))
             .Add(ScannerIntegrations, ctx =>
-                LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+                ctx.Scan(
+                    session => LibraryMetadataService.ScanIntegrations(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                    () => LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             .Add(ScannerIntegrationOpportunities, ctx =>
-                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                ctx.Scan(
+                    session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
+                    () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
             .Add(ScannerMetadata, ctx =>
                 LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));

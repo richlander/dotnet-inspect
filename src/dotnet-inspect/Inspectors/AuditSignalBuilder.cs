@@ -36,22 +36,46 @@ internal static class AuditSignalBuilder
     /// </summary>
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
-        List<AuditSignal> signals = [];
         AssemblyAuditMetadata? metadata = null;
-        int? pInvokeMethodCount = null;
 
         try
         {
             using var session = AssemblyInspectionSession.Open(assemblyPath);
             metadata = session.AuditMetadata();
-            pInvokeMethodCount = metadata.PInvokeMethodCount;
         }
         catch (Exception ex)
         {
             logger.Log($"Warning: Error scanning audit metadata in {assemblyPath}: {ex.Message}");
         }
 
-        var context = new LibrarySignalContext(inspection, metadata, pInvokeMethodCount);
+        ApplyLibraryAudit(inspection, metadata);
+    }
+
+    /// <inheritdoc cref="PopulateLibraryAudit(string, LibraryInspection, VerboseLogger)"/>
+    public static void PopulateLibraryAudit(
+        AssemblyInspectionSession session,
+        string assemblyPath,
+        LibraryInspection inspection,
+        VerboseLogger logger)
+    {
+        AssemblyAuditMetadata? metadata = null;
+
+        try
+        {
+            metadata = session.AuditMetadata();
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error scanning audit metadata in {assemblyPath}: {ex.Message}");
+        }
+
+        ApplyLibraryAudit(inspection, metadata);
+    }
+
+    private static void ApplyLibraryAudit(LibraryInspection inspection, AssemblyAuditMetadata? metadata)
+    {
+        List<AuditSignal> signals = [];
+        var context = new LibrarySignalContext(inspection, metadata, metadata?.PInvokeMethodCount);
         AddLibrarySignals(signals, in context);
 
         inspection.AuditSignals = signals;
