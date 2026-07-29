@@ -126,9 +126,13 @@ public class ScanTokenTests
             .Where(t => t.Kind == ScanTokenKind.StringLiteral)
             .ToList();
 
+        // The token text is asserted alongside the depths so that the assertion reads the very
+        // characters the fixture relies on. Replacing the carried line's leading `}` with plain
+        // text stops it reaching the brace emission site, and pinning position alone left that
+        // substitution silent (adversarial review, GPT).
         Assert.Equal(
-            [(2, 1, 1), (3, 1, 1), (4, 1, 1)],
-            literals.Select(t => (t.Line, t.Depth, t.BracketDepth)));
+            [(2, 1, 1, "\"\"\""), (3, 1, 1, "} raw { text"), (4, 1, 1, "        \"\"\"")],
+            literals.Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
     }
 
     /// <summary>
@@ -147,8 +151,8 @@ public class ScanTokenTests
             .ToList();
 
         Assert.Equal(
-            [(2, 1, 1), (2, 1, 1)],
-            literals.Select(t => (t.Line, t.Depth, t.BracketDepth)));
+            [(2, 1, 1, "$\"a{"), (2, 1, 1, "}c\"")],
+            literals.Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
     }
 
     [Fact]
@@ -192,10 +196,10 @@ public class ScanTokenTests
         var lines = new[] { "{", "    x = [", "        \"\"", "    ];", "}" };
 
         Assert.Equal(
-            [(2, 1, 1)],
+            [(2, 1, 1, "\"\"")],
             BodySlicer.ScanTokens(lines)
                 .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-                .Select(t => (t.Line, t.Depth, t.BracketDepth)));
+                .Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
     }
 
     [Fact]
@@ -417,6 +421,10 @@ public class ScanTokenTests
     /// state a predicate reading raw text used to be in.
     /// </para>
     /// </summary>
+    /// <summary>The source text a token covers, so an assertion can read its input back.</summary>
+    private static string Text(IReadOnlyList<string> lines, ScanToken token) =>
+        lines[token.Line].Substring(token.Column, token.Length);
+
     private static string? FindCoverageGap(IReadOnlyList<string> lines, IReadOnlyList<ScanToken> tokens)
     {
         int index = 0;
