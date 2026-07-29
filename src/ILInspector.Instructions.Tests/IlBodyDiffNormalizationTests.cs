@@ -263,6 +263,8 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<>c__DisplayClass103_0", "<>c__DisplayClass128_0")] // display class: known limitation, see remarks
     [InlineData("<Run>b__103_0_extra", "<Run>b__128_0_extra")]  // trailing text: not a closure name
     [InlineData("<Run>g__Local|103_0x", "<Run>g__Local|128_0x")] // trailing text after a local function
+    [InlineData("<Run>b__103_0$x", "<Run>b__128_0$x")]          // trailing `$`, which some producers emit
+    [InlineData("<Run>b__103_0\u00e9", "<Run>b__128_0\u00e9")]  // trailing non-ASCII identifier character
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)

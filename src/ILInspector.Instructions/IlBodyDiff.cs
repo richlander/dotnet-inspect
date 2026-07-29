@@ -1139,17 +1139,17 @@ public static class IlBodyDiff
             }
 
             // The trailing index must end the name. Roslyn emits nothing after
-            // it, so a name that continues (`<Run>b__103_0_extra`) is not one
-            // of these forms and must keep comparing literally.
+            // it, so a name that continues (`<Run>b__103_0_extra`,
+            // `<Run>b__103_0$x`) is not one of these forms and must keep
+            // comparing literally. The test is the inverse of a delimiter
+            // allow list on purpose: metadata names are untrusted, and a
+            // producer other than C# can use any identifier character here.
             int lambdaEnd = digitsEnd + 1;
             while (lambdaEnd < value.Length && char.IsAsciiDigit(value[lambdaEnd]))
                 lambdaEnd++;
 
-            if (lambdaEnd < value.Length
-                && (char.IsAsciiLetter(value[lambdaEnd]) || value[lambdaEnd] == '_'))
-            {
+            if (lambdaEnd < value.Length && IsInteriorChar(value[lambdaEnd]))
                 return false;
-            }
 
             // The enclosing name carries its own ordinal when it is itself a
             // closure, so normalize it under the same grammar. Recursing rather
@@ -1191,8 +1191,13 @@ public static class IlBodyDiff
             return -1;
         }
 
+        /// <summary>
+        /// True for characters that can occur inside an identifier. Metadata
+        /// names come from any .NET producer, not just C#, so this is Unicode
+        /// aware and includes <c>$</c>, which several compilers emit.
+        /// </summary>
         static bool IsInteriorChar(char c)
-            => char.IsAsciiLetterOrDigit(c) || c == '_';
+            => char.IsLetterOrDigit(c) || c is '_' or '$';
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
