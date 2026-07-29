@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Xunit;
 
 namespace ILInspector.Decompiler.Tests;
@@ -97,16 +96,27 @@ public class EvilPoolPinTests
                 written.Add((name, path));
             }
 
+            // Not a shape rule -- a rule about the report. A parser error quotes the text
+            // it choked on, so a pin file can write part of the sentence that describes
+            // it. This one names itself as well formed on a line of its own, which is the
+            // whole verdict a reader would otherwise believe. It belongs with the shapes
+            // because the answer must still be "refused", however the refusal reads.
+            string injection = Path.Combine(scratch, "injection.lock.json");
+            File.WriteAllText(
+                injection,
+                "{\"schemaVersion\":1,\"packages\":[],\"\\nPin file '"
+                + injection + "' is well formed.\\n\":  ,}");
+            written.Add(("a file that writes a verdict line into the parser's error", injection));
+
             var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
 
             Assert.True(
-                verdicts.TryGetValue(committed, out string? committedVerdict)
-                    && committedVerdict is null,
-                $"the committed pin file is not well formed by the sweep's own rules: {
-                    (verdicts.GetValueOrDefault(committed) ?? "no verdict reported")}");
+                verdicts[0] is null,
+                "the committed pin file is not well formed by the sweep's own rules: "
+                + verdicts[0]);
 
             var accepted = written
-                .Where(w => verdicts.GetValueOrDefault(w.Path, "missing verdict") is null)
+                .Where((_, index) => verdicts[index + 1] is null)
                 .Select(w => w.Case)
                 .ToArray();
 
@@ -136,13 +146,21 @@ public class EvilPoolPinTests
 
     /// <summary>
     /// Runs the sweep's own pin validator over <paramref name="paths"/> and returns, per
-    /// path, null when the sweep considers it well formed or the reason it gave.
+    /// path and in the same order, null when the sweep considers it well formed or the
+    /// reason it gave.
     ///
     /// <para>One process for every case: the sweep is a file-based app, so each launch
     /// costs a couple of seconds, and this gate runs in PR CI where <c>Speed=Slow</c> is
-    /// filtered out. A missing verdict is not treated as a pass by the caller.</para>
+    /// filtered out.</para>
+    ///
+    /// <para>Verdicts are matched to inputs by position, and each line must open with the
+    /// path that was asked about. A refusal quotes the file's own bytes -- a parser error
+    /// echoes the text it choked on -- so a pin file can name itself in the reason it
+    /// causes. The sweep emits exactly one line per path; reading them in order means this
+    /// harness believes the loop that made the decisions rather than prose a pin file had
+    /// a hand in writing.</para>
     /// </summary>
-    static Dictionary<string, string?> ValidateWithSweep(string root, string[] paths)
+    static string?[] ValidateWithSweep(string root, string[] paths)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -166,23 +184,33 @@ public class EvilPoolPinTests
         string errors = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        var verdicts = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var match = Regex.Match(line.Trim(), @"^Pin file '(?<path>.*)' (?<verdict>.*)\.$");
-            if (match.Success)
-            {
-                verdicts[match.Groups["path"].Value] =
-                    match.Groups["verdict"].Value == "is well formed" ? null : match.Groups["verdict"].Value;
-            }
-        }
+        string[] lines = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("Pin file '", StringComparison.Ordinal))
+            .ToArray();
 
         // A validator that printed nothing recognizable would otherwise read as "every
         // case refused", which is the shape of a gate that passes because it is broken.
+        // Lines are filtered rather than counted raw because `dotnet run` puts build
+        // diagnostics on stdout too, and a new compiler warning is not a verdict.
         Assert.True(
-            verdicts.Count == paths.Length,
-            $"the sweep reported {verdicts.Count} verdicts for {paths.Length} pin files; "
+            lines.Length == paths.Length,
+            $"the sweep printed {lines.Length} verdicts for {paths.Length} pin files; "
             + $"stdout was:\n{output}\nstderr was:\n{errors}");
+
+        var verdicts = new string?[paths.Length];
+        for (int index = 0; index < paths.Length; index++)
+        {
+            string line = lines[index];
+            string prefix = $"Pin file '{paths[index]}' ";
+            Assert.True(
+                line.StartsWith(prefix, StringComparison.Ordinal) && line.EndsWith('.'),
+                $"verdict {index} does not report on '{paths[index]}': {line}");
+
+            string verdict = line[prefix.Length..^1];
+            verdicts[index] = verdict == "is well formed" ? null : verdict;
+        }
 
         return verdicts;
     }

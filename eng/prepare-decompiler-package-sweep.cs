@@ -17,7 +17,7 @@ using DotnetInspector.Services;
 bool refreshPin = args.Contains("--refresh-pin");
 bool resolveLatest = args.Contains("--resolve-latest") || refreshPin;
 string[] positional = args
-    .Where(argument => argument is not ("--refresh-pin" or "--resolve-latest" or "--validate-pin"))
+    .Where(argument => argument is not ("--refresh-pin" or "--resolve-latest"))
     .ToArray();
 // Bad input is reported, not thrown. An unhandled exception here leaves exit 134,
 // which is the shape this file exists to remove: a caller reading the exit code sees
@@ -34,9 +34,16 @@ const string UsageText =
 // pins and asserts the refusals, instead of restating the rules and drifting. It reads
 // files and acquires nothing, so it needs no repository, no network and no cache.
 // It takes many paths because the suite has many cases and one process is cheap.
-if (args.Contains("--validate-pin"))
+//
+// Selected by the first argument, not by containment: an output directory named
+// '--validate-pin' used to switch the whole run into validation mode, and filtering the
+// word out of the argument list meant a pin file by that name could never be named at
+// all. Position says which one a caller meant; a set membership test cannot.
+if (args is ["--validate-pin", ..])
 {
-    if (positional.Length == 0 || refreshPin || resolveLatest)
+    string[] candidates = args[1..];
+    if (candidates.Length == 0
+        || candidates.Any(candidate => candidate.StartsWith("--", StringComparison.Ordinal)))
     {
         Console.Error.WriteLine(UsageText);
         Environment.ExitCode = 2;
@@ -44,13 +51,18 @@ if (args.Contains("--validate-pin"))
     }
 
     bool anyMalformed = false;
-    foreach (string candidate in positional)
+    foreach (string candidate in candidates)
     {
         string? problem = ValidatePinFile(candidate);
         anyMalformed |= problem is not null;
-        Console.Out.WriteLine(problem is null
+        // One line per path, in the order given, and never more than one: the reason can
+        // quote the file's own bytes (a parser error echoes the text it choked on), and a
+        // reason containing a newline could otherwise print a second line reading exactly
+        // like a verdict. A caller matching output to input by position rather than by
+        // parsing prose is then reading what this loop decided, not what a pin file wrote.
+        Console.Out.WriteLine(OneLine(problem is null
             ? $"Pin file '{candidate}' is well formed."
-            : $"Pin file '{candidate}' {problem}.");
+            : $"Pin file '{candidate}' {problem}."));
     }
 
     Environment.ExitCode = anyMalformed ? 2 : 0;
@@ -818,6 +830,11 @@ static PackageSweepJsonContext SweepJsonContext() =>
         WriteIndented = true,
     });
 
+// Collapses everything that could start a new output line into a space, so one verdict
+// occupies one line no matter what the file it describes contains.
+static string OneLine(string text) =>
+    new([.. text.Select(c => char.IsControl(c) ? ' ' : c)]);
+
 // Reading and shape-checking a pin file in one place, so --validate-pin and the sweep
 // proper cannot disagree about what a well-formed pin is. Returns null when the file
 // is usable, otherwise the reason, phrased to follow "Pin file '<path>' ".
@@ -826,7 +843,21 @@ static string? ValidatePinFile(string path)
     string text;
     try
     {
-        text = File.ReadAllText(path);
+        // Bounded, because File.ReadAllText is not. A pin file is tens of kilobytes;
+        // '/dev/zero' is infinite, and reading it exited 134 with an OutOfMemoryException
+        // -- a crash where the contract promises a refusal, from the one argument this
+        // mode invites a caller to choose. Read one byte past the ceiling so that hitting
+        // it is a refusal rather than a silent truncation to something parseable.
+        const int MaxPinBytes = 16 * 1024 * 1024;
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var buffer = new byte[MaxPinBytes + 1];
+        int read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+        if (read > MaxPinBytes)
+            return $"is larger than {MaxPinBytes} bytes, which no pin file is";
+
+        text = new StreamReader(new MemoryStream(buffer, 0, read), detectEncodingFromByteOrderMarks: true)
+            .ReadToEnd();
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
         or ArgumentException or NotSupportedException)
