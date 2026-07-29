@@ -91,10 +91,56 @@ public class CommandErrorOwnershipTests
     /// <see cref="CommandError_IsTheOnlyWriterOfStderr"/> cannot judge.
     /// </remarks>
     private static readonly Regex StderrSink =
-        new(@"Console\s*\.\s*(Error\b(?!\s*\.\s*Write)|OpenStandardError|SetError)", RegexOptions.Compiled);
+        new(@"Console\s*\.\s*(Error\b(?!\s*\.\s*\w+\s*\()|OpenStandardError|SetError)", RegexOptions.Compiled);
 
+    /// <summary>
+    /// A call on the stderr stream -- any member, not a named few.
+    /// </summary>
+    /// <remarks>
+    /// Spelling the two method names was the same mistake this file keeps
+    /// making at a smaller scale: a reviewer wrote
+    /// <c>Console.Error.WriteAsync(value).GetAwaiter().GetResult()</c> and
+    /// every test here stayed green, because the rule matched
+    /// <c>Write</c> and <c>WriteLine</c> and <c>TextWriter</c> has neither of
+    /// those exclusively. <c>WriteLineAsync</c>, <c>Flush</c>, and
+    /// <c>Write(char[])</c> were open the same way. The member name is not the
+    /// property; reaching the stream is.
+    /// </remarks>
     private static readonly Regex StderrWrite =
-        new(@"Console\s*\.\s*Error\s*\.\s*Write(Line)?\s*\(", RegexOptions.Compiled);
+        new(@"Console\s*\.\s*Error\s*\.\s*\w+\s*\(", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A using directive that imports <c>System.Console</c>, making
+    /// <c>Error</c> nameable without the receiver every other rule here keys on.
+    /// </summary>
+    /// <remarks>
+    /// <c>using static System.Console;</c> followed by a bare
+    /// <c>Error.WriteLine(untrusted)</c> defeated every regex in this file at
+    /// once -- an uncontained write with all five tests green -- because each
+    /// of them requires the literal <c>Console.</c> to be present. An alias,
+    /// <c>using C = System.Console;</c>, does the same thing.
+    ///
+    /// Rather than chase the spellings that a static import makes possible,
+    /// this forbids the import. After it, the only way to name the type is
+    /// <c>Console</c> or <c>System.Console</c>, which every other rule here
+    /// sees. That closes the set instead of enumerating it -- and the set is
+    /// what the previous eighteen rounds kept failing to enumerate.
+    ///
+    /// The optional <c>global</c> prefix matters: one <c>global using static</c>
+    /// anywhere in a project would apply the import to every file in it.
+    /// </remarks>
+    private static readonly Regex ConsoleImport =
+        new(
+            @"(?:^|\n)\s*(?:global\s+)?using\s+(?:static\s+|[A-Za-z_]\w*\s*=\s*)(?:global\s*::\s*)?(?:System\s*\.\s*)?Console\s*;",
+            RegexOptions.Compiled);
+
+    /// <summary>
+    /// The MSBuild spelling of the same import, which no <c>.cs</c> scan sees.
+    /// </summary>
+    private static readonly Regex MsBuildConsoleImport =
+        new(
+            @"<Using\s[^>]*Include\s*=\s*""(?:System\.)?Console""[^>]*/?>",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex ProjectReference =
         new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -227,7 +273,7 @@ public class CommandErrorOwnershipTests
             }
 
             string text = File.ReadAllText(path);
-            foreach (Match match in StderrWrite.Matches(text))
+            foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
             {
                 if (IsInComment(text, match.Index))
                 {
@@ -235,14 +281,28 @@ public class CommandErrorOwnershipTests
                 }
 
                 int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value}");
+                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Trim()}");
+            }
+        }
+
+        // The same import can be declared per-project in MSBuild, where no .cs
+        // file mentions it and every source scan above is blind to it.
+        foreach (string project in ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        {
+            string text = File.ReadAllText(project);
+            foreach (Match match in MsBuildConsoleImport.Matches(text))
+            {
+                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                offenders.Add($"{Path.GetRelativePath(root, project)}:{line}: {match.Value.Trim()}");
             }
         }
 
         Assert.True(
             offenders.Count == 0,
             "Only CommandError may write text to stderr, so that every line on the stream is "
-                + $"contained. Use CommandError.Write/WriteWarning/WriteNote/WriteLine/WriteDetail:{Environment.NewLine}"
+                + $"contained. Use CommandError.Write/WriteWarning/WriteNote/WriteLine/WriteDetail. "
+                + $"A `using static System.Console` is reported too: it makes `Error.WriteLine` "
+                + $"reachable without the receiver this rule keys on.{Environment.NewLine}"
                 + string.Join(Environment.NewLine, offenders));
     }
 
@@ -323,6 +383,27 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrSink, "using var s = Console.OpenStandardError();");
         Assert.Matches(StderrSink, "Console.SetError(w);");
         Assert.DoesNotMatch(StderrSink, "Console.Error.WriteLine(x);");
+
+        // Naming a method rather than the stream left every other member of
+        // TextWriter open; each of these reaches stderr and none is a Write or
+        // a WriteLine.
+        Assert.Matches(StderrWrite, "Console.Error.WriteAsync(value).GetAwaiter().GetResult();");
+        Assert.Matches(StderrWrite, "await Console.Error.WriteLineAsync(value);");
+        Assert.Matches(StderrWrite, "Console.Error.Flush();");
+        Assert.Matches(StderrWrite, "System.Console.Error.WriteLine(x);");
+
+        // An import of the type makes `Error` nameable with no receiver, which
+        // is invisible to every other pattern in this file.
+        Assert.Matches(ConsoleImport, "using static System.Console;\n");
+        Assert.Matches(ConsoleImport, "using static Console;\n");
+        Assert.Matches(ConsoleImport, "global using static System.Console;\n");
+        Assert.Matches(ConsoleImport, "using C = System.Console;\n");
+        Assert.Matches(ConsoleImport, "using C = global::System.Console;\n");
+        Assert.DoesNotMatch(ConsoleImport, "using System;\n");
+        Assert.DoesNotMatch(ConsoleImport, "using static System.Math;\n");
+        Assert.DoesNotMatch(ConsoleImport, "using DotnetInspector.Output.ConsoleTheme;\n");
+        Assert.Matches(MsBuildConsoleImport, "<Using Include=\"System.Console\" Static=\"true\" />");
+        Assert.DoesNotMatch(MsBuildConsoleImport, "<Using Include=\"System.Linq\" />");
 
         // The comment filter must exempt prose without exempting code that
         // merely follows a comment on an earlier line.

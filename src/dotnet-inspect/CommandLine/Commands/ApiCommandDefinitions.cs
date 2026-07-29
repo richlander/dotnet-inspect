@@ -138,7 +138,7 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case TypeOptionsParser.VersionError error:
-                    CommandError.Write(error.Message);
+                    CommandError.Write(error.Error);
                     return 1;
 
                 case TypeOptionsParser.UnrecognizedOption error:
@@ -283,7 +283,7 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case MemberOptionsParser.VersionError error:
-                    CommandError.Write(error.Message);
+                    CommandError.Write(error.Error);
                     return 1;
 
                 case MemberOptionsParser.UnrecognizedOption error:

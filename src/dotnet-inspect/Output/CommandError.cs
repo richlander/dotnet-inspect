@@ -39,6 +39,44 @@ namespace DotnetInspector.Output;
 /// <see cref="WriteDetail"/> exist so that every line on this stream comes from
 /// here, which is what makes the gate a statement about the stream rather than
 /// about a spelling.
+///
+/// The claims above are enforced, not asserted. Each is named with the gate
+/// that fails when it stops holding:
+///
+/// <list type="bullet">
+/// <item><description>
+/// "the single writer" -- <c>CommandErrorOwnershipTests.CommandError_IsTheOnlyWriterOfStderr</c>
+/// scans the CLI's transitive ProjectReference closure for any call on
+/// <c>Console.Error</c>, for <c>OpenStandardError</c>/<c>SetError</c>, and for
+/// any <c>using static</c>/alias import of <c>System.Console</c> that would
+/// make <c>Error</c> nameable without that receiver.
+/// </description></item>
+/// <item><description>
+/// "an unindented, non-empty line is something only this writer can emit" --
+/// <c>UntrustedArgumentDiagnosticContainmentTests.Diagnostic_KeepsItsDetailBlockAndNeverGrowsALineFromItsMessage</c>
+/// and <c>HostileArgument_IsContainedInDiagnostics</c>, which run the built CLI
+/// out of process over eleven argv channels and five hazards and assert the
+/// unindented-line count directly.
+/// </description></item>
+/// <item><description>
+/// "the runtime's own printer cannot bypass this" --
+/// <c>UntrustedArgumentDiagnosticContainmentTests.EscapingException_IsContainedRatherThanPrintedByTheRuntime</c>,
+/// which forces a real <c>DirectoryNotFoundException</c> carrying a hazard from
+/// argv through <see cref="WriteUnhandled"/>.
+/// </description></item>
+/// <item><description>
+/// "the four sinks are the only ones" --
+/// <c>CommandErrorOwnershipTests.StderrSinks_AreStillTheOnesAccountedFor</c>,
+/// which asserts the set of sites rather than their number, so a fifth cannot
+/// arrive by replacing one of the four.
+/// </description></item>
+/// </list>
+///
+/// One property here is <b>not</b> gated, and is called out rather than
+/// implied: sibling entry points that are not in this CLI's project closure --
+/// <c>mdi</c> above all -- read the same untrusted metadata, write their own
+/// stderr, and cannot reach this writer. They are out of scope by construction,
+/// tracked as issue #3444.
 /// </remarks>
 internal static class CommandError
 {
@@ -47,6 +85,17 @@ internal static class CommandError
     /// contained.
     /// </summary>
     public static void Write(Exception ex) => Write(ex.Message);
+
+    /// <summary>
+    /// Writes a validation failure that carries its own detail lines.
+    /// </summary>
+    /// <remarks>
+    /// The overload exists so a validator can hand over structure without
+    /// encoding it as newlines in <see cref="OptionError.Message"/>, which this
+    /// writer folds by design.
+    /// </remarks>
+    public static void Write(DotnetInspector.Options.OptionError error) =>
+        Write(error.Message, error.Details);
 
     /// <inheritdoc cref="Write(Exception)"/>
     public static void Write(string message, params string[] details)
@@ -68,6 +117,14 @@ internal static class CommandError
     /// frames and inner exceptions included, still reaches the reader. It
     /// arrives as indented detail because an unindented line is the thing that
     /// can be mistaken for a diagnostic, not the text itself.
+    ///
+    /// Gated end to end by
+    /// <c>UntrustedArgumentDiagnosticContainmentTests.EscapingException_IsContainedRatherThanPrintedByTheRuntime</c>,
+    /// which reaches this method through a real escaping exception -- an
+    /// <c>--out</c> path under a missing directory, which is an ordinary user
+    /// mistake -- rather than by calling it. That test also asserts the absence
+    /// of the runtime banner, so it fails if the default handler is ever
+    /// re-enabled in <c>CommandLineBuilder.InvokeAsync</c>.
     /// </remarks>
     public static void WriteUnhandled(Exception ex)
     {

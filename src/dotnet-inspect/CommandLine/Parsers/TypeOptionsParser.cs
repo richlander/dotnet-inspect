@@ -57,7 +57,13 @@ public static class TypeOptionsParser
     /// <summary>
     /// Indicates a version error occurred.
     /// </summary>
-    public record VersionError(string Message) : TypeParseResult;
+    /// <remarks>
+    /// Carries an <see cref="DotnetInspector.Options.OptionError"/> rather than a
+    /// bare string so a validation failure keeps its detail lines all the way to
+    /// the writer; the implicit conversion leaves the message-only sites
+    /// unchanged.
+    /// </remarks>
+    public record VersionError(DotnetInspector.Options.OptionError Error) : TypeParseResult;
 
     /// <summary>
     /// Indicates an unrecognized option was found.

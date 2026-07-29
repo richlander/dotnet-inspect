@@ -1298,17 +1298,97 @@ public class LibraryViewShapeDerivedContainmentTests
     private const string Hazard = "\u000B";
     private const string Hostile = $"H{Hazard}INJECTED";
 
+    /// <summary>
+    /// The members a reflection fixture cannot reach, and why.
+    /// </summary>
+    /// <remarks>
+    /// Three shapes, none of which a harness may paper over:
+    ///
+    /// <list type="bullet">
+    /// <item><description>
+    /// <c>LibraryInspection.Switches</c> and its twenty siblings project over a
+    /// <c>[Union]</c> <c>FindingInspection&lt;T&gt;</c>. Reaching them needs the
+    /// producer that builds a populated <c>Complete</c> case -- product
+    /// behavior. A fixture that synthesized one would be a second
+    /// implementation of the analyzers, which is the harness boundary this
+    /// repository draws. Tracked in #3463.
+    /// </description></item>
+    /// <item><description>
+    /// <c>TypeRef</c> has no public constructor; it is factory-built from
+    /// metadata handles.
+    /// </description></item>
+    /// <item><description>
+    /// <c>ApiSignature.PublicAccessorsSummary</c> and
+    /// <c>TypeParameter.DisplayName</c> are computed from members the walk
+    /// already fills, so they carry the hostile text transitively rather than
+    /// being set.
+    /// </description></item>
+    /// </list>
+    ///
+    /// This is a declared boundary, not a silent one. The set is asserted
+    /// exactly, so a member that falls out of reach later fails here instead of
+    /// shrinking the gate.
+    /// </remarks>
+    private static readonly string[] OutOfReach =
+    [
+        "ApiSignature.PublicAccessorsSummary (String): string with no setter",
+        "LibraryInspection.AI (List`1): computed projection still null after the walk",
+        "LibraryInspection.AspNetCore (List`1): computed projection still null after the walk",
+        "LibraryInspection.Aspire (List`1): computed projection still null after the walk",
+        "LibraryInspection.AssemblyAttributeInspection (FindingInspection`1): computed projection still null after the walk",
+        "LibraryInspection.Authentication (List`1): computed projection still null after the walk",
+        "LibraryInspection.Configuration (List`1): computed projection still null after the walk",
+        "LibraryInspection.CustomAttributes (List`1): computed projection still null after the walk",
+        "LibraryInspection.DependencyInjection (List`1): computed projection still null after the walk",
+        "LibraryInspection.ExtensionMemberInspection (FindingInspection`1): computed projection still null after the walk",
+        "LibraryInspection.ExtensionMethods (List`1): computed projection still null after the walk",
+        "LibraryInspection.HealthChecks (List`1): computed projection still null after the walk",
+        "LibraryInspection.Hosting (List`1): computed projection still null after the walk",
+        "LibraryInspection.HttpClient (List`1): computed projection still null after the walk",
+        "LibraryInspection.InspectionFailures (List`1): computed projection still null after the walk",
+        "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
+        "LibraryInspection.Logging (List`1): computed projection still null after the walk",
+        "LibraryInspection.OpenApi (List`1): computed projection still null after the walk",
+        "LibraryInspection.OpenTelemetry (List`1): computed projection still null after the walk",
+        "LibraryInspection.Options (List`1): computed projection still null after the walk",
+        "LibraryInspection.Resources (List`1): computed projection still null after the walk",
+        "LibraryInspection.Switches (List`1): computed projection still null after the walk",
+        "LibraryInspection.TypeForwarders (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnionTypes (List`1): computed projection still null after the walk",
+        "MemberRef.DeclaringType (TypeRef): no public constructor",
+        "MemberRef.OpenReturnType (TypeRef): no public constructor",
+        "MemberRef.OpenSignatureParameters (ImmutableArray`1): computed projection still empty after the walk",
+        "MemberRef.OpenSignatureReturn (TypeRef): computed projection still null after the walk",
+        "MemberRef.ReturnType (TypeRef): no public constructor",
+        "MethodIdentity.DeclaringType (TypeRef): no public constructor",
+        "MethodIdentity.ReturnType (TypeRef): no public constructor",
+        "TypeParameter.DisplayName (String): string with no setter",
+    ];
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void EveryStringInTheModel_RendersContained(bool topFieldsOnly)
     {
         var inspection = new LibraryInspection();
-        int filled = FillStrings(inspection, depth: 0);
+        var walk = new Walk();
+        walk.Fill(inspection, depth: 0);
+        walk.Settle();
 
         // Non-vacuity for the filler itself: a reflection walk that silently
         // stopped early would leave a clean model and prove nothing.
-        Assert.True(filled > 40, $"the filler only reached {filled} strings, so it is not covering the model");
+        Assert.True(walk.Filled > 40, $"the filler only reached {walk.Filled} strings, so it is not covering the model");
+
+        // And a walk that quietly declined a type covers less than it did
+        // yesterday while reporting the same green. The first version of this
+        // walker declined every positional record -- which is the shape of every
+        // row in the view -- and every ILInspector.Findings payload, so it
+        // reached the root scalars and nothing else. It still passed its own
+        // count check. So the walker reports what it could not enter, and the
+        // report is asserted as a *set*: an entry that appears is an
+        // unannounced gap, and an entry that disappears is coverage this pin
+        // should have claimed. Both directions fail.
+        Assert.Equal(OutOfReach, walk.Declined.Distinct().Order(StringComparer.Ordinal).ToArray());
 
         var output = MarkoutSerializer.Serialize(
             new LibraryInspectionView(inspection, topFieldsOnly), InspectionContext.Default);
@@ -1329,8 +1409,9 @@ public class LibraryViewShapeDerivedContainmentTests
     }
 
     /// <summary>
-    /// Sets every reachable string to the hostile value, creating nested models
-    /// and single-element lists on the way. Returns the number of strings set.
+    /// One traversal of a view model: sets every reachable string to the
+    /// hostile value, creating nested models and single-element lists on the
+    /// way, and records every member it could not enter.
     /// </summary>
     /// <remarks>
     /// Numbers and booleans are left alone. Several sections are gated on a
@@ -1338,96 +1419,549 @@ public class LibraryViewShapeDerivedContainmentTests
     /// also invent states the analyzers never produce, and a gate that fails on
     /// an impossible model teaches nothing. The strings are the untrusted part;
     /// they are what this walks.
+    ///
+    /// <see cref="Declined"/> is the part that keeps the walk honest. A
+    /// reflection filler's coverage is invisible from its result: it renders a
+    /// model either way, and a type it cannot construct simply contributes no
+    /// hostile text. Reporting the refusals converts that silence into a
+    /// failing test naming the exact member.
     /// </remarks>
-    private static int FillStrings(object target, int depth)
+    private sealed class Walk
     {
-        if (depth > 4)
+        public int Filled { get; private set; }
+
+        public List<string> Declined { get; } = [];
+
+        private List<(object Target, PropertyInfo Property, string Site)> Deferred { get; } = [];
+
+        /// <summary>
+        /// Re-reads every deferred computed projection now that the findings
+        /// behind them are filled, and declines the ones still empty.
+        /// </summary>
+        public void Settle()
         {
-            return 0;
-        }
-
-        int count = 0;
-        foreach (var property in target.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (property.GetIndexParameters().Length > 0)
+            foreach (var (target, property, site) in Deferred)
             {
-                continue;
-            }
+                object? value = property.GetValue(target);
 
-            var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
-
-            if (type == typeof(string))
-            {
-                if (property.CanWrite)
+                if (value is System.Collections.IList list)
                 {
-                    property.SetValue(target, Hostile);
-                    count++;
+                    if (list.Count == 0)
+                    {
+                        Declined.Add($"{site}: computed projection still empty after the walk");
+                        continue;
+                    }
+
+                    foreach (object? item in list)
+                    {
+                        if (item is not null && IsProductModel(item.GetType()))
+                        {
+                            Fill(item, depth: 1);
+                        }
+                    }
+
+                    continue;
                 }
 
-                continue;
+                if (value is null)
+                {
+                    Declined.Add($"{site}: computed projection still null after the walk");
+                    continue;
+                }
+
+                Fill(value, depth: 1);
+            }
+        }
+
+        /// <summary>
+        /// True for an expression-bodied or otherwise computed property, false
+        /// for an auto-property.
+        /// </summary>
+        /// <remarks>
+        /// The discriminator is the compiler-generated backing field, which is
+        /// what actually distinguishes <c>public List&lt;T&gt; Xs { get; } = [];</c>
+        /// -- fillable in place -- from <c>public List&lt;T&gt;? Xs => GetOrCreate(...)</c>,
+        /// which must not be touched until its source is populated.
+        /// </remarks>
+        private static bool IsComputed(PropertyInfo property) =>
+            !property.CanWrite
+                && property.DeclaringType?.GetField(
+                    $"<{property.Name}>k__BackingField",
+                    BindingFlags.NonPublic | BindingFlags.Instance) is null;
+
+        /// <summary>Depth bound, stated so truncation is a declared limit rather than an accident.</summary>
+        private const int MaxDepth = 6;
+
+        public void Fill(object target, int depth)
+        {
+            if (depth > MaxDepth)
+            {
+                return;
             }
 
-            if (type.IsPrimitive || type.IsEnum || type == typeof(DateTime) || type == typeof(decimal))
+            var declaring = target.GetType();
+            foreach (var property in declaring.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
-                continue;
+                if (property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+                string site = $"{declaring.Name}.{property.Name} ({type.Name})";
+
+                if (type == typeof(string))
+                {
+                    if (property.CanWrite)
+                    {
+                        property.SetValue(target, Hostile);
+                        Filled++;
+                    }
+                    else if (property.GetValue(target) is string already && already.Contains(Hazard, StringComparison.Ordinal))
+                    {
+                        // A get-only string the primary constructor already
+                        // took the hostile value for. Declining it would report
+                        // the covered case as a gap.
+                        Filled++;
+                    }
+                    else
+                    {
+                        Declined.Add($"{site}: string with no setter");
+                    }
+
+                    continue;
+                }
+
+                if (type.IsPrimitive || type.IsEnum || type == typeof(DateTime) || type == typeof(decimal)
+                    || type == typeof(TimeSpan) || type == typeof(Guid) || type == typeof(Uri)
+                    || type == typeof(Version) || type == typeof(object))
+                {
+                    continue;
+                }
+
+                if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+                {
+                    FillList(target, property, type, site, depth);
+                    continue;
+                }
+
+                if (type.IsArray)
+                {
+                    FillArray(target, property, type, site, depth);
+                    continue;
+                }
+
+                if (IsComputed(property))
+                {
+                    Deferred.Add((target, property, site));
+                    continue;
+                }
+
+                var existing = property.GetValue(target);
+
+                // Decide on the runtime type when there is a value. The union
+                // cases hang off `object? Value`, and judging by the declared
+                // type skipped every one of them.
+                if (existing is not null && !IsProductModel(type))
+                {
+                    type = existing.GetType();
+                }
+
+                if (!IsProductModel(type))
+                {
+                    // Not ours to construct; it carries no untrusted text of its own.
+                    continue;
+                }
+
+                if (existing is null)
+                {
+                    if (!property.CanWrite)
+                    {
+                        Declined.Add($"{site}: product model, null, no setter");
+                        continue;
+                    }
+
+                    if (!TryCreate(type, depth, out existing, out string why))
+                    {
+                        Declined.Add($"{site}: {why}");
+                        continue;
+                    }
+
+                    property.SetValue(target, existing);
+                }
+                else if (IsSharedSingleton(existing))
+                {
+                    // Not ours to write on. See IsSharedSingleton.
+                    if (property.CanWrite && TryCreate(type, depth, out object? replacement, out _)
+                        && replacement is not null)
+                    {
+                        // A private copy carries the untrusted text without
+                        // touching the shared one, so coverage is kept.
+                        property.SetValue(target, replacement);
+                        existing = replacement;
+                    }
+                    else
+                    {
+                        Declined.Add($"{site}: shared singleton, not the walk's to mutate");
+                        continue;
+                    }
+                }
+
+                Fill(existing!, depth + 1);
+            }
+        }
+
+        private void FillList(object target, PropertyInfo property, Type type, string site, int depth)
+        {
+            // A get-only list is the dominant shape here -- twenty-one sections
+            // spell `public List<T> Switches { get; } = [];` -- and the first
+            // version of this walk skipped every one of them on the grounds
+            // that it could not assign the property. It did not need to: the
+            // list is already there, so it fills that one in place. Skipping
+            // them cost the gate the async, extension, switch, union, resource,
+            // attribute, forwarder, and every integration section at once.
+            if (IsComputed(property))
+            {
+                // A computed projection -- `Switches => GetOrCreate(... SwitchInspection ...)`
+                // -- is null only because its source finding is still empty, and
+                // filling that finding is what makes it appear. It must not even
+                // be *read* here: GetOrCreate latches on first read, so reading
+                // it mid-walk pins the empty answer for good. It is re-read once
+                // the walk is done, and only a projection still empty then is
+                // genuinely unreachable.
+                Deferred.Add((target, property, site));
+                return;
+            }
+
+            var existing = property.GetValue(target) as System.Collections.IList;
+
+            // The list is always assigned, even when its element cannot be
+            // filled. Leaving one null produces a model no analyzer emits,
+            // and the view then throws on it -- a failure that says nothing
+            // about containment.
+            var element = type.GetGenericArguments()[0];
+            var list = existing ?? (System.Collections.IList)Activator.CreateInstance(type)!;
+
+            if (element == typeof(string))
+            {
+                list.Add(Hostile);
+                Filled++;
+            }
+            else if (IsProductModel(element))
+            {
+                if (TryCreate(element, depth, out object? item, out string why))
+                {
+                    Fill(item!, depth + 1);
+                    list.Add(item);
+                }
+                else
+                {
+                    Declined.Add($"{site}: element {element.Name}: {why}");
+                }
+            }
+
+            if (property.CanWrite)
+            {
+                property.SetValue(target, list);
+            }
+        }
+
+        private void FillArray(object target, PropertyInfo property, Type type, string site, int depth)
+        {
+            if (!property.CanWrite)
+            {
+                Declined.Add($"{site}: array with no setter");
+                return;
+            }
+
+            var element = type.GetElementType()!;
+
+            if (element == typeof(string))
+            {
+                property.SetValue(target, new[] { Hostile });
+                Filled++;
+                return;
+            }
+
+            if (!IsProductModel(element))
+            {
+                return;
+            }
+
+            if (!TryCreate(element, depth, out object? item, out string why))
+            {
+                Declined.Add($"{site}: element {element.Name}: {why}");
+                return;
+            }
+
+            Fill(item!, depth + 1);
+            var array = Array.CreateInstance(element, 1);
+            array.SetValue(item, 0);
+            property.SetValue(target, array);
+        }
+
+        /// <summary>
+        /// Constructs a model, using its primary constructor when it has no
+        /// parameterless one.
+        /// </summary>
+        /// <remarks>
+        /// Requiring a parameterless constructor is what made the first version
+        /// of this walk vacuous. Every row in these views is a positional
+        /// record, and a positional record has no parameterless constructor, so
+        /// the filter excluded precisely the types the containment work was
+        /// about while the count check stayed green.
+        /// </remarks>
+        private bool TryCreate(Type type, int depth, out object? instance, out string why)
+        {
+            instance = null;
+            why = string.Empty;
+
+            var parameterless = type.GetConstructor(Type.EmptyTypes);
+            if (parameterless is not null && !type.IsValueType)
+            {
+                instance = parameterless.Invoke(null);
+                return true;
+            }
+
+            // A finding union exposes one constructor per case. `Complete` is
+            // the case that carries payloads, and payloads are the untrusted
+            // part; picking by parameter count would pick an arbitrary case and
+            // walk an empty one.
+            var ctor = type.GetConstructors()
+                .Where(c => c.IsPublic)
+                .OrderByDescending(c => c.GetParameters() is [{ ParameterType.Name: "Complete" }] ? 1 : 0)
+                .ThenByDescending(c => c.GetParameters().Length)
+                .FirstOrDefault();
+
+            if (ctor is null)
+            {
+                why = "no public constructor";
+                return false;
+            }
+
+            var parameters = ctor.GetParameters();
+            var args = new object?[parameters.Length];
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                args[i] = MakeArgument(
+                    Nullable.GetUnderlyingType(parameters[i].ParameterType) ?? parameters[i].ParameterType,
+                    depth);
+            }
+
+            try
+            {
+                instance = ctor.Invoke(args);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                why = $"constructor threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// A value for one constructor parameter.
+        /// </summary>
+        /// <remarks>
+        /// Value types get the same treatment as classes when they declare a
+        /// parameterized constructor. Defaulting them was enough on its own to
+        /// empty every finding payload: <c>FindingKey</c> is a record struct
+        /// that rejects a null identity, so <c>default</c> made every
+        /// <c>Finding&lt;T&gt;</c> constructor throw, every <c>Complete</c>
+        /// case come out empty, and every projection over it render nothing --
+        /// while the walk reported only that it could not construct something.
+        /// </remarks>
+        private object? MakeArgument(Type type, int depth)
+        {
+            if (type == typeof(string))
+            {
+                Filled++;
+                return Hostile;
             }
 
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
             {
-                if (!property.CanWrite)
-                {
-                    continue;
-                }
-
-                // The list is always assigned, even when its element cannot be
-                // filled. Leaving one null produces a model no analyzer emits,
-                // and the view then throws on it -- a failure that says nothing
-                // about containment.
-                var element = type.GetGenericArguments()[0];
                 var list = (System.Collections.IList)Activator.CreateInstance(type)!;
+                var element = type.GetGenericArguments()[0];
 
                 if (element == typeof(string))
                 {
                     list.Add(Hostile);
-                    count++;
+                    Filled++;
                 }
-                else if (CanCreate(element))
+                else if (IsProductType(element) && TryCreate(element, depth + 1, out object? item, out _) && item is not null)
                 {
-                    var item = Activator.CreateInstance(element)!;
-                    count += FillStrings(item, depth + 1);
+                    Fill(item, depth + 1);
                     list.Add(item);
                 }
 
-                property.SetValue(target, list);
-                continue;
+                return list;
             }
 
-            if (!CanCreate(type))
+            if (type.IsArray)
             {
-                continue;
+                return Array.CreateInstance(type.GetElementType()!, 0);
             }
 
-            var existing = property.GetValue(target);
-            if (existing is null)
+            if (IsImmutableArray(type))
             {
-                if (!property.CanWrite)
+                return BuildImmutableArray(type, depth);
+            }
+
+            if (IsProductType(type))
+            {
+                // Passing null here is what made every finding payload
+                // unreachable: the union guards its cases with
+                // ArgumentNullException, so the whole subtree was recorded
+                // as "constructor threw" and skipped.
+                if (TryCreate(type, depth + 1, out object? nested, out _) && nested is not null)
                 {
-                    continue;
+                    if (!type.IsValueType)
+                    {
+                        Fill(nested, depth + 1);
+                    }
+
+                    return nested;
                 }
 
-                existing = Activator.CreateInstance(type)!;
-                property.SetValue(target, existing);
+                return type.IsValueType ? Activator.CreateInstance(type) : null;
             }
 
-            count += FillStrings(existing, depth + 1);
+            return type.IsValueType ? Activator.CreateInstance(type) : null;
         }
 
-        return count;
-    }
+        private static bool IsImmutableArray(Type type) =>
+            type.IsGenericType
+                && type.GetGenericTypeDefinition() == typeof(System.Collections.Immutable.ImmutableArray<>);
 
-    private static bool CanCreate(Type type) =>
-        type.IsClass
-            && !type.IsAbstract
-            && type.Namespace?.StartsWith("DotnetInspector", StringComparison.Ordinal) == true
-            && type.GetConstructor(Type.EmptyTypes) is not null;
+        /// <summary>
+        /// A one-element immutable array, with its element filled.
+        /// </summary>
+        private object? BuildImmutableArray(Type type, int depth)
+        {
+            var element = type.GetGenericArguments()[0];
+            var builder = Array.CreateInstance(element, 1);
+
+            if (element == typeof(string))
+            {
+                builder.SetValue(Hostile, 0);
+                Filled++;
+            }
+            else if (IsProductType(element)
+                && TryCreate(element, depth + 1, out object? item, out _)
+                && item is not null)
+            {
+                Fill(item, depth + 1);
+                builder.SetValue(item, 0);
+            }
+            else
+            {
+                builder = Array.CreateInstance(element, 0);
+            }
+
+            var create = typeof(System.Collections.Immutable.ImmutableArray)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .First(m => m.Name == "Create" && m.GetParameters() is [{ ParameterType.IsArray: true }])
+                .MakeGenericMethod(element);
+
+            return create.Invoke(null, [builder]);
+        }
+
+        /// <summary>
+        /// A model this repository owns.
+        /// </summary>
+        /// <remarks>
+        /// Scoped by assembly rather than by namespace prefix. The prefix
+        /// version tested for <c>DotnetInspector</c> and so silently excluded
+        /// every <c>ILInspector.Findings</c> payload -- the async, extension,
+        /// switch, union, and resource sections -- which is most of what the
+        /// view renders.
+        /// </remarks>
+        private static bool IsProductModel(Type type) =>
+            type.IsClass
+                && !type.IsAbstract
+                && type != typeof(string)
+                && IsProductAssembly(type.Assembly);
+
+        /// <summary>Anything this repository declares, including record structs.</summary>
+        private static bool IsProductType(Type type) =>
+            !type.IsAbstract
+                && !type.IsEnum
+                && !type.IsPrimitive
+                && type != typeof(string)
+                && IsProductAssembly(type.Assembly);
+
+        /// <summary>
+        /// Repository-owned assemblies, by the two prefixes this repository
+        /// names its assemblies with.
+        /// </summary>
+        /// <remarks>
+        /// Naming the two assemblies the model root lives in was still too
+        /// narrow: the payloads are <c>FindingInspection&lt;T&gt;</c> values in
+        /// <c>ILInspector.Findings</c>, a third assembly, so the switch, union,
+        /// resource, forwarder, and attribute sections were all outside the
+        /// walk.
+        /// </remarks>
+        /// <summary>
+        /// True when <paramref name="value"/> is also reachable from a public
+        /// static member of its own type -- the <c>Foo.Default</c> singleton
+        /// shape.
+        /// </summary>
+        /// <remarks>
+        /// This walk exists to write untrusted text into every string a view
+        /// can render, and it does that by mutating instances in place. That is
+        /// sound for objects the walk reaches through a model it built, and
+        /// silently destructive for one the *product* shares process-wide.
+        ///
+        /// <c>PerformanceTriageOptions.Default</c> is the case that caught it.
+        /// The walk reached it through a property that defaults to the
+        /// singleton, filled its filter and sort fields with
+        /// <c>U+202E</c>-bearing text, and left it that way for the rest of the
+        /// process. Five <c>OutputFormatterTests</c> cases then failed, because
+        /// the optimization-opportunity rows were being filtered by a predicate
+        /// made of hostile garbage -- and they failed <em>only</em> when run in
+        /// the same process as this class, which is what made it look like a
+        /// product regression rather than a harness one. In isolation every one
+        /// of them passed.
+        ///
+        /// Reading a public static member of a type already instantiated here
+        /// costs nothing and needs no allow list. Where the property can be
+        /// assigned, a private copy is substituted so the coverage this walk
+        /// exists for is kept rather than traded away for the isolation.
+        /// </remarks>
+        private static bool IsSharedSingleton(object value)
+        {
+            var type = value.GetType();
+
+            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (property.GetIndexParameters().Length == 0
+                    && property.CanRead
+                    && ReferenceEquals(property.GetValue(null), value))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (ReferenceEquals(field.GetValue(null), value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsProductAssembly(Assembly assembly)
+        {
+            string? name = assembly.GetName().Name;
+            return name is not null
+                && (name.StartsWith("DotnetInspector", StringComparison.Ordinal)
+                    || name.StartsWith("ILInspector", StringComparison.Ordinal)
+                    || name.Equals("dotnet-inspect", StringComparison.Ordinal));
+        }
+    }
 }

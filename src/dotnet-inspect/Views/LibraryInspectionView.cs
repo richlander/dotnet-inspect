@@ -1457,14 +1457,66 @@ public record ResourceTriageRow(
     string Impact,
     string Actionability,
     string Boundary,
-    [property: MarkoutPropertyName("Acquire IL")] string AcquireIL,
-    [property: MarkoutPropertyName("Boundary IL")] string BoundaryIL,
+    string AcquireIL,
+    string BoundaryIL,
     string Evidence,
     string Direction,
     string Confidence,
     string? Visibility,
     string? Stable,
-    string? Selector);
+    string? Selector)
+{
+    // All or none, in constructor order -- see UnsafeMemberRow. The four
+    // already-code-wrapped columns are redeclared unchanged so the positional
+    // order survives; the rest carry analyzer classification text.
+    public string Member { get; init; } = Member;
+
+    public string Candidate { get; init; } = Candidate;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Finding { get; init; } = LibraryViewText.Contain(Finding);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Provenance { get; init; } = LibraryViewText.Contain(Provenance);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Resource { get; init; } = LibraryViewText.Contain(Resource);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Shape { get; init; } = LibraryViewText.Contain(Shape);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Impact { get; init; } = LibraryViewText.Contain(Impact);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Actionability { get; init; } = LibraryViewText.Contain(Actionability);
+
+    public string Boundary { get; init; } = Boundary;
+
+    [MarkoutPropertyName("Acquire IL")]
+    public string AcquireIL { get; init; } = AcquireIL;
+
+    [MarkoutPropertyName("Boundary IL")]
+    public string BoundaryIL { get; init; } = BoundaryIL;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Direction { get; init; } = LibraryViewText.Contain(Direction);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Confidence { get; init; } = LibraryViewText.Contain(Confidence);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Visibility { get; init; } = LibraryViewText.Contain(Visibility);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Stable { get; init; } = LibraryViewText.Contain(Stable);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Selector { get; init; } = LibraryViewText.Contain(Selector);
+}
 
 // Tight, human column set for the kind-scoped performance sections. Deep per-row diagnostics
 // (provenance, path counts, post-dominance, token, fix guidance) live in the JSON projection.
@@ -1567,9 +1619,11 @@ public record AuditSignalRow(
     string Value,
     string Evidence)
 {
-    public string Area { get; init; } = Area;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Area { get; init; } = LibraryViewText.Contain(Area);
 
-    public string Signal { get; init; } = Signal;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Signal { get; init; } = LibraryViewText.Contain(Signal);
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Value { get; init; } = LibraryViewText.Contain(Value);
@@ -1602,19 +1656,52 @@ public record SwitchRow(
 [MarkoutSerializable]
 public record IntegrationOpportunityRow(
     string Integration,
-    [property: MarkoutPropertyName("API")] string Api,
-    [property: MarkoutPropertyName("Integration Type")] string IntegrationType,
-    [property: MarkoutPropertyName("Look For")] string LookFor);
+    string Api,
+    string IntegrationType,
+    string LookFor)
+{
+    // All or none, in constructor order -- see UnsafeMemberRow.
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Integration { get; init; } = LibraryViewText.Contain(Integration);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("API")]
+    public string Api { get; init; } = LibraryViewText.Contain(Api);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Integration Type")]
+    public string IntegrationType { get; init; } = LibraryViewText.Contain(IntegrationType);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Look For")]
+    public string LookFor { get; init; } = LibraryViewText.Contain(LookFor);
+}
 
 [MarkoutSerializable]
 public record IntegrationSignalRow(
     string Kind,
-    string Type);
+    string Type)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Type { get; init; } = LibraryViewText.Contain(Type);
+}
 
 [MarkoutSerializable]
 public record IntegrationApiSignalRow(
     string Kind,
-    [property: MarkoutPropertyName("API")] string Api);
+    string Api)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("API")]
+    public string Api { get; init; } = LibraryViewText.Contain(Api);
+}
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]

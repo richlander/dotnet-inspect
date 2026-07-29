@@ -294,6 +294,54 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   refusal is unconditional: excusing it for `--print` would let `-S <other
   section> --readme --print` pass while ignoring the selection.
 
+#### A payload lens emits its payload verbatim, and nothing else, on stdout
+
+Everything a rendered surface shows is *contained*: untrusted metadata names,
+attribute text, doc text, and nuspec fragments have their line terminators
+folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
+rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
+fence, a tree gutter, or a diagnostic line (issue #3319).
+
+`--readme` and `--content` deliberately do **not** contain what they emit, and
+that is a contract rather than a gap. Their job is to hand the caller the bytes
+of a file, the way `cat` does; escaping those bytes would corrupt the payload
+and make the flag useless for its purpose. Piping `--readme` to a file
+reproduces the README, with one measured departure from `cat`: the writer
+appends a single line terminator, so a README that does not end in a newline
+gains one.
+
+What makes that safe is a stream split, and the split is the actual invariant:
+
+> A payload lens writes the payload to **stdout** and writes no tool-authored
+> framing to stdout. Every heading, table, and diagnostic the tool composes
+> goes to **stderr**, where it is contained.
+
+So `package X --readme --info` puts the hostile README on stdout and the
+`# Info` table on stderr. Nothing on stdout claims to be the tool speaking, so
+a reader who sees an ANSI escape there knows it came from the file — the same
+thing they know when they run `cat`.
+
+Two consequences worth stating, because they are the boundary and not the rule:
+
+- `--jsonl` is *not* a payload lens. It frames the payload in a structure the
+  caller parses, so the content is JSON-escaped; `\u202E` arrives as the six
+  characters `\u202E`.
+- `--content` is the one lens that writes framing to stdout: it delimits each
+  matched file with a `------------ <package> :: <path> ------------` banner,
+  because a multi-file payload needs a separator. The banner's *fields* are
+  contained, so a hostile zip entry name cannot break out of it. The banner's
+  *shape* is forgeable by the payload — a file containing that exact line makes
+  one file look like two — which is a real, pre-existing limitation tracked
+  separately, not a property this document claims.
+
+These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
+a package whose README carries bidi, ESC, and LS hazards and asserts each half:
+that stdout reproduces the file exactly (up to that one appended terminator),
+that stdout carries no framing, that stderr is contained, and that `--jsonl`
+escapes. Asserting both halves is
+the point — a test that only checked "stdout is raw" would keep passing if
+someone added a heading to stdout.
+
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
 come from the discovered rows; the surrounding command's document count is a

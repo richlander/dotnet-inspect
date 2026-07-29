@@ -129,7 +129,7 @@ public sealed record PerformanceTriageOptions
     public bool IncludesAllocationFanout =>
         Shapes.Contains("allocation-fanout", StringComparer.OrdinalIgnoreCase);
 
-    public bool TryGetPredicates(out RowPredicate[] predicates, out string error)
+    public bool TryGetPredicates(out RowPredicate[] predicates, out OptionError error)
     {
         var builder = new List<RowPredicate>();
         foreach (var expression in Where)
@@ -146,7 +146,7 @@ public sealed record PerformanceTriageOptions
         return true;
     }
 
-    public bool TryGetOrderTerms(out OrderTerm[] orderTerms, out string error)
+    public bool TryGetOrderTerms(out OrderTerm[] orderTerms, out OptionError error)
     {
         if (string.IsNullOrWhiteSpace(OrderBy))
         {
@@ -226,7 +226,7 @@ public sealed record PerformanceTriageOptions
         return (raw, null);
     }
 
-    public static bool TryValidateShapes(PerformanceTriageOptions options, out string error)
+    public static bool TryValidateShapes(PerformanceTriageOptions options, out OptionError error)
     {
         var known = KnownShapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var invalid = options.Shapes.Where(shape => !known.Contains(shape)).ToArray();
@@ -241,7 +241,7 @@ public sealed record PerformanceTriageOptions
         return false;
     }
 
-    public static bool TryValidate(PerformanceTriageOptions options, out string error)
+    public static bool TryValidate(PerformanceTriageOptions options, out OptionError error)
     {
         if (!TryValidateShapes(options, out error))
             return false;
@@ -252,7 +252,7 @@ public sealed record PerformanceTriageOptions
         return true;
     }
 
-    static bool TryParsePredicate(string expression, out RowPredicate predicate, out string error)
+    static bool TryParsePredicate(string expression, out RowPredicate predicate, out OptionError error)
     {
         predicate = default!;
         expression = expression.Trim();
@@ -363,18 +363,21 @@ public sealed record PerformanceTriageOptions
             .Replace("-", "", StringComparison.Ordinal)
             .Replace("_", "", StringComparison.Ordinal);
 
-    static string UnknownFieldError(string field, string kind, IReadOnlyList<string> knownFields)
+    static OptionError UnknownFieldError(string field, string kind, IReadOnlyList<string> knownFields)
     {
         var suggestion = knownFields
             .OrderBy(candidate => EditDistance(NormalizeName(field).ToLowerInvariant(), NormalizeName(candidate).ToLowerInvariant()))
             .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
         return suggestion is null
-            ? $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'."
-            // One line: this message travels as a value through several
-            // parsers, and a writer that honored line breaks inside a message
-            // could not tell this structure from an injected one (issue #3319).
-            : $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'. Did you mean: {Contain(suggestion)}";
+            ? new OptionError($"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.")
+            // The suggestion travels as a detail rather than as a newline
+            // inside the message: the writer indents each detail line itself,
+            // so this structure cannot be confused with one injected through
+            // the untrusted field name (issue #3319).
+            : new OptionError(
+                $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.",
+                ["Did you mean:", $"  {Contain(suggestion)}"]);
     }
 
     static int EditDistance(string left, string right)
