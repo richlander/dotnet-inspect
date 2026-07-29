@@ -1037,14 +1037,20 @@ public class ScanTokenTests
         // line short enough for the exhaustive pair arm to spell cannot vouch for a seed the
         // arm cannot reach; and it names the second line, so the inner loop cannot collapse.
         // Only two-line calls are recorded, so a single-line call cannot stand in either.
-        foreach (var opener in openers)
-        {
-            foreach (var tail in tails)
-            {
-                foreach (var second in seconds)
-                    Assert.Contains((opener + tail, second), seedPairs);
-            }
-        }
+        //
+        // The expected set is built from the same three collections the arm iterates, so on its
+        // own it would shrink in step with them: emptying `seconds` after the pair arm has used
+        // it, and padding the seeded arm with repeats to hold the count, would satisfy a smaller
+        // demand with less coverage (adversarial review, GPT). Its size is therefore pinned to
+        // literals, and the comparison is set equality rather than membership, so the demand
+        // cannot quietly shrink and the arm cannot quietly scan something else instead.
+        var expected = openers
+            .SelectMany(_ => tails, (opener, tail) => opener + tail)
+            .SelectMany(_ => seconds, (first, second) => (first, second))
+            .ToHashSet();
+
+        Assert.Equal(9 * 12 * 132, expected.Count);
+        Assert.Equal(expected, seedPairs);
     }
 
 
