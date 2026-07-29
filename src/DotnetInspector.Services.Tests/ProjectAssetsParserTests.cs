@@ -502,53 +502,6 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
-    public void Parse_ReturnsAssemblyPaths_WhenFileExists()
-    {
-        // Create a temp directory structure that mimics NuGet cache
-        var tempDir = Path.Combine(Path.GetTempPath(), $"parser-test-{Guid.NewGuid():N}");
-        var packageDir = Path.Combine(tempDir, "foo", "1.0.0", "lib", "net9.0");
-        Directory.CreateDirectory(packageDir);
-        var dllPath = Path.Combine(packageDir, "Foo.dll");
-        File.WriteAllText(dllPath, "fake assembly");
-
-        // Build a relative path from NuGet cache
-        var nugetCache = DotnetInspector.Packages.NuGetCache.GetNuGetCachePath();
-        var relPath = Path.GetRelativePath(nugetCache, Path.Combine(tempDir, "foo", "1.0.0"));
-
-        var json = $$"""
-        {
-            "targets": {
-                "net9.0": {
-                    "Foo/1.0.0": {
-                        "compile": { "lib/net9.0/Foo.dll": {} }
-                    }
-                }
-            },
-            "libraries": {
-                "Foo/1.0.0": {
-                    "type": "package",
-                    "path": "{{relPath.Replace("\\", "/")}}"
-                }
-            }
-        }
-        """;
-
-        var assetsPath = WriteTempFile(json);
-        try
-        {
-            var results = ProjectAssetsParser.Parse(assetsPath, null, null);
-            // The file needs to exist at the NuGet cache location, which is tricky to simulate
-            // This test verifies the parsing logic runs without error
-            // Files won't be found since our temp dir isn't the NuGet cache
-        }
-        finally
-        {
-            File.Delete(assetsPath);
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public void TryFindAssets_DirectAssetsJsonPath_ReturnsFound()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");

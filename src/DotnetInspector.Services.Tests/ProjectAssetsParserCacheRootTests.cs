@@ -156,4 +156,72 @@ public class ProjectAssetsParserCacheRootTests
             Directory.Delete(payloadRoot, recursive: true);
         }
     }
+
+    /// <summary>
+    /// The <c>compile</c> key escapes the cache even when <c>library.path</c> is ordinary, so the
+    /// guard on <c>asm.Name</c> is load-bearing independently of the one on <c>library.path</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for the second half of the <c>Parse</c> guard. A reviewer reading
+    /// <c>Parse</c> reported this sink as unguarded, and nothing in the suite contradicted them:
+    /// the rooted-path test above drives <c>library.path</c>, and the only test that touched a
+    /// <c>compile</c> key asserted nothing at all. <c>library.path</c> is deliberately benign here
+    /// so that a regression in the <c>asm.Name</c> half cannot be masked by the other half firing.
+    /// </remarks>
+    [Fact]
+    public void Parse_WithTraversingCompilePath_DoesNotEscapeTheNuGetCache()
+    {
+        var cacheRoot = Path.Combine(Path.GetTempPath(), $"assets-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(cacheRoot, "legit.package", "1.0.0", "lib", "net8.0"));
+
+        var payloadRoot = Path.Combine(Path.GetTempPath(), $"assets-payload-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(payloadRoot);
+        var payload = Path.Combine(payloadRoot, "Payload.dll");
+        File.WriteAllText(payload, "payload");
+
+        var escape = Path.GetRelativePath(
+            Path.Combine(cacheRoot, "legit.package", "1.0.0"), payload).Replace("\\", "/");
+
+        var json = $$"""
+        {
+            "version": 3,
+            "targets": {
+                "net8.0": {
+                    "Legit.Package/1.0.0": {
+                        "type": "package",
+                        "compile": { "{{escape}}": {} }
+                    }
+                }
+            },
+            "libraries": {
+                "Legit.Package/1.0.0": {
+                    "type": "package",
+                    "path": "legit.package/1.0.0"
+                }
+            }
+        }
+        """;
+
+        var assetsPath = ProjectAssetsParserTests.WriteTempFile(json);
+        var previous = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", cacheRoot);
+        try
+        {
+            // Without these three, an empty result would prove nothing: the redirect could have
+            // been ignored, the payload could be absent, or the traversal could miss it. Together
+            // they mean the only reason Parse can return empty is that the guard refused.
+            Assert.Equal(cacheRoot, Packages.NuGetCache.GetNuGetCachePath());
+            Assert.True(File.Exists(payload));
+            Assert.True(File.Exists(Path.Combine(cacheRoot, "legit.package", "1.0.0", escape)));
+
+            Assert.Empty(ProjectAssetsParser.Parse(assetsPath, null, null));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NUGET_PACKAGES", previous);
+            File.Delete(assetsPath);
+            Directory.Delete(cacheRoot, recursive: true);
+            Directory.Delete(payloadRoot, recursive: true);
+        }
+    }
 }

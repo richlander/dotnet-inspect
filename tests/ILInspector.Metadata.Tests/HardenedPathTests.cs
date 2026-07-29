@@ -43,11 +43,9 @@ public class HardenedPathTests
     [InlineData("CONIN$")]
     [InlineData("conout$")]
     [InlineData("CONIN$.dll")]
+    // Names the host rewrites before opening: Windows strips trailing spaces and dots.
     [InlineData("CON ")]
     [InlineData("NUL   ")]
-    // Names the host rewrites before opening: Windows strips trailing spaces and dots. These
-    // must be non-devices; the two above reach the device rule and so prove nothing about the
-    // edge-trim rule they used to be grouped under.
     [InlineData("Foo.")]
     [InlineData("System.Text.Json ")]
     [InlineData(" System.Text.Json")]

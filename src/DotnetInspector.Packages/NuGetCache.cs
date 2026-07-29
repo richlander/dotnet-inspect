@@ -120,10 +120,18 @@ public static class NuGetCache
     /// <param name="packageName">The package name (case-insensitive)</param>
     /// <param name="version">The package version</param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
+    /// <remarks>
+    /// An unsafe coordinate answers null rather than throwing. No cache entry can be named by one,
+    /// so "not found" is the truthful answer, and it is the answer this method's contract promises;
+    /// throwing from a <c>Try</c> method crashed the CLI on <c>package CON@1.0.0 --version</c> and
+    /// made <see cref="PackageExtractor"/>'s nuspec probe report a hostile coordinate as an error
+    /// rather than refusing it. The refusal stays visible where it matters: every path that
+    /// acquires or extracts a package still refuses the coordinate loudly.
+    /// </remarks>
     public static string? TryGetCachedPackage(string packageName, string version)
     {
-        ValidatePathComponent(packageName, "package name");
-        ValidatePathComponent(version, "version");
+        if (!HardenedPath.IsSafePathComponent(packageName) || !HardenedPath.IsSafePathComponent(version))
+            return null;
 
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();

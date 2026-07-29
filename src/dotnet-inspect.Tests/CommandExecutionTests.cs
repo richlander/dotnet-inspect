@@ -9860,6 +9860,28 @@ public class CommandExecutionTests
         Assert.Contains("Invalid package name", error, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The same coordinate on the <c>--version</c> route, which reaches the cache through
+    /// <c>TryGetCachedPackage</c> rather than through the acquisition path.
+    /// </summary>
+    /// <remarks>
+    /// The theory above was added to fix the crash and only ever exercised one of the two routes,
+    /// so it kept passing while `package CON@1.0.0 --version` still printed an unhandled
+    /// ArgumentException. A `Try` method that throws is the defect; it now answers null, which is
+    /// both its documented contract and the truth, since no cache entry can carry such a name.
+    /// The refusal stays visible on every path that actually acquires or extracts.
+    /// </remarks>
+    [Theory]
+    [InlineData("CON")]
+    [InlineData("NUL")]
+    public async Task PackageCommand_CoordinateThatIsNotAPathComponent_DoesNotCrashListingVersions(string name)
+    {
+        var (_, _, error) = await RunAppAsync("package", $"{name}@1.0.0", "--version", "--tips", "q");
+
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PackageCommand_LibraryFlag_BareSelectsUnambiguousLibrary()
     {
