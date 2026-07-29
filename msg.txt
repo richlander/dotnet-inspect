@@ -1,0 +1,26 @@
+Detect forwarder cycles by assembly identity, not depth alone
+
+Metadata is untrusted input, and docs/design/bounded-metadata-traversal.md
+requires that cycles be "detected by identity, not merely stopped by a depth
+ceiling". The forwarder hop added for #3400 was bounded only by a hop ceiling,
+so an A -> B -> A chain rescanned both assemblies to the ceiling instead of
+stopping on the repeat visit.
+
+Thread a visited-identity set through TryResolveTopLevelTypeInAssembly, seeded
+with the assembly the TypeRef already named so a forwarder pointing back at the
+facade counts as a repeat visit. Keep MaxTypeForwarderHops as a second bound on
+chain length.
+
+Gate termination with a synthetic two-assembly forwarder cycle. No compiler
+emits a forwarder cycle, so hand-built metadata is the only way to reach the
+state. Tamper-verified: removing both bounds crashes the test process with
+STATUS_STACK_OVERFLOW (0xC00000FD).
+
+The narrower identity-vs-depth property -- that each assembly is rescanned at
+most once -- is reasoned but not gated, and the test says so: the resolved
+assembly cache makes rescans invisible to any observer outside the walk, so
+resolver call counts are identical under both bounds.
+
+ILInspector.Analysis.Tests: 576 passed, 0 failed (Release, Windows).
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

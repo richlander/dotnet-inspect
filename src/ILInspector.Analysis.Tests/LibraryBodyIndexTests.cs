@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -242,6 +243,149 @@ public class LibraryBodyIndexTests
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// This is the gate for termination of the cross-assembly forwarder walk. Metadata is
+    /// untrusted input (<c>docs/design/bounded-metadata-traversal.md</c>), so a forwarder
+    /// chain that loops must not hang, recurse without bound, or stack-overflow. Two
+    /// synthetic assemblies forward the same type name at each other; the walk must stop and
+    /// report an honest miss.
+    /// <para>
+    /// A synthetic fixture is the right instrument here: no compiler emits a forwarder cycle,
+    /// so this is an unreachable-by-construction state that only hand-built metadata can
+    /// reach. Cycle detection is by assembly identity rather than by a depth ceiling alone,
+    /// which additionally bounds how many times each assembly is rescanned; that narrower
+    /// property is reasoned, not gated, because the resolved-assembly cache makes rescans
+    /// invisible to any observer outside the walk.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void CrossAssemblyMetadataResolver_ForwarderCycleTerminatesAndFailsHonest()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"fwd-cycle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string aPath = Path.Combine(directory, "CycA.dll");
+            string bPath = Path.Combine(directory, "CycB.dll");
+            string rootPath = Path.Combine(directory, "CycRoot.dll");
+
+            WriteForwardingAssembly(aPath, "CycA", forwardTo: "CycB", ns: "Cyc", typeName: "T");
+            WriteForwardingAssembly(bPath, "CycB", forwardTo: "CycA", ns: "Cyc", typeName: "T");
+            WriteReferencingAssembly(rootPath, "CycRoot", reference: "CycA", ns: "Cyc", typeName: "T");
+
+            var resolver = new MapResolver(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["CycA"] = aPath,
+                ["CycB"] = bPath,
+            });
+
+            using var stream = File.OpenRead(rootPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            using var builder = new LibraryBodyIndex.IndexBuilder(rootPath, reader, peReader, resolver);
+
+            var handle = FirstExternalTypeReference(reader);
+            // Precondition: the walk really does enter the cycle rather than failing earlier
+            // for an unrelated reason. Both hops must be reachable through the resolver.
+            Assert.Equal("T", reader.GetString(reader.GetTypeReference(handle).Name));
+
+            Assert.Null(builder.TryResolveExternalTypeDefinition(handle));
+            Assert.Equal(2, resolver.ResolveCalls);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    // ECMA-335 II.23.1.15: the forwarder bit on an ExportedType row.
+    const TypeAttributes ForwarderAttribute = (TypeAttributes)0x00200000;
+
+    static void WriteForwardingAssembly(string path, string name, string forwardTo, string ns, string typeName)
+    {
+        var builder = NewAssemblyMetadata(name);
+        var target = builder.AddAssemblyReference(
+            builder.GetOrAddString(forwardTo),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        builder.AddExportedType(
+            ForwarderAttribute,
+            builder.GetOrAddString(ns),
+            builder.GetOrAddString(typeName),
+            target,
+            typeDefinitionId: 0);
+        WritePortableExecutable(path, builder);
+    }
+
+    static void WriteReferencingAssembly(string path, string name, string reference, string ns, string typeName)
+    {
+        var builder = NewAssemblyMetadata(name);
+        var target = builder.AddAssemblyReference(
+            builder.GetOrAddString(reference),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        builder.AddTypeReference(target, builder.GetOrAddString(ns), builder.GetOrAddString(typeName));
+        WritePortableExecutable(path, builder);
+    }
+
+    static MetadataBuilder NewAssemblyMetadata(string name)
+    {
+        var builder = new MetadataBuilder();
+        builder.AddModule(
+            generation: 0,
+            builder.GetOrAddString($"{name}.dll"),
+            builder.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        builder.AddAssembly(
+            builder.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha1);
+        // Row 1 is always <Module>, exactly as a compiler emits.
+        builder.AddTypeDefinition(
+            default,
+            default,
+            builder.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return builder;
+    }
+
+    static void WritePortableExecutable(string path, MetadataBuilder builder)
+    {
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(builder),
+            ilStream: new BlobBuilder());
+        var blob = new BlobBuilder();
+        peBuilder.Serialize(blob);
+        using var file = File.Create(path);
+        blob.WriteContentTo(file);
+    }
+
+    sealed class MapResolver(Dictionary<string, string> paths) : IAssemblyReferenceResolver
+    {
+        public int ResolveCalls { get; private set; }
+
+        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        {
+            ResolveCalls++;
+            return paths.TryGetValue(identity.Name, out var path)
+                ? new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path))
+                : null;
+        }
     }
 
     [Fact]

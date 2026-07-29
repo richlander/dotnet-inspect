@@ -2132,9 +2132,16 @@ public sealed class LibraryBodyIndex
             string name)
         {
             var metadata = ResolveReferencedAssembly(_reader, assemblyReference);
-            return metadata is null
-                ? null
-                : TryResolveTopLevelTypeInAssembly(metadata.Reader, ns, name, hop: 0);
+            if (metadata is null)
+                return null;
+
+            // Seeded with the assembly the TypeRef already named, so a forwarder pointing
+            // back at the facade is a repeat visit rather than a fresh hop.
+            var visitedAssemblies = new HashSet<AssemblyReferenceIdentity>
+            {
+                AssemblyReferenceIdentity.From(_reader, assemblyReference),
+            };
+            return TryResolveTopLevelTypeInAssembly(metadata.Reader, ns, name, visitedAssemblies);
         }
 
         // A referenced framework assembly is frequently a pure facade rather than the
@@ -2143,11 +2150,18 @@ public sealed class LibraryBodyIndex
         // into System.Private.CoreLib, so scanning only TypeDefinitions resolves nothing
         // for any of its types (#3400). Follow the forwarder to the implementation
         // assembly, which is the hop reference-assembly layouts never need.
+        //
+        // Metadata is untrusted, so the walk is cycle-detected by assembly identity rather
+        // than merely depth-capped (docs/design/bounded-metadata-traversal.md, "Cycles are
+        // detected by identity, not merely stopped by a depth ceiling"). A -> B -> A stops
+        // on the repeat visit instead of rescanning both assemblies to the ceiling. The
+        // hop ceiling remains as a second bound on chain length; real chains are one or
+        // two hops (netstandard -> System.Runtime -> System.Private.CoreLib).
         (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveTopLevelTypeInAssembly(
             MetadataReader reader,
             string ns,
             string name,
-            int hop)
+            HashSet<AssemblyReferenceIdentity> visitedAssemblies)
         {
             foreach (var candidateHandle in reader.TypeDefinitions)
             {
@@ -2159,10 +2173,7 @@ public sealed class LibraryBodyIndex
                     return (reader, candidateHandle);
             }
 
-            // Bounded rather than cycle-tracked: real forwarder chains are one or two hops
-            // (netstandard -> System.Runtime -> System.Private.CoreLib), and a malformed or
-            // hostile assembly must not be able to spin this loop.
-            if (hop >= MaxTypeForwarderHops)
+            if (visitedAssemblies.Count > MaxTypeForwarderHops)
                 return null;
 
             foreach (var exportedHandle in reader.ExportedTypes)
@@ -2177,10 +2188,14 @@ public sealed class LibraryBodyIndex
                     || !reader.StringComparer.Equals(exported.Name, name))
                     continue;
 
-                var forwardedTo = ResolveReferencedAssembly(reader, (AssemblyReferenceHandle)exported.Implementation);
+                var forwardedReference = (AssemblyReferenceHandle)exported.Implementation;
+                if (!visitedAssemblies.Add(AssemblyReferenceIdentity.From(reader, forwardedReference)))
+                    return null;
+
+                var forwardedTo = ResolveReferencedAssembly(reader, forwardedReference);
                 return forwardedTo is null
                     ? null
-                    : TryResolveTopLevelTypeInAssembly(forwardedTo.Reader, ns, name, hop + 1);
+                    : TryResolveTopLevelTypeInAssembly(forwardedTo.Reader, ns, name, visitedAssemblies);
             }
 
             return null;
