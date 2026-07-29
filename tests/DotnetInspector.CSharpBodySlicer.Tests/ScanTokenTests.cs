@@ -1059,6 +1059,16 @@ public class ScanTokenTests
 
         Assert.Equal(4, rawSeeds);
 
+        // The arm's whole reason for existing is seeds the exhaustive arms cannot spell, so pin
+        // how many exceed their reach. Without this, `$@"` can be exchanged for `"b` -- still
+        // nine distinct seeds, eight strings, one comment, four raw -- which drops the verbatim
+        // interpolated path and replaces it with a two-character opener the pair arm already
+        // sweeps, adding nothing (adversarial review, GPT). I had removed this pin as redundant
+        // on the grounds that the raw pin already forces four seeds of three characters or
+        // more; that was wrong, and this mutation is the counterexample: it forces four, and
+        // the fifth was unpinned.
+        Assert.Equal(5, openers.Count(o => o.Length > 2));
+
         // Those properties still describe the seeds rather than name them, and a seed can be
         // exchanged for another of the same kind and length -- `$@"` for `@$"` -- without
         // disturbing any of them, which drops one interpolation-order path and keeps the suite
