@@ -367,7 +367,7 @@ public class CommandErrorOwnershipTests
     /// observation is unavailable, and an unavailable answer must not read as a
     /// clean one.
     /// </remarks>
-    private static IEnumerable<string> GeneratedGlobalUsings(string root)
+    private static IEnumerable<string> GeneratedSources(string root)
     {
         string artifacts = Path.Combine(root, "artifacts", "obj");
 
@@ -377,16 +377,16 @@ public class CommandErrorOwnershipTests
             string name = Path.GetFileNameWithoutExtension(project);
             string directory = Path.Combine(artifacts, name);
             string[] generated = Directory.Exists(directory)
-                ? Directory.GetFiles(directory, $"{name}.GlobalUsings.g.cs", SearchOption.AllDirectories)
+                ? Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories)
                 : [];
 
-            if (generated.Length == 0)
+            if (!generated.Any(f => f.EndsWith(".GlobalUsings.g.cs", StringComparison.Ordinal)))
             {
                 throw new InvalidOperationException(
-                    $"{name}: no generated GlobalUsings.g.cs under {directory}. This rule reads the usings the "
-                    + "compiler was handed rather than the ones this repository declares, which is the only way "
-                    + "to see an import that arrives from outside it. Build the CLI closure first; a missing "
-                    + "observation is not a clean one.");
+                    $"{name}: no generated GlobalUsings.g.cs under {directory}. This rule reads what the compiler "
+                    + "was handed rather than what this repository declares, which is the only way to see code or "
+                    + "an import that arrives from outside it. Build the CLI closure first; a missing observation "
+                    + "is not a clean one.");
             }
 
             foreach (string file in generated)
@@ -700,7 +700,14 @@ public class CommandErrorOwnershipTests
         string owner = Path.Combine(root, "src", "dotnet-inspect", "Output", "CommandError.cs");
 
         List<string> offenders = [];
-        foreach (string path in CliSourceFiles(root))
+
+        // The checked-in sources plus the build's own record of what the
+        // compiler was additionally handed. The second set is the only reading
+        // that sees an import arriving from outside the repository, and the
+        // only one that sees generated code at all -- the CLI compiles ~490
+        // generated files, including the Markout serializers for the very view
+        // rows that carry untrusted text.
+        foreach (string path in CliSourceFiles(root).Concat(GeneratedSources(root)))
         {
             if (string.Equals(path, owner, StringComparison.Ordinal))
             {
@@ -727,20 +734,6 @@ public class CommandErrorOwnershipTests
             }
         }
 
-        // The build's own record of what the compiler was handed. This is the
-        // only reading that sees an import arriving from outside the
-        // repository, where no scan of this repository's files can reach.
-        foreach (string generated in GeneratedGlobalUsings(root))
-        {
-            string text = File.ReadAllText(generated);
-            foreach (Match match in ConsoleImport.Matches(text))
-            {
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                offenders.Add(
-                    $"{Path.GetRelativePath(root, generated)}:{line}: {match.Value.Trim()}"
-                        + " (an effective global using; find the Using item or import that declares it)");
-            }
-        }
 
         // The declaring side of the same import. It reports a narrower set than
         // the generated files above and is kept for the message: it names the
@@ -987,11 +980,23 @@ public class CommandErrorOwnershipTests
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
         Assert.Matches(StderrWrite, File.ReadAllText(owner));
 
-        // The generated global usings are read as the compiler's input, so the
+        // The generated sources are read as the compiler's input, so the
         // spelling the SDK emits has to match.
         Assert.Matches(ConsoleImport, "global using static global::System.Console;\n");
-        Assert.NotEmpty(GeneratedGlobalUsings(RepositoryRoot()));
-        Assert.All(GeneratedGlobalUsings(RepositoryRoot()), f => Assert.True(File.Exists(f)));
+
+        // Source-generator output is only observable because the build is asked
+        // to write it down. If EmitCompilerGeneratedFiles is removed from
+        // Directory.Build.props the files vanish silently and the scan above
+        // reads clean, so the property is checked by its effect rather than
+        // trusted.
+        string[] generated = [.. GeneratedSources(RepositoryRoot())];
+        Assert.Contains(generated, f => f.EndsWith(".GlobalUsings.g.cs", StringComparison.Ordinal));
+        Assert.Contains(
+            generated,
+            f => f.Replace('\\', '/') is var p
+                && p.Contains("/obj/dotnet-inspect/", StringComparison.Ordinal)
+                && p.Contains("/generated/", StringComparison.Ordinal));
+        Assert.All(generated, f => Assert.True(File.Exists(f)));
 
         // The MSBuild half reaches the implicitly imported build files, not just
         // the projects. A `Using` in Directory.Build.props applies to every
