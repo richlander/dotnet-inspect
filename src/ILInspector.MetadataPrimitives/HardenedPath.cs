@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Globalization;
+using System.Text;
 
 namespace ILInspector.MetadataPrimitives;
 
@@ -161,6 +162,38 @@ public static class HardenedPath
     /// extension, so <c>CON.txt</c> is <c>CON</c>.
     /// </summary>
     private static bool IsReservedDeviceName(string value)
+    {
+        if (StemNamesReservedDevice(value))
+            return true;
+
+        // Windows applies a best-fit mapping to the whole path before opening it, so full-width
+        // Latin letters reach the same device: "\uff23\uff2f\uff2d1" opens COM1, and the digit
+        // fold below does not touch letters. Compatibility normalization is the closest standard
+        // model of that mapping, and it also folds the compatibility digit spellings and the
+        // full-width dot that would otherwise hide the stem boundary.
+        //
+        // It does not replace the numeric fold: NFKC leaves Arabic-Indic and other non-ASCII
+        // digits alone, so "COM\u0664" survives it unchanged. Both run, over the raw value and
+        // over the normalized one.
+        string normalized;
+        try
+        {
+            normalized = value.Normalize(NormalizationForm.FormKC);
+        }
+        catch (ArgumentException)
+        {
+            // Not normalizable, so what the host would open cannot be predicted. Refuse.
+            return true;
+        }
+
+        return !string.Equals(normalized, value, StringComparison.Ordinal)
+            && StemNamesReservedDevice(normalized);
+    }
+
+    /// <summary>
+    /// Whether the value's stem, after folding non-ASCII digits, is a reserved device name.
+    /// </summary>
+    private static bool StemNamesReservedDevice(string value)
     {
         var stem = value;
         var dot = stem.IndexOf('.');

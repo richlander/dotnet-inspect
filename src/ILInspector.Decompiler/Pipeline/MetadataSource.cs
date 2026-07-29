@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -211,6 +212,13 @@ public sealed class MetadataSource : IDisposable
 
             if (_directory is not null)
             {
+                // identity.Name is a MetadataReader string from the inspected assembly, so it is
+                // attacker-controlled and is about to be joined onto a directory and opened.
+                // Path.Combine(root, untrustedValue) is not a containment check
+                // (docs/design/untrusted-data-threat-model.md, "Derived paths").
+                if (!HardenedPath.IsSafePathComponent(identity.Name))
+                    return null;
+
                 string sibling = System.IO.Path.Combine(_directory, identity.Name + ".dll");
                 if (File.Exists(sibling))
                 {

@@ -63,6 +63,16 @@ public class HardenedPathTests
     // enclosed digit blocks are outside the basic plane and a per-char loop exempted them.
     [InlineData("COM\U0001d7cf")]
     [InlineData("LPT\U0001d7e3")]
+    // Full-width Latin letters: Windows best-fit maps the whole component, so these open the same
+    // device even though no digit is involved and OrdinalIgnoreCase does not match them to ASCII.
+    [InlineData("\uff23\uff2f\uff2d1")]
+    [InlineData("\uff23\uff2f\uff2e")]
+    [InlineData("\uff21\uff35\uff38")]
+    [InlineData("\uff2e\uff35\uff2c.txt")]
+    // Full-width letters and a non-ASCII digit together: neither fold alone catches this one.
+    [InlineData("\uff23\uff2f\uff2d\u0664")]
+    // A full-width dot hides the stem boundary from an ASCII-only split.
+    [InlineData("\uff23\uff2f\uff2e\uff0etxt")]
     // Absorbed from ResourceExtractor's copy when it was made to delegate: the Windows-invalid
     // filename characters, which Path.GetInvalidFileNameChars misses on Unix, and CLOCK$.
     [InlineData("Cont<oso")]
@@ -117,6 +127,12 @@ public class HardenedPathTests
     [InlineData("COM\U0001d7cfPlus")]
     [InlineData("Contoso.\U0001d400ssembly")]
     [InlineData("\U0001f600.Assembly")]
+    // Compatibility normalization must not over-reject: it only decides device-name identity, so
+    // full-width text that does not normalize onto a device name is still an ordinary name.
+    [InlineData("\uff23\uff2f\uff2d1Plus")]
+    [InlineData("\uff2c\uff29\uff22.Assembly")]
+    [InlineData("\u30c6\u30b9\u30c8.Library")]
+    [InlineData("Contoso.\uff26\uff4f\uff4f")]
     public void LegitimateComponent_IsAccepted(string value)
     {
         Assert.True(HardenedPath.IsSafePathComponent(value));
