@@ -114,7 +114,7 @@ if (unreadable is not null)
     return;
 }
 
-var packageList = parsedList;
+List<PackageListEntry> packageList = parsedList!;
 
 if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package)))
 {
@@ -203,12 +203,24 @@ if (selected.Length == 0)
     return;
 }
 
-// The pool's completeness is checked at the end by asking the pin what it owes, and
-// that question only has an answer if every selected package has a pin the sweep
-// understands. A package with no pin, or with a status this does not recognise, owes
-// an unknown number of assemblies -- so its absence from the pool cancels against its
-// absence from the total and the run reports success over a pool one package short.
-// Refusing up front, before any acquisition, is what keeps "owed" well defined.
+// Take() shortens silently, and every completeness check downstream is stated against
+// the window that was actually selected -- so a list one entry shorter than the
+// request produced a pool one assembly shorter and called it complete. The caller
+// asked for a number of packages; supplying fewer is a refusal, not a smaller pool.
+if (selected.Length != packageCount)
+{
+    Console.Error.WriteLine(
+        $"Ranks {startRank}-{selected[^1].Rank} supply {selected.Length} of the "
+        + $"{packageCount} packages requested; the list ranks {packageList.Count}.");
+    Environment.ExitCode = 2;
+    return;
+}
+
+// Every selected package is checked against its pin at the end, and a package whose
+// pin the sweep does not understand can reach no outcome there -- it would simply
+// never be accounted for, failing the run after a hundred acquisitions with a message
+// about arithmetic. Refusing up front, before any acquisition, names the actual
+// problem: the pin does not cover the window.
 if (!resolveLatest)
 {
     var uncovered = selected
@@ -233,9 +245,21 @@ if (!resolveLatest)
     }
 }
 
-Directory.CreateDirectory(outputDirectory);
 string packageDirectory = Path.Combine(outputDirectory, "packages");
-Directory.CreateDirectory(packageDirectory);
+try
+{
+    Directory.CreateDirectory(outputDirectory);
+    Directory.CreateDirectory(packageDirectory);
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+{
+    // Stated, like every other refusal here. An output directory the process cannot
+    // create is the caller's argument being wrong, and exit 134 tells the caller
+    // nothing except that something died.
+    Console.Error.WriteLine($"Could not create output directory '{outputDirectory}': {ex.Message}");
+    Environment.ExitCode = 2;
+    return;
+}
 
 HttpClientFactory.Initialize();
 NuGetCache.Initialize("dotnet-inspect");
