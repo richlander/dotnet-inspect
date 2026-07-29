@@ -25,14 +25,14 @@ public class EvilPoolPinTests
     const string ListRelativePath = "docs/data/nuget-top-packages.json";
 
     /// <summary>
-    /// Every pin names a package, states a known status, and carries an exact version
-    /// when it claims to pin one. No package is pinned twice.
+    /// Every pin names a package, states a known status, and carries an exact version.
+    /// No package is pinned twice.
     ///
     /// <para>A pin with an empty version is not a pin, and a package pinned twice makes
-    /// the effective version depend on read order. An unrecognised status is worse than
-    /// either: the sweep treats anything that is not <c>no-library</c> as a version to
-    /// acquire, so a typo would turn a deliberate skip into an acquisition of
-    /// <c>null</c>.</para>
+    /// the effective version depend on read order. The version is required for both
+    /// statuses because the sweep acquires both: a <c>no-library</c> entry is confirmed
+    /// at its pinned version rather than believed, so a versionless one states a claim
+    /// about nothing in particular.</para>
     /// </summary>
     [Fact]
     public void EveryPinNamesAPackageAndAnExactVersion()
@@ -44,12 +44,9 @@ public class EvilPoolPinTests
         {
             Assert.False(string.IsNullOrWhiteSpace(pin.Package), "a pin has no package name");
             Assert.Contains(pin.Status, (string[])["pinned", "no-library"]);
-            if (pin.Status == "pinned")
-            {
-                Assert.False(
-                    string.IsNullOrWhiteSpace(pin.Version),
-                    $"'{pin.Package}' claims to be pinned but states no version");
-            }
+            Assert.False(
+                string.IsNullOrWhiteSpace(pin.Version),
+                $"'{pin.Package}' is pinned as {pin.Status} but states no version");
         }
 
         var duplicates = pins

@@ -129,8 +129,7 @@ if (pinFile is not null)
                 ? "contains a null entry"
                 : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
                     ? "contains an entry without a package name"
-                    : pinFile.Packages.Any(pin =>
-                        pin.Status == "pinned" && string.IsNullOrWhiteSpace(pin.Version))
+                    : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Version))
                         ? "pins a package without a version"
                         : pinFile.Packages.Select(pin => pin.Package)
                             .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
@@ -211,6 +210,11 @@ Directory.CreateDirectory(packageDirectory);
 HttpClientFactory.Initialize();
 NuGetCache.Initialize("dotnet-inspect");
 
+// Counted where a package matches its pin, not where it fails to. An incident
+// counter has to be remembered at every failure site and silently passes the run when
+// one forgets; this has a single site per outcome and a run that skips it comes up
+// short, so forgetting fails closed.
+int matchedThePin = 0;
 var results = new List<SweepPackageResult>(selected.Length);
 var assemblies = new List<string>(selected.Length);
 foreach (var entry in selected)
@@ -220,17 +224,6 @@ foreach (var entry in selected)
     try
     {
         pins.TryGetValue(entry.Package, out var pin);
-        if (pin is not null && pin.Status == "no-library" && !resolveLatest)
-        {
-            // Skipped without acquiring: the pin already records that this version
-            // contributes no assembly, so fetching it could only confirm that at the
-            // cost of a network round trip -- and a later version quietly starting to
-            // ship a library would change the pool, which is what refreshing the pin is
-            // for.
-            results.Add(Failed(
-                entry, "no-library-by-pin", pin.Detail, entry.Package, pin.Version, pin.Tfm));
-            continue;
-        }
 
         // --resolve-latest means what it says. Passing the pinned version here anyway
         // would make the discovery lane replay the pinned pool while its own comment
@@ -262,6 +255,22 @@ foreach (var entry in selected)
             string detail = selection.CandidatePaths.Count > 0
                 ? $"{selection.Status}: {string.Join(", ", selection.CandidatePaths.Select(Path.GetFileName))}"
                 : selection.Status.ToString();
+
+            // A "no-library" pin is a claim about the package, so it is confirmed
+            // against the package rather than believed. Nine of the top hundred are
+            // meta-packages or have an ambiguous primary library; this is what makes
+            // "contributes nothing" a checked outcome instead of a way to remove a
+            // package from the pool by editing one word in a file.
+            if (honorPin && pin!.Status == "no-library"
+                && string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(Failed(
+                    entry, "no-library-confirmed", detail, resolvedPackage, package.Version,
+                    selection.Tfm, package.FromCache));
+                matchedThePin++;
+                continue;
+            }
+
             results.Add(Failed(
                 entry,
                 "library-unavailable",
@@ -272,6 +281,20 @@ foreach (var entry in selected)
                 package.FromCache));
             Console.Error.WriteLine(
                 $"rank {entry.Rank}: {entry.Package}: primary library unavailable: {detail}");
+            continue;
+        }
+
+        // The other half of that claim: a package pinned as contributing nothing that
+        // now does contribute changes the pool, so it fails rather than being quietly
+        // absorbed.
+        if (honorPin && pin!.Status == "no-library")
+        {
+            results.Add(Failed(
+                entry, "pin-mismatch", "pinned as no-library but a primary library is available",
+                resolvedPackage, package.Version, selection.Tfm, package.FromCache));
+            Console.Error.WriteLine(
+                $"rank {entry.Rank}: {entry.Package}: pinned as no-library but "
+                + $"{Path.GetFileName(selection.Paths[0])} is available.");
             continue;
         }
 
@@ -314,6 +337,7 @@ foreach (var entry in selected)
         File.Copy(source, destination, overwrite: true);
         destination = Path.GetFullPath(destination);
         assemblies.Add(destination);
+        matchedThePin++;
         results.Add(new SweepPackageResult(
             entry.Rank,
             entry.Package,
@@ -471,29 +495,19 @@ if (resolveLatest && assemblies.Count == 0)
     Environment.ExitCode = 1;
 }
 
-if (!resolveLatest)
+if (!resolveLatest && matchedThePin != selected.Length)
 {
-    // The pin already declares what the pool should hold, so the gate asks the pin
-    // rather than a counter each failure site has to remember to increment. Within the
-    // selected window every "pinned" entry owes exactly one assembly and every
-    // "no-library" entry owes none, so a package that fails to acquire, yields no
-    // library, resolves to a version or TFM nobody pinned, or is not pinned at all
-    // leaves the pool short -- and it ends the run whichever way it went wrong,
-    // including ways added after this was written.
-    //
-    // Counting incidents was the earlier spelling, and it exited 0 over a pinned
-    // package that failed to acquire, because only two of the five failure sites
-    // remembered to count.
-    int owed = selected.Count(entry =>
-        pins.TryGetValue(entry.Package, out var pin) && pin.Status == "pinned");
-    if (assemblies.Count != owed)
-    {
-        Console.Error.WriteLine(
-            $"The pin owes {owed} {(owed == 1 ? "assembly" : "assemblies")} for ranks "
-            + $"{startRank}-{selected[^1].Rank} but the pool holds {assemblies.Count}; "
-            + "it is not reproducible.");
-        Environment.ExitCode = 1;
-    }
+    // Every selected package must have produced the outcome its pin describes: a
+    // "pinned" entry an assembly at that exact version and TFM, a "no-library" entry a
+    // confirmed absence at that exact version. Comparing against the size of the
+    // selection rather than against a total derived from the pin is the point -- a
+    // total read out of the same file the outcome is judged against cancels a defect
+    // in that file, which is how a missing pin, and later a flipped status, each
+    // exited 0 over a pool that was not the pinned one.
+    Console.Error.WriteLine(
+        $"{selected.Length - matchedThePin} of {selected.Length} selected packages for ranks "
+        + $"{startRank}-{selected[^1].Rank} did not match the pin; the pool is not reproducible.");
+    Environment.ExitCode = 1;
 }
 
 void RecordProcessingFailure(
