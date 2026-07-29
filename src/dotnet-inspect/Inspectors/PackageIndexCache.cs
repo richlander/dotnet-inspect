@@ -271,7 +271,7 @@ internal static class PackageIndexCache
 
     internal static DependencyGroup DeserializeDependencyGroup(string raw)
     {
-        using var document = JsonDocument.Parse(raw);
+        using var document = HardenedJson.Parse(raw);
         var root = document.RootElement;
         var dependencies = new List<PackageDependency>();
         foreach (var dependency in root.GetProperty("dependencies").EnumerateArray())

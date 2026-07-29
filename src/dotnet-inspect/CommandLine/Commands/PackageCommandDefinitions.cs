@@ -51,6 +51,7 @@ public static class PackageCommandDefinitions
         versionsOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
+        var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
         var readmeOption = new Option<bool>("--readme") { Description = "Show the best package README content (AGENTS.md, README.md, PACKAGE.md, then declared readme)" };
         var contentOption = new Option<bool>("--content") { Description = "Print contents of files selected by --path; use --jsonl for structured rows" };
         var frontmatterOption = new Option<bool>("--frontmatter") { Description = "When printing markdown content, output only the leading YAML frontmatter block" };
@@ -75,6 +76,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(prereleaseOption);
+        packageCommand.Options.Add(includeUnlistedOption);
         packageCommand.Options.Add(readmeOption);
         packageCommand.Options.Add(contentOption);
         packageCommand.Options.Add(frontmatterOption);
@@ -104,7 +106,7 @@ public static class PackageCommandDefinitions
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, readmeOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, includeUnlistedOption, readmeOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
 

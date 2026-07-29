@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for package inspection.
 /// </summary>
-public record InspectionOptions
+public record InspectionOptions : IProjectionOptions
 {
     /// <summary>
     /// Package name/path arguments (positional). First element is package identifier.
@@ -98,6 +98,12 @@ public record InspectionOptions
     /// Include prerelease/preview versions when listing versions or resolving an unversioned latest package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
+
+    /// <summary>
+    /// Include unlisted versions in <c>--versions</c> output, marked as unlisted, instead of hiding
+    /// them. Discovery hides unlisted versions by default; this opt-in reveals them flagged.
+    /// </summary>
+    public bool IncludeUnlisted { get; init; }
 
     /// <summary>
     /// Show the README.md content from the package.
@@ -209,6 +215,13 @@ public record InspectionOptions
     /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
     public bool TabularExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>. <see cref="Select"/> alone cannot
+    /// answer this: <c>--path</c> and <c>--type</c> are sugar that synthesize a selection, so a
+    /// non-empty <see cref="Select"/> does not imply the caller asked for one.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.

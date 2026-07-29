@@ -23,9 +23,24 @@ public static class DiscoverOutput
         string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
-        IReadOnlySet<string>? listedCategoryDoors = null)
+        IReadOnlySet<string>? listedCategoryDoors = null,
+        IProjectionOptions? projection = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
+
+        // Discovery renders its own listing and returns, so the section pipeline's projection
+        // dispatch never runs for it. Answer the projection here instead of dropping it. This
+        // precedes the tree promotion below because a projection addresses the discovered rows,
+        // not the shape they would have been rendered in.
+        if (LensProjection.IsRequested(projection))
+        {
+            var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+            if (projectedRows == null)
+                return 1;
+            return LensProjection.TryProject(projection, "-D/--discover", projectedRows.Count, out var projectionExitCode)
+                ? projectionExitCode
+                : 0;
+        }
 
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
@@ -78,7 +93,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
-        IReadOnlySet<string>? listedCategoryDoors = null)
+        IReadOnlySet<string>? listedCategoryDoors = null,
+        IProjectionOptions? projection = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -98,11 +114,21 @@ public static class DiscoverOutput
         {
             var remaining = FilterEmptyEffectiveSections(discover, filtered, fullSchema);
             if (remaining == null)
+            {
+                // Every requested section was valid but empty, so the discovered row count is
+                // zero. Returning here without projecting would drop the request.
+                if (LensProjection.IsRequested(projection))
+                {
+                    return LensProjection.TryProject(projection, "-D/--discover", 0, out var emptyProjectionExitCode)
+                        ? emptyProjectionExitCode
+                        : 0;
+                }
                 return 0;
+            }
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
     }
 
     /// <summary>
