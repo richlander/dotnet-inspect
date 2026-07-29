@@ -704,25 +704,103 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Classifies a resolved assembly by where the file lives, so provenance is a function of the
-    /// file rather than of the route that reached it. Anything under the shared-framework root is
-    /// platform; everything else ships with the inspected assembly.
+    /// file rather than of the route that reached it. Anything under a .NET shared-framework root
+    /// or reference pack is platform; everything else ships with the inspected assembly.
     /// </summary>
-    private static string ProvenanceOf(string resolvedPath)
+    /// <remarks>
+    /// <para>
+    /// This asks <em>every</em> root that exists, not the one this process would run on.
+    /// <c>GetSharedDirectory()</c> answers "which runtime is preferred" and returns only its first
+    /// hit, so with <c>DOTNET_ROOT</c> pointing at one install, dependencies resolved out of
+    /// another were all reported <c>local</c> -- the same mislabelling this method exists to
+    /// prevent, reachable through an environment variable.
+    /// </para>
+    /// <para>
+    /// Roots are canonicalised before comparison because <see cref="Path.GetFullPath(string)"/>
+    /// does not resolve symlinks: a symlinked install made the prefix test fail against a real
+    /// path underneath it. Comparison is ordinal on case-sensitive filesystems, where
+    /// case-insensitive matching would alias genuinely distinct directories.
+    /// </para>
+    /// </remarks>
+    internal static string ProvenanceOf(string resolvedPath)
     {
-        var shared = PlatformResolver.GetSharedDirectory();
-        if (string.IsNullOrEmpty(shared))
+        var full = Canonicalize(resolvedPath);
+
+        foreach (var root in PlatformRoots.Value)
         {
-            return "local";
+            if (full.StartsWith(root, PathComparison))
+            {
+                return "platform";
+            }
         }
 
-        var full = Path.GetFullPath(resolvedPath);
-        var root = Path.GetFullPath(shared);
-        if (!root.EndsWith(Path.DirectorySeparatorChar))
+        return "local";
+    }
+
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+    /// <summary>
+    /// Canonical, separator-terminated platform roots. Computed once: the candidate scan probes the
+    /// filesystem, and classification runs per resolved reference across a recursive walk.
+    /// </summary>
+    private static readonly Lazy<List<string>> PlatformRoots = new(() =>
+    {
+        List<string> roots = [];
+        foreach (var dir in PlatformResolver.GetAllSharedDirectories()
+            .Concat(PlatformResolver.GetAllPacksDirectories()))
         {
-            root += Path.DirectorySeparatorChar;
+            var root = Canonicalize(dir);
+            if (!root.EndsWith(Path.DirectorySeparatorChar))
+            {
+                root += Path.DirectorySeparatorChar;
+            }
+
+            if (!roots.Contains(root))
+            {
+                roots.Add(root);
+            }
         }
 
-        return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? "platform" : "local";
+        return roots;
+    });
+
+    private static string Canonicalize(string path)
+    {
+        var full = Path.GetFullPath(path);
+        try
+        {
+            // Resolves the whole chain, including symlinked parent directories, which
+            // Path.GetFullPath leaves alone.
+            var target = Directory.Exists(full)
+                ? new DirectoryInfo(full).ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                : new FileInfo(full).ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+
+            if (!string.IsNullOrEmpty(target))
+            {
+                return target;
+            }
+
+            var parent = Path.GetDirectoryName(full);
+            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+            {
+                var parentTarget = new DirectoryInfo(parent).ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                if (!string.IsNullOrEmpty(parentTarget))
+                {
+                    return Path.Combine(parentTarget, Path.GetFileName(full));
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // An unreadable or broken link is not a classification failure; fall back to the
+            // lexical path rather than dropping the node.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return full;
     }
 
     /// <summary>

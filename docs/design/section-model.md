@@ -332,8 +332,12 @@ renders each node's name, version, and, where the node resolved, its company.
 Resolution facts (the resolved path and whether it resolved `local` or
 `platform`) are on the model but are not rendered by the tree, and a node that
 did not resolve carries no company either, because company is read out of the
-resolved file. Provenance is carried down the walk rather than re-derived at
-each level: a platform assembly's own dependencies are `platform`, not `local`.
+resolved file. Provenance is a function of the resolved file's location, not of
+the route that reached it: a node is `platform` when its file lives under a
+shared-framework root or reference pack on this machine, and `local` otherwise.
+Deriving it rather than inheriting it down the walk is what keeps a platform
+assembly's own dependencies `platform` at every depth, including depth 0, and
+keeps the answer stable when deduplication makes one route reach a node first.
 That closure is built by resolving and reading every referenced assembly
 recursively, which is both unbounded and duplicative of References, so it is
 declared `Verbose`/`Unbounded`, and `ExplicitOnly` besides: never auto-run by a

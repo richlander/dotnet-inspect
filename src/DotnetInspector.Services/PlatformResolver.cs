@@ -119,10 +119,28 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Returns every shared-framework root that exists on this machine, not just the first one
+    /// that matched. <see cref="GetSharedDirectory"/> answers "which runtime would we use", which
+    /// is the wrong question for classification: a machine can carry several installs, and an
+    /// assembly under a root other than the preferred one is still a platform assembly.
+    /// </summary>
+    public static List<string> GetAllSharedDirectories()
+    {
+        List<string> result = [];
+        foreach (var candidate in GetSharedDirectoryCandidates())
+        {
+            if (Directory.Exists(candidate) && !result.Contains(candidate))
+            {
+                result.Add(candidate);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Discovers the .NET shared runtime directory.
     /// </summary>
-    public static string? GetSharedDirectory()
-    {
+    public static string? GetSharedDirectory()    {
         var candidates = GetSharedDirectoryCandidates();
         
         foreach (var candidate in candidates)

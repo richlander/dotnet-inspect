@@ -1571,7 +1571,16 @@ public class SectionPipelineTests
             }
         }
 
-        requests.Add(notReading);
+        // Every cardinality, not just the ones an author thought to enumerate. Pairs and one
+        // maximal set left `Count == 3` green -- the earlier claim that the maximal set "fails
+        // every Count > k at once" was true only for the inequality form, and a tamper is free to
+        // use equality. Walking k = 1..n over non-reading keys makes the request size range over
+        // every value the condition could test, so no `Count` predicate of either form survives.
+        for (int k = 1; k <= notReading.Count; k++)
+        {
+            requests.Add(notReading.Take(k).ToList());
+        }
+
         requests.Add(declared);
 
         var unexpected = new List<string>();
@@ -2973,50 +2982,100 @@ public class SectionPipelineTests
     }
 
     /// <summary>
-    /// Provenance is a function of the resolved file, not of the route that reached it. Under
-    /// deduplication the walk shares one visited set, so the first route to an assembly wins and
-    /// the surviving node carries whatever kind that route assigned. While the kind was inherited
-    /// from the parent, that made the reported provenance follow alphabetical visit order.
+    /// Provenance is a function of the resolved file, so every node the walk emits must carry
+    /// exactly what the file's own location implies. That is the property the walk has to keep:
+    /// under deduplication the shared visited set means the first route to an assembly wins, so
+    /// any route-derived component in the answer would surface as a node disagreeing with its own
+    /// path.
     /// </summary>
-    [Fact]
-    public void Provenance_DoesNotDependOnWhichRouteReachedTheAssembly()
+    /// <remarks>
+    /// The first version of this test tried to prove route-independence by walking the same graph
+    /// with the reference list reversed. That asserted nothing: the walk sorts each level with
+    /// <c>OrderBy(r =&gt; r.Name)</c>, so both runs visit in identical order and the comparison was
+    /// between a walk and itself. Reversing the input cannot produce a second route; only a
+    /// different graph could, and building one requires compiling fixture assemblies. Comparing
+    /// each node against the pure function tests the same property without the fixture, and fails
+    /// for any node whose kind came from anywhere but its path.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReportedProvenance_MatchesWhatThePathAloneImplies(bool rootIsPlatform)
     {
-        var path = typeof(SectionPipelineTests).Assembly.Location;
-        var sourceDir = Path.GetDirectoryName(path)!;
-        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(path);
+        string rootPath;
+        if (rootIsPlatform)
+        {
+            var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+            Assert.True(error is null && platformPath is not null, $"Could not resolve a platform assembly: {error}");
+            rootPath = platformPath!;
+        }
+        else
+        {
+            rootPath = typeof(SectionPipelineTests).Assembly.Location;
+        }
 
-        // The same graph walked with the references presented in the opposite order. Only visit
-        // order changes, so any assembly whose kind depends on the route will disagree.
-        var forward = LibraryMetadataService.BuildTransitiveReferences(
+        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(rootPath);
+
+        var nodes = LibraryMetadataService.BuildTransitiveReferences(
             references,
-            sourceDir,
+            Path.GetDirectoryName(rootPath),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new DotnetInspector.Output.VerboseLogger(false),
             deduplicate: true);
 
-        var reversed = LibraryMetadataService.BuildTransitiveReferences(
-            Enumerable.Reverse(references).ToList(),
-            sourceDir,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new DotnetInspector.Output.VerboseLogger(false),
-            deduplicate: true);
+        var resolved = nodes.Where(n => n.Path is not null).ToList();
 
-        var first = forward.Where(n => n.Path is not null)
-            .GroupBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().ResolvedFrom, StringComparer.OrdinalIgnoreCase);
-
-        var disagreements = reversed
-            .Where(n => n.Path is not null
-                && first.TryGetValue(n.Name, out var other)
-                && other != n.ResolvedFrom)
-            .Select(n => $"{n.Name}: {first[n.Name]} vs {n.ResolvedFrom}")
+        var disagreements = resolved
+            .Where(n => n.ResolvedFrom != LibraryMetadataService.ProvenanceOf(n.Path!))
+            .Select(n => $"{n.Name} (depth {n.Depth}) reported {n.ResolvedFrom} for {n.Path}")
             .ToList();
 
         Assert.True(
             disagreements.Count == 0,
-            "Provenance changed with visit order: " + string.Join("; ", disagreements));
+            "These nodes carry a provenance their own path does not imply: "
+                + string.Join("; ", disagreements));
 
-        Assert.NotEmpty(first);
+        // Positive control: the walk resolved a non-trivial graph, so the assertion above ranged
+        // over real nodes rather than an empty set.
+        Assert.True(resolved.Count > 5, $"Only {resolved.Count} references resolved; too few to be meaningful.");
+    }
+
+    /// <summary>
+    /// Classification asks every shared-framework root on the machine, not the one this process
+    /// would run on. Resolving the preferred root answers "which runtime is preferred", and
+    /// returns only its first hit, so pointing DOTNET_ROOT at another install reported every
+    /// dependency of a real platform assembly as local -- the mislabelling this is meant to
+    /// prevent, reachable through an environment variable.
+    /// </summary>
+    [Fact]
+    public void PlatformClassification_DoesNotDependOnWhichInstallIsPreferred()
+    {
+        var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(error is null && platformPath is not null, $"Could not resolve a platform assembly: {error}");
+
+        var expected = LibraryMetadataService.ProvenanceOf(platformPath!);
+        Assert.Equal("platform", expected);
+
+        // A second, unrelated install that would win the "preferred root" question.
+        var alt = Directory.CreateTempSubdirectory("di-altroot-");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(alt.FullName, "shared", "Microsoft.NETCore.App", "9.9.9"));
+            var previous = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", alt.FullName);
+            try
+            {
+                Assert.Equal("platform", LibraryMetadataService.ProvenanceOf(platformPath!));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DOTNET_ROOT", previous);
+            }
+        }
+        finally
+        {
+            alt.Delete(recursive: true);
+        }
     }
 
     // Artifact canary for the predicate above: exercises the real resolution walk rather than the
