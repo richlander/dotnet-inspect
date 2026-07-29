@@ -66,51 +66,36 @@ public static class ArgumentPreprocessor
     /// is true but leaves the caller to find the replacement themselves.
     /// </summary>
     public static bool TryGetStaleArgumentError(string[] args, out string? error)
-        => TryGetStaleDirectionFlagError(args, out error)
-            || TryGetRemovedPackageReadmeError(args, out error);
+        => TryGetStaleDirectionFlagError(args, out error);
 
     /// <summary>
-    /// <c>package --readme</c> was removed: printing a document is a projection over a selected
-    /// section rather than a lens of its own, so a flag naming one document competed with the
-    /// section selection for the same question. Scoped to the package command because
-    /// <c>project --readme &lt;package-id&gt;</c> is a different option that still exists.
+    /// The replacement guidance for a package option this product removed, or <c>null</c> when the
+    /// token names something the command never had.
+    ///
+    /// Unlike the stale direction flag -- which parses cleanly and so has to be caught before
+    /// parsing -- a removed option is something the parser itself rejects, so this answers the
+    /// command's own unrecognized-option outcome rather than scanning raw tokens. That is what
+    /// keeps a run that parses from being second-guessed: in <c>--out --readme</c> the token is an
+    /// output file name and never reaches here, and a bare name that routes to a library or
+    /// platform assembly gets that command's answer rather than package-specific advice.
     /// </summary>
-    private static bool TryGetRemovedPackageReadmeError(string[] args, out string? error)
+    public static string? GetRemovedPackageOptionError(string option)
     {
-        error = null;
-        var end = Array.IndexOf(args, "--");
-        if (end < 0)
-            end = args.Length;
-
-        if (end == 0)
-            return false;
-
-        // A local .nupkg preprocesses to "package"; a bare name preprocesses to "router", whose
-        // package fallback is the only place --readme ever worked. Both spellings meant the
-        // package readme, so both get the replacement rather than a bare parser complaint.
-        if (!args[0].Equals("package", StringComparison.OrdinalIgnoreCase)
-            && !args[0].Equals("router", StringComparison.OrdinalIgnoreCase))
+        // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
+        // named the removed flag and both deserve the replacement.
+        if (!option.Equals("--readme", StringComparison.Ordinal)
+            && !option.StartsWith("--readme=", StringComparison.Ordinal))
         {
-            return false;
+            return null;
         }
 
-        for (var i = 1; i < end; i++)
-        {
-            // --readme was a boolean option, so the parser also accepted --readme=true. Both
-            // spellings named the removed flag and both deserve the replacement.
-            if (!args[i].Equals("--readme", StringComparison.Ordinal)
-                && !args[i].StartsWith("--readme=", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            error = "'--readme' is no longer valid. Printing a document is a projection over a "
-                + "selected section: use '-S \"Package README file\" --print' for one package, "
-                + "or '--content --path @readme' to survey several.";
-            return true;
-        }
-
-        return false;
+        // package --readme was removed: printing a document is a projection over a selected
+        // section rather than a lens of its own, so a flag naming one document competed with the
+        // section selection for the same question. Scoped to the package command because
+        // project --readme <package-id> is a different option that still exists.
+        return "'--readme' is no longer valid. Printing a document is a projection over a "
+            + "selected section: use '-S \"Package README file\" --print' for one package, "
+            + "or '--content --path @readme' to survey several.";
     }
 
     /// <summary>

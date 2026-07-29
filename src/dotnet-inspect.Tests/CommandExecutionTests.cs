@@ -11469,6 +11469,80 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown()
+    {
+        // A manifest can declare anything as the readme, including a file that names itself
+        // something else. The role answers a document's kind only where the extension is silent;
+        // letting a declaration override a stated extension would run the link rewriter over a
+        // PNG and hand back a corrupted file, which is the outcome this command prevents.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "images"));
+        var logo = Path.Combine(packageRoot, "images", "logo.png");
+        File.WriteAllText(logo, "PNGish see https://github.com/owner/repo/blob/main/x.md here\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.BinaryReadme.nuspec"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.BinaryReadme</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>images/logo.png</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.BinaryReadme.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "images/logo.png", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(File.ReadAllText(logo), output);
+            Assert.Contains("github.com/owner/repo/blob/main", output, StringComparison.Ordinal);
+
+            // And a Markdown scope over it is refused rather than answered from the whole file.
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "images/logo.png", "--frontmatter", "--bare");
+
+            Assert.Equal(1, scopeExit);
+            Assert.Empty(scopeOutput);
+            Assert.Contains("is not Markdown", scopeError, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_ReadmeInAValuePosition_IsNotMistakenForTheRemovedFlag()
+    {
+        // The replacement guidance answers a parse failure, not a token scan. '--out --readme'
+        // names an output file and parses, so second-guessing it would refuse a valid request in
+        // the name of explaining an option the caller never used.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.ReadmeValue", "README.md", "value body");
+        var outputPath = Path.Combine(tempDir, "--readme");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare", "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("no longer valid", error, StringComparison.Ordinal);
+            Assert.True(File.Exists(outputPath));
+            Assert.Contains("value body", File.ReadAllText(outputPath), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_ReadmeTip_RecommendsAGestureThatActuallyRuns()
     {
         // Removing a flag leaves the suggestions that named it behind, and a tip is a command the

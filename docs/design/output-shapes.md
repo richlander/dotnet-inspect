@@ -185,7 +185,10 @@ renders it as Markdown, so an extensionless or unconventionally named README is
 still Markdown. That role follows the manifest declaration, not the file the
 README section displays. A package that ships `README.md` and also declares a
 different file has declared both readmes, and the declared one keeps its kind
-even though the section shows the conventional name.
+even though the section shows the conventional name. The role answers only where
+the extension is silent: a manifest can declare anything, and
+`<readme>logo.png</readme>` is malformed but shippable, so a declaration never
+overrides an extension that names the document something else.
 Applied to anything else they are corruption rather than presentation: the link
 rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
 or an MSBuild comment is rewritten and the printed manifest silently stops
@@ -194,6 +197,13 @@ is not Markdown is refused, because both other answers -- the whole document, or
 an empty one -- report success for a question that was never answered. The
 refusal belongs to the request, not to one flag, so `--content` refuses it on
 the same terms as `--print`.
+
+The refusal covers the whole request rather than skipping the documents it does
+not apply to. A selection that matches Markdown and non-Markdown alike --
+`--path "*" --frontmatter` -- is one request, and answering part of it while
+dropping the rest reports success for files that were never scoped. The refusal
+names the first such document so the selection can be narrowed, for example with
+`--path "*.md"`.
 
 A document that receives no Markdown treatment is emitted verbatim, including
 any byte order mark it ships with. A caller printing a manifest in order to hash

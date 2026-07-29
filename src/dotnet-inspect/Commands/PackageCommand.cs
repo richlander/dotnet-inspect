@@ -1644,13 +1644,20 @@ public class PackageCommand
 
     /// <summary>
     /// Whether a package document carries Markdown conventions. Extension answers this for
-    /// ordinary files, but the package README is Markdown by role: NuGet renders whatever the
-    /// manifest declares as the readme, and packages do declare extensionless or otherwise
-    /// unconventionally named files, so keying only on extension would drop link rewriting and
+    /// ordinary files, and the package README answers it by role only where the extension has
+    /// nothing to say. NuGet renders whatever the manifest declares as the readme, and packages
+    /// do declare extensionless files, so keying only on extension would drop link rewriting and
     /// refuse frontmatter for a document that genuinely is Markdown.
+    ///
+    /// The role does not override an extension that is present. A manifest can declare anything
+    /// -- <c>&lt;readme&gt;logo.png&lt;/readme&gt;</c> is malformed but shippable -- and letting a
+    /// declaration force Markdown handling onto a document that names itself otherwise would run
+    /// the link rewriter over a PNG and hand back a corrupted file, which is the outcome this
+    /// command exists to prevent.
     /// </summary>
     private static bool IsMarkdownDocument(string path, bool isReadme)
-        => isReadme || MarkdownContent.IsMarkdown(path);
+        => MarkdownContent.IsMarkdown(path)
+            || (isReadme && !Path.HasExtension(path));
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,
@@ -1708,7 +1715,8 @@ public class PackageCommand
             && rows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
         {
             Console.Error.WriteLine(
-                $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");
+                $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown. "
+                + "Narrow the selection to Markdown, for example --path \"*.md\".");
             return 1;
         }
 

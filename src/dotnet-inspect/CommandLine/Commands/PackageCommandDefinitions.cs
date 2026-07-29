@@ -114,7 +114,12 @@ public static class PackageCommandDefinitions
             switch (result)
             {
                 case PackageOptionsParser.UnrecognizedOption error:
-                    Console.Error.WriteLine($"Error: Unrecognized option '{error.Option}'.");
+                    // A spelling this command removed is answered with its replacement; anything
+                    // else the parser did not recognize gets the plain complaint.
+                    Console.Error.WriteLine(
+                        ArgumentPreprocessor.GetRemovedPackageOptionError(error.Option) is { } removed
+                            ? $"Error: {removed}"
+                            : $"Error: Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case PackageOptionsParser.Success success:
