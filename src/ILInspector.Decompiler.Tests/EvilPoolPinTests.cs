@@ -25,6 +25,52 @@ public class EvilPoolPinTests
     const string ListRelativePath = "docs/data/nuget-top-packages.json";
 
     /// <summary>
+    /// The packages pinned as <c>no-library</c> are exactly the nine known to contribute
+    /// no assembly. Nothing else may claim that status.
+    ///
+    /// <para>Without this, <c>no-library</c> is a way to delete a package from the pool by
+    /// editing one word: the entry stops owing an assembly and stops supplying one at the
+    /// same time, so the two cancel and the sweep reports a reproducible pool that is
+    /// simply smaller. Flipping all ninety-one left an empty pool and a green suite.</para>
+    ///
+    /// <para>The gate that actually decides the question is the sweep, which acquires
+    /// every <c>no-library</c> entry at its pinned version and requires
+    /// <c>TfmSelector</c> to still find no primary library -- a claim checked against the
+    /// package rather than against this list. That gate needs the network, so it runs on
+    /// the sweep lane and is evidenced by real runs. This test is the offline tripwire:
+    /// it cannot tell whether a package ships a library, but it can tell that the set of
+    /// packages claiming not to has changed, which is a deliberate act that belongs in a
+    /// diff.</para>
+    /// </summary>
+    [Fact]
+    public void OnlyTheKnownMetaPackagesClaimToContributeNoLibrary()
+    {
+        // Meta-packages that carry only dependencies, and packages whose primary library
+        // is ambiguous. Refreshing the pin can legitimately change this set; changing it
+        // here is how that becomes visible.
+        string[] expected =
+        [
+            "grpc.tools",
+            "microsoft.net.workloads.10.0.100",
+            "newrelic.agent",
+            "nunit",
+            "nunit3testadapter",
+            "swashbuckle.aspnetcore",
+            "xunit",
+            "xunit.core",
+            "xunit.runner.visualstudio",
+        ];
+
+        var actual = ReadPins()
+            .Where(pin => pin.Status == "no-library")
+            .Select(pin => pin.Package)
+            .OrderBy(package => package, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected.OrderBy(package => package, StringComparer.Ordinal), actual);
+    }
+
+    /// <summary>
     /// Every pin names a package, states a known status, and carries an exact version.
     /// No package is pinned twice.
     ///

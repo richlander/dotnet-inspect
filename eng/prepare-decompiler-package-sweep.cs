@@ -72,13 +72,50 @@ var jsonOptions = new JsonSerializerOptions
     WriteIndented = true,
 };
 var jsonContext = new PackageSweepJsonContext(jsonOptions);
-var packageList = JsonSerializer.Deserialize<List<PackageListEntry>>(
-    await File.ReadAllTextAsync(sourcePath),
-    jsonContext.ListPackageListEntry)
-    ?? throw new InvalidDataException($"Could not read package list '{sourcePath}'.");
-// Reported rather than thrown, for the same reason as the usage errors above: a
-// caller cannot tell exit 134 from a crash, and a malformed list is a refusal the
-// contract makes on purpose.
+string pinPath = Path.Combine(root, "docs", "data", "nuget-top-packages.lock.json");
+
+// Reported rather than thrown, for the same reason as the usage errors below: a
+// caller cannot tell exit 134 from a crash, and unreadable input is a refusal the
+// contract makes on purpose. That covers text these files are not -- a JSON scalar
+// deserializes to null without throwing, and a syntax error throws -- because either
+// way the sweep has no list and no pin to work from.
+List<PackageListEntry>? parsedList = null;
+PackagePinFile? pinFile = null;
+string? unreadable = null;
+try
+{
+    parsedList = JsonSerializer.Deserialize<List<PackageListEntry>>(
+        await File.ReadAllTextAsync(sourcePath),
+        jsonContext.ListPackageListEntry);
+    if (parsedList is null)
+    {
+        unreadable = $"Package list '{sourcePath}' is not a list of packages.";
+    }
+    else if (File.Exists(pinPath))
+    {
+        pinFile = JsonSerializer.Deserialize<PackagePinFile>(
+            await File.ReadAllTextAsync(pinPath),
+            jsonContext.PackagePinFile);
+        if (pinFile is null)
+        {
+            unreadable = $"Pin file '{pinPath}' is not a pin file.";
+        }
+    }
+}
+catch (JsonException ex)
+{
+    unreadable = $"Could not parse '{(parsedList is null ? sourcePath : pinPath)}': {ex.Message}";
+}
+
+if (unreadable is not null)
+{
+    Console.Error.WriteLine(unreadable);
+    Environment.ExitCode = 2;
+    return;
+}
+
+var packageList = parsedList;
+
 if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package)))
 {
     Console.Error.WriteLine($"Package list '{sourcePath}' contains an invalid entry.");
@@ -111,13 +148,6 @@ if (packageList
     return;
 }
 
-string pinPath = Path.Combine(root, "docs", "data", "nuget-top-packages.lock.json");
-var pinFile = File.Exists(pinPath)
-    ? JsonSerializer.Deserialize<PackagePinFile>(
-        await File.ReadAllTextAsync(pinPath),
-        jsonContext.PackagePinFile)
-      ?? throw new InvalidDataException($"Could not read pin file '{pinPath}'.")
-    : null;
 if (pinFile is not null)
 {
     // Reported, like every other refusal in this file. A malformed pin is a stated
@@ -210,11 +240,11 @@ Directory.CreateDirectory(packageDirectory);
 HttpClientFactory.Initialize();
 NuGetCache.Initialize("dotnet-inspect");
 
-// Counted where a package matches its pin, not where it fails to. An incident
-// counter has to be remembered at every failure site and silently passes the run when
-// one forgets; this has a single site per outcome and a run that skips it comes up
-// short, so forgetting fails closed.
-int matchedThePin = 0;
+// Counted where a package reaches the outcome its mode expects, not where it fails
+// to. An incident counter has to be remembered at every failure site and silently
+// passes the run when one forgets; this has a single site per outcome and a run that
+// skips one comes up short, so forgetting fails closed.
+int accountedFor = 0;
 var results = new List<SweepPackageResult>(selected.Length);
 var assemblies = new List<string>(selected.Length);
 foreach (var entry in selected)
@@ -267,7 +297,7 @@ foreach (var entry in selected)
                 results.Add(Failed(
                     entry, "no-library-confirmed", detail, resolvedPackage, package.Version,
                     selection.Tfm, package.FromCache));
-                matchedThePin++;
+                accountedFor++;
                 continue;
             }
 
@@ -279,6 +309,15 @@ foreach (var entry in selected)
                 package.Version,
                 selection.Tfm,
                 package.FromCache));
+            // Without a pin to check against, this is a definite outcome rather than a
+            // failure: the package was acquired and genuinely ships no primary library,
+            // which is what a refresh records as "no-library". Acquiring nothing at all
+            // is the failure, and it is counted nowhere.
+            if (!honorPin)
+            {
+                accountedFor++;
+            }
+
             Console.Error.WriteLine(
                 $"rank {entry.Rank}: {entry.Package}: primary library unavailable: {detail}");
             continue;
@@ -337,7 +376,7 @@ foreach (var entry in selected)
         File.Copy(source, destination, overwrite: true);
         destination = Path.GetFullPath(destination);
         assemblies.Add(destination);
-        matchedThePin++;
+        accountedFor++;
         results.Add(new SweepPackageResult(
             entry.Rank,
             entry.Package,
@@ -495,18 +534,23 @@ if (resolveLatest && assemblies.Count == 0)
     Environment.ExitCode = 1;
 }
 
-if (!resolveLatest && matchedThePin != selected.Length)
+if (accountedFor != selected.Length)
 {
-    // Every selected package must have produced the outcome its pin describes: a
-    // "pinned" entry an assembly at that exact version and TFM, a "no-library" entry a
-    // confirmed absence at that exact version. Comparing against the size of the
-    // selection rather than against a total derived from the pin is the point -- a
-    // total read out of the same file the outcome is judged against cancels a defect
-    // in that file, which is how a missing pin, and later a flipped status, each
-    // exited 0 over a pool that was not the pinned one.
+    // Every selected package must have reached a definite outcome. Against the pin
+    // that means the outcome the pin describes: a "pinned" entry an assembly at that
+    // exact version and TFM, a "no-library" entry a confirmed absence at that version.
+    // Resolving latest, it means the package was acquired and either yielded a library
+    // or demonstrably ships none. A package that could not be acquired reaches no
+    // outcome in either mode, so a refresh cannot quietly drop it from the pin.
+    //
+    // Comparing against the size of the selection rather than against a total derived
+    // from the pin is the point -- a total read out of the same file the outcome is
+    // judged against cancels a defect in that file, which is how a missing pin, and
+    // then a flipped status, each exited 0 over a pool that was not the pinned one.
+    string expectation = resolveLatest ? "could not be resolved" : "did not match the pin";
     Console.Error.WriteLine(
-        $"{selected.Length - matchedThePin} of {selected.Length} selected packages for ranks "
-        + $"{startRank}-{selected[^1].Rank} did not match the pin; the pool is not reproducible.");
+        $"{selected.Length - accountedFor} of {selected.Length} selected packages for ranks "
+        + $"{startRank}-{selected[^1].Rank} {expectation}; the pool is not reproducible.");
     Environment.ExitCode = 1;
 }
 
