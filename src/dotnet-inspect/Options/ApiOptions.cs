@@ -9,7 +9,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Base options shared by type and member commands.
 /// </summary>
-public partial record ApiOptions
+public partial record ApiOptions : IProjectionOptions
 {
     /// <summary>
     /// Type name to inspect (positional argument). Null for full API listing.

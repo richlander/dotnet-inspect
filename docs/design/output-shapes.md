@@ -237,6 +237,13 @@ enforced structurally rather than per command — the request is recorded from t
 parse result and the projection writers report which projection they honored, so
 a route that drops one fails loudly instead of shipping the wrong payload.
 
+The whole-surface type listing (`type` with no type name — the Classes, Structs,
+Interfaces, Enums, and Delegates sections) is a name table that exposes no
+printable payload, so `--print`/`--value`/`--urls`/`--paths` there is rejected up
+front rather than dumping the full surface and then tripping this audit. Inspect
+a single type (for example `type <Name>`) to project a member payload. `--count`
+is the one payload projection the surface does honor.
+
 Writers report *which* flag they honored rather than merely acknowledging one.
 A writer can be reached for more than one reason — the print writer also serves
 `--bare` — so an untyped signal would let it satisfy an unrelated request and let
@@ -246,12 +253,62 @@ The projections are mutually exclusive. Two of them cannot both shape one
 payload, so a combination is rejected before the command runs rather than
 resolved by discarding one.
 
+### Lens modes project their own payload
+
+A few flags select a *lens* rather than a section of the normal document:
+`package --versions`, `--layout`, `--tfms`, `--content`, and `--readme`, along
+with `library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
+
+The lens payload is still a payload, so the two-outcome rule above applies
+unchanged. Because the lens owns the shape, its answers are fixed:
+
+- `--count` counts the lens payload — versions, target frameworks, package
+  files, IL offsets, discovered artifacts — not the lines used to render it. A
+  layout count is a count of files, even though the rendered tree also shows the
+  directories that contain them.
+- `--count` is refused by `--readme`, whose payload is a single document rather
+  than a list. A README is a Scalar in the shape model, and `--count` collapses
+  a Vector, so counting it could only ever report that one document was asked
+  for. `--content` is *not* in this category despite also rendering text: it
+  yields one structured row per matched file, so its count is the number of
+  files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
+- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
+  not approximated. They address a cell or a column of a selected section, and a
+  lens payload has neither; answering anyway would require inferring structure
+  from rendered text. The one exception is `--readme --print`, where the lens
+  renders exactly the printable document `--print` asks for, so it prints it
+  without needing a selection to name it.
+- `-S`/`--select` is refused when the caller typed it, rather than ignored. A
+  lens and a section selection are competing answers to *what am I looking at*,
+  and silently honoring the lens hides that the selection did nothing. The
+  refusal is unconditional: excusing it for `--print` would let `-S <other
+  section> --readme --print` pass while ignoring the selection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
+
+`-S` here means an explicit selection. Some options are sugar that synthesize a
+selection internally, and a synthesized one must not be mistaken for a request
+the caller made.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`) |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
