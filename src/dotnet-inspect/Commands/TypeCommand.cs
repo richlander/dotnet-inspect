@@ -113,7 +113,9 @@ public static class TypeCommand
                         projection: options);
                 }
 
-                ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                if (listExitCode != 0)
+                    return listExitCode;
                 inspectionIncomplete = api.InspectionFailures.Count > 0;
 
                 if (!options.FormatExplicitlySet && !options.IsRawOutput)
@@ -320,7 +322,23 @@ public static class TypeCommand
                         Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
                     }
                 }
-                else if (!TryWritePrefixBrowse(
+                else if (options.EffectiveDiscovery)
+                {
+                    // Discovery is a schema query about the surface's sections; it is independent
+                    // of which (unmatched) type was requested. The main listing and platform-prefix
+                    // routes already dispatch it before rendering, so the glob and prefix-browse
+                    // fallbacks must too — otherwise `-D` falls through to WriteFullApiOutput, which
+                    // ignores it and (with --fields/--json) now rejects the request outright.
+                    ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
+                    var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+                    var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
+                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
+                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+                        verbosity: (int)options.Verbosity,
+                        sectionCostAnnotations: typePipeline.GetCostAnnotations(),
+                        sectionCategories: typePipeline.GetCategoryMap());
+                }
+                else if (TryWritePrefixBrowse(
                     api,
                     apiDllPath,
                     originalTypeQuery,
@@ -329,7 +347,12 @@ public static class TypeCommand
                     apiSource,
                     apiVersion,
                     selectedTfm,
-                    options))
+                    options) is { } prefixBrowseExitCode)
+                {
+                    if (prefixBrowseExitCode != 0)
+                        return prefixBrowseExitCode;
+                }
+                else
                 {
                     var widePrefixExitCode = await TryExecuteWidePlatformPrefixFallbackAsync(options, originalTypeQuery, typePipeline);
                     if (widePrefixExitCode.HasValue)
@@ -349,7 +372,9 @@ public static class TypeCommand
                                 Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
                             };
 
-                            ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                            var globExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
+                            if (globExitCode != 0)
+                                return globExitCode;
                         }
                         else
                         {
@@ -492,8 +517,7 @@ public static class TypeCommand
                 projection: browseOptions);
         }
 
-        ApiCommand.WriteFullApiOutput(api, browseOptions);
-        return 0;
+        return ApiCommand.WriteFullApiOutput(api, browseOptions);
     }
 
     private static string ToFindPrefixPattern(string query)
@@ -597,7 +621,7 @@ public static class TypeCommand
         return merged;
     }
 
-    private static bool TryWritePrefixBrowse(
+    private static int? TryWritePrefixBrowse(
         ApiSurface api,
         string? apiDllPath,
         string? originalTypeQuery,
@@ -609,13 +633,13 @@ public static class TypeCommand
         TypeOptions options)
     {
         if (string.IsNullOrWhiteSpace(originalTypeQuery))
-            return false;
+            return null;
         if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
-            return false;
+            return null;
 
         var matches = FindPrefixMatches(api.Types, originalTypeQuery);
         if (matches.Count == 0)
-            return false;
+            return null;
 
         api.Types = matches;
         RecomputeSurfaceCounts(api);
@@ -630,8 +654,7 @@ public static class TypeCommand
         };
 
         Console.Error.WriteLine($"Note: Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
-        ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
-        return true;
+        return ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
     }
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
