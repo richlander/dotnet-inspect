@@ -5,22 +5,23 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>A library for downloading and extracting NuGet packages</Description>
+    <Description>A lightweight NuGet client for downloading and extracting NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
-    <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
     <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <EmbeddedResource Include="trustedroots/codesignctl.pem" LogicalName="codesignctl.pem" />
+    <EmbeddedResource Include="trustedroots/timestampctl.pem" LogicalName="timestampctl.pem" />
   </ItemGroup>
 
 </Project>

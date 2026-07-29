@@ -59,6 +59,8 @@
     <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
+    <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
+    <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
   </Folder>
