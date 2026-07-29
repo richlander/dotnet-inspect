@@ -215,7 +215,7 @@ public class PrintedRangeMapTests
     }
 
     [Fact]
-    public void EnumerationOrder_IsEmissionCompletion_SoAncestorsFollowDescendants()
+    public void EnumerationOrder_IsPostOrder_SoAncestorsFollowDescendants()
     {
         // The documented contract. Ordering by start position is deliberately not
         // promised, so this pins what is promised instead.
@@ -246,12 +246,14 @@ public class PrintedRangeMapTests
     }
 
     [Fact]
-    public void EnumerationOrder_CompletesSiblingsLeftToRight_AsTheyWereComposed()
+    public void EnumerationOrder_OrdersSiblingsByPosition_NotOnlyAncestorsAfterDescendants()
     {
-        // Ancestor-before-descendant is only half the contract. The printer
-        // composes a left operand before a right one, so the left completes
-        // first; ordering that pins only the ancestor direction is satisfied by
-        // any sibling order, including backwards.
+        // Ancestor-after-descendant is only half the contract, and the weaker
+        // half: any sibling order satisfies it, including backwards. The
+        // contract names position rather than composition deliberately --
+        // `CallText` composes an instance call's arguments before its receiver,
+        // so "the order the printer finished each node" would be a claim about
+        // which interpolation hole is filled first, not about the output.
         var (output, ranges) = Print(
             typeof(PrintedRangeExpressionFixture),
             nameof(PrintedRangeExpressionFixture.TwoDistinctOperands));
@@ -272,7 +274,7 @@ public class PrintedRangeMapTests
                 if (Offsets(mine, output.Length).Start >= Offsets(theirs, output.Length).Start)
                     continue;
 
-                // node is textually to the left of sibling, so it completed first.
+                // node is textually to the left of sibling, so it enumerates first.
                 compared++;
                 Assert.True(position[node] < position[sibling]);
             }
@@ -463,7 +465,7 @@ public static class PrintedRangeExpressionFixture
 
     /// <summary>
     /// Two operands that print differently, so both claim characters and their
-    /// relative completion order is observable. <c>TwiceTheSame</c> cannot serve
+    /// relative order in the map is observable. <c>TwiceTheSame</c> cannot serve
     /// here: identical spellings claim nothing.
     /// </summary>
     public static int TwoDistinctOperands(int x, int y) => x + y;

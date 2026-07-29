@@ -1758,10 +1758,12 @@ public sealed partial class CSharpPrinter
     /// <para>
     /// Claims are collected parent-first (<see cref="IrNode.Descendants"/> is
     /// pre-order, and a window must exist before anything is measured against it)
-    /// and recorded in completion order: a node finishes after every child, and
-    /// siblings finish left to right, which is the order the printer composed
-    /// them in. That is what the map's completion-order contract requires, and it
-    /// holds for expression-inside-expression nesting, not merely for expressions
+    /// and recorded in post-order: a node follows every descendant, and siblings
+    /// follow one another in the order their characters appear. That is exactly
+    /// the map's documented enumeration contract -- which names <em>position</em>
+    /// rather than composition for a reason, since <c>CallText</c> composes an
+    /// instance call's arguments before its receiver. It holds for
+    /// expression-inside-expression nesting, not merely for expressions
     /// inside their statement. Nested statements record earlier still -- they are
     /// appended while this statement's body runs, and <c>Record</c> keeps the
     /// first range a node is given -- so an expression inside a nested block is
@@ -1821,11 +1823,10 @@ public sealed partial class CSharpPrinter
         if (windows.Count == 0)
             return;
 
-        // Windows had to be computed parent-first, but completion order is
-        // post-order: a node finishes after every child, and siblings finish
-        // left to right, which is the order the printer composed them in.
-        // Pushing children forward pops them right-first, so reversing the walk
-        // yields exactly that.
+        // Windows had to be computed parent-first, but enumeration order is
+        // post-order: a node follows every descendant, and siblings follow one
+        // another in the order their characters appear. Pushing children forward
+        // pops them right-first, so reversing the walk yields exactly that.
         var pending = new Stack<IrNode>();
         var completion = new List<IrNode>();
         pending.Push(statement);

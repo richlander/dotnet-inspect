@@ -24,11 +24,26 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// lookups, while the correlation seams enumerate to build line tables.
 /// </para>
 /// <para>
-/// Enumeration order is <em>emission-completion</em> order — a node completes
-/// after its children, so nesting reads post-order. Ordering by start position
-/// is deliberately <em>not</em> part of this contract: promising it would force
-/// a sort that no current consumer needs. Anything requiring sorted or
-/// containment-ordered access should say so explicitly at its own call site.
+/// Enumeration order is <em>post-order over the printed tree</em>: every node
+/// follows all of its descendants, and siblings follow one another in the order
+/// their characters appear in the text.
+/// </para>
+/// <para>
+/// That is deliberately weaker than "the order the printer finished composing
+/// each node", which it would be tempting to claim and which is <em>not</em>
+/// true. <c>CallText</c> builds an instance call's arguments before its
+/// receiver, so <c>sink.Add(new object())</c> genuinely completes
+/// <c>new object()</c> first even though <c>sink</c> is printed to its left.
+/// Composition order is an artefact of which interpolation hole a printing
+/// method happens to fill first; it would flip under a refactor that changed
+/// nothing observable. Position is a property of the output itself, so it is
+/// what the contract names.
+/// </para>
+/// <para>
+/// Sorting the whole map by start position is still <em>not</em> promised —
+/// that would order a parent before its children and force a sort no consumer
+/// needs. Anything requiring globally sorted or containment-ordered access
+/// should say so explicitly at its own call site.
 /// </para>
 /// <para>
 /// Every recorded range is <em>non-empty</em>: a node the printer visits but
