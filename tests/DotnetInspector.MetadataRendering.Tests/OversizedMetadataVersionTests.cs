@@ -789,111 +789,133 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     }
 
     /// <summary>
-    /// The expansion rewrites four header fields and must leave the rest of the
-    /// header region byte-identical. This compares the whole region rather than
-    /// naming fields to check, so the property is enumerated from the artifact
-    /// instead of from a list someone has to remember to extend.
+    /// The expansion is a byte-for-byte copy with a widened version field and a
+    /// handful of position repairs. This asserts exactly that, over the whole
+    /// image: every byte outside the payload and the documented repairs is
+    /// identical to its baseline counterpart at the offset the expansion moved
+    /// it to.
     /// <para>
-    /// That distinction is the whole point. Four separate rounds of review found
-    /// one more unchecked header field apiece — `BaseOfCode` and `BaseOfData`,
-    /// the CLI sub-directories, the import shape, the directory extents — because
-    /// each gate named what it checked, and a field nobody had named was
-    /// therefore checked by nobody. Probing for the next one found
-    /// `SizeOfHeaders`: corrupting it in the patched image failed no test. Rather
-    /// than add a fifth name, this asserts the complement — every byte of the
-    /// header region *except* the documented repairs is unchanged — which cannot
-    /// go stale, because a new field is covered the moment it exists.
+    /// The shape of this assertion is the point. Four consecutive rounds of
+    /// review each found one more unchecked field — `BaseOfCode` and
+    /// `BaseOfData`, the CLI sub-directories, the import shape, the directory
+    /// extents — because every gate named what it checked, so a field nobody had
+    /// named was checked by nobody. Naming two more (`SizeOfHeaders` and the CLI
+    /// extents, the fields review found next) would have bought one more round.
+    /// A complement cannot go stale: a field added to this image tomorrow is
+    /// covered the moment it exists, because it was never the naming that made
+    /// it covered.
     /// </para>
     /// <para>
-    /// Non-vacuity matters as much as the bound: each of the four repairs is
-    /// asserted to *have* happened, so a subset assertion that would pass
-    /// trivially if the expansion stopped repairing anything fails instead.
+    /// Earlier versions of this test covered the PE header region and the CLI
+    /// header separately, which left the metadata region uncovered — a byte
+    /// could be flipped anywhere inside it and no test failed. Splitting the
+    /// image into regions to check reintroduces exactly the naming problem, so
+    /// there is one region: all of it.
+    /// </para>
+    /// <para>
+    /// Non-vacuity matters as much as the bound. Every documented repair is
+    /// asserted to have happened *and* to have the value it should, so an
+    /// expansion that quietly stopped repairing anything fails here rather than
+    /// passing a complement that has nothing left to exclude.
     /// </para>
     /// </summary>
     [Fact]
-    public void HostileImage_ChangesOnlyTheHeaderFieldsItDocuments()
+    public void HostileImage_DiffersFromItsBaselineOnlyWhereDocumented()
     {
-        PEHeaders headers = Headers(fixture.Baseline);
-        int optionalHeader = headers.PEHeaderStartOffset;
-        int sizeOfOptionalHeader = BinaryPrimitives.ReadUInt16LittleEndian(
-            fixture.Baseline.AsSpan(optionalHeader - 20 + 16, 2));
-        int sectionTable = optionalHeader + sizeOfOptionalHeader;
+        byte[] baseline = fixture.Baseline;
+        byte[] patched = fixture.Bytes;
+        const int expansion = OversizedVersionFixture.Expansion;
 
+        PEHeaders headers = Headers(baseline);
+        int optionalHeader = headers.PEHeaderStartOffset;
+        int sectionTable = optionalHeader + BinaryPrimitives.ReadUInt16LittleEndian(
+            baseline.AsSpan(optionalHeader - 20 + 16, 2));
+        int metadataRoot = headers.MetadataStartOffset;
+        int corHeader = headers.CorHeaderStartOffset;
+
+        int oldVersionLength = ReadRva(baseline, metadataRoot + 12);
+        int versionStart = metadataRoot + 16;
+        int insertionPoint = versionStart + oldVersionLength;
+
+        Assert.Equal(baseline.Length + expansion, patched.Length);
+
+        // Everything the expansion rewrites in place, all of which happens to
+        // precede the insertion point. Each grows by exactly the expansion.
         (string Name, int Offset)[] repairs =
         [
             ("SizeOfCode", optionalHeader + 4),
             (".text VirtualSize", sectionTable + 8),
             (".text SizeOfRawData", sectionTable + 16),
             (".reloc PointerToRawData", sectionTable + 40 + 20),
+            ("Cli.MetaData.Size", corHeader + 12),
+            ("MetadataRoot.VersionLength", metadataRoot + 12),
+            .. StreamHeaderOffsetSites(baseline, insertionPoint)
+                .Select((site, i) => ($"Stream[{i}].Offset", site)),
         ];
 
-        // The headers occupy everything before the first section's raw data.
-        int region = headers.SectionHeaders[0].PointerToRawData;
-
-        int[] changed = [.. Enumerable.Range(0, region)
-            .Where(i => fixture.Baseline[i] != fixture.Bytes[i])];
-
-        int[] allowed = [.. repairs.SelectMany(r => Enumerable.Range(r.Offset, 4))];
-
-        Assert.Equal(
-            string.Empty,
-            string.Join(", ", changed.Except(allowed).Select(i => $"0x{i:X}")));
-
-        // Each documented repair must actually have happened. Without this the
-        // assertion above would pass an expansion that repaired nothing at all.
-        foreach ((string name, int offset) in repairs)
+        // The split above is only sound if the in-place repairs really do precede
+        // the payload; a repair inside or after it would be compared against the
+        // wrong bytes below.
+        foreach ((string name, int offset) in repairs.Where(r => r.Offset < insertionPoint))
         {
             Assert.True(
-                ReadRva(fixture.Baseline, offset) != ReadRva(fixture.Bytes, offset),
-                $"{name} was expected to change but did not.");
+                offset + 4 <= versionStart,
+                $"{name} overlaps the version payload and cannot be compared in place.");
+        }
+
+        int[] allowed = [.. repairs.SelectMany(r => Enumerable.Range(r.Offset, 4))];
+        List<string> undocumented = [];
+
+        // Before the payload the two images are at the same offsets.
+        for (int i = 0; i < versionStart; i++)
+        {
+            if (baseline[i] != patched[i] && !allowed.Contains(i))
+                undocumented.Add($"0x{i:X} (before the payload)");
+        }
+
+        // After it, every baseline byte moved forward by the expansion.
+        for (int i = insertionPoint; i < baseline.Length; i++)
+        {
+            if (baseline[i] != patched[i + expansion] && !allowed.Contains(i))
+                undocumented.Add($"0x{i:X} (after the payload)");
+        }
+
+        Assert.Equal(string.Empty, string.Join(", ", undocumented));
+
+        foreach ((string name, int offset) in repairs)
+        {
+            Assert.Equal(
+                (name, ReadRva(baseline, offset) + expansion),
+                (name, ReadRva(patched, offset < insertionPoint ? offset : offset + expansion)));
         }
     }
 
     /// <summary>
-    /// The CLI header is a table of address/size pairs, and the expansion
-    /// rewrites exactly one of them: the metadata's size. Everything else in the
-    /// header must survive byte-identical.
-    /// <para>
-    /// This is the same complement-shaped assertion as
-    /// <see cref="HostileImage_ChangesOnlyTheHeaderFieldsItDocuments"/>, applied
-    /// to the other region the expansion touches. It is a separate test because
-    /// the CLI header does not live in the PE header region — it sits inside
-    /// `.text` — so the byte comparison there does not reach it. Review overstated
-    /// `Cli.MetaData.Size` by 128 bytes, making the declared metadata extent cover
-    /// bytes that are not metadata, and all 148 tests passed.
-    /// </para>
-    /// <para>
-    /// The header sits before the insertion point, so it occupies the same file
-    /// offset in both images; that is asserted rather than assumed, because the
-    /// byte comparison below would otherwise be comparing unrelated bytes.
-    /// </para>
+    /// The file offset of each stream header's `Offset` field, located in the
+    /// image whose bytes are passed in. The storage header sits immediately after
+    /// the version string and gives the stream count; each header is an offset, a
+    /// size, and a NUL-terminated name padded to a four-byte boundary.
     /// </summary>
-    [Fact]
-    public void HostileImage_ChangesOnlyTheCliHeaderFieldItDocuments()
+    static int[] StreamHeaderOffsetSites(byte[] image, int storageHeader)
     {
-        PEHeaders headers = Headers(fixture.Baseline);
-        DirectoryEntry directory = headers.PEHeader!.CorHeaderTableDirectory;
-        int header = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(storageHeader + 2, 2));
+        int cursor = storageHeader + 4;
+        int[] sites = new int[count];
 
-        Assert.True(
-            header + directory.Size <= InsertionPointOf(fixture.Baseline),
-            "The CLI header must precede the insertion point for this comparison to be sited correctly.");
+        for (int i = 0; i < count; i++)
+        {
+            sites[i] = cursor;
 
-        int[] changed = [.. Enumerable.Range(header, directory.Size)
-            .Where(i => fixture.Baseline[i] != fixture.Bytes[i])];
+            int name = cursor + 8;
+            while (image[name] != 0)
+                name++;
 
-        int[] allowed = [.. Enumerable.Range(header + 12, 4)];
+            cursor = (name + 1 + 3) & ~3;
+        }
 
-        Assert.Equal(
-            string.Empty,
-            string.Join(", ", changed.Except(allowed).Select(i => $"0x{i:X}")));
-
-        // And the one field that may change must change by exactly the expansion,
-        // so an overstated or understated extent fails as loudly as a stray byte.
-        Assert.Equal(
-            ReadRva(fixture.Baseline, header + 12) + OversizedVersionFixture.Expansion,
-            ReadRva(fixture.Bytes, header + 12));
+        return sites;
     }
+
 
     /// <summary>
     /// The certificate directory is the one entry whose value is a file offset
