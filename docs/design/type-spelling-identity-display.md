@@ -6,6 +6,10 @@
 > `[TupleElementNamesAttribute]` into Metadata's type view (issue
 > [#2996](https://github.com/richlander/dotnet-inspect/issues/2996), Step 3),
 > which surfaced a conflation that predates tuples.
+>
+> **Map:** [Type, member, and API representation](type-member-api-representation.md)
+> is the entry point for choosing a type, member, or API identity shape. This
+> document owns the details below.
 
 ## The question that started this
 

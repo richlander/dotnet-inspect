@@ -73,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public string? ILOffsetParameter { get; init; }
 
     /// <summary>
+    /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
+    /// </summary>
+    public string? HeapParameter { get; init; }
+
+    /// <summary>
     /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
     /// </summary>
     public string? ILOffsetsPath { get; init; }

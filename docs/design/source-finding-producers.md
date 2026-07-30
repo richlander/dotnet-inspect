@@ -1,5 +1,9 @@
 # Source Finding producers
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 Metadata owns the local, SRM-only observations available from PE and portable
 PDB data. Network source acquisition, checksum verdicts, decompiler source
 correspondence, and old/new product interpretation remain separate consumers.
