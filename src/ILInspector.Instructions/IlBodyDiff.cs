@@ -109,6 +109,9 @@ public enum IlBodyDiffNormalization
     /// grammar, and both canonical-ordinal rules;
     /// <c>RejectsAFieldFormOnAMethod</c> and
     /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence;
+    /// <c>RejectsACacheFormWithAContainingName</c> for the field half of the
+    /// containing-name correspondence, whose method half
+    /// <c>PreservesEveryOtherNameComponent</c> covers;
     /// <c>RejectsAMethodFormBehindAMethodSpecificationOnAField</c> for the
     /// generic-instantiation path;
     /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
@@ -1239,6 +1242,12 @@ public static class IlBodyDiff
             // cache field `<>9__N_M`; the lambda and local-function forms
             // always carry one. Pinning that correspondence keeps names no C#
             // compiler emits, such as `<>b__1_0`, comparing literally.
+            //
+            // One predicate, two independently breakable directions, so each
+            // has its own gate: `<>b__103_0` in
+            // `PreservesEveryOtherNameComponent` covers a method form with no
+            // containing name, and `RejectsACacheFormWithAContainingName`
+            // covers a cache field that has one.
             bool namesContainingMethod = close > 1;
             if (namesContainingMethod != (value[marker] is 'b' or 'g'))
                 return false;

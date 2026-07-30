@@ -288,6 +288,30 @@ public class IlBodyDiffNormalizationTests
     }
 
     /// <summary>
+    /// The cache form carries no containing-method name — Roslyn spells it
+    /// <c>&lt;&gt;9__N_M</c>, with nothing between the angle brackets. A field
+    /// whose name puts a containing method in front of the <c>9</c> is not a
+    /// form any compiler emits, so it must keep comparing literally.
+    /// <para>
+    /// This is the field half of the containing-name correspondence. The
+    /// method half — a <c>b</c> or <c>g</c> form with an empty containing
+    /// name, such as <c>&lt;&gt;b__103_0</c> — is gated by
+    /// <c>NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent</c>.
+    /// The two halves need separate gates because the single predicate that
+    /// enforces both can be broken one direction at a time: removing only the
+    /// field half leaves every other test green.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_RejectsACacheFormWithAContainingName()
+    {
+        Assert.False(CompareFieldNames(
+            "<Run>9__103_0",
+            "<Run>9__128_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
     /// The cache form's ordinals must be canonical too. Checked separately
     /// from the method forms because <c>&lt;&gt;9__N_M</c> only ever reaches
     /// the field paths.
