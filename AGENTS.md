@@ -202,6 +202,12 @@ libraries carry no versioning story or API-stability commitment: treat their
 public surface as an internal design constraint, not an external compatibility
 surface. `docs/release-workflow.md` owns the packaging mechanics.
 
+Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
+release, and `README.md` (packed as the package readme) and every
+`skills/**/SKILL.md` (embedded in the binary) ship with it. Consult both before
+the version moves and update whatever the release changed; the checklist is in
+`docs/release-workflow.md`.
+
 ### File-based apps
 
 Do not use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files.

@@ -57,6 +57,34 @@ Before dispatching a release:
 2. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
 3. Confirm that the version has not already been published.
+4. Reconcile the shipped documentation with what the release actually does —
+   see [Shipped documentation](#shipped-documentation).
+
+## Shipped documentation
+
+`README.md` and the skills are not repository-side notes. They are release
+artifacts:
+
+- `README.md` is the package readme (`PackageReadmeFile` in
+  `src/dotnet-inspect/dotnet-inspect.csproj`, packed via the `None Include`
+  entry beside it), so it is the first thing a consumer of the published
+  package reads.
+- Every `skills/**/SKILL.md` is embedded into the tool binary as a resource and
+  served by `dotnet-inspect skill`, so the published tool teaches agents
+  whatever those files said at build time.
+
+A change to `VersionPrefix` is therefore a documentation checkpoint. Consult
+both before dispatching, and expect to update them:
+
+- Do the commands, flags, defaults, and example output in `README.md` still
+  match the tool? Re-run any example whose command surface changed rather than
+  eyeballing it.
+- Does each `SKILL.md` still describe capabilities the release actually has,
+  and is a new capability discoverable from the skill that owns it? A skill's
+  YAML frontmatter `description:` is the single source of truth for the
+  generated listing, so a stale description ships as a stale listing.
+- Record the outcome either way. If neither needed a change, say so; silence
+  reads the same as an unchecked box.
 
 ## Dispatching
 
