@@ -312,7 +312,7 @@ public static class PackageExtractor
                         nupkgUrl,
                         nupkgPath,
                         log: log,
-                        auth: source.GetAuthHeader(),
+                        auth: NuGetCredentialScope.AuthFor(source, nupkgUrl, log),
                         trafficKind: NetworkTrafficKind.PackageDownload)
                         .ConfigureAwait(false);
                     if (ok)
@@ -497,7 +497,7 @@ public static class PackageExtractor
             try
             {
                 var xml = await HttpRetryHelper.GetStringWithRetryAsync(
-                    client, url, log: log, auth: source.GetAuthHeader(),
+                    client, url, log: log, auth: NuGetCredentialScope.AuthFor(source, url, log),
                     trafficKind: NetworkTrafficKind.PackageManifest).ConfigureAwait(false);
                 if (xml != null)
                     return xml;
@@ -576,7 +576,7 @@ public static class PackageExtractor
         log?.Invoke($"Querying service index: {indexUrl}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl, auth: source.GetAuthHeader(),
+            client, indexUrl, auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
         if (json == null)
             return null;
@@ -787,14 +787,12 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
-        var auth = source.GetAuthHeader();
-
         // Try flat-container index first
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -807,7 +805,7 @@ public static class PackageExtractor
                 baseAddress += "/";
 
             string indexUrl = $"{baseAddress}{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -1017,8 +1015,6 @@ public static class PackageExtractor
         Action<string>? log,
         bool includePrerelease)
     {
-        var auth = source.GetAuthHeader();
-
         // For nuget.org, use the search API — returns latest version directly without listing all versions
         if (source.IsNuGetOrg && !includePrerelease)
         {
@@ -1049,7 +1045,7 @@ public static class PackageExtractor
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -1064,7 +1060,7 @@ public static class PackageExtractor
             string indexUrl = $"{baseAddress}{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }

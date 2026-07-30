@@ -6,6 +6,7 @@ using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetSource = NuGetFetch.PackageSource;
+using PackageSourceCredential = NuGetFetch.PackageSourceCredential;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -318,6 +319,44 @@ public class SourcePrecedenceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task VersionListing_WithholdsCredentialsFromForeignContentHost()
+    {
+        // A service index names its own content endpoint, so whoever controls the feed controls
+        // that URL. The credential the user configured for the feed must not follow the redirect
+        // onto another origin, or a compromised or misconfigured feed collects it.
+        var handler = new StubHandler();
+        AddFeed(handler, FeedAIndex, "a-content.example.test", ["0.32.0"]);
+        using var client = new HttpClient(handler);
+
+        var credentialed = new NuGetSource("feed-a", $"https://{FeedAIndex}", new PackageSourceCredential("pat", "s3cret"));
+
+        await PackageExtractor.GetLatestVersionAsync(
+            client, "Markout", [credentialed], log: null, skipCache: true);
+
+        Assert.NotNull(handler.AuthForUrlContaining(FeedAIndex));
+        Assert.Null(handler.AuthForUrlContaining("a-content.example.test"));
+    }
+
+    [Fact]
+    public async Task VersionListing_SendsCredentialsToSameOriginContentHost()
+    {
+        // The gate narrows to foreign origins only. A feed whose content lives on its own origin
+        // — the ordinary Azure DevOps shape — must still be authenticated, or the withholding
+        // rule would break every private feed it is meant to protect.
+        var handler = new StubHandler();
+        AddFeed(handler, FeedAIndex, "feed-a.example.test", ["0.32.0"]);
+        using var client = new HttpClient(handler);
+
+        var credentialed = new NuGetSource("feed-a", $"https://{FeedAIndex}", new PackageSourceCredential("pat", "s3cret"));
+
+        string? version = await PackageExtractor.GetLatestVersionAsync(
+            client, "Markout", [credentialed], log: null, skipCache: true);
+
+        Assert.Equal("0.32.0", version);
+        Assert.NotNull(handler.AuthForUrlContaining("feed-a.example.test/flat/"));
+    }
+
     private static NuGetSource FeedA() => new("feed-a", $"https://{FeedAIndex}");
 
     private static NuGetSource FeedB() => new("feed-b", $"https://{FeedBIndex}");
@@ -350,12 +389,23 @@ public class SourcePrecedenceTests : IDisposable
     {
         private readonly List<(string Match, string Body)> _routes = [];
 
+        public List<(string Url, string? Auth)> Requests { get; } = [];
+
         public void Add(string urlSubstring, string body) => _routes.Add((urlSubstring, body));
+
+        public string? AuthForUrlContaining(string substring) =>
+            Requests.First(r => r.Url.Contains(substring, StringComparison.Ordinal)).Auth;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             string url = request.RequestUri?.ToString() ?? "";
+
+            lock (Requests)
+            {
+                Requests.Add((url, request.Headers.Authorization?.Parameter));
+            }
+
             foreach ((string match, string body) in _routes)
             {
                 if (url.Contains(match, StringComparison.Ordinal))

@@ -228,6 +228,26 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task ConfiguredCredentialThatIsRejectedDoesNotBurnTheRetryBudget()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("plugin", "plugin-token"));
+        var transport = new ScriptedTransport(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        using var client = Client(source, transport);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://feed.example/index.json");
+        request.Headers.Authorization = Basic("config", "expired-token");
+
+        using HttpResponseMessage response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        // Configured credentials win, so an acquired one could never be applied to this request.
+        // Retrying would resend the identical failing request and re-invoke the plugin with
+        // isRetry each time — expensive, possibly interactive, and guaranteed to be discarded.
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Single(transport.Requests);
+        Assert.Equal(0, source.Calls);
+    }
+
+    [Fact]
     public async Task ConcurrentRequestsToOneSourceAcquireCredentialsOnce()
     {
         var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));

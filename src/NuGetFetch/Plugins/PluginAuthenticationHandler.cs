@@ -73,6 +73,16 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
+        // A credential already on the request came from configuration, which takes precedence over
+        // anything a plugin supplies. Every clone below re-inherits that header, so an acquired
+        // credential could never be applied: entering the loop would only resend the same failing
+        // request until the retry budget ran out, re-invoking the plugin with isRetry each time and
+        // discarding the result. Send once and let the caller see the challenge.
+        if (request.Headers.Authorization is not null)
+        {
+            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
         AuthorityState authority = _authorities.GetOrAdd(GetAuthority(request.RequestUri), static _ => new AuthorityState());
 
         HttpResponseMessage? response = null;
