@@ -360,8 +360,14 @@ library concern, served by `ProjectRow` and the row window.
 ## Safety
 
 Raw table projection reads untrusted metadata and can amplify a tiny artifact
-into unbounded work or output, so it inherits the existing contracts rather than
-inventing new ones:
+into unbounded work or output. The governing model — including how this
+repository ranks untrusted-input work against ordinary correctness, and why
+rejection is preferred to neutralization — is
+[untrusted-data-threat-model.md](untrusted-data-threat-model.md). This section
+is that model applied to one surface, and is the worked example that document
+points at.
+
+### Inherited contracts
 
 - **Bounded traversal.** Row enumeration, handle resolution, and text/heap
   projection are budgeted per
@@ -369,15 +375,74 @@ inventing new ones:
   number of rows visited, edges followed, and characters projected. Exceeding a
   budget yields a **typed rejection**, never a plausible truncated value or a
   success-shaped empty table.
-- **Untrusted input.** SRM-only, parse-never-load, NativeAOT-friendly,
-  Roslyn-free, per
-  [untrusted-data-threat-model.md](untrusted-data-threat-model.md). Heap and
-  name text is rendered as **data** — escaped so it cannot inject terminal
-  control sequences or break structured output. A malformed coded index resolves
-  to a visible failure marker, not a fabricated target.
+- **Parse, never load.** SRM-only, NativeAOT-friendly, Roslyn-free. A malformed
+  coded index resolves to a visible failure marker, not a fabricated target.
 - **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
-  amplification surface, so they are never dumped by default; a bounded, escaped
-  preview stands in until explicitly requested.
+  amplification surface, so they are never dumped by default.
+
+### Two orthogonal axes
+
+Safety here is two independent decisions, and conflating them into one flag is
+a design error. One decides whether hostile input is *tolerated*; the other
+decides how artifact text is *spelled*. They compose:
+
+| Axis | Default | Opt-out |
+| --- | --- | --- |
+| **Trust** — does a concerning pattern abort? | abort at the first one | `--survey` reports every site without content; `--dangerously-skip-checks` proceeds |
+| **Rendering** — how is artifact text printed? | transliterated, always | `--dangerously-print-raw-text` |
+
+`--dangerously-skip-checks` is defensible **only because the rendering axis
+stays conservative underneath it**. It means "do not refuse," not "attack my
+terminal." Emitting a live `ESC` requires both flags — two separately named
+mistakes. `--dangerously-print-raw-text` alone is the unrestricted mode.
+
+`--survey` is the mode that keeps a hostile image inspectable without handing
+over its bytes: it reports *where* and *what kind*, never *what*. This is the
+shape `grep` has had for decades — `Binary file X matches` by default, content
+only under `-a`/`--text`.
+
+### Transliteration, not neutralization
+
+The rendering axis does not remove or replace dangerous characters; it
+**re-spells** them so the sink cannot interpret them:
+
+| Input | Spelling |
+| --- | --- |
+| C0 (`U+0000`–`U+001F`) | `^` + (code point + `0x40`); `ESC` is `^[` |
+| `DEL` (`U+007F`) | `^?` |
+| C1 (`U+0080`–`U+009F`) | `^u` plus four hex digits; `U+009F` is `^u009F` |
+| literal `^` | `^^` |
+
+The forms do not collide: C0 lands `^` on `@`–`_`, so a lowercase `u` after the
+caret can only introduce the hex form, and escaping the introducer makes the
+whole mapping injective. Every other code point is itself.
+
+The properties that matter are that it is **inert** (no sink interprets the
+result), **lossless** (nothing is dropped, so the view still answers "what is
+actually in this field"), and **reversible** (the spelling is unambiguous, so
+tooling can recover the original bytes). Neutralization has none of the three:
+it must be *right* about what is dangerous, and being wrong is silent.
+
+Because it is inert, transliteration is unconditional. Gating it behind a flag
+would buy no safety and would recreate the inheritance failure described below
+— a path that forgets to opt in. Nothing passes a flag to make
+`System.Text.Json` escape `\u001b`; this is that, for text sinks.
+
+### Failure messages carry no artifact bytes
+
+A rejection names the **user-supplied** input — the path or coordinate the
+caller passed — the rule that fired, and the location. It does not quote the
+offending value. The rejected value is by construction the most hostile string
+in the image, and an error path that echoes it re-opens on `stderr` exactly the
+channel the check just closed.
+
+### Status
+
+The bounded-traversal, parse-never-load, and opt-in-heap contracts above are
+implemented. The trust/rendering axes, `--survey`, the transliteration
+spelling, and the failure-message rule are the **target model** and are not yet
+implemented; today the projector neutralizes control characters unconditionally
+and continues. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 
@@ -484,12 +549,11 @@ leading `Table` column so every row self-identifies, keeping those outputs pure
 machine-readable streams (one `WriteTable` block per table).
 
 Containment is inherited, not reimplemented — but only along paths that
-actually go through the projection. `mdi` performs no escaping of its own:
-metadata names are untrusted input, and `MetadataTableProjector` neutralizes
-every control character before a value leaves the projection, so each projected
-view hands the renderer text that is already safe. That is what makes `mdi` the
-reference example of consuming the projection — a consumer should render
-`MetadataValue` cases and add nothing, rather than defend itself.
+actually go through the projection. `mdi` performs no escaping of its own, and
+each projected view hands the renderer text the projection has already made
+safe. That is what makes `mdi` the reference example of consuming the
+projection: a consumer should render `MetadataValue` cases and add nothing,
+rather than defend itself.
 
 The corollary is the failure mode, and it is not hypothetical. Because `mdi`
 contains nothing explicitly, a value that reaches presentation *without* being
@@ -497,11 +561,18 @@ projected inherits nothing, and no call site looks any different. The metadata
 root's version stamp was exactly that: an artifact-derived counted string that
 `MetadataImageInspector` reported straight into the image overview, emitting a
 raw `ESC` in Markdown and TSV from both `mdi --overview` and the CLI's
-`Metadata: Image` section. The fix neutralizes it at the metadata layer, reusing
-the projector's escaper rather than adding a second one — a value that skips the
-projection must still not skip its containment.
+`Metadata: Image` section.
 
-That is why the property needs its own gate rather than a comment.
+That bug is the argument for the target model above, not merely for the fix it
+received. Containment applied by *calling a function* is containment you can
+forget, and `string` is the type of both a contained and an uncontained value,
+so no reviewer or compiler can see the difference. The durable fix is for
+artifact-derived text to be its own type that a renderer cannot accept as a raw
+`string` — the shape `HardenedJson` already uses, where the guarantee comes
+from choosing the type rather than from remembering the call. Auditing then
+becomes a search for a type rather than an argument about coverage.
+
+That is also why the property needs its own gate rather than a comment.
 `MdiContainmentTests` splices a payload spanning all three control ranges the
 projector recognizes — a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1
 control — into a real `#Strings` entry *and* into the version stamp, then renders
@@ -514,6 +585,10 @@ from `MetadataTableFormat` itself, so a new format is gated on arrival. The
 `--references` view renders only coordinates and counts, so it carries no
 artifact text and is asserted against raw controls alone, as a regression net
 rather than a payload-carrying case; the file says so.
+
+Those tests gate the *current* neutralizing behavior. Adopting the target model
+changes what they assert — a control character in a name becomes a rejection
+rather than a rendered substitution — but not that the property is gated.
 
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be

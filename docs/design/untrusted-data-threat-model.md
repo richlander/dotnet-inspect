@@ -9,6 +9,102 @@ This document records the trust boundaries and security rules for product code.
 It is a living model: new acquisition paths, parsers, caches, or output features
 must update the relevant boundary and verification obligations.
 
+## Scope and priority
+
+State intent; do not make promises. These libraries may eventually ship, and
+the patterns in a tool like `mdi` may be reimplemented elsewhere, so the model
+should be legible enough to copy — but "we thought about this" is not a
+guarantee, and this document does not offer one.
+
+**In scope:** harm to the machine or the user's tooling caused by untrusted
+input arriving over the internet — a package from a feed, a PDB from a symbol
+server, source fetched from SourceLink. Using a NuGet package is a trust
+decision the user makes; that this tool is a no-commitment offer, easy to point
+at anything, raises rather than lowers the bar for what it does with what it
+finds.
+
+**Out of scope:** deliberately opening artifacts you already know are hostile,
+and running the tool elevated. Both are the caller's decision, and neither is a
+boundary this tool can defend.
+
+**Target: two to three nines, not five.** That is a real ceiling, and it is
+what makes the ordering below meaningful rather than aspirational.
+
+Work is ranked in this order, and the order is not negotiable when they compete
+for attention:
+
+1. **Reliability and security on correct, well-formed binaries.** This is first
+   because it is the normal case, and because rigor on correct inputs is what
+   makes reasoning about malformed ones possible at all. A tool that is wrong
+   about ordinary assemblies has no standing to claim anything about hostile
+   ones.
+2. **Security on malformed binaries.** Everything downstream of a parser that
+   accepts what it should have rejected.
+3. **Reliability against environmental patterns that require an attacker to
+   already have access to the machine.** Not zero — but at most two nines, and
+   never ahead of the first two.
+
+A crash on malformed input is a **reliability** defect, not a security one. It
+is still worth fixing, and not only for tidiness: a crash means the code is one
+step away from the same input producing an effect that does *not* announce
+itself.
+
+Local machine weirdness is tier 3. A symbolic link someone placed in a package
+cache is a user doing user things, not an elevation of privilege. It would be a
+security issue if a *package* could create it during extraction — and that
+would be a defect in NuGet's restore, not in this tool.
+
+## Strategy: reject, do not sanitize
+
+When untrusted input violates a contract, the response is a typed rejection.
+Sanitizing — accepting the artifact and repairing the offending value — is
+rejected as a strategy for two reasons:
+
+- **It is hard to get right, and being wrong is silent.** A sanitizer has to be
+  correct about the full set of dangerous forms. A rejecter only has to be
+  correct that *this* form is not allowed.
+- **Where there is one mouse, there are many.** A field that contains a
+  terminal escape sequence is evidence about the artifact, not about the field.
+  Repairing it and continuing gives a malformed or hostile package a second
+  chance to be interesting somewhere the check does not reach.
+
+The consequence is a stack that must be **resilient to errors**, not resilient
+to handling bad input. Those are different engineering problems and only one of
+them is defensible: error paths are few, shared, and testable, while
+bad-input-tolerance is diffuse and every new consumer re-litigates it.
+
+Push the decision **down**. The best shape is a type whose construction *is*
+the check, so choosing the type grants the capability and auditing is a search
+rather than an argument — `HardenedJson` is the reference: use it and duplicate
+properties are rejected; the rest of the stack does not need to know the rule
+exists. A rule enforced by *calling a function* is a rule a new path can forget,
+and `string` is the type of both a checked and an unchecked value.
+
+One thing this rule does **not** forbid is escaping and transliteration.
+Escaping a value on the way into a sink — JSON string escapes, caret notation
+for control characters — is a property of the *encoding*, applied uniformly to
+all text, lossless and reversible. Sanitization is different: it inspects a
+value, decides it is dangerous, and alters or drops part of it so the rest can
+proceed. The first has to be correct about the sink's grammar, which is written
+down. The second has to be correct about what an attacker might do, which is
+not.
+
+### Failure messages carry no artifact data
+
+A rejection message names the **user-supplied** input — the path, coordinate,
+or package the caller asked for — plus the rule that fired and the location
+within the artifact. It must not quote the offending value.
+
+This is not in tension with keeping failures attributable: attribution is
+satisfied by naming what the user wrote and where the problem is. The rejected
+value is by construction the most hostile string encountered, and echoing it
+into an exception message or onto `stderr` re-opens on the error path the exact
+channel the check just closed.
+
+See [metadata-table-projection.md](metadata-table-projection.md#safety) for
+this model worked through on one surface, including how a hostile image stays
+inspectable without handing over its bytes.
+
 ## Security objectives
 
 The product must:
@@ -161,6 +257,10 @@ race window, but a local adversary able to mutate the chosen directory
 concurrently remains a residual risk. Security-sensitive automation should use
 a fresh directory with permissions restricted to the invoking user.
 
+That residual risk is **tier 3**: it requires an attacker who already has write
+access to a directory the user chose. It is worth the checks already listed
+here, and it is not worth trading against correctness on ordinary inputs.
+
 ## Required rules for new code
 
 These are requirements for new or changed paths and audit targets for existing
@@ -180,7 +280,8 @@ For each artifact-derived path:
 4. Resolve the full destination and prove it remains beneath the root.
 5. Preflight collisions across the full operation.
 6. Refuse unintended overwrite.
-7. Keep failures visible and attributable to the offending artifact.
+7. Keep failures visible, and attributable to the input the **user** supplied.
+   Do not quote the rejected artifact value.
 
 Do not use `Path.Combine(root, untrustedValue)` as a containment check.
 
@@ -221,9 +322,45 @@ land in temporary files and become visible atomically after validation.
 
 Artifact text can contain Markdown delimiters, newlines, terminal control
 characters, URLs, or prompt-like instructions. Renderers must preserve output
-structure and must not interpret inspected text as authority. JSON serializers
-provide structural escaping; Markdown, table, plain-text, and stderr paths need
-equivalent control-character and delimiter discipline.
+structure and must not interpret inspected text as authority.
+
+Presentation is **two orthogonal decisions**, and collapsing them into one flag
+is a design error:
+
+| Axis | Question | Default | Opt-out |
+| --- | --- | --- | --- |
+| Trust | does a concerning pattern abort the run? | abort at the first one | a survey mode reporting location and pattern kind but no content; then an explicitly `dangerously`-named skip |
+| Rendering | how is artifact text spelled? | transliterated, unconditionally | an explicitly `dangerously`-named raw mode |
+
+A skip on the trust axis is defensible **only because the rendering axis stays
+conservative underneath it**: it means "do not refuse," not "attack my
+terminal." Emitting a live control character requires opting out of both — two
+separately named mistakes.
+
+Rendering is **transliteration, not neutralization**: control characters are
+re-spelled into an inert, lossless, reversible form rather than removed or
+replaced. That combination is what lets it be unconditional — it costs the
+reader nothing, so there is no case for a flag, and an unconditional rule
+cannot be forgotten by a new path. Nothing passes a flag to make a JSON
+serializer escape `\u001b`.
+
+This is established practice for tools that read hostile bytes. `grep` refuses
+binary content by default and prints `Binary file X matches` — location, never
+content — with `-a`/`--text` as the named opt-in, for exactly this threat.
+`less` renders control characters in caret notation by default and reserves raw
+output for `-r`. `rustc` made bidirectional control characters a deny-by-default
+hard error after Trojan Source (CVE-2021-42574) rather than stripping them.
+
+Do not copy `less`'s one mistake: its protection is conditional on stdout being
+a TTY, and it degrades to `cat` when piped. A pipe is precisely where an agent
+or a log is.
+
+JSON serializers provide structural escaping. Markdown, table, plain-text, and
+stderr paths need equivalent discipline, and stderr especially — see
+[failure messages carry no artifact data](#failure-messages-carry-no-artifact-data).
+
+[metadata-table-projection.md](metadata-table-projection.md#safety) works this
+through on one surface and specifies a concrete transliteration spelling.
 
 ## Verification obligations
 
@@ -303,4 +440,26 @@ only ordinary compiler output.
 8. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
 9. Revisit filesystem containment if .NET exposes a portable atomic
-   no-follow/open-beneath primitive.
+   no-follow/open-beneath primitive. **Tier 3.**
+10. Adopt the reject-over-sanitize strategy where the product currently
+    neutralizes. `MetadataTableProjector` repairs control characters in
+    artifact text and continues, which is the sanitize strategy this document
+    now argues against, and it is applied by calling a helper rather than by
+    construction — which is how the metadata version stamp reached presentation
+    uncontained. Introduce the trust axis (default abort, survey, named skip),
+    move rendering into a type a renderer cannot bypass, and re-point
+    `MdiContainmentTests` at the new property.
+11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
+    throws `Invalid {name}: '{value}'`, echoing the value it just rejected. Note
+    that printability here is a function of **provenance, not content**: the
+    same helper is called with user-typed coordinates and with
+    graph-resolved ones, so it cannot be decided by inspecting the value. That
+    is a further argument for provenance-carrying types.
+12. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
+    points. The domain-matched precedent is `binutils`, whose parsers have
+    produced a continuous CVE stream found almost entirely by fuzzing. Most of
+    those are memory-safety defects that C# denies us, so the realistic harm
+    set here is smaller and enumerable — hang or unbounded allocation,
+    plausible-but-wrong output, and output-channel injection — but nothing
+    currently searches for any of the three. This is the one open item that
+    pays into tiers 1 and 2 at the same time.
