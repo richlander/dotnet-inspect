@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -17,8 +18,10 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -3045,20 +3048,46 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(large);
         Assert.NotEmpty(small);
 
-        // Both draw from one declared vocabulary; neither invents rows for members.
-        string[] vocabulary =
-        [
-            "Type", "Kind", "Modifiers", "Base", "Type Parameters", "Interfaces", "Library",
-            "Package", "Version", "TFM", "Source", "Members", "Constructors", "Finalizer",
-            "Fields", "Properties", "Methods", "Operators", "Events",
-            "Explicit Interface Implementations", "Extension Methods"
-        ];
+        // The vocabulary is derived from TypeInfoSection's declaration rather than copied here, so
+        // the declaration drives the gate: a row whose label is not a declared property fails, and
+        // the bound tracks the property count instead of a hand-maintained literal that goes stale.
+        var vocabulary = DeclaredTypeInfoLabels();
+
+        // Deriving the vocabulary keeps it from going stale, but on its own it would absorb a new
+        // property silently - including an unbounded one. Pinning the count makes any addition fail
+        // here, so whoever adds a property has to state that it is a fixed fact about the type and
+        // not a per-member row. Bump this only alongside that judgement.
+        Assert.Equal(21, vocabulary.Count);
 
         Assert.All(large, label => Assert.Contains(label, vocabulary));
         Assert.All(small, label => Assert.Contains(label, vocabulary));
+
+        // The bound that makes the section Fixed: one row per declared property, never one per
+        // member. String has 250+ members and DayOfWeek has 7; both stay inside a constant.
         Assert.True(
-            large.Count <= vocabulary.Length,
+            large.Count <= vocabulary.Count,
             $"Type Info grew past its declared vocabulary: {string.Join(", ", large)}");
+    }
+
+    /// <summary>
+    /// The labels <c>Type Info</c> can render, read off the section's own declaration. Markout
+    /// titles a property with <c>[MarkoutPropertyName]</c> when present and splits PascalCase
+    /// otherwise.
+    /// </summary>
+    private static IReadOnlyCollection<string> DeclaredTypeInfoLabels()
+    {
+        var labels = typeof(TypeInfoSection)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property =>
+                property.GetCustomAttribute<MarkoutPropertyNameAttribute>()?.Name
+                    ?? SplitPascalCase(property.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(labels);
+        return labels;
+
+        static string SplitPascalCase(string name) =>
+            Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])", " ");
     }
 
     private static async Task<List<string>> RenderTypeInfoLabelsAsync(string assembly, string typeName)
@@ -3090,13 +3119,18 @@ public partial class CommandExecutionTests
     /// acquisition context, so the provenance rows are invisible to it unless that context is
     /// threaded in. Either failure is silent — exit 0 with fields missing.
     /// </summary>
-    [Fact]
-    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders()
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("System.Collections.Generic.List`1")]
+    // An enum is the case that catches a census computed off a different member list than the one
+    // discovery sees: DayOfWeek's only field is the compiler-generated `value__`.
+    [InlineData("System.DayOfWeek")]
+    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(string typeName)
     {
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "type", "System.String", "-D", SectionNames.TypeInfo);
+            "type", typeName, "-D", SectionNames.TypeInfo);
         var (renderExit, renderOutput, _) = await RunAppAsync(
-            "type", "System.String", "-S", SectionNames.TypeInfo);
+            "type", typeName, "-S", SectionNames.TypeInfo);
 
         Assert.Equal(0, discoverExit);
         Assert.Equal(0, renderExit);
@@ -3109,15 +3143,15 @@ public partial class CommandExecutionTests
 
         // Structural facts the manifest can see from the type itself.
         Assert.Contains("Kind", advertised);
-        Assert.Contains("Methods", advertised);
         // Provenance facts that only exist if acquisition context reached the manifest.
         Assert.Contains("Library", advertised);
         Assert.Contains("Source", advertised);
 
-        var missing = rendered.Except(advertised).ToList();
-        Assert.True(
-            missing.Count == 0,
-            $"-D under-reports fields that -S renders: {string.Join(", ", missing)}");
+        // Set equality, not containment: -D over-reporting a field -S never renders is the same
+        // contract break as under-reporting one, and only equality catches both.
+        Assert.Equal(
+            rendered.OrderBy(f => f, StringComparer.Ordinal),
+            advertised.OrderBy(f => f, StringComparer.Ordinal));
     }
 
     /// <summary>
