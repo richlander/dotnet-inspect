@@ -39,6 +39,16 @@ The package version is owned by `VersionPrefix` in
 guidance. The publish workflow reads it from the selected commit when creating
 the GitHub release tag.
 
+### What is packable
+
+Pack and publish flows are separate from the normal build and build
+`src/dotnet-inspect` directly. Packaging is off by default (`IsPackable=false`
+in the root `Directory.Build.props`), so only `src/dotnet-inspect` and
+`src/runfaster` opt back in and no other project can ship however pack is
+invoked. Internal libraries have no versioning story and no API-stability
+commitment; treat their public surface as an internal design constraint, not an
+external compatibility surface. `PackagingSurfaceTests` pins both halves.
+
 ## Prerequisites
 
 Before dispatching a release:
