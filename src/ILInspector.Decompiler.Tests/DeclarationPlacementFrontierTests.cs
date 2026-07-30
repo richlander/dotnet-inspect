@@ -111,17 +111,22 @@ public class DeclarationPlacementFrontierTests
     /// <summary>
     /// A compiler temp carries no <c>LocalScope</c> entry at all, which is the same
     /// evidence in its degenerate form: absence of a scope marks a slot the source
-    /// never declared.
+    /// never declared. Read from the PDB directly, then cross-checked against the
+    /// importer's view so the two cannot drift apart.
     /// </summary>
     [Fact]
     public void PdbScopes_OmitCompilerTemps()
     {
+        var scoped = PdbScopedSlots(nameof(DeclScopeClient.CreateNarrow));
+        Assert.Contains(scoped, slot => slot.Name == "response");
+
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver);
         var function = IrImporter.Import(source, typeof(DeclScopeClient).FullName!, nameof(DeclScopeClient.CreateNarrow));
         Assert.NotNull(function);
 
-        Assert.Contains("response", function!.LocalNames);
-        Assert.Contains(function.LocalNames, name => name is null);
+        int[] unscoped = [.. Enumerable.Range(0, function!.Locals.Length).Where(index => !scoped.Any(slot => slot.Index == index))];
+        Assert.NotEmpty(unscoped);
+        Assert.All(unscoped, index => Assert.Null(function.LocalNames[index]));
     }
 
     static void AssertDeclarationPrecedesUsing(string output, string declaration)
@@ -174,6 +179,21 @@ public class DeclarationPlacementFrontierTests
         }
 
         throw new InvalidOperationException($"No PDB local scope for {methodName}/{localName}.");
+    }
+
+    static (int Index, string Name)[] PdbScopedSlots(string methodName)
+    {
+        var slots = new List<(int, string)>();
+        foreach (var (scope, _, pdb) in Scopes(methodName))
+        {
+            foreach (var variableHandle in scope.GetLocalVariables())
+            {
+                var variable = pdb.GetLocalVariable(variableHandle);
+                slots.Add((variable.Index, pdb.GetString(variable.Name)));
+            }
+        }
+
+        return [.. slots];
     }
 
     static IEnumerable<(LocalScope Scope, int IlLength, MetadataReader Pdb)> Scopes(string methodName)
