@@ -309,22 +309,26 @@ public class AuthoredCorpusRatchetTests
     /// </summary>
     [Theory]
     [InlineData("")]
+    [InlineData(" ")]
     [InlineData("not-a-digest")]
     [InlineData("0a7eded85c3e1410")]
     [InlineData("0A7EDED85C3E14100A7EDED85C3E14100A7EDED85C3E14100A7EDED85C3E1410")]
     [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141")]
     [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100")]
     [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141g")]
+    [InlineData(" 0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e1410")]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e1410 ")]
+    [InlineData("\t0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141")]
     public void Ratchet_MalformedIdentityIsNotAnIdentity(string malformed)
     {
         Assert.False(AuthoredCorpusRatchet.IdentityIsWellFormed(malformed));
 
-        // Both fields carry the rule, and a row is refused as a baseline for either.
-        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(RawRow(sha: malformed)));
-        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(RawRow(corpusSha: malformed)));
+        // Both fields carry the rule, and either one condemns the file.
+        Assert.NotNull(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(sha: malformed)]));
+        Assert.NotNull(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(corpusSha: malformed)]));
 
-        // The end-to-end shape the weakening allowed: two rows agreeing on a malformed
-        // identity must not compare clean, however large the regression between them.
+        // The end-to-end shape: two rows agreeing on a malformed identity must not
+        // compare clean, however large the regression between them.
         var comparison = AuthoredCorpusRatchet.Compare(
             new AuthoredCorpusRatchet.RunKey(12000, 26, 26, malformed, malformed),
             Metrics(valid: 1, correct: 1, invalid: 9999, productBodyDefect: 9999),
@@ -335,9 +339,65 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The negative half of <see cref="Ratchet_MalformedIdentityIsNotAnIdentity"/>: a
-    /// real digest and an honest absence both stay trustworthy, so the rule refuses junk
-    /// rather than refusing identity.
+    /// A malformed row condemns the whole baseline rather than being walked past.
+    ///
+    /// <para>This is the review finding that the first version of the rule got wrong.
+    /// Treating a malformed identity as an <em>untrustworthy measurement</em> put it on
+    /// the walk's skip path, and skipping the newest row hands the comparison to an
+    /// older, weaker one: a run that regressed against the strict newest threshold
+    /// reported <c>RATCHET OK</c> with exit 0 by being measured against a lax older
+    /// threshold instead. Refusing one row must never be a way to select a different
+    /// baseline — that is the same fallthrough an unidentified baseline once
+    /// offered.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_MalformedNewestRowDoesNotFallThroughToAWeakerOlderRow()
+    {
+        // An older, lax but sound row that a poor run passes against, and a newer row
+        // whose identity is junk. Counts close: 1 + 5226 + 6773 == 12000.
+        var lax = Row(date: "2026-07-28", correct: 1, validDifferent: 5226, invalid: 6773, productBodyDefect: 6773);
+        var strictButMalformed = RawRow(sha: "", corpusSha: "") with { Date = "2026-07-29" };
+
+        var poorRun = Metrics(valid: 5227, correct: 1, invalid: 6773, productBodyDefect: 6773);
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), poorRun, [lax, strictButMalformed]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+        Assert.Contains("malformed", comparison.SkipReason!, StringComparison.Ordinal);
+
+        // Proof the older row really was a usable baseline the walk would have selected:
+        // with the malformed row removed the same run compares clean. That undeserved
+        // pass is what this test makes unreachable.
+        var withoutTheMalformedRow = AuthoredCorpusRatchet.Compare(Key(), poorRun, [lax]);
+
+        Assert.False(withoutTheMalformedRow.Skipped, withoutTheMalformedRow.SkipReason);
+        Assert.Empty(withoutTheMalformedRow.Regressions);
+    }
+
+    /// <summary>
+    /// The file is refused where it is read, so no consumer has to remember to check.
+    /// </summary>
+    [Fact]
+    public void History_MalformedIdentityIsRefusedAtParseTime()
+    {
+        string sound = """
+            {"date":"2026-07-29","commit":"14781e8d","poolMatched":26,"poolTotal":26,"evaluated":2,"validPct":50,"correct":1,"validDifferent":{"total":0,"frontierIlExact":0,"frontierIlDiff":0,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0},"invalid":1,"invalidBreakdown":{"productBodyDefect":1,"harnessShellReconstruction":0,"unclassified":0},"unsupported":0,"drift":0,"poolSha256":null,"corpusSha256":null,"methodologyVersion":2,"notFull":0,"unknownOutcome":0,"inputsComplete":true}
+            """;
+        string malformed = sound.Replace("\"poolSha256\":null", "\"poolSha256\":\"\"", StringComparison.Ordinal);
+
+        // The sound row parses, so the fixture is not rejected for an unrelated reason.
+        Assert.Single(AuthoredCorpusHistoryCard.ParseHistory([sound]));
+
+        var thrown = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory([sound, malformed]));
+
+        Assert.Contains("poolSha256", thrown.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The negative half: a real digest and an honest absence are both accepted, so the
+    /// rule refuses junk rather than refusing identity.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -346,6 +406,7 @@ public class AuthoredCorpusRatchetTests
     public void Ratchet_WellFormedOrAbsentIdentityIsTrustworthy(string? sha256)
     {
         Assert.True(AuthoredCorpusRatchet.IdentityIsWellFormed(sha256));
+        Assert.Null(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(sha: sha256, corpusSha: sha256)]));
         Assert.True(AuthoredCorpusRatchet.IsTrustworthy(RawRow(sha: sha256, corpusSha: sha256)));
     }
 

@@ -344,10 +344,20 @@ than trusted, and the digests were the exception — yet they are the fields tha
 decide whether any comparison happens at all. Comparability compares them as
 opaque strings, so `""` is not read as "no identity recorded", it is read as an
 identity that happens to equal every other `""`: two such rows compare clean over
-a pool neither one identifies. Case is part of the rule, because an uppercase
-copy of a real digest is a *different* string for the same pool, which reads as
-drift that never happened. Absence stays honest and stays allowed — it is
-refused later, by comparability, rather than here.
+a pool neither one identifies. Length is part of the rule because the digests are
+deliberately untruncated, and case is part of it because an uppercase copy of a
+real digest is a *different* string for the same pool, which reads as drift that
+never happened. Absence stays honest and stays allowed — it is refused later, by
+comparability, rather than here.
+
+A malformed identity condemns the **whole file**, at parse time, rather than
+marking one row unusable. That distinction is load-bearing and review found it
+the hard way: an earlier version treated the malformed row as an untrustworthy
+measurement, which put it on the walk's skip path, and skipping the *newest* row
+silently handed the comparison to an older, laxer one — a run that regressed
+against the strict threshold reported `RATCHET OK` with exit 0 because it was
+measured against the lax one instead. Refusing a row must never be a way to
+select a different baseline.
 
 A baseline must also be able to **state every metric the run states**. A metric
 is only emitted when both sides have a number for it, so a row missing one
@@ -444,28 +454,39 @@ identity would be comparable to nothing in exactly the same way, and
 The bootstrap is not a one-time event. It re-opens **whenever run identity
 changes**, because a new identity is comparable to no row already in the store:
 
-- The vendored corpus moves. `eng/restore-authored-source-corpus.sh` materializes
-  the tip of `vendor/authored-source-corpus`, so a commit on that branch changes
-  `corpusSha256` for every subsequent run.
+- The vendored corpus changes. `corpusSha256` is `CorpusDigest`, a SHA-256 of the
+  `corpus.jsonl` bytes alone, so a commit on `vendor/authored-source-corpus`
+  re-opens the bootstrap only when it changes that file — a README or licensing
+  commit on the branch does not.
 - The pool changes — a package added to or bumped in
   `docs/data/nuget-top-packages.lock.json`, a `SELF_VERSION` bump in
-  `eng/prepare-evil-corpus.sh`, or any change to which assemblies are selected.
+  `eng/prepare-decompiler-corpus.sh`, or any change to which assemblies are
+  selected.
 
 When that happens the scheduled lane goes **red**, and the skip reason names the
 mismatch (`corpusSha256 <old> vs <new>`). That is the gate working, not a defect:
-the store's numbers describe code and inputs that no longer exist, and comparing
-across the change would report a corpus swap as a quality movement. Refusing is
-the whole reason the digests are recorded.
+the store's numbers describe inputs that no longer exist, and comparing across
+the change would report an input swap as a quality movement. Refusing is the
+whole reason the digests are recorded.
 
 The remedy is the same as the original crossing: **land two runs over the new
 inputs together**, following the Append procedure above. One row is not enough —
 it would be comparable to nothing and the lane would stay red.
 
-Deliberately *not* done: pinning the corpus branch to a fixed commit in the
-workflow. That would trade a loud, correct failure for a silent wrong answer —
-the lane would keep measuring an old corpus after the corpus was improved, and
-the eventual pin bump would change what is measured without forcing anyone to
-re-baseline. A red lane that names its cause is the cheaper failure.
+Deliberately *not* done: pinning the corpus to a fixed commit in the workflow.
+Not because a pin would hide the change — it would not; bumping a pin changes the
+corpus bytes, which changes `corpusSha256`, which re-opens the bootstrap exactly
+as a branch commit does. It is declined because it buys nothing for that cost:
+identity already detects the change loudly and precisely, while a pin adds a
+second place that must be kept in sync and delays every corpus improvement from
+reaching the lane until someone remembers to bump it.
+
+One caveat when appending by hand: `eng/restore-authored-source-corpus.sh` exits
+early if `external/authored-source-corpus` already exists, and it only fetches
+when the local branch is missing. A worktree restored weeks ago therefore
+measures whatever it was restored at, not the current tip. CI is unaffected
+because it starts from a fresh checkout — but a local append should confirm the
+branch is current before treating its run as a baseline.
 
 ### Who runs it
 
@@ -531,9 +552,10 @@ re-baseline. A red lane that names its cause is the cheaper failure.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
-  the PR lane. It deliberately passes `--integrity-only` rather than
-  `--ratchet-baseline`: this lane is the measurement-integrity gate and the
-  source of the run JSON that an append starts from.
+  the PR lane. It passes `--ratchet-baseline`, so it judges the run by movement
+  against the trend store; the measurement-integrity checks still apply
+  underneath, and the lane remains the source of the run JSON that an append
+  starts from.
 
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
   records the exact version, TFM, and SHA-256 of every swept package, and the
