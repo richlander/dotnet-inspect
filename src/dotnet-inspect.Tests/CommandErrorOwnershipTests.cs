@@ -71,18 +71,25 @@ namespace DotnetInspector.Tests;
 /// </para>
 /// <para>
 /// The coverage checks have two of their own, both found by review and both
-/// left open deliberately. The closure is read three ways -- project XML
-/// unconditionally, MSBuild's evaluation in Release, and the Release deps file
-/// -- which between them see a reference an author wrote under any condition
-/// and a reference the Release build created by any means. A reference that is
-/// both created during a build and conditional on a shipping-only flavour is in
-/// none of the three. And the severity pin keys a local function by the name
-/// the compiler assigns it, ordinal included, so adding a lambda earlier in the
-/// enclosing method can renumber it and force a pin update the method itself
-/// did not earn. Stripping the ordinal would fix that by modelling Roslyn's
-/// naming of generated members -- which is the move this class was rewritten to
-/// stop making -- so it stays, and this paragraph is the warning that an
-/// unexplained churn there is expected rather than evidence of a change.
+/// left open deliberately. The closure is read four ways, and the fourth is
+/// easy to miscount because it reads a different kind of file: project XML
+/// unconditionally, every imported <c>.props</c>/<c>.targets</c> for a
+/// <c>ProjectReference</c> element, MSBuild's evaluation in Release, and the
+/// Release deps file. The first two between them see a reference an author
+/// wrote under any condition -- project XML alone does not, because it never
+/// reads imported build files -- and the last two see a reference the Release
+/// build produced by any means. A reference that is both created during a build
+/// (a task output rather than an element, so no XML scan finds it) and
+/// conditional on a shipping-only flavour (so no Release evaluation sees it) is
+/// in none of the four. And the key both IL pins share names a local function
+/// by the name the compiler assigns it, ordinal included, so adding a lambda
+/// earlier in the enclosing method can renumber it and force a pin update the
+/// method itself did not earn. Only the severity pin holds such an entry today,
+/// but the exposure is the key's, not that pin's. Stripping the ordinal would
+/// fix it by modelling Roslyn's naming of generated members -- which is the
+/// move this class was rewritten to stop making -- so it stays, and this
+/// paragraph is the warning that an unexplained churn there is expected rather
+/// than evidence of a change.
 /// </para>
 /// </remarks>
 public class CommandErrorOwnershipTests
