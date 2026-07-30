@@ -1,5 +1,10 @@
 # NIGHTSHIFT.md — this repository's charter
 
+**This charter applies only in Nightshift mode.** If you have not been explicitly
+told that you are working a Nightshift shift this session, stop here: follow
+[`AGENTS.md`](AGENTS.md) instead, and do not adopt this document's roles, orders,
+tools, or gates.
+
 This document is the Nightshift engineering charter for **dotnet-inspect**. It is written for a
 **planner** to import at the start of a shift and use to turn this repo's issues into **orders** that
 workers execute. Read the planner skill (`nightshift skill planner`) for *how* to plan; this charter
