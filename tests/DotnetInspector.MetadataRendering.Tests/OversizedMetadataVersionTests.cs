@@ -151,49 +151,182 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 
     /// <summary>
     /// Records what the expansion knowingly breaks, so that the set cannot grow
-    /// unnoticed.
+    /// unnoticed and cannot silently shrink either.
     /// <para>
     /// Inserting bytes in the middle of `.text` moves everything after the
     /// insertion point, and the fixture repairs only what `MetadataReader`
-    /// traverses. Anything else in that section addressed by RVA is left
-    /// pointing at its old home: the PE entry point, and the import table. Review
-    /// of this file found them, against a claim that every unrepaired field had
-    /// its premise gated — it did not.
+    /// traverses. Anything else in that section addressed by RVA is left pointing
+    /// at its old home: the PE entry point, and the import table. Review of this
+    /// file found them, against a claim that every unrepaired field had its
+    /// premise gated — it did not.
     /// </para>
     /// <para>
     /// They are not repaired because this is a metadata fixture and nothing here
     /// loads or executes the image; SRM reaches metadata through the CLI header,
-    /// which sits before the insertion point and stays valid. But "we know what
-    /// we broke" is only true while the list is checked, so this test pins it. If
-    /// `ManagedPEBuilder` ever emits another `.text` directory past the metadata
-    /// root, this fails and forces the choice to be made again rather than
-    /// inherited.
+    /// which sits before the insertion point and stays valid.
+    /// </para>
+    /// <para>
+    /// The classification compares each RVA between the two images rather than
+    /// testing the baseline alone, which matters in both directions. A first
+    /// version asked only whether an RVA sat past the insertion point in the
+    /// baseline; review showed it stayed green after the entry point was
+    /// *repaired*, because it never looked at the patched image at all. It would
+    /// also have misfiled `.reloc`, whose RVA is past the insertion point and yet
+    /// entirely correct, since only its raw pointer moves. Position in the
+    /// baseline does not determine staleness; disagreement between the two images
+    /// does.
     /// </para>
     /// </summary>
     [Fact]
     public void HostileImage_BreaksOnlyTheRvasItIsKnownToBreak()
     {
         PEHeaders baseline = Headers(fixture.Baseline);
-        PEHeader header = baseline.PEHeader!;
-        int insertionRva = RvaOf(baseline, InsertionPointOf(fixture.Baseline));
+        int insertionPoint = InsertionPointOf(fixture.Baseline);
+        int containing = ContainingSectionIndex(baseline, insertionPoint);
 
         var stale = new List<string>();
-        void Check(string name, int rva)
+
+        foreach ((string name, int before, int after) in RvaFields(fixture.Baseline, fixture.Bytes))
         {
-            if (rva > insertionRva)
-                stale.Add(name);
+            int correct;
+
+            if (before == 0)
+            {
+                // A directory the baseline does not have must not appear. This is
+                // the case a reviewer planted: writing a stale `DelayImportTable`
+                // into the patched image only, where a `continue` on an empty
+                // baseline entry would have skipped straight past it.
+                correct = 0;
+            }
+            else
+            {
+                int fileOffset = FileOffsetOf(baseline, before);
+                bool shifted = fileOffset >= insertionPoint
+                    && ContainingSectionIndex(baseline, fileOffset) == containing;
+
+                correct = shifted ? before + OversizedVersionFixture.Expansion : before;
+            }
+
+            if (after != correct)
+                stale.Add($"{name} 0x{after:X} should be 0x{correct:X}");
         }
 
-        Check("AddressOfEntryPoint", header.AddressOfEntryPoint);
-        Check("ExportTable", header.ExportTableDirectory.RelativeVirtualAddress);
-        Check("ImportTable", header.ImportTableDirectory.RelativeVirtualAddress);
-        Check("ImportAddressTable", header.ImportAddressTableDirectory.RelativeVirtualAddress);
-        Check("CorHeaderTable", header.CorHeaderTableDirectory.RelativeVirtualAddress);
-        Check("DebugTable", header.DebugTableDirectory.RelativeVirtualAddress);
-        Check("LoadConfigTable", header.LoadConfigTableDirectory.RelativeVirtualAddress);
-        Check("ResourceTable", header.ResourceTableDirectory.RelativeVirtualAddress);
+        Assert.Equal(
+            new[]
+            {
+                "AddressOfEntryPoint 0x220A should be 0x280A",
+                "ImportTable 0x21B8 should be 0x27B8",
+            },
+            stale);
+    }
 
-        Assert.Equal(new[] { "AddressOfEntryPoint", "ImportTable" }, stale);
+    /// <summary>
+    /// Every RVA in the optional header, paired across the two images.
+    /// <para>
+    /// The directories are read out of the image rather than named one by one.
+    /// Two reviewers, independently, defeated a hand-written list: one by
+    /// planting a stale `DelayImportTable`, which the list did not mention, and
+    /// one by noting that seven more entries were unlisted. A list that has to be
+    /// maintained to stay exhaustive is not a gate on exhaustiveness. Walking
+    /// `NumberOfRvaAndSizes` from the header means a directory this fixture has
+    /// never seen — including a sixteenth, past the names below — is still
+    /// classified.
+    /// </para>
+    /// </summary>
+    static IEnumerable<(string Name, int Before, int After)> RvaFields(byte[] baseline, byte[] patched)
+    {
+        yield return (
+            "AddressOfEntryPoint",
+            OptionalHeader(baseline).AddressOfEntryPoint,
+            OptionalHeader(patched).AddressOfEntryPoint);
+
+        (string Name, int Rva)[] before = DataDirectories(baseline);
+        (string Name, int Rva)[] after = DataDirectories(patched);
+
+        Assert.Equal(before.Length, after.Length);
+
+        for (int i = 0; i < before.Length; i++)
+            yield return (before[i].Name, before[i].Rva, after[i].Rva);
+    }
+
+    /// <summary>
+    /// The optional header's data directory array, read from the image so that
+    /// the count comes from `NumberOfRvaAndSizes` rather than from this file.
+    /// </summary>
+    static (string Name, int Rva)[] DataDirectories(byte[] image)
+    {
+        PEHeaders headers = Headers(image);
+        int optionalHeader = headers.PEHeaderStartOffset;
+        bool pe32Plus = headers.PEHeader!.Magic == PEMagic.PE32Plus;
+
+        // NumberOfRvaAndSizes is the last scalar in the optional header, and the
+        // directory array begins immediately after it. Its offset differs because
+        // five fields widen to 64 bits in PE32+.
+        int countOffset = optionalHeader + (pe32Plus ? 108 : 92);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(countOffset, 4));
+        int first = countOffset + 4;
+
+        return [.. Enumerable.Range(0, count).Select(i => (
+            i < DirectoryNames.Length ? DirectoryNames[i] : $"Directory{i}",
+            BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(first + (i * 8), 4))))];
+    }
+
+    static readonly string[] DirectoryNames =
+    [
+        "ExportTable",
+        "ImportTable",
+        "ResourceTable",
+        "ExceptionTable",
+        "CertificateTable",
+        "BaseRelocationTable",
+        "DebugTable",
+        "ArchitectureTable",
+        "GlobalPointerTable",
+        "ThreadLocalStorageTable",
+        "LoadConfigTable",
+        "BoundImportTable",
+        "ImportAddressTable",
+        "DelayImportTable",
+        "CorHeaderTable",
+        "ReservedTable",
+    ];
+
+    /// <summary>
+    /// The certificate directory is the one entry whose value is a file offset
+    /// rather than an RVA, so <see cref="HostileImage_BreaksOnlyTheRvasItIsKnownToBreak"/>
+    /// would classify it against the wrong space. It is empty in both images;
+    /// this pins that, so a fixture that ever gains a signature fails here rather
+    /// than being quietly misfiled there.
+    /// </summary>
+    [Fact]
+    public void HostileImage_HasNoCertificateTableToMisclassify()
+    {
+        Assert.Equal(0, OptionalHeader(fixture.Baseline).CertificateTableDirectory.RelativeVirtualAddress);
+        Assert.Equal(0, OptionalHeader(fixture.Bytes).CertificateTableDirectory.RelativeVirtualAddress);
+    }
+
+    static int ContainingSectionIndex(PEHeaders headers, int fileOffset)
+    {
+        for (int i = 0; i < headers.SectionHeaders.Length; i++)
+        {
+            SectionHeader section = headers.SectionHeaders[i];
+            if (fileOffset >= section.PointerToRawData
+                && fileOffset < section.PointerToRawData + section.SizeOfRawData)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    static int FileOffsetOf(PEHeaders headers, int rva)
+    {
+        SectionHeader owner = Assert.Single(
+            headers.SectionHeaders.Where(s => rva >= s.VirtualAddress
+                && rva < s.VirtualAddress + Math.Max(s.VirtualSize, s.SizeOfRawData)));
+
+        return owner.PointerToRawData + (rva - owner.VirtualAddress);
     }
 
     /// <summary>
@@ -207,15 +340,6 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         int versionLength = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(root + 12, 4));
 
         return root + 16 + versionLength;
-    }
-
-    static int RvaOf(PEHeaders headers, int fileOffset)
-    {
-        SectionHeader owner = Assert.Single(
-            headers.SectionHeaders.Where(s => fileOffset >= s.PointerToRawData
-                && fileOffset < s.PointerToRawData + s.SizeOfRawData));
-
-        return owner.VirtualAddress + (fileOffset - owner.PointerToRawData);
     }
 
     static PEHeaders Headers(byte[] image)
