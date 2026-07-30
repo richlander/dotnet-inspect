@@ -17,7 +17,15 @@ namespace ILInspector.Decompiler.Pipeline;
 /// return is rewritten into a <see cref="Return"/> in place — adjacent
 /// <c>StoreLocal V; return V;</c> pairs, and the terminal fall-through stores of
 /// a structured statement (try/finally try body, try/catch arms, lock body,
-/// if/else arms) the trailing <c>return V;</c> follows. Switch is deliberately
+/// if/else arms) the trailing <c>return V;</c> follows. A try/catch arm that
+/// cannot fall through — it rethrows, throws, or returns — never reaches that
+/// trailing return, so it contributes no tail rather than defeating the plan;
+/// this is what lets a <c>return</c> inside <c>using { try { … } catch { … throw; } }</c>
+/// sink. A <c>using</c> reaches this pass as its underlying try/finally, because
+/// <see cref="UsingStatementPass"/> deliberately runs later so a sunk return
+/// lands inside the using body.
+///
+/// Switch is deliberately
 /// excluded: a switch <em>expression</em> is lowered through its own result
 /// accumulator, so reproducing per-arm returns would diverge from the original.
 ///
@@ -227,6 +235,15 @@ public sealed class ReturnSinkingPass : IIrPass
                     return null;
                 foreach (var clause in tryCatch.Clauses)
                 {
+                    // An arm that cannot fall through — it rethrows, throws, or
+                    // returns — never reaches the trailing return, so it
+                    // contributes no tail rather than defeating the plan. This
+                    // does not weaken the pass: TryPlan still refuses unless the
+                    // plan consumes *every* store of the local, so an arm that
+                    // stored the accumulator before terminating leaves that
+                    // store unconsumed and the whole plan is rejected.
+                    if (!FallsThrough(clause.Body))
+                        continue;
                     var clauseTail = CollectContainerTail(clause.Body, index);
                     if (clauseTail is null)
                         return null;
@@ -258,6 +275,21 @@ public sealed class ReturnSinkingPass : IIrPass
     {
         var blocks = container.Blocks;
         return blocks.Count == 0 ? null : CollectBlockTail(blocks[^1], index);
+    }
+
+    /// <summary>
+    /// Whether control reaching the end of the container continues into its
+    /// successor. A container whose last block terminates unconditionally
+    /// cannot reach a statement that follows the enclosing construct.
+    /// </summary>
+    static bool FallsThrough(BlockContainer container)
+    {
+        var blocks = container.Blocks;
+        if (blocks.Count == 0)
+            return true;
+        var children = blocks[^1].Children;
+        return children.Count == 0
+            || children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
     }
 
     static List<(StoreLocal Store, Break? Break)>? CollectBlockTail(Block block, int index)
