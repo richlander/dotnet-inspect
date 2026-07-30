@@ -365,20 +365,33 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
+            // would otherwise terminate lines whose interiors this branch already emits as LF —
+            // the appended metadata is LF on every platform. Buffering matches the Markdown
+            // sibling below, which composes its document before writing for the same reason.
+            var plain = new StringWriter { NewLine = "\n" };
+            MarkoutSerializer.Serialize(auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            var plainText = plain.ToString().TrimEnd();
             if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
-                Console.WriteLine(plainMetadata);
+            {
+                var trimmedMetadata = plainMetadata.TrimEnd();
+                // A single separator, not a blank line: the streamed original ended its last body
+                // line and wrote the metadata on the next one. The Markdown sibling below joins
+                // with a blank line because Markdown sections require one; plain text does not.
+                plainText = plainText.Length == 0 ? trimmedMetadata : plainText + "\n" + trimmedMetadata;
+            }
+            WriteLfLine(Console.Out, plainText);
         }
         else if (options.VerbosityEnabled)
         {
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
         }
         else
         {
@@ -406,9 +419,13 @@ public static class OutputFormatter
         // Environment.NewLine. The metadata half appended below is LF on every platform, and
         // MarkdownSectionOrderer rejoins on whichever ending it detects — so a CRLF shell here
         // would both mix endings and normalize the metadata sections back to CRLF.
+        //
+        // TrimEnd restores parity with the string overload, which returns no trailing newline
+        // while the TextWriter overload writes one. Without it the callers' own terminator lands
+        // on top of it and emits a stray blank line on every platform.
         var shell = new StringWriter { NewLine = "\n" };
         MarkoutSerializer.Serialize(auditView, shell, InspectionContext.Default, writerOpts);
-        var markdown = shell.ToString();
+        var markdown = shell.ToString().TrimEnd();
 
         if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
         {
