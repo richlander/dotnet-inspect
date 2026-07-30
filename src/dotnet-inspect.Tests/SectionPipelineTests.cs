@@ -1604,6 +1604,77 @@ public class SectionPipelineTests
     /// calling the product predicate, which would agree with any implementation of it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The request-scoped arguments of <c>InspectAsync</c>, as singles plus the maximal set.
+    /// </summary>
+    /// <remarks>
+    /// Two rounds were lost to this axis. The sweep reflects over <c>LibraryOptions</c>, so a read
+    /// keyed on something that is a PARAMETER rather than an option is invisible to it: round 21
+    /// was `isPlatformAssembly`, and round 25 was `packageName`, where
+    /// <c>|| packageName != null</c> built clean and left all 2576 tests green while making every
+    /// package inspection extract references unconditionally.
+    /// Singles catch a read keyed on one argument; the maximal row catches one keyed on a
+    /// conjunction, for the same reason the option sweep probes its maximal set.
+    /// </remarks>
+    private static readonly (string? PackageName, string? PackageVersion, bool IsPlatformAssembly, bool DiscoveryOnly, string Label)[]
+        InspectAsyncArgumentVariants =
+    [
+        (null, null, false, false, "defaults"),
+        ("sweep.package", null, false, false, "packageName set"),
+        (null, "1.2.3", false, false, "packageVersion set"),
+        (null, null, true, false, "isPlatformAssembly set"),
+        (null, null, false, true, "discoveryOnly set"),
+        ("sweep.package", "1.2.3", true, true, "all four set"),
+    ];
+
+    /// <summary>
+    /// Every parameter of <c>InspectAsync</c> is either varied by the sweep or named here with a
+    /// reason. Asserting SET EQUALITY against the method's own signature is the point: a parameter
+    /// added later is in neither set, so this fails until someone decides which side it belongs on.
+    /// Listing only the varied ones would let a new parameter join the method silently, which is
+    /// exactly how the two escapes above happened.
+    /// </summary>
+    [Fact]
+    public void TheSharedReadSweep_CoversEveryInspectAsyncParameter()
+    {
+        var notVaried = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["path"] = "the inspected file; varied by the corpus gate, not this sweep",
+            ["options"] = "the subject of the sweep -- reflected over property by property",
+            ["logger"] = "a sink, not request state",
+            ["httpClient"] = "a transport, not request state",
+            ["scanners"] = "varied as `request`, which is what the read is allowed to consult",
+            ["scannerRegistry"] = "the registry under test; varied by the structural gates",
+        };
+
+        var varied = InspectAsyncArgumentVariants
+            .SelectMany(v => new[] { nameof(v.PackageName), nameof(v.PackageVersion), nameof(v.IsPlatformAssembly), nameof(v.DiscoveryOnly) })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var declared = typeof(LibraryMetadataService)
+            .GetMethod(nameof(LibraryMetadataService.InspectAsync))!
+            .GetParameters()
+            .Select(p => p.Name!)
+            .ToList();
+
+        var unaccounted = declared
+            .Where(name => !varied.Contains(name) && !notVaried.ContainsKey(name))
+            .ToList();
+
+        Assert.True(
+            unaccounted.Count == 0,
+            $"InspectAsync grew parameters the shared-read sweep neither varies nor exempts: "
+                + $"{string.Join(", ", unaccounted)}. The read may now consult them without any "
+                + "gate noticing -- vary them in InspectAsyncArgumentVariants, or exempt them here "
+                + "with a reason.");
+
+        var stale = notVaried.Keys.Where(name => !declared.Contains(name, StringComparer.Ordinal)).ToList();
+        Assert.True(
+            stale.Count == 0,
+            $"These exemptions no longer name an InspectAsync parameter: {string.Join(", ", stale)}.");
+    }
+
     [Fact]
     public async Task TheSharedRead_ConsultsNothingButTheScannerKeysAndTheExplicitFlags()
     {
@@ -1636,7 +1707,8 @@ public class SectionPipelineTests
                 (new List<string> { quietKey }, false),
                 (new List<string> { readingKey }, true),
             })
-            foreach (var isPlatformAssembly in new[] { false, true })
+            foreach (var (packageName, packageVersion, isPlatformAssembly, discoveryOnly, argLabel)
+                in InspectAsyncArgumentVariants)
             {
                 // Every probe carries an explicit section selection, which is what keeps
                 // LibrarySourcePlan cache- and network-free. Without it, sweeping verbosity
@@ -1656,12 +1728,13 @@ public class SectionPipelineTests
                     path,
                     options,
                     logger,
-                    null,
-                    null,
+                    packageName,
+                    packageVersion,
                     httpClient,
                     scanners: new HashSet<string>(request, StringComparer.Ordinal),
                     scannerRegistry: LibrarySections.CreateScannerRegistry(),
-                    isPlatformAssembly: isPlatformAssembly);
+                    isPlatformAssembly: isPlatformAssembly,
+                    discoveryOnly: discoveryOnly);
 
                 if (inspection is null)
                 {
@@ -1673,7 +1746,7 @@ public class SectionPipelineTests
                 {
                     leaked.Add(
                         $"{label} with {string.Join("+", request)} "
-                            + $"(isPlatformAssembly: {isPlatformAssembly}, "
+                            + $"({argLabel}, "
                             + $"expected reference extraction: {shouldRead})");
                 }
             }
@@ -1716,10 +1789,15 @@ public class SectionPipelineTests
             },
             $"all {maximalMutations.Count} sweepable options set at once");
 
+        // Only the first few leaks are printed. One drifting condition leaks under nearly every
+        // mutation, so the full list is thousands of near-identical rows that bury the axis name.
+        var shown = string.Join(" | ", leaked.Take(6));
+        var more = leaked.Count > 6 ? $" (+{leaked.Count - 6} more)" : string.Empty;
+
         Assert.True(
             leaked.Count == 0,
             "Setting an option unrelated to the scanner keys changed whether the shared read "
-                + $"extracted assembly references: {string.Join(" | ", leaked)}. The read's "
+                + $"extracted assembly references: {shown}{more}. The read's "
                 + "condition has grown a dependency on the request beyond its declared contract.");
 
         Assert.True(
