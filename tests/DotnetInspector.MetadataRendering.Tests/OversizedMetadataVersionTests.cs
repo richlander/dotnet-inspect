@@ -119,8 +119,12 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// Every invariant is asserted against a compiler-produced assembly first,
     /// so each is anchored in what real toolchains emit rather than being a rule
     /// invented for the fixture's convenience. The set is not a general PE
-    /// validator and does not try to be; it covers the ways this fixture can
-    /// plausibly rot.
+    /// validator and does not try to be. What it does claim is narrower and
+    /// checkable: every repair
+    /// <see cref="OversizedVersionFixture"/> makes is gated by something —
+    /// `MetadataReader` itself for the stream offsets and the virtual size, a
+    /// test here for the rest — and every field the builder deliberately leaves
+    /// alone has the premise that makes leaving it alone correct gated too.
     /// </para>
     /// </summary>
     [Fact]
@@ -143,6 +147,27 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         AssertMetadataFitsItsSection(SelfImage);
 
         AssertMetadataFitsItsSection(fixture.Bytes);
+    }
+
+    /// <summary>
+    /// Sections may not overlap once mapped, and must start on a
+    /// section-alignment boundary.
+    /// <para>
+    /// The builder refuses an expansion that would push the grown section into
+    /// the next one's address space, but that guard is only as good as its own
+    /// continued existence: raise <see cref="OversizedVersionFixture"/>'s
+    /// expansion and drop the guard together and the image stays perfectly
+    /// coherent on disk while two sections claim the same memory. Review of this
+    /// file did exactly that. Asserting the property here means the guard is no
+    /// longer the only thing holding it up.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_KeepsSectionsAlignedAndDisjointInMemory()
+    {
+        AssertSectionsAreAlignedAndDisjointInMemory(SelfImage);
+
+        AssertSectionsAreAlignedAndDisjointInMemory(fixture.Bytes);
     }
 
     /// <summary>
@@ -238,6 +263,30 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         Assert.InRange(end, start, owner.PointerToRawData + owner.SizeOfRawData);
     }
 
+    static void AssertSectionsAreAlignedAndDisjointInMemory(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        PEHeaders headers = peReader.PEHeaders;
+        int sectionAlignment = headers.PEHeader!.SectionAlignment;
+
+        var mapped = headers.SectionHeaders
+            .OrderBy(static s => s.VirtualAddress)
+            .ToArray();
+
+        Assert.NotEmpty(mapped);
+
+        int previousEnd = 0;
+        foreach (SectionHeader section in mapped)
+        {
+            Assert.Equal(0, section.VirtualAddress % sectionAlignment);
+            Assert.True(
+                section.VirtualAddress >= previousEnd,
+                $"Section {section.Name} is mapped at {section.VirtualAddress}, inside the section ending at {previousEnd}.");
+
+            previousEnd = section.VirtualAddress + section.VirtualSize;
+        }
+    }
+
     static void AssertSectionsAreAlignedAndDisjoint(byte[] image)
     {
         using var peReader = new PEReader(new MemoryStream(image, writable: false));
@@ -305,9 +354,12 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 /// emits `.text` as code-only, which
 /// <see cref="OversizedMetadataVersionTests.HostileImage_GrowsASectionThatOnlyCountsAsCode"/>
 /// pins; `SizeOfImage` does not move because the expansion stays inside the
-/// containing section's existing virtual footprint. Both are covered by the
-/// optional-header gate, so if either premise ever changes the fixture fails
-/// rather than quietly emitting a contradictory image.
+/// containing section's existing virtual footprint, which the overlap guard
+/// below enforces and
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSectionsAlignedAndDisjointInMemory"/>
+/// asserts independently of that guard. Both are covered by the optional-header
+/// gate, so if either premise ever changes the fixture fails rather than quietly
+/// emitting a contradictory image.
 /// </para>
 /// </summary>
 public sealed class OversizedVersionFixture : IDisposable
