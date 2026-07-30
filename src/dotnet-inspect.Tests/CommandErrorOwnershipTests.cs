@@ -152,6 +152,18 @@ public class CommandErrorOwnershipTests
                     $"{relative}: does not escalate {StderrRule} to an error, so a violation would be a warning "
                     + "that scrolls past a green build.");
             }
+
+            // NoWarn beats WarningsAsErrors in Roslyn, so escalation alone is
+            // not the same as enforcement: a project carrying both reports a
+            // rule that is escalated and silent.
+            if (EvaluatedProperty(project, "NoWarn")
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+            {
+                uncovered.Add(
+                    $"{relative}: suppresses {StderrRule} through NoWarn, which outranks the escalation above "
+                    + "and produces no diagnostic at all.");
+            }
         }
 
         Assert.True(
@@ -159,7 +171,55 @@ public class CommandErrorOwnershipTests
             "Every project whose code runs in the CLI process must be analyzed for the stderr-ownership rule "
                 + $"(#3319); an unanalyzed project reports nothing and looks identical to a clean one.{Environment.NewLine}"
                 + string.Join(Environment.NewLine, uncovered));
+
+        Assert.Equal(ShippedProjectLibraries(), ClosureProjectNames());
     }
+
+    /// <summary>
+    /// The repository-built libraries the CLI actually ships with, read from
+    /// its deps file.
+    /// </summary>
+    /// <remarks>
+    /// The readings above are static: they see references an author wrote, in a
+    /// project file or an imported build file. This one is not. The deps file
+    /// is written by the build after every target has run, so a reference
+    /// created during execution -- by a task's <c>Output ItemName</c>, or by
+    /// any other means a static reading would have to enumerate spellings to
+    /// find -- is in it. Comparing the two is how the closure stops being a
+    /// claim about what the repository says and becomes one about what it
+    /// built.
+    ///
+    /// Which is the same lesson as the rule itself: ask the tool that already
+    /// knows, rather than re-deriving its answer.
+    /// </remarks>
+    private static SortedSet<string> ShippedProjectLibraries()
+    {
+        string deps = Path.ChangeExtension(EvaluatedProperty(CliProject, "TargetPath"), ".deps.json");
+
+        Assert.True(
+            File.Exists(deps),
+            $"{deps} does not exist, so the closure cannot be checked against what the CLI ships. "
+                + "Build the solution in Release before running this rule.");
+
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(deps));
+        SortedSet<string> shipped = new(StringComparer.Ordinal);
+
+        foreach (JsonProperty library in document.RootElement.GetProperty("libraries").EnumerateObject())
+        {
+            if (library.Value.TryGetProperty("type", out JsonElement type) && type.GetString() == "project")
+            {
+                shipped.Add(library.Name.Split('/')[0]);
+            }
+        }
+
+        return shipped;
+    }
+
+    /// <summary>
+    /// The project names the statically computed closure contains.
+    /// </summary>
+    private static SortedSet<string> ClosureProjectNames() =>
+        new(ProjectClosure(CliProject).Select(Path.GetFileNameWithoutExtension)!, StringComparer.Ordinal);
 
     /// <summary>
     /// The banned list still names every route from managed code to stderr.
@@ -793,7 +853,7 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// The properties this class asks for.
     /// </summary>
-    private static readonly string[] Properties = ["OwnsItsOwnStderr", "WarningsAsErrors", "TargetPath"];
+    private static readonly string[] Properties = ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath"];
 
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
         new(StringComparer.Ordinal);
