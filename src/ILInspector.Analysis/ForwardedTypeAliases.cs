@@ -85,14 +85,18 @@ public sealed class ForwardedTypeAliases
         }
 
         /// <summary>
-        /// The highest version at which a file answering to this spelling was found to say
-        /// <em>nothing</em> about the type, or null when none was. A reference at or below it
-        /// cannot be trusted, because binding rolls it forward onto that silent file. See the
-        /// contradiction loop in <see cref="ForTarget"/> for how it is measured and
+        /// The highest version at or below which a reference naming this spelling cannot be
+        /// trusted, or null when there is none. Two things put a version here, and they are the
+        /// same fact seen twice: a file answering to this spelling that says <em>nothing</em> about
+        /// the type, and two files answering to it that forward the type to <em>different</em>
+        /// assemblies. Either way a reference at or below the recorded version may be bound to a
+        /// file that does not take it to the target, because binding rolls a reference forward onto
+        /// a higher version and never back onto a lower one. See the contradiction loop in
+        /// <see cref="ForTarget"/> and the edge fold above it for how each is measured, and
         /// <see cref="VerdictFor(AssemblyReferenceSpelling, EvidenceIdentity)"/> for how it is
         /// enforced.
         /// </summary>
-        internal Version? SilentCeiling { get; init; }
+        internal Version? RefutedCeiling { get; init; }
 
         /// <summary>This identity widened to also account for <paramref name="version"/>.</summary>
         internal EvidenceIdentity Observing(Version version)
@@ -104,11 +108,11 @@ public sealed class ForwardedTypeAliases
                     ObservedVersions = ObservedVersions.Add(version),
                 };
 
-        /// <summary>This identity also accounting for a silent file at <paramref name="version"/>.</summary>
-        internal EvidenceIdentity SilencedAt(Version version)
-            => SilentCeiling is { } ceiling && ceiling >= version
+        /// <summary>This identity also refuted at and below <paramref name="version"/>.</summary>
+        internal EvidenceIdentity RefutedAt(Version version)
+            => RefutedCeiling is { } ceiling && ceiling >= version
                 ? this
-                : this with { SilentCeiling = version };
+                : this with { RefutedCeiling = version };
 
         /// <summary>
         /// Whether a reference naming <paramref name="version"/> is one this evidence answers for.
@@ -425,13 +429,16 @@ public sealed class ForwardedTypeAliases
         if (!evidence.AnswersForVersion(reference.Version))
             return ReferenceVerdict.Contradicted;
 
-        // A file answering to this spelling was read and said nothing about the type. Binding rolls
-        // a reference forward, so every reference at or below that file's version may land on it,
-        // and a caller that lands there is not a caller of the target — its call throws
-        // TypeLoadException rather than reaching the definition. Above it there is no reach and no
-        // refusal. Measured with a four-deployment runtime control; see the contradiction loop in
-        // ForTarget for the matrix and for why one ceiling replaced a spelling-wide poison.
-        if (evidence.SilentCeiling is { } silent && reference.Version <= silent)
+        // Evidence answering to this spelling refutes references at or below some version: either a
+        // file that was read and said nothing about the type, or two files that forward it to
+        // different assemblies. Binding rolls a reference forward, so every reference at or below
+        // that version may land on the file that does not take it to the target, and a caller that
+        // lands there is not a caller of the target — its call throws rather than reaching the
+        // definition. Above it there is no reach and no refusal. Measured with a four-deployment
+        // runtime control; see the contradiction loop in ForTarget for the matrix and for why one
+        // ceiling replaced a spelling-wide poison, and the edge fold above it for the disagreement
+        // half.
+        if (evidence.RefutedCeiling is { } refuted && reference.Version <= refuted)
             return ReferenceVerdict.Contradicted;
 
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
@@ -612,6 +619,10 @@ public sealed class ForwardedTypeAliases
         // retires the file-name assumption tracked as #3479.
         var census = new Dictionary<string, List<(string Path, EvidenceIdentity Identity)>>(
             StringComparer.OrdinalIgnoreCase);
+
+        // The census's own paths, so the walk can tell a claimant it failed to re-read from an
+        // ordinary non-assembly file it is walking past. Ordinal: these are file paths.
+        var claimantPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (string path in paths)
         {
             switch (IdentityOf(path, out var claimed))
@@ -641,6 +652,8 @@ public sealed class ForwardedTypeAliases
             // above — not case folding — is what makes one file compare equal to itself.
             if (!claimants.Any(c => string.Equals(c.Path, path, StringComparison.Ordinal)))
                 claimants.Add((path, claimed.Identity));
+
+            claimantPaths.Add(path);
         }
 
         var frontier = seedSpellings is null
@@ -688,10 +701,12 @@ public sealed class ForwardedTypeAliases
         // in review of b18e5009 — withdraw the spelling, never the bucket — arriving on the definer
         // side one round later. Canonicalization happens once, below, after pruning.
         //
-        // The VALUE is a set because two spellings that canonicalize together may legitimately
-        // forward to different assemblies, and collapsing to whichever was read first made
-        // reachability depend on enumeration order.
-        var targetsByRaw = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        // The VALUE maps each target to the HIGHEST version of a file forwarding the type there,
+        // because two spellings that canonicalize together may legitimately forward to different
+        // assemblies (collapsing to whichever was read first made reachability depend on
+        // enumeration order), and because a disagreement between two of them is only a
+        // disagreement below the older one's version — see the fold after the walk.
+        var targetsByRaw = new Dictionary<string, Dictionary<string, Version>>(StringComparer.OrdinalIgnoreCase);
         var tokensBySpelling = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
         // Ordinal, because these are file paths rather than assembly names: on a case-sensitive
         // volume `Hop.dll` and `hop.dll` are two files, and treating them as one would silently
@@ -731,7 +746,22 @@ public sealed class ForwardedTypeAliases
                     continue;
 
                 if (ProbeForType(path, openDeclaringType.Namespace, openDeclaringType.Name) is not { } probe)
+                {
+                    // This is the census's decline one layer down, and it turns on the same thing:
+                    // whether an identity was ever established for the file, not on which exception
+                    // the read threw. The census already read this file's AssemblyDef, so the
+                    // runtime could bind a reference to it — but this read cannot say what it
+                    // declares or forwards. Treating that as silence hides a DEFINER, and a definer
+                    // poisons the spelling outright, so losing it admits a caller whose call throws
+                    // (found in review of 5b954b91). A path that claimed no identity is a file the
+                    // runtime would refuse as well, so it stays a non-assembly the walk steps over
+                    // — which is why the decline is scoped to claimants rather than to the probe
+                    // returning null.
+                    if (claimantPaths.Contains(path))
+                        return None;
+
                     continue;
+                }
 
                 if (probe.DeclaresType)
                     definingSpellings.Add(probe.Assembly);
@@ -783,17 +813,38 @@ public sealed class ForwardedTypeAliases
         {
             string target = TypeRef.CanonicalAssembly(edge.Target);
 
-            // Keyed on the raw spelling, so a disagreement is attributed to the spelling whose two
-            // files actually disagree rather than to everything that canonicalizes alongside it.
-            bool retargets = targetsByRaw.TryGetValue(edge.Assembly, out var already)
-                && !already.Contains(target);
-
-            if (retargets)
+            if (!targetsByRaw.TryGetValue(edge.Assembly, out var targets))
             {
-                tokensBySpelling[edge.Assembly] =
-                    new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+                targetsByRaw[edge.Assembly] = targets =
+                    new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
             }
-            else if (!tokensBySpelling.ContainsKey(edge.Assembly))
+
+            // Two files of one spelling forwarding the type to different assemblies disagree, and
+            // nothing distinguishes which one a caller bound to — but only below the older one.
+            // Binding rolls a reference forward and never back, so above the older file's version
+            // it is unreachable and the survivors agree. Keyed on the raw spelling, so a
+            // disagreement is attributed to the spelling whose two files actually disagree rather
+            // than to everything that canonicalizes alongside it.
+            //
+            // The ceiling is the LOWER of each disagreeing pair, maximized over pairs. Refusing the
+            // spelling outright instead was version-blind and dropped real callers: a netstandard
+            // ref pack's System.Xml.ReaderWriter v4.1.1 forwards to `netstandard` where the v11
+            // framework facade forwards to System.Private.Xml, and one ref pack in a scope withdrew
+            // all 27 shared types for v11 callers that cannot bind to v4.1.1 at all (executed in
+            // review of 5b954b91). This is the same version-blindness the silent case was corrected
+            // for one review earlier, and it lands on the same ceiling.
+            Version? disagreesAt = null;
+            foreach ((string other, Version otherVersion) in targets)
+            {
+                if (other.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                Version lower = edge.Identity.Version < otherVersion ? edge.Identity.Version : otherVersion;
+                if (disagreesAt is null || lower > disagreesAt)
+                    disagreesAt = lower;
+            }
+
+            if (!tokensBySpelling.TryGetValue(edge.Assembly, out var spellingIdentity))
             {
                 // Token and culture come from the CENSUS, not from this edge. Deriving them from
                 // the files that forward the type left a same-named twin that does not forward it
@@ -801,13 +852,16 @@ public sealed class ForwardedTypeAliases
                 // twin's own definition was reported as calling the target (executed in review of
                 // 7572838c). The census sees every claimant, whatever it contains. The versions
                 // come from the forwarding files only; see above.
-                tokensBySpelling[edge.Assembly] =
-                    CensusIdentity(census, edge.Assembly, forwardingIdentity[edge.Assembly]);
+                spellingIdentity = CensusIdentity(census, edge.Assembly, forwardingIdentity[edge.Assembly]);
             }
 
-            if (!targetsByRaw.TryGetValue(edge.Assembly, out var targets))
-                targetsByRaw[edge.Assembly] = targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            targets.Add(target);
+            tokensBySpelling[edge.Assembly] = disagreesAt is { } ceiling
+                ? spellingIdentity.RefutedAt(ceiling)
+                : spellingIdentity;
+
+            targets[target] = targets.TryGetValue(target, out var seen) && seen > edge.Identity.Version
+                ? seen
+                : edge.Identity.Version;
         }
 
         // A spelling under which the type is both forwarded and defined answers for itself and for
@@ -888,7 +942,7 @@ public sealed class ForwardedTypeAliases
                 if (forwardingPaths.Contains(claimant.Path))
                     continue;
 
-                vouching = vouching.SilencedAt(claimant.Identity.Version);
+                vouching = vouching.RefutedAt(claimant.Identity.Version);
             }
 
             tokensBySpelling[spelling] = vouching;
@@ -916,6 +970,17 @@ public sealed class ForwardedTypeAliases
         //
         // Removal is by raw spelling. Removing the canonical bucket instead let a stray facade
         // withdraw a genuine sibling that merely canonicalized alongside it (see targetsByRaw).
+        //
+        // An unverified edge withdraws the TARGET it names, and refuses the spelling only at and
+        // below the version of the file that carried it. Withdrawing the whole spelling at every
+        // version was the same version-blindness the disagreement fold above was corrected for, and
+        // it is the mechanism that actually fired on the ref-pack shape: an old facade forwarding
+        // the type to an assembly this walk has no evidence about took the genuine alias with it,
+        // for callers that cannot bind to that old file at all (executed in review of 5b954b91).
+        // A spelling all of whose edges fail is still removed outright — there is nothing left of
+        // it to answer with.
+        var verifiedTargets = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var unverifiedAt = new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
         foreach (var edge in edges)
         {
             if (!targetsByRaw.ContainsKey(edge.Assembly))
@@ -927,8 +992,37 @@ public sealed class ForwardedTypeAliases
                     ? known
                     : tokensBySpelling.TryGetValue(edge.Target, out EvidenceIdentity hop) ? hop : null;
 
-            if (far is not { } evidence || VerdictFor(edge.TargetReference, evidence) != ReferenceVerdict.Verified)
-                targetsByRaw.Remove(edge.Assembly);
+            if (far is { } evidence && VerdictFor(edge.TargetReference, evidence) == ReferenceVerdict.Verified)
+            {
+                if (!verifiedTargets.TryGetValue(edge.Assembly, out var kept))
+                    verifiedTargets[edge.Assembly] = kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                kept.Add(TypeRef.CanonicalAssembly(edge.Target));
+                continue;
+            }
+
+            unverifiedAt[edge.Assembly] =
+                unverifiedAt.TryGetValue(edge.Assembly, out var highest) && highest > edge.Identity.Version
+                    ? highest
+                    : edge.Identity.Version;
+        }
+
+        foreach (string spelling in targetsByRaw.Keys.ToArray())
+        {
+            if (!verifiedTargets.TryGetValue(spelling, out var kept))
+            {
+                targetsByRaw.Remove(spelling);
+                continue;
+            }
+
+            var targets = targetsByRaw[spelling];
+            foreach (string withdrawn in targets.Keys.Where(t => !kept.Contains(t)).ToArray())
+                targets.Remove(withdrawn);
+
+            if (unverifiedAt.TryGetValue(spelling, out var ceiling)
+                && tokensBySpelling.TryGetValue(spelling, out var identity))
+            {
+                tokensBySpelling[spelling] = identity.RefutedAt(ceiling);
+            }
         }
 
         if (targetsByRaw.Count == 0)
@@ -951,7 +1045,7 @@ public sealed class ForwardedTypeAliases
 
             if (!forwardsTo.TryGetValue(canonical, out var merged))
                 forwardsTo[canonical] = merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            merged.UnionWith(targets);
+            merged.UnionWith(targets.Keys);
         }
 
         var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -964,7 +1058,7 @@ public sealed class ForwardedTypeAliases
 
             // A spelling that already equals the target is not an alias; identity answers it.
             if (canonical == openDeclaringType.Assembly
-                || !ReachesTarget(seeds, openDeclaringType.Assembly, forwardsTo))
+                || !ReachesTarget(seeds.Keys, openDeclaringType.Assembly, forwardsTo))
             {
                 continue;
             }
@@ -1123,6 +1217,15 @@ public sealed class ForwardedTypeAliases
 
     /// <summary>
     /// The name and <c>AssemblyDef</c> identity an assembly claims for itself.
+    ///
+    /// <para>Boundary: <c>Claimed</c> means SRM read the identity, not that the CLR would load the
+    /// file. SRM accepts images the runtime rejects — a one-bit change can leave the identity
+    /// intact and still produce <c>Old version error (0x80131107)</c> at load — so such a file
+    /// enters the census, probes as forwarding nothing, and becomes a silent claimant that refuses
+    /// a facade nothing real would contradict (executed in review of <c>5b954b91</c>). Closing it
+    /// needs the CLR's validation rules, which this reader does not have and cannot cheaply
+    /// approximate without refusing images that do load. The cost is an alias, never an invented
+    /// one, which is the standing direction here; tracked as #3598.</para>
     /// </summary>
     static ClaimantRead IdentityOf(string path, out (string Name, EvidenceIdentity Identity) claimed)
     {
@@ -1146,12 +1249,19 @@ public sealed class ForwardedTypeAliases
                     definition.Culture.IsNil ? "" : reader.GetString(definition.Culture),
                     definition.Version));
             return ClaimantRead.Claimed;
-        }
-        catch (BadImageFormatException)
+        }        catch (Exception ex) when (ex is BadImageFormatException or OverflowException)
         {
             // The bytes were read and are not a loadable assembly. The runtime would refuse this
             // file too, so it can never be the twin a caller binds to — that is knowledge, not the
             // absence of it, and it must not trigger the decline below.
+            //
+            // OverflowException joins BadImageFormatException because SRM does not normalize it:
+            // a single flipped byte in a size or offset field overflows its bounds arithmetic and
+            // escapes as OverflowException, which aborted the whole alias walk and with it every
+            // caller row (executed in review of 5b954b91). A scope enumerates every *.dll with no
+            // managed-image filter, so a malformed file in one is ordinary rather than exotic. All
+            // the arithmetic inside this block is SRM's, so widening the catch cannot mask a
+            // miscalculation of ours.
             return ClaimantRead.NotAnAssembly;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -1274,9 +1384,11 @@ public sealed class ForwardedTypeAliases
             return (assembly, edges, declaresType);
         }
         catch (Exception ex) when (ex is BadImageFormatException
+                                      or OverflowException
                                       or IOException
                                       or UnauthorizedAccessException)
         {
+            // OverflowException is a malformed image SRM did not normalize; see IdentityOf.
             return null;
         }
     }

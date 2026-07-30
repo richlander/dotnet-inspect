@@ -1576,6 +1576,143 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// The complement of <see cref="ASilentSiblingOlderThanTheForwarderLeavesTheAliasStanding"/>,
+    /// on the same evidence: the caller names the <em>silent</em> file's version rather than the
+    /// forwarder's, and is refused. Raised in review of <c>5b954b91</c> as an over-refusal, on the
+    /// reading that a v1 reference rolls forward to the v2 facade and so does reach the type.
+    ///
+    /// <para>It does reach it — <em>if</em> the v1 file is not there. Roll-forward is what a
+    /// reference does when no file answers its version exactly, and here one does. The reference
+    /// binds to the silent file, whose call throws, and the runtime control in
+    /// <c>ForwardedTypeAliases</c> measured exactly that (<c>v1 silent</c> against a v1 reference
+    /// is a <c>TypeLoadException</c>, not a roll-forward). Two files of one name and different
+    /// versions are not a deployment: a deployment holds one <c>Contoso.Facade.dll</c>. The
+    /// evidence set spans more than one, and the answer that holds for both is refusal — which
+    /// costs an alias and can never invent one.</para>
+    ///
+    /// <para>Pinned rather than left to the general rule so this is a decision on record, not an
+    /// accident of the ceiling's shape.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ACallerAtTheSilentSiblingsOwnVersionIsRefusedEvenThoughANewerForwarderExists(bool signed)
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[]? publicKey = signed ? [.. Enumerable.Repeat((byte)0xA7, 16)] : null;
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+            WriteNonForwarder(
+                directory, "Contoso.Facade", publicKey, "Facade.v1", new Version(1, 0, 0, 0));
+
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", publicKey is null ? null : TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null)));
+
+            // The control: the same caller against the same forwarder with the silent file gone.
+            // Without it this would pass on a v1 reference simply never resolving a v2 facade —
+            // which is precisely what happens when the evidence is UNSIGNED, because unsigned
+            // evidence vouches only for versions it was actually observed at. So the unsigned
+            // refusal above is over-determined and the signed case is what gates the ceiling. The
+            // asymmetry is deliberate and costs an alias rather than inventing one; it is the same
+            // rule ASilentSiblingOlderThanTheForwarderLeavesTheAliasStanding relies on.
+            File.Delete(Path.Combine(directory, "Facade.v1.dll"));
+            Assert.Equal(
+                signed
+                    ? CallerScopeTypeFilter.TypeReferenceState.Names
+                    : CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Two files of one spelling that forward the type to <em>different</em> assemblies disagree,
+    /// and the spelling was refused outright for that — at every version. Raised in review of
+    /// <c>5b954b91</c>: it is the version-blindness the ceiling already fixed for a silent twin,
+    /// left standing for a disagreeing one, and it is the shape a real scope produces. A netstandard
+    /// ref pack's <c>System.Xml.ReaderWriter</c> v4.1.1 forwards its 27 types to <c>netstandard</c>
+    /// while the v11 framework facade forwards them to <c>System.Private.Xml</c>; dropping the ref
+    /// pack into a scope withdrew all 27 for v11 callers that cannot bind to v4.1.1 at all.
+    ///
+    /// <para>Binding reaches a claimant in one direction only, so a disagreement between a file at
+    /// <c>a</c> and one at <c>b &gt; a</c> is only a disagreement for references at or below
+    /// <c>a</c> — above it the older file is unreachable and the survivors agree. The refusal is
+    /// therefore a ceiling at the <em>lower</em> of the two, which is the same shape and the same
+    /// seam as the silent case.</para>
+    ///
+    /// <para>Both halves are asserted, so the ceiling cannot move silently in either direction: a
+    /// caller at the older file's own version is still ambiguous and still refused.</para>
+    /// </summary>
+    [Fact]
+    public void ADisagreementBelowACallersVersionDoesNotRefuseIt()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Other", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+
+            // Above the older file: only the v2 facade is reachable, and it agrees with itself.
+            using var above = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(2, 0, 0, 0));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(above.GetMetadataReader(), target, aliases));
+
+            // At the older file's own version, both are reachable and they disagree.
+            using var at = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(at.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The other half of the signing-independence claim: a silent sibling at the <em>same</em>
     /// version contradicts whether or not the assemblies are signed. Without this, making the
     /// contradiction rule signing-independent could be satisfied by refusing nothing at all.
@@ -1737,6 +1874,121 @@ public class ForwardedTypeAliasesTests
             // The control: with the twin gone the facade does vouch, so the two refusals above are
             // the twin's doing rather than a fixture that never resolved.
             File.Delete(Path.Combine(directory, "Facade.b.dll"));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="AnUnreadableClaimantIsNotSilence"/> one layer down. The census and the probe read
+    /// the same file twice, so a file the census accepted can still be unreadable when the walk
+    /// asks what it says about the type — and the frontier treated that as a non-forwarding
+    /// sibling, which is silence it never established. Raised against <c>5b954b91</c>.
+    ///
+    /// <para>The sibling is <em>older</em> than the facade deliberately. A silent sibling at or
+    /// above the caller's version is already refused by the version ceiling, so a fixture built
+    /// that way passes without the fix and gates nothing — the first draft of this test did exactly
+    /// that. Below the caller's version the ceiling cannot fire, and the only thing standing
+    /// between the caller and a fabricated row is what the unread file would have said: the second
+    /// case here shows a real definer at that version refuses the spelling outright, at every
+    /// version, and losing that refusal is the whole defect.</para>
+    ///
+    /// <para>The sibling is unreadable only to the probe, which is the point: a locked file fails
+    /// the census first and exits through the round-16 path, so it can never reach here. See
+    /// <see cref="WriteUnprobableClaimant"/>.</para>
+    /// </summary>
+    [Fact]
+    public void AClaimantWhoseTablesCannotBeReadDeclinesTheAnswer()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+            string sibling = Path.Combine(directory, "Facade.b.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.a",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(2, 0, 0, 0));
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null));
+
+            // The control: with no sibling at all the facade vouches, so the refusals below are the
+            // sibling's doing rather than a fixture that never resolved an alias.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // One thing the unreadable file below may be: a definer under the same spelling. That
+            // refuses the spelling at every version, ceiling or no ceiling.
+            WriteDefiner(
+                directory, "Contoso.Facade", "Contoso", "Widget", "Facade.b",
+                publicKey, new Version(1, 0, 0, 0));
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+
+            // And the file as the walk actually finds it: an identity the census reads and tables
+            // it cannot. Nothing here distinguishes this from the definer above.
+            File.Delete(sibling);
+            WriteUnprobableClaimant(
+                directory, "Contoso.Facade", publicKey, "Facade.b", new Version(1, 0, 0, 0));
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A malformed file in the evidence set must not take the whole answer down. SRM does not
+    /// normalize every malformed image to <see cref="BadImageFormatException"/> — a metadata root
+    /// declaring more streams than it holds overflows its header arithmetic and escapes as
+    /// <see cref="OverflowException"/>, which passed straight through both reads and aborted the
+    /// alias walk, and with it every caller row (executed in review of <c>5b954b91</c>). A scope
+    /// enumerates every <c>*.dll</c> with no managed-image filter, so this is an ordinary file to
+    /// find in one, not an exotic one.
+    ///
+    /// <para>The assertion is the same as
+    /// <see cref="AFileThatIsNotAnAssemblyIsNotUnreadable"/>'s and for the same reason: bytes that
+    /// were read and are not a loadable assembly are knowledge. It is separate because that test
+    /// would pass unchanged with the overflow uncaught — it never produces one.</para>
+    /// </summary>
+    [Fact]
+    public void AMalformedImageSRMDoesNotNormalizeDoesNotAbortTheWalk()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Facade");
+            WriteImageWithOverflowingStreamCount(directory, "Contoso.Malformed");
+
+            using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
             Assert.Equal(
                 CallerScopeTypeFilter.TypeReferenceState.Names,
                 CallerScopeTypeFilter.Classify(
@@ -2262,6 +2514,78 @@ public class ForwardedTypeAliasesTests
             Path.Combine(directory, fileName + ".dll"),
             SerializePE(NewAssembly(name, publicKey, version)));
 
+    /// <summary>
+    /// Writes an assembly whose <c>AssemblyDef</c> reads cleanly but whose <c>ExportedType</c> row
+    /// names an <c>AssemblyRef</c> row that does not exist, so reading its forwarder table throws
+    /// <see cref="BadImageFormatException"/>.
+    ///
+    /// <para>This is the one shape that separates the two reads the walk makes of the same file:
+    /// the census wants only the <c>AssemblyDef</c> and gets it, while the probe walks the type and
+    /// forwarder tables and cannot. A locked or deleted file fails both reads and so never reaches
+    /// the probe at all, which is why it cannot gate
+    /// <see cref="AClaimantWhoseTablesCannotBeReadDeclinesTheAnswer"/>.</para>
+    ///
+    /// <para>The dangling row index is deliberate rather than a patched byte offset: it says what
+    /// is wrong with the image in one line and cannot silently stop being wrong when the serializer
+    /// changes its layout.</para>
+    /// </summary>
+    static void WriteUnprobableClaimant(
+        string directory,
+        string name,
+        byte[]? publicKey,
+        string fileName,
+        Version version)
+    {
+        var metadata = NewAssembly(name, publicKey, version);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contoso.Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            (TypeAttributes)0x00200000,
+            metadata.GetOrAddString("Contoso"),
+            metadata.GetOrAddString("Widget"),
+            MetadataTokens.AssemblyReferenceHandle(99),
+            typeDefinitionId: 0);
+
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
+    }
+
+    /// <summary>
+    /// Writes an image whose metadata root declares far more streams than it holds, so SRM's
+    /// header arithmetic overflows.
+    ///
+    /// <para>The stream count is located by walking the metadata root — <c>BSJB</c>, then the
+    /// version length at +12 and the version string it sizes — rather than by a byte offset, so
+    /// this keeps meaning what it says if the serializer's layout moves. A large-but-not-huge count
+    /// is normalized to <see cref="BadImageFormatException"/>; the overflow needs a count whose
+    /// product with the header size leaves <c>int</c> range, which <c>0xFFFF</c> does.</para>
+    /// </summary>
+    static void WriteImageWithOverflowingStreamCount(string directory, string fileName)
+    {
+        byte[] image = SerializePE(NewAssembly("Contoso.Malformed"));
+
+        int root = -1;
+        for (int i = 0; i + 4 <= image.Length; i++)
+        {
+            if (image[i] == 'B' && image[i + 1] == 'S' && image[i + 2] == 'J' && image[i + 3] == 'B')
+            {
+                root = i;
+                break;
+            }
+        }
+
+        Assert.True(root >= 0, "no metadata root in the serialized image");
+
+        int versionLength = BitConverter.ToInt32(image, root + 12);
+        BitConverter.GetBytes((ushort)0xFFFF).CopyTo(image, root + 16 + versionLength + 2);
+
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), image);
+    }
+
     static CallerScopeTypeFilter.TypeReferenceState Classify(
         TypeRef target,
         string targetPath,
@@ -2500,8 +2824,24 @@ public class ForwardedTypeAliasesTests
 
     /// <summary>Writes an assembly that declares the named type rather than forwarding it.</summary>
     static void WriteDefiner(string directory, string name, string ns, string typeName, string fileName)
+        => WriteDefiner(
+            directory, name, ns, typeName, fileName,
+            publicKey: null, version: new Version(1, 0, 0, 0));
+
+    /// <summary>
+    /// The same, with the definer's own identity held apart from its name, so a test can place a
+    /// definer that answers to another file's spelling.
+    /// </summary>
+    static void WriteDefiner(
+        string directory,
+        string name,
+        string ns,
+        string typeName,
+        string fileName,
+        byte[]? publicKey,
+        Version version)
     {
-        var metadata = NewAssembly(name);
+        var metadata = NewAssembly(name, publicKey, version);
         metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Class,
             metadata.GetOrAddString(ns),
