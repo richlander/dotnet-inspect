@@ -1650,17 +1650,19 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void Trace_AttributesEveryAddedScannerToARealPrerequisiteEdge()
+    public void Trace_ExplainsEveryScannerThatRan()
     {
-        // "added by prerequisite" is a claim about *why* a scanner ran, and the report's whole value
-        // is that a reader can trust it. Anything added to the requested set after selection lands
-        // in the closure too, and rendering that as a prerequisite asserts an edge that does not
-        // exist -- sending whoever chases an unexpected scan to the wrong declaration. Discovery
-        // mode's Metadata scan is exactly that case, which is why it goes through the pipeline's
-        // commandDemand parameter rather than being bolted onto the returned set.
+        // The report attributes each scanner to one of three mechanisms: a section named it, the
+        // command named it, or a declared prerequisite pulled it in. That attribution is the report's
+        // entire value, and it is the part with no other check on it -- a wrong bucket still renders
+        // a plausible-looking report and sends whoever chases an unexpected scan to a declaration
+        // that does not exist. Discovery mode's Metadata scan was exactly that bug.
         //
-        // Check against the registry's declared edges rather than a hand-written expectation, so
-        // the gate cannot drift as the scanner graph changes.
+        // The asymmetry is what makes this a gate rather than a restatement: the closure comes from
+        // what the run actually *did* (ExpandRequired over the returned set), while reachability is
+        // seeded from what the trace *claims* (recorded section and command demands). Seeding from
+        // trace.Requested instead would re-derive ExpandRequired's own input and assert X is a subset
+        // of X -- which an earlier version of this test did, and which stayed green under tampering.
         var registry = LibrarySections.CreateScannerRegistry();
         (string, string)[] discoveryDemand = [("discovery catalog", LibrarySections.ScannerMetadata)];
 
@@ -1673,8 +1675,12 @@ public class SectionPipelineTests
 
             trace.RecordClosure(registry.ExpandRequired(requested));
 
-            var reachable = new HashSet<string>(trace.Requested, StringComparer.Ordinal);
-            var queue = new Queue<string>(trace.Requested);
+            var claimed = trace.Demand.Select(d => d.Scanner)
+                .Concat(trace.CommandDemand.Select(c => c.Scanner))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var reachable = new HashSet<string>(claimed, StringComparer.Ordinal);
+            var queue = new Queue<string>(claimed);
             while (queue.Count > 0)
             {
                 foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
@@ -1687,8 +1693,8 @@ public class SectionPipelineTests
             Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
         }
 
-        // Non-vacuity: the discovery case has to actually add a scanner the sections never named,
-        // or the loop above proves nothing beyond the plain case.
+        // Non-vacuity: the discovery case has to actually pull in a scanner no section named, or the
+        // second iteration proves nothing the first did not.
         var plain = LibrarySections.CreatePipeline().GetRequiredScanners(Verbosity.Detailed);
         var withDiscovery = LibrarySections.CreatePipeline()
             .GetRequiredScanners(Verbosity.Detailed, commandDemand: discoveryDemand);

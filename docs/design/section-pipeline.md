@@ -235,8 +235,10 @@ Design points worth keeping:
   command asked for it directly (today only discovery mode's metadata row counts), or a declared
   prerequisite pulled it in. Collapsing the second into the third would render a prerequisite edge
   that does not exist, and send anyone chasing an unexpected scan to the wrong declaration.
-  `Trace_AttributesEveryAddedScannerToARealPrerequisiteEdge` walks the registry's declared edges and
-  fails if anything shown as expansion is not actually reachable from a requested key.
+  `Trace_ExplainsEveryScannerThatRan` seeds reachability from what the trace *claims* — the recorded
+  section and command demands — and walks the registry's declared edges to reach the closure the run
+  actually produced. That asymmetry is what makes it a gate: seeding from the requested set instead
+  would re-derive `ExpandRequired`'s own input and assert a set is a subset of itself.
 - **Resources are recorded at acquisition, not at request.** A resource that never appears was never
   built. That absence is the observable: a regression that makes a metadata-only scan open the
   whole-assembly IL index costs seconds and changes no output, so no other test would notice it.
