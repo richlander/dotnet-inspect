@@ -30,6 +30,19 @@ public class LibraryBuilderAttributionTests
         };
 
         Assert.Null(LibraryMetadataService.InferBuilder(inspection));
+
+        // The same inputs with a third party's statement added must attribute, or the assertion
+        // above would hold for an inference that had simply stopped working. Changing one field
+        // is what makes this say the map is not evidence, rather than that nothing is.
+        var served = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo { Company = "Microsoft Corporation" },
+            HasSourceLink = true,
+            SourceLinkJson = DotnetRuntimeMap,
+            SymbolServer = "msdl.microsoft.com",
+        };
+
+        Assert.Equal("Microsoft", LibraryMetadataService.InferBuilder(served));
     }
 
     [Fact]

@@ -338,8 +338,14 @@ public class SourceLinkMapConformanceTests
     [InlineData("ftp://h.test/*", false)]
     [InlineData("javascript:alert(1)/*", false)]
     [InlineData("https://*.test/x/*", false)]
+    [InlineData("https://example.test:*/fixed.cs", false)]
+    [InlineData("htt*ps://h.test/x", false)]
+    [InlineData("https://user:*@h.test/x", false)]
+    [InlineData("https://h.test/README.md#*", false)]
+    [InlineData("https://h.test/a/*/../fixed.cs", false)]
     [InlineData("https://raw.githubusercontent.com/o/r/0123456789012345678901234567890123456789/*", true)]
     [InlineData("http://internal.test/src/*", true)]
+    [InlineData("https://h.test/x?p=*&q=1", true)]
     [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*", true)]
     public void AnEntryWhoseUrlNamesNoFetchableOrigin_IsRejectedRatherThanShadowingAValidEntry(
         string url,
@@ -358,6 +364,48 @@ public class SourceLinkMapConformanceTests
 
         Assert.Equal(["/_/src/*"], map.RejectedKeys);
         Assert.Equal("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    /// <summary>
+    /// Pins each refused URL shape against a close twin that differs only in the cause, so a row
+    /// cannot pass because some unrelated rule happened to refuse it too.
+    /// </summary>
+    /// <remarks>
+    /// This is the round-6 lesson applied to a rule with three ways to fail. Asserting only that
+    /// <c>https://h.test/README.md#*</c> is refused would still pass if the refusal came from
+    /// something incidental to fragments; pairing it with <c>https://h.test/README.md?x=*</c>,
+    /// which differs by one character and is accepted, is what makes the row say <em>the fragment
+    /// is why</em>. Every twin here is a URL a real map could carry, so a rule that overreached
+    /// from the cause to its neighbourhood fails on the second assertion.
+    /// </remarks>
+    [Theory]
+    // A wildcard in the port is refused; the same wildcard one component along is a path.
+    [InlineData("https://h.test:*/fixed.cs", "https://h.test/*/fixed.cs")]
+    // A wildcard in the user information chooses the origin; credentials themselves do not.
+    [InlineData("https://user:*@h.test/x", "https://user:pw@h.test/*")]
+    // A fragment is never transmitted; a query is.
+    [InlineData("https://h.test/README.md#*", "https://h.test/README.md?x=*")]
+    // Dot-segment removal erases the substitution; without the '..' it survives.
+    [InlineData("https://h.test/a/*/../fixed.cs", "https://h.test/a/*/fixed.cs")]
+    // A wildcard in the host chooses the origin; in the first path segment it does not.
+    [InlineData("https://*.test/x", "https://h.test/*/x")]
+    public void EachRefusedUrlShape_IsRefusedForItsOwnReasonAndNotAnIncidentalOne(
+        string refused,
+        string acceptedTwin)
+    {
+        var refusedMap = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"/_/src/*\":\"" + refused +
+            "\",\"/_/*\":\"https://right.test/*\"}}");
+
+        Assert.Equal(["/_/src/*"], refusedMap.RejectedKeys);
+        Assert.Equal("https://right.test/src/Foo.cs", refusedMap.ResolveUrl("/_/src/Foo.cs"));
+
+        var twinMap = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"/_/src/*\":\"" + acceptedTwin +
+            "\",\"/_/*\":\"https://right.test/*\"}}");
+
+        Assert.Empty(twinMap.RejectedKeys);
+        Assert.NotEqual("https://right.test/src/Foo.cs", twinMap.ResolveUrl("/_/src/Foo.cs"));
     }
 
     /// <summary>

@@ -358,13 +358,6 @@ public class SourceLinkResolver
 
         int urlStar = url.IndexOf('*', StringComparison.Ordinal);
 
-        // The substituted path is percent-escaped per segment, so it can introduce neither a
-        // scheme nor an authority: whatever origin the entry names is already fixed in the text
-        // before the wildcard. Checking that text is therefore checking every URL this entry can
-        // ever produce.
-        if (!NamesAFetchableOrigin(urlStar < 0 ? url : url[..urlStar]))
-            return false;
-
         if (urlStar < 0)
         {
             // Rule 2, in the direction the reference consumer states but does not enforce: "if
@@ -373,6 +366,9 @@ public class SourceLinkResolver
             // one file's content as the source of all of them. Wrong content is worse than no
             // content, so the entry is rejected and reported rather than honoured.
             if (isPrefix)
+                return false;
+
+            if (!ProducesAFetchableRequest(url, urlSuffix: null))
                 return false;
 
             entry = new Entry(normalizedKey, isPrefix, url, UrlSuffix: null);
@@ -389,47 +385,110 @@ public class SourceLinkResolver
         if (urlSuffix.Contains('*', StringComparison.Ordinal))
             return false;
 
+        if (!ProducesAFetchableRequest(url[..urlStar], urlSuffix))
+            return false;
+
         entry = new Entry(normalizedKey, isPrefix, url[..urlStar], urlSuffix);
         return true;
     }
 
     /// <summary>
-    /// Whether the fixed part of an entry's URL names an origin source can actually be retrieved
-    /// from — an absolute <c>http</c> or <c>https</c> URL.
+    /// Whether an entry can produce a request that actually retrieves the document it matched:
+    /// an absolute <c>http</c> or <c>https</c> URL, whose origin does not depend on the document,
+    /// and whose substitution reaches the server.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the same defect round 7 fixed for a non-string value, in the one other shape it
-    /// takes. A value that is not a URL at all — <c>"*"</c>, <c>"/nope/*"</c>,
+    /// This is the same defect round 7 fixed for a non-string value, in the shapes a string can
+    /// take. A value that is not a URL at all — <c>"*"</c>, <c>"/nope/*"</c>,
     /// <c>"//evil.test/*"</c> — satisfies every wildcard rule, so it entered the map, matched, and
     /// resolved documents to a string no consumer can fetch. Ordered by specificity like any
     /// other entry, such a value outranked a valid less-specific entry and silently swallowed the
-    /// URL that would otherwise have resolved. The map is the wrong place to discover that: the
-    /// specification calls the value a URL "where the source file can be retrieved via http or
-    /// https", and the JSON schema types it as a string, so an entry that names no such origin is
+    /// URL that would otherwise have resolved. The specification calls the value a URL "where the
+    /// source file can be retrieved via http or https", so an entry that cannot produce one is
     /// non-conformant and is rejected individually into
     /// <see cref="SourceLinkResolver.RejectedKeys"/> like any other non-conformant entry.
     /// </para>
+    /// <para>
+    /// Checking the URL text before the wildcard is not enough, and the claim that it was is the
+    /// mistake this method exists to correct. <c>https://example.test:*/fixed.cs</c> has the
+    /// fixed part <c>https://example.test:</c>, which <see cref="Uri.TryCreate(string, UriKind,
+    /// out Uri)"/> accepts as absolute — and then every document resolves to
+    /// <c>https://example.test:&lt;path&gt;/fixed.cs</c>, which is not a URL at all. The wildcard
+    /// is not confined to the part after the origin, so the origin is not fixed until the
+    /// substitution is done.
+    /// </para>
+    /// <para>
+    /// So the pattern is checked by substituting two different probes and comparing the results.
+    /// Three properties have to hold, and each has its own way of failing:
+    /// </para>
+    /// <list type="number">
+    ///   <item>
+    ///     Both must be absolute <c>http</c>/<c>https</c> URLs. A wildcard in the port
+    ///     (<c>https://h.test:*/x</c>) or in the scheme (<c>htt*ps://h.test/x</c>) fails here.
+    ///   </item>
+    ///   <item>
+    ///     Both must have the same authority, or the document path chooses the origin. A wildcard
+    ///     in the host (<c>https://*.test/x</c>) or in the user information
+    ///     (<c>https://user:*@h.test/x</c>) fails here.
+    ///   </item>
+    ///   <item>
+    ///     They must differ in the part actually sent to the server. A wildcard confined to the
+    ///     fragment (<c>https://h.test/README.md#*</c>) is never transmitted, and one erased by
+    ///     dot-segment removal (<c>https://h.test/a/*/../fixed.cs</c>) is normalized away — both
+    ///     serve one file's content as the source of every document in the subtree. That is the
+    ///     same harm rule 2 refuses for a wildcard key paired with a constant URL, so it is
+    ///     refused on the same terms: wrong content is worse than no content.
+    ///   </item>
+    /// </list>
     /// <para>
     /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is
     /// the same scope decision the host allow list makes: <c>file:///tmp/*</c> is a well-formed
     /// absolute URI that this product will never fetch, because
     /// <c>HttpClientFactory.IsAllowedFetchScheme</c> — the guard on every untrusted-source fetch —
     /// admits <c>http</c> and <c>https</c> only. Admitting it into the map would reintroduce
-    /// exactly the shadowing this refuses, one layer later and out of sight. A consequence worth
-    /// stating: a wildcard inside the authority (<c>https://*.test/x</c>) leaves the fixed part
-    /// <c>https://</c>, which is not an absolute URL, so it is refused. That is intended — an
-    /// entry whose origin depends on the document path names no origin at all.
+    /// exactly the shadowing this refuses, one layer later and out of sight.
     /// </para>
     /// <para>
     /// Gated by
     /// <c>SourceLinkMapConformanceTests.AnEntryWhoseUrlNamesNoFetchableOrigin_IsRejectedRatherThanShadowingAValidEntry</c>,
     /// whose accept rows are the shapes <c>Microsoft.SourceLink.GitHub</c> and
-    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> actually generate.
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> actually generate, and by
+    /// <c>ASubstitutionThatCannotReachTheServer_IsRejected</c>, which pins the third property
+    /// against the reason it holds rather than against the refusal alone.
     /// </para>
     /// </remarks>
-    private static bool NamesAFetchableOrigin(string urlPrefix) =>
-        Uri.TryCreate(urlPrefix, UriKind.Absolute, out Uri? uri)
+    private static bool ProducesAFetchableRequest(string urlPrefix, string? urlSuffix)
+    {
+        if (urlSuffix is null)
+            return TryReadFetchable(urlPrefix, out _);
+
+        // Two probes, not one: a single substitution says whether some URL is produced, but not
+        // whether the document had any bearing on which one.
+        if (!TryReadFetchable(urlPrefix + "a" + urlSuffix, out Uri? first) ||
+            !TryReadFetchable(urlPrefix + "b" + urlSuffix, out Uri? second))
+        {
+            return false;
+        }
+
+        if (!string.Equals(
+                first!.GetLeftPart(UriPartial.Authority),
+                second!.GetLeftPart(UriPartial.Authority),
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // UriPartial.Query is everything the request line carries -- scheme, authority, path and
+        // query -- and so excludes exactly the fragment, which is never transmitted.
+        return !string.Equals(
+            first.GetLeftPart(UriPartial.Query),
+            second.GetLeftPart(UriPartial.Query),
+            StringComparison.Ordinal);
+    }
+
+    private static bool TryReadFetchable(string url, out Uri? uri) =>
+        Uri.TryCreate(url, UriKind.Absolute, out uri)
         && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
     /// <summary>
