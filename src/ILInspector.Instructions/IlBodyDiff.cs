@@ -83,6 +83,16 @@ public enum IlBodyDiffNormalization
     /// 30-digit ordinal are not recognized either.
     /// </para>
     /// <para>
+    /// One rewrite does reach a name that matches no form: a literal
+    /// <c>#</c> is doubled, because <c>#</c> is the placeholder this option
+    /// substitutes for <c>N</c>. Metadata names may contain any character, so
+    /// without that escape <c>&lt;Run&gt;b__103_0</c> would normalize onto the
+    /// legal, unrecognized name <c>&lt;Run&gt;b__#_0</c> and mask a real
+    /// difference. Escaping is injective and runs before the grammar, so it
+    /// relates no names that were not already equal and changes which names
+    /// normalize not at all — no form Roslyn emits contains <c>#</c>.
+    /// </para>
+    /// <para>
     /// Known limitation, deliberately not addressed: overloads share a
     /// containing-method name and are told apart only by <c>N</c>, so this
     /// option conflates the closures of two overloads with the same lambda
@@ -112,6 +122,8 @@ public enum IlBodyDiffNormalization
     /// <c>RejectsACacheFormWithAContainingName</c> for the field half of the
     /// containing-name correspondence, whose method half
     /// <c>PreservesEveryOtherNameComponent</c> covers;
+    /// <c>DoesNotCollideWithALiteralPlaceholder</c> for the escape that keeps
+    /// a normalized name distinct from every literal one;
     /// <c>RejectsAMethodFormBehindAMethodSpecificationOnAField</c> for the
     /// generic-instantiation path;
     /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
@@ -120,7 +132,7 @@ public enum IlBodyDiffNormalization
     /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
     /// </para>
     /// <para>
-    /// Six checks are deliberately <em>not</em> gated, and fall into two
+    /// Seven checks are deliberately <em>not</em> gated, and fall into two
     /// kinds. Three are <em>bounds guards</em>: the length floor in
     /// <c>Normalize</c>, and the marker bounds check
     /// (<c>marker + 2 &gt;= value.Length</c>) and the ordinal bounds check
@@ -128,14 +140,16 @@ public enum IlBodyDiffNormalization
     /// Neutering any of them makes the scan index past the end, so their
     /// failure mode is an exception, not a collapse. They cannot mask a
     /// difference, and a test that pinned them would be pinning an
-    /// <c>IndexOutOfRangeException</c>. Three are <em>redundant fast
+    /// <c>IndexOutOfRangeException</c>. Four are <em>redundant fast
     /// paths</em>: the <c>__</c> pre-check in <c>Normalize</c>, the
-    /// closing-angle check in <c>TryNormalizeName</c>, and the empty-span
-    /// check in <c>IsCanonicalOrdinal</c>. Each is subsumed by a later check
-    /// — the grammar re-derives <c>__</c> at the marker, a name with no
-    /// closing angle leaves the marker on the leading <c>&lt;</c> which no
-    /// marker accepts, and the parse rejects an empty span — so neutering
-    /// any of them changes no observable behavior and no test can
+    /// closing-angle check in <c>TryNormalizeName</c>, the empty-span
+    /// check in <c>IsCanonicalOrdinal</c>, and the <c>Contains</c> test in
+    /// <c>EscapePlaceholders</c>. Each is subsumed by a later check — the
+    /// grammar re-derives <c>__</c> at the marker, a name with no closing
+    /// angle leaves the marker on the leading <c>&lt;</c> which no marker
+    /// accepts, the parse rejects an empty span, and the replacement it
+    /// guards is already the identity on a name with no placeholder — so
+    /// neutering any of them changes no observable behavior and no test can
     /// distinguish it. These are listed so that a future reader does not
     /// mistake their absence from the gate list for an oversight.
     /// </para>
@@ -1150,10 +1164,46 @@ public static class IlBodyDiff
         /// Normalizes a member's simple name when the <em>whole</em> name is
         /// one of the recognized synthesized forms (for example
         /// <c>&lt;Run&gt;b__103_0</c>), rewriting only the containing-method
-        /// ordinal. Any other name is returned unchanged.
+        /// ordinal. Any other name is returned unchanged, except that a
+        /// literal <see cref="Placeholder"/> is escaped — see
+        /// <see cref="EscapePlaceholders"/>.
         /// </summary>
         public static string Normalize(string value, SynthesizedMemberKind kind)
-            => Normalize(value, kind, depth: 0);
+            => Normalize(EscapePlaceholders(value), kind, depth: 0);
+
+        /// <summary>
+        /// Doubles every literal <see cref="Placeholder"/> in a name before
+        /// normalization introduces one of its own.
+        /// </summary>
+        /// <remarks>
+        /// Without this, normalization masks a real difference. Member names
+        /// come from untrusted metadata and may contain any character,
+        /// including <c>#</c>. <c>&lt;Run&gt;b__103_0</c> normalizes to
+        /// <c>&lt;Run&gt;b__#_0</c>, which is itself a legal metadata name —
+        /// one that matches no recognized form and so passes through
+        /// unchanged. The two would then compare equal even though they name
+        /// different members, which is exactly the failure this option must
+        /// never produce.
+        /// <para>
+        /// Doubling separates the two. Escaping is injective, so it relates no
+        /// names that were not already equal, and it runs before the grammar,
+        /// so it cannot change which names normalize: no form Roslyn emits
+        /// contains <c>#</c>, making this the identity on every real name.
+        /// After escaping, every literal run of <c>#</c> has even length while
+        /// the ordinal placeholder is a lone <c>#</c> bounded by <c>_</c>, so
+        /// a normalized form can never equal a literal one.
+        /// </para>
+        /// <para>
+        /// Gated by
+        /// <c>IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_DoesNotCollideWithALiteralPlaceholder</c>,
+        /// which pins the collision itself, the escape's injectivity on two
+        /// literal names, and that a real form still normalizes.
+        /// </para>
+        /// </remarks>
+        static string EscapePlaceholders(string value)
+            => value.Contains(Placeholder)
+                ? value.Replace("#", "##", StringComparison.Ordinal)
+                : value;
 
         static string Normalize(string value, SynthesizedMemberKind kind, int depth)
         {

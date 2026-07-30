@@ -309,6 +309,55 @@ public class IlBodyDiffNormalizationTests
             "<Run>9__103_0",
             "<Run>9__128_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+
+        // The one-character containing name is the boundary of `close > 1`.
+        // Widening that to `close > 2` reads `<A>9__103_0` as having no
+        // containing name at all, and the multi-character case above stays
+        // green, so only this case pins it.
+        Assert.False(CompareFieldNames(
+            "<A>9__103_0",
+            "<A>9__128_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// Normalization introduces <c>#</c> as the ordinal placeholder, and
+    /// member names come from untrusted metadata that may already contain
+    /// one. Without escaping, <c>&lt;Run&gt;b__103_0</c> normalizes to
+    /// <c>&lt;Run&gt;b__#_0</c> — a legal metadata name that matches no
+    /// recognized form and so passes through unchanged — and the two compare
+    /// equal despite naming different members. That is a masked difference,
+    /// the one outcome this option must never produce.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_DoesNotCollideWithALiteralPlaceholder()
+    {
+        Assert.False(CompareMemberNames(
+            "<Run>b__103_0",
+            "<Run>b__#_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "A real closure name must not collapse onto a literal name spelled with the placeholder.");
+
+        Assert.False(CompareFieldNames(
+            "<>9__103_0",
+            "<>9__#_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "The cache field form must not collapse onto a literal placeholder name either.");
+
+        // Escaping must stay injective: two literal names that differ only in
+        // how many placeholders they carry must keep differing.
+        Assert.False(CompareMemberNames(
+            "<Run>b__#_0",
+            "<Run>b__##_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Escaping must not relate two literal names that differ only in placeholder count.");
+
+        // And it must not disturb the collapse the option exists to make.
+        Assert.True(CompareMemberNames(
+            "<Run>b__103_0",
+            "<Run>b__128_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Escaping must leave the intended renumbering collapse intact.");
     }
 
     /// <summary>
@@ -365,6 +414,11 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<<Run>b__103_0", "<<Run>b__128_0")]              // buried behind an unbalanced `<`
     [InlineData("<>b__103_0", "<>b__128_0")]                      // empty containing method with a lambda marker
     [InlineData("<>g__Local|103_0", "<>g__Local|128_0")]          // empty containing method with a local-function marker
+    [InlineData("<>h__103_0", "<>h__128_0")]                      // marker adjacent to the accepted set
+    [InlineData("<A__B>b-_103_0", "<A__B>b-_128_0")]              // first marker separator is not '_'
+    [InlineData("<A__B>b_-103_0", "<A__B>b_-128_0")]              // second marker separator is not '_'
+    [InlineData("<Run]b__103_0", "<Run]b__128_0")]                // containing name closed by ']' rather than '>'
+    [InlineData("<Run>g__Local!103_0", "<Run>g__Local!128_0")]    // local-function ordinal separator is not '|'
     [InlineData("<Run>g__|103_0", "<Run>g__|128_0")]              // empty local function name
     [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]    // state machine of an async lambda: a type name
     [InlineData("<Run>b__0103_0", "<Run>b__0128_0")]              // leading zero: not how Roslyn spells an ordinal
