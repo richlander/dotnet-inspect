@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Instructions.Tests;
 
@@ -116,10 +117,124 @@ public class CompilerGeneratedOrdinalTests
     /// The mangled shapes are unspellable in C# but not in IL, so eligibility is gated on
     /// the attribute Roslyn actually emits rather than on the name alone.
     /// </summary>
+    /// <remarks>
+    /// This covers a member carrying <em>no</em> attribute, which never enters the
+    /// attribute inspection at all. The identity of the attribute that is found is a
+    /// separate property, pinned by <see cref="UnrelatedAttribute_DoesNotFold"/>.
+    /// </remarks>
     [Fact]
     public void NameShapeAlone_DoesNotFold()
     {
         Assert.False(Compare([Plain("<M>g__L|3_0")], [Plain("<M>g__L|7_0")], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Eligibility requires the attribute to be <c>CompilerGeneratedAttribute</c> in
+    /// <c>System.Runtime.CompilerServices</c>, not merely some attribute. Each row drops
+    /// exactly one half of that test, so the two rows fail independently: the first when
+    /// the type name stops being compared, the second when the namespace does.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Runtime.CompilerServices", "IsReadOnlyAttribute")]
+    [InlineData("Evil", "CompilerGeneratedAttribute")]
+    public void UnrelatedAttribute_DoesNotFold(string attributeNamespace, string attributeName)
+    {
+        Assert.False(Compare(
+            [Attributed("<M>g__L|3_0", attributeNamespace, attributeName)],
+            [Attributed("<M>g__L|7_0", attributeNamespace, attributeName)],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The opening bracket is a discriminator, not decoration. Without it a name whose
+    /// first character is anything at all still yields a containing-name span, so two raw
+    /// members that merely contain <c>&gt;</c> elide to one form and a changed call target
+    /// reads as <c>Exact</c>.
+    /// </summary>
+    [Fact]
+    public void NameNotOpeningWithABracket_DoesNotFold()
+    {
+        Assert.False(Compare(
+            [Generated("XM>g__L|3_0")],
+            [Generated("XM>g__L|7_0")],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Malformed generated names must be declined, not crash the comparison. Each of these
+    /// reaches the parser and is rejected by a different guard; without that guard the
+    /// parser indexes outside the name and the whole diff fails with an exception, which
+    /// is a comparison the caller would otherwise have completed.
+    /// </summary>
+    /// <remarks>
+    /// The two sides are identical, so the assertion is that a body compares equal to
+    /// itself. That is the weakest claim that still fails on a throw, and it cannot pass
+    /// for the wrong reason the way an inequality assertion could.
+    /// </remarks>
+    [Theory]
+    [InlineData("<M>g__")]
+    [InlineData("<M>")]
+    [InlineData("")]
+    public void MalformedGeneratedName_DoesNotCrashTheComparison(string name)
+    {
+        Assert.True(Compare([Generated(name)], [Generated(name)], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// An assembly may define <c>CompilerGeneratedAttribute</c> itself — the platform's own
+    /// core library does — and then its generated members name the constructor as a
+    /// <c>MethodDefinition</c> rather than through a <c>MemberReference</c> to another
+    /// assembly. Both spellings must be recognized, or folding silently stops working for
+    /// exactly the assembly the corpus cares most about.
+    /// </summary>
+    /// <remarks>
+    /// This is a completeness control, not a soundness one: losing the definition path
+    /// costs retirements rather than producing a false <c>Exact</c>. It is here because
+    /// nothing else in the suite reaches that branch, so the loss would be silent.
+    /// </remarks>
+    [Fact]
+    public void LocallyDefinedCompilerGeneratedAttribute_IsRecognized()
+    {
+        Assert.True(Compare(
+            [Generated("<M>g__L|3_0")],
+            [Generated("<M>g__L|7_0")],
+            Ordinals,
+            localAttributeDefinition: true).IsExact);
+    }
+
+
+    /// not a number elides to the same form as a real generated member, so two genuinely
+    /// different call targets compare equal — the same false-<c>Exact</c> class as a forged
+    /// name, reached through a malformed one.
+    /// </summary>
+    /// <remarks>
+    /// The two sides must elide to the <em>same</em> form for this to see the check. A
+    /// control that merely asserts a malformed name is left alone would pass either way,
+    /// because the raw names already differ.
+    /// </remarks>
+    [Fact]
+    public void NonNumericScopeOrdinal_DoesNotFoldOntoANumericOne()
+    {
+        Assert.False(Compare(
+            [Generated("<M>g__L|3_0")],
+            [Generated("<M>g__L|x_0")],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// A member whose name is not a <c>g__</c> shape must not be elided as if it were. The
+    /// rewrite assumes the three characters after the containing-method brackets are
+    /// <c>g__</c> and re-emits them literally, so without the prefix test a raw name shaped
+    /// <c>&lt;M&gt;abcd|1_2</c> is <em>mutated</em> into <c>&lt;M&gt;g__d|N_2</c> and folds
+    /// onto the unrelated generated member <c>&lt;M&gt;g__d|5_2</c>.
+    /// </summary>
+    [Fact]
+    public void NonLocalFunctionShape_IsNotRewrittenIntoOne()
+    {
+        Assert.False(Compare(
+            [Generated("<M>g__d|5_2")],
+            [Generated("<M>abcd|1_2")],
+            Ordinals).IsExact);
     }
 
     /// <summary>
@@ -282,6 +397,88 @@ public class CompilerGeneratedOrdinalTests
             normalization: normalization).Diff;
 
     /// <summary>
+    /// A decoder that really does return a name containing NUL. Under the default decoder
+    /// such a name cannot exist, which is the whole basis for <c>OrdinalPlaceholder</c> and
+    /// <c>KeySeparator</c> being safe to embed in compared text.
+    /// </summary>
+    sealed class NulReturningDecoder() : MetadataStringDecoder(Encoding.UTF8)
+    {
+        public override unsafe string GetString(byte* bytes, int byteCount)
+            => $"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0";
+    }
+
+    /// <summary>
+    /// The hazard the decoder check exists for is real, not hypothetical: a decoder can
+    /// hand back a name containing NUL, and therefore a name that spells the elided form
+    /// exactly. Nothing about the <c>#Strings</c> heap prevents this, because the decoder
+    /// runs after the heap is read.
+    /// </summary>
+    [Fact]
+    public void AStringDecoderCanReturnANameContainingNul()
+    {
+        using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
+        var hostile = pe.GetMetadataReader(MetadataReaderOptions.Default, new NulReturningDecoder());
+
+        string name = hostile.GetString(
+            hostile.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(2)).Name);
+
+        Assert.Contains('\0', name);
+        Assert.Equal($"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0", name);
+    }
+
+    /// <summary>
+    /// The NUL unspellability argument holds for the default string decoder only, so a
+    /// reader carrying any other decoder folds nothing. The check is on decoder identity
+    /// rather than on whether a decoder looks dangerous: the decoder used here is an
+    /// ordinary UTF-8 one that behaves exactly like the default and is still refused,
+    /// because the correspondence declines to reason about decoders it did not establish
+    /// the argument for.
+    /// </summary>
+    /// <remarks>
+    /// This replaces an earlier source-text scan that looked for the decoder type being
+    /// named in this repository. That gate was bypassable — a line opening with <c>*/</c>
+    /// escaped its comment filter, and <c>MetadataStringDecod\u0065r</c> escaped it
+    /// entirely — and it could say nothing at all about callers outside this repository.
+    /// Checking the reader is neither lexical nor repository-scoped.
+    /// <para>
+    /// A hostile decoder is deliberately not used here. One that returns the elided form
+    /// for every name is refused by the parser anyway, so the test would pass with the
+    /// check deleted; a decoder that folds under the default rules is what makes this
+    /// non-vacuous.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void NonDefaultStringDecoder_FoldsNothing()
+    {
+        using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
+        var reader = pe.GetMetadataReader(
+            MetadataReaderOptions.Default,
+            new MetadataStringDecoder(Encoding.UTF8));
+
+        var (oldSide, newSide) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+
+        Assert.False(oldSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
+        Assert.False(newSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
+    }
+
+    /// <summary>
+    /// The complement, so <see cref="NonDefaultStringDecoder_FoldsNothing"/> cannot pass
+    /// because the image happens to fold nothing anyway: the same image under the default
+    /// decoder does fold, and folds to the elided form.
+    /// </summary>
+    [Fact]
+    public void DefaultStringDecoder_StillFolds()
+    {
+        using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
+        var reader = pe.GetMetadataReader();
+
+        var (oldSide, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+
+        Assert.True(oldSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out string? folded));
+        Assert.Equal($"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0", folded);
+    }
+
+    /// <summary>
     /// The same collision reached through a <c>MemberReference</c> rather than a
     /// definition. This is the case an enumeration of indexed definition names misses: the
     /// reference's parent is a type reference scoped to this module, so the rendered
@@ -385,6 +582,23 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// Type-side counterpart of <see cref="NameShapeAlone_DoesNotFold"/>. Eligibility is a
+    /// property of the attribute, not of the name, on both sides of the correspondence.
+    /// Two types whose names take a generated shape but carry no attribute name different
+    /// state machines, so folding them equates two genuinely different call targets.
+    /// </summary>
+    /// <remarks>
+    /// The method-side rule was gated from the start and the type-side rule was not, which
+    /// is the same asymmetry the ambiguity checks had: a rule mirrored in the product but
+    /// not in its controls.
+    /// </remarks>
+    [Fact]
+    public void TypeNameShapeAlone_DoesNotFold()
+    {
+        Assert.False(CompareTypes(["<M>d__3"], ["<M>d__7"], Ordinals, typesAttributed: false).IsExact);
+    }
+
+    /// <summary>
     /// Type-side counterpart of the method ambiguity controls. The new side declares two
     /// generated types that elide to one key, so that key identifies no single counterpart
     /// and nothing may fold — the old side's type must still be compared under its real
@@ -431,9 +645,26 @@ public class CompilerGeneratedOrdinalTests
 
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
+    /// <summary>
+    /// A member carrying a real custom attribute that is not
+    /// <c>CompilerGeneratedAttribute</c>, so the attribute inspection runs and has to
+    /// reject it on identity rather than on absence.
+    /// </summary>
+    static Member Attributed(string name, string attributeNamespace, string attributeName)
+        => new(name, CompilerGenerated: true, attributeNamespace, attributeName);
+
     static Member Plain(string name) => new(name, CompilerGenerated: false);
 
-    readonly record struct Member(string Name, bool CompilerGenerated);
+    /// <param name="CompilerGenerated">
+    /// Whether the member carries a custom attribute at all. When it does,
+    /// <paramref name="AttributeNamespace"/> and <paramref name="AttributeName"/> choose
+    /// which one; both null means <c>CompilerGeneratedAttribute</c>.
+    /// </param>
+    readonly record struct Member(
+        string Name,
+        bool CompilerGenerated,
+        string? AttributeNamespace = null,
+        string? AttributeName = null);
 
     /// <summary>
     /// Compares two assemblies whose caller invokes a method on the first
@@ -443,12 +674,13 @@ public class CompilerGeneratedOrdinalTests
     static IlBodyDiffResult CompareTypes(
         string[] oldTypes,
         string[] newTypes,
-        IlBodyDiffNormalization normalization)
+        IlBodyDiffNormalization normalization,
+        bool typesAttributed = true)
     {
         using var oldPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", [], generatedTypes: oldTypes)));
+            BuildImage("Probe", [], generatedTypes: oldTypes, typesAttributed: typesAttributed)));
         using var newPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", [], generatedTypes: newTypes)));
+            BuildImage("Probe", [], generatedTypes: newTypes, typesAttributed: typesAttributed)));
         return Compare(oldPe, newPe, normalization);
     }
 
@@ -456,9 +688,13 @@ public class CompilerGeneratedOrdinalTests
         Member[] oldMembers,
         Member[] newMembers,
         IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None,
-        string? newCallsReferenceNamed = null)
-    {        using var oldPe = new PEReader(new MemoryStream(BuildImage("Probe", oldMembers)));
-        using var newPe = new PEReader(new MemoryStream(BuildImage("Probe", newMembers, newCallsReferenceNamed)));
+        string? newCallsReferenceNamed = null,
+        bool localAttributeDefinition = false)
+    {
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", oldMembers, localAttributeDefinition: localAttributeDefinition)));
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", newMembers, newCallsReferenceNamed, localAttributeDefinition: localAttributeDefinition)));
         return IlAssemblyDiff.CompareMembers(
             oldPe,
             oldPe.GetMetadataReader(),
@@ -479,7 +715,9 @@ public class CompilerGeneratedOrdinalTests
         Member[] members,
         string? callReferenceNamed = null,
         string typeName = "C",
-        string[]? generatedTypes = null)
+        string[]? generatedTypes = null,
+        bool typesAttributed = true,
+        bool localAttributeDefinition = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -503,15 +741,29 @@ public class CompilerGeneratedOrdinalTests
             default,
             default,
             default);
-        var attributeType = metadata.AddTypeReference(
-            corlib,
-            metadata.GetOrAddString("System.Runtime.CompilerServices"),
-            metadata.GetOrAddString("CompilerGeneratedAttribute"));
-        // instance void .ctor(): HASTHIS, zero parameters, void return.
-        var attributeCtor = metadata.AddMemberReference(
-            attributeType,
-            metadata.GetOrAddString(".ctor"),
-            metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }));
+        // Attribute constructors are created on demand so a member can carry an attribute
+        // that is deliberately not CompilerGeneratedAttribute.
+        var attributeCtors = new Dictionary<(string Namespace, string Name), EntityHandle>();
+        EntityHandle AttributeCtor(string attributeNamespace, string attributeName)
+        {
+            if (attributeCtors.TryGetValue((attributeNamespace, attributeName), out var existing))
+                return existing;
+            var attributeType = metadata.AddTypeReference(
+                corlib,
+                metadata.GetOrAddString(attributeNamespace),
+                metadata.GetOrAddString(attributeName));
+            // instance void .ctor(): HASTHIS, zero parameters, void return.
+            var ctor = metadata.AddMemberReference(
+                attributeType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }));
+            attributeCtors[(attributeNamespace, attributeName)] = ctor;
+            return ctor;
+        }
+
+        EntityHandle compilerGeneratedCtor = localAttributeDefinition
+            ? default
+            : AttributeCtor("System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
 
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
@@ -541,6 +793,21 @@ public class CompilerGeneratedOrdinalTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
+        }
+
+        // An assembly may define CompilerGeneratedAttribute itself — System.Private.CoreLib
+        // does — in which case its own generated members reference the constructor as a
+        // MethodDefinition rather than through a MemberReference to another assembly.
+        TypeDefinitionHandle localAttributeType = default;
+        if (localAttributeDefinition)
+        {
+            localAttributeType = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("CompilerGeneratedAttribute"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(members.Length + 2 + extraTypes.Length));
         }
 
         var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
@@ -590,6 +857,15 @@ public class CompilerGeneratedOrdinalTests
             extraOffsets[i] = bodies.AddMethodBody(encoder);
         }
 
+        int localCtorOffset = -1;
+        if (localAttributeDefinition)
+        {
+            var il = new BlobBuilder();
+            var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ret);
+            localCtorOffset = bodies.AddMethodBody(encoder);
+        }
+
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -598,7 +874,7 @@ public class CompilerGeneratedOrdinalTests
             callerOffset,
             MetadataTokens.ParameterHandle(1));
 
-        var generated = new List<MethodDefinitionHandle>();
+        var generated = new List<(MethodDefinitionHandle Handle, EntityHandle Ctor)>();
         for (int i = 0; i < members.Length; i++)
         {
             var handle = metadata.AddMethodDefinition(
@@ -609,7 +885,14 @@ public class CompilerGeneratedOrdinalTests
                 memberOffsets[i],
                 MetadataTokens.ParameterHandle(1));
             if (members[i].CompilerGenerated)
-                generated.Add(handle);
+            {
+                // A nil constructor means "the CompilerGeneratedAttribute one", resolved
+                // below: with a local definition that row does not exist yet.
+                EntityHandle ctor = members[i].AttributeNamespace is { } ns && members[i].AttributeName is { } an
+                    ? AttributeCtor(ns, an)
+                    : default;
+                generated.Add((handle, ctor));
+            }
         }
 
         // The CustomAttribute table must be sorted by its coded parent index. Methods and
@@ -627,18 +910,38 @@ public class CompilerGeneratedOrdinalTests
                 MetadataTokens.ParameterHandle(1));
         }
 
-        var attributeTargets = new List<(int Coded, EntityHandle Parent)>();
-        foreach (var handle in generated)
-            attributeTargets.Add((MetadataTokens.GetRowNumber(handle) << 5, handle));
-        foreach (var handle in generatedTypeHandles)
-            attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle));
+        if (localAttributeDefinition)
+        {
+            compilerGeneratedCtor = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }),
+                localCtorOffset,
+                MetadataTokens.ParameterHandle(1));
+            _ = localAttributeType;
+        }
+
+        var attributeTargets = new List<(int Coded, EntityHandle Parent, EntityHandle Ctor)>();
+        foreach (var (handle, ctor) in generated)
+        {
+            attributeTargets.Add((
+                MetadataTokens.GetRowNumber(handle) << 5,
+                handle,
+                ctor.IsNil ? compilerGeneratedCtor : ctor));
+        }
+        if (typesAttributed)
+        {
+            foreach (var handle in generatedTypeHandles)
+                attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle, compilerGeneratedCtor));
+        }
         attributeTargets.Sort((left, right) => left.Coded.CompareTo(right.Coded));
 
-        foreach (var (_, parent) in attributeTargets)
+        foreach (var (_, parent, ctor) in attributeTargets)
         {
             metadata.AddCustomAttribute(
                 parent,
-                attributeCtor,
+                ctor,
                 metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         }
 

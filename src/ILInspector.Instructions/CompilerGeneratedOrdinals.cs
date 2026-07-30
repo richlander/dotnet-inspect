@@ -91,6 +91,17 @@ namespace ILInspector.Instructions;
 /// evidence of coverage would be wrong. Tracked by issue #3583, whose acceptance
 /// criteria include the generic fixture this assembly cannot currently build.
 /// </para>
+/// <para>
+/// <b>Three branches in the type-key construction are likewise unverified.</b> The null
+/// prefix returned when the declaring chain cannot be walked, the <c>consumed == 0</c>
+/// rejection, and the placement of the namespace on the outermost segment only all need a
+/// <em>nested</em> type — and, for the first two, one nested more deeply than
+/// <c>MetadataSafetyPolicy.MaxRelationshipNodes</c> allows. The synthetic images here
+/// declare only top-level types, so every control passes through those branches
+/// identically whether or not they are present. Tracked by issue #3588. Accepting an
+/// empty prefix in place of the null one would be a soundness loss, not a completeness
+/// one: two types whose chains could not be walked would key alike.
+/// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence
 {
@@ -191,15 +202,22 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// key resolves to exactly one eligible member on <b>both</b> sides.
     /// </summary>
     /// <remarks>
-    /// Precondition: both readers must use the default metadata string decoder. The safety
-    /// of <see cref="OrdinalPlaceholder"/> and <see cref="KeySeparator"/> rests on a name
-    /// never containing NUL, which follows from the <c>#Strings</c> heap being
-    /// NUL-terminated — but a custom <c>MetadataStringDecoder</c> may return whatever it
-    /// likes, including a name that spells the elided form. The decoder is chosen by the
-    /// caller constructing the reader, never by the assembly being read, so an untrusted
-    /// input cannot arrange this. Within this repository it is enforced rather than
-    /// assumed: <c>MetadataStringDecoderBoundaryTests</c> fails if any product source names
-    /// that type.
+    /// The safety of <see cref="OrdinalPlaceholder"/> and <see cref="KeySeparator"/> rests
+    /// on a name never containing NUL, which follows from the <c>#Strings</c> heap being
+    /// NUL-terminated — but only for the default string decoder. A custom
+    /// <c>MetadataStringDecoder</c> may return whatever it likes, including a name that
+    /// spells the elided form, which would let a raw name impersonate a folded one.
+    /// <para>
+    /// Rather than assume the precondition, this checks it: a reader carrying any other
+    /// decoder folds nothing. The decoder is chosen by the caller constructing the reader
+    /// and never by the assembly being read, so this is not a defense against untrusted
+    /// input — it is what keeps the NUL argument true for every caller, including callers
+    /// outside this repository, instead of only for this repository's own call sites.
+    /// Gated by <c>NonDefaultStringDecoder_FoldsNothing</c>, with
+    /// <c>AStringDecoderCanReturnANameContainingNul</c> pinning that the hazard is real
+    /// and <c>DefaultStringDecoder_StillFolds</c> pinning that the check does not simply
+    /// disable folding.
+    /// </para>
     /// </remarks>
     public static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
         MetadataReader oldReader,
@@ -207,6 +225,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     {
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(newReader);
+
+        // The NUL unspellability argument holds for the default decoder only. Fold nothing
+        // rather than fold unsoundly.
+        if (!ReferenceEquals(oldReader.UTF8Decoder, MetadataStringDecoder.DefaultUTF8)
+            || !ReferenceEquals(newReader.UTF8Decoder, MetadataStringDecoder.DefaultUTF8))
+        {
+            return (Empty, Empty);
+        }
 
         var oldIndex = SideIndex.For(oldReader);
         var newIndex = SideIndex.For(newReader);
