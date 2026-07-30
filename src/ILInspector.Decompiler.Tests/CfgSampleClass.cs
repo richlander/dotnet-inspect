@@ -6277,3 +6277,33 @@ public static class ReturnSinkSamples
         }
     }
 }
+
+// #3552 review finding (credit: adversarial reviewer). A catch arm ending in
+// `break` must NOT be folded. CollectBlockTail accepts a `StoreLocal; Break`
+// pair as a foldable tail and Apply detaches the Break, so treating such an arm
+// as falling through rewrites a loop `break` into a method `return` — the arm
+// transfers to the enclosing loop and skips the trailing return entirely. This
+// shape reproduces on main as well; the FallsThrough terminator set is what
+// keeps it correct now that catch arms are classified at all.
+public static class ReturnSinkBreakSamples
+{
+    public static int CatchArmBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                accumulator = 1;
+            }
+            catch
+            {
+                accumulator = 2;
+                break;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+}

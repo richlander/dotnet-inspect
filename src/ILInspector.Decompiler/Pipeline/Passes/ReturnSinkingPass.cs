@@ -278,9 +278,15 @@ public sealed class ReturnSinkingPass : IIrPass
     }
 
     /// <summary>
-    /// Whether control reaching the end of the container continues into its
-    /// successor. A container whose last block terminates unconditionally
-    /// cannot reach a statement that follows the enclosing construct.
+    /// Whether control reaching the end of the container continues into the
+    /// statement that follows the enclosing construct. A block ending in a
+    /// terminator does not, and neither does one ending in <see cref="Break"/>
+    /// or <see cref="Continue"/>: those transfer to an enclosing loop or switch,
+    /// skipping the trailing return entirely. Leaving <c>Break</c> out would be
+    /// unsound rather than merely conservative, because
+    /// <see cref="CollectBlockTail"/> accepts a <c>StoreLocal; Break</c> pair as
+    /// a foldable tail and <see cref="Apply"/> detaches the <c>Break</c> — which
+    /// would rewrite a loop <c>break</c> into a method <c>return</c>.
     /// </summary>
     static bool FallsThrough(BlockContainer container)
     {
@@ -289,7 +295,7 @@ public sealed class ReturnSinkingPass : IIrPass
             return true;
         var children = blocks[^1].Children;
         return children.Count == 0
-            || children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter);
+            || children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter or Break or Continue);
     }
 
     static List<(StoreLocal Store, Break? Break)>? CollectBlockTail(Block block, int index)

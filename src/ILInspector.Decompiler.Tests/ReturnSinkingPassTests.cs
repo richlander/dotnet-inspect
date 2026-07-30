@@ -306,10 +306,12 @@ public class ReturnSinkingPassTests
     // underlying try/finally (UsingStatementPass runs later), so these fixtures
     // build that shape.
 
-    static IrFunction RaisedSample(string methodName)
+    static IrFunction RaisedSample(string methodName) => RaisedSample(methodName, typeof(ReturnSinkSamples));
+
+    static IrFunction RaisedSample(string methodName, Type declaringType)
     {
-        using var source = MetadataSource.Open(typeof(ReturnSinkSamples).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(ReturnSinkSamples).FullName!, methodName);
+        using var source = MetadataSource.Open(declaringType.Assembly.Location);
+        var function = IrImporter.Import(source, declaringType.FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
@@ -392,6 +394,23 @@ public class ReturnSinkingPassTests
         var sunk = Assert.Single(function.Descendants.OfType<Return>());
         Assert.IsType<Constant>(sunk.Value);
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CatchArmBreakingOutOfLoop_KeepsTheBreakAndTheAccumulator()
+    {
+        // A catch arm ending in `break` transfers to the enclosing loop and
+        // skips the trailing return, so it must not be folded. CollectBlockTail
+        // accepts a `StoreLocal; Break` pair as a tail and Apply detaches the
+        // Break, so misclassifying this arm as falling through would rewrite the
+        // loop `break` into a method `return`.
+        var function = RaisedSample(nameof(ReturnSinkBreakSamples.CatchArmBreaksOutOfLoop), typeof(ReturnSinkBreakSamples));
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("break;", output);
+        // The accumulator survives: the loop's trailing `return V` is untouched.
+        Assert.Contains(function.Descendants.OfType<Return>(), r => r.Value is LoadLocal);
     }
 
     static Block Block(int startOffset, params IrNode[] statements)
