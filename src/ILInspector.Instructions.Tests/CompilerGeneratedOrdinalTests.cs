@@ -268,6 +268,84 @@ public class CompilerGeneratedOrdinalTests
             MetadataTokens.MethodDefinitionHandle(1),
             normalization: normalization).Diff;
 
+    /// <summary>
+    /// The same collision reached through a <c>MemberReference</c> rather than a
+    /// definition. This is the case an enumeration of indexed definition names misses: the
+    /// reference's parent is a type reference scoped to this module, so the rendered
+    /// operand agrees in opcode, scope, type, and signature, and only the member name
+    /// distinguishes a genuinely different call target from a folded one.
+    /// </summary>
+    [Fact]
+    public void PlaceholderCollidingReference_DoesNotHideARealTargetChange()
+    {
+        var result = Compare(
+            [Generated("<M>g__L|3_0")],
+            [Generated("<M>g__L|7_0")],
+            Ordinals,
+            newCallsReferenceNamed: "<M>g__L|#_0");
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The property the placeholder's safety rests on: the <c>#Strings</c> heap is
+    /// NUL-terminated, so a name read back through <see cref="MetadataReader"/> can never
+    /// contain NUL however the assembly was written. That is what makes the elided form
+    /// unequal to every name in the compared text without enumerating any of them.
+    /// </summary>
+    /// <remarks>
+    /// This asserts the metadata property, not the constant — <c>OrdinalPlaceholder</c> is
+    /// internal and this assembly has no <c>InternalsVisibleTo</c>. The constant is held to
+    /// its visible half by the three <c>PlaceholderColliding*</c> controls, which fail if
+    /// the placeholder becomes spellable as <c>#</c>. A placeholder changed to some other
+    /// spellable text would defeat both, which is why the argument for NUL is recorded on
+    /// the constant itself rather than left implicit.
+    /// </remarks>
+    [Fact]
+    public void PlaceholderCannotBeSpelledByAMetadataName()
+    {
+        using var pe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<M>g__L|#\0_0")])));
+
+        var reader = pe.GetMetadataReader();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            Assert.DoesNotContain('\0', reader.GetString(type.Name));
+            foreach (var methodHandle in type.GetMethods())
+                Assert.DoesNotContain('\0', reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
+        }
+    }
+
+    /// <summary>
+    /// A key is a flattened sequence of segments, so the flattening has to be injective.
+    /// A method named <c>&lt;M&gt;g__L::&lt;N&gt;g__X|3_0</c> on type <c>C</c> and a method
+    /// named <c>&lt;N&gt;g__X|7_0</c> on a type named <c>C::&lt;M&gt;g__L</c> are different
+    /// members of different types, but a spellable separator flattens both to the same key.
+    /// Each is unique on its own side, so both pass the two-sided ambiguity check, and the
+    /// rendered operand concatenates the same way — so folding them equates two genuinely
+    /// different call targets.
+    /// </summary>
+    /// <remarks>
+    /// This pins the concrete historical shape — a <c>.</c>/<c>+</c> path joined to the
+    /// member name by <c>::</c> — and fails when that scheme is restored. It does not by
+    /// itself prove every spellable separator is unsafe; a single-character separator
+    /// defeats this particular name while remaining forgeable by a name containing that
+    /// character. The general property rests on the separator being unspellable, which is
+    /// the same property <c>PlaceholderCannotBeSpelledByAMetadataName</c> asserts.
+    /// </remarks>
+    [Fact]
+    public void ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes()
+    {
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<M>g__L::<N>g__X|3_0")])));
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<N>g__X|7_0")], typeName: "C::<M>g__L")));
+
+        Assert.False(Compare(oldPe, newPe, IlBodyDiffNormalization.None).IsExact);
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     static Member Plain(string name) => new(name, CompilerGenerated: false);
@@ -277,10 +355,11 @@ public class CompilerGeneratedOrdinalTests
     static IlBodyDiffResult Compare(
         Member[] oldMembers,
         Member[] newMembers,
-        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None,
+        string? newCallsReferenceNamed = null)
     {
         using var oldPe = new PEReader(new MemoryStream(BuildImage("Probe", oldMembers)));
-        using var newPe = new PEReader(new MemoryStream(BuildImage("Probe", newMembers)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage("Probe", newMembers, newCallsReferenceNamed)));
         return IlAssemblyDiff.CompareMembers(
             oldPe,
             oldPe.GetMetadataReader(),
@@ -296,7 +375,11 @@ public class CompilerGeneratedOrdinalTests
     /// remaining members exist only to populate the type, which is what makes a key
     /// ambiguous.
     /// </summary>
-    static byte[] BuildImage(string assemblyName, Member[] members)
+    static byte[] BuildImage(
+        string assemblyName,
+        Member[] members,
+        string? callReferenceNamed = null,
+        string typeName = "C")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -340,16 +423,33 @@ public class CompilerGeneratedOrdinalTests
         metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
             default,
-            metadata.GetOrAddString("C"),
+            metadata.GetOrAddString(typeName),
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
+
+        // A reference to a type named `C` scoped to this module renders under the same
+        // scope and type as the definition above, so only the member name distinguishes
+        // the two operands.
+        MemberReferenceHandle reference = default;
+        if (callReferenceNamed is not null)
+        {
+            reference = metadata.AddMemberReference(
+                metadata.AddTypeReference(EntityHandle.ModuleDefinition, default, metadata.GetOrAddString("C")),
+                metadata.GetOrAddString(callReferenceNamed),
+                signature);
+        }
 
         var bodies = new MethodBodyStreamEncoder(new BlobBuilder());
         var callerIl = new BlobBuilder();
         var caller = new InstructionEncoder(callerIl, new ControlFlowBuilder());
         // The first member is always method 2: method 1 is the caller emitted below.
-        caller.Call(MetadataTokens.MethodDefinitionHandle(2));
+        if (callReferenceNamed is not null)
+            caller.Call(reference);
+        else
+            caller.Call(MetadataTokens.MethodDefinitionHandle(2));
         caller.OpCode(ILOpCode.Ret);
         int callerOffset = bodies.AddMethodBody(caller);
 
@@ -362,7 +462,6 @@ public class CompilerGeneratedOrdinalTests
             memberOffsets[i] = bodies.AddMethodBody(encoder);
         }
 
-        var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,

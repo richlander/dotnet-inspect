@@ -61,6 +61,11 @@ namespace ILInspector.Instructions;
 /// the local-function name, and the slot ordinal to agree, and requires the key to be
 /// unique on <em>both</em> sides, so a forged attribute cannot equate members that differ
 /// in anything but the member ordinal. Do not read this gate as authenticating provenance.
+/// <para>
+/// That bound is only real because the key's flattening is injective. When the separator
+/// was spellable it was not, and a forged attribute could equate members of two different
+/// types — see <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>, which is the
+/// gate for this paragraph's claim as much as for <see cref="KeySeparator"/>.
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
@@ -93,8 +98,58 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     public static readonly CompilerGeneratedOrdinalCorrespondence Empty =
         new(new Dictionary<MethodDefinitionHandle, string>(), new Dictionary<TypeDefinitionHandle, string>());
 
-    /// <summary>The character standing in for an elided member ordinal.</summary>
-    internal const string OrdinalPlaceholder = "#";
+    /// <summary>
+    /// The separator between key segments. It is NUL for the same reason the ordinal
+    /// placeholder ends in one: no metadata name can contain it.
+    /// </summary>
+    /// <remarks>
+    /// A key is a sequence of segments — namespace, each enclosing type, the member name —
+    /// flattened to a string. With a spellable separator that flattening is not injective:
+    /// a method named <c>&lt;M&gt;g__L::&lt;N&gt;g__X|3_0</c> on type <c>C</c> and a method
+    /// named <c>&lt;N&gt;g__X|7_0</c> on a type named <c>C::&lt;M&gt;g__L</c> produce the
+    /// same key from different segmentations. Both are unique on their own side, so both
+    /// pass the two-sided ambiguity check and fold onto each other — and because the
+    /// rendered operand concatenates the same way, the two genuinely different targets
+    /// render identically and a real difference is hidden. Separating with NUL makes the
+    /// flattening injective, because no segment can contain the separator. Pinned by
+    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>.
+    /// <para>
+    /// Keys are never rendered — only <c>MethodNames</c> and <c>TypeNames</c> reach the
+    /// compared text — so this costs nothing in output.
+    /// </para>
+    /// </remarks>
+    internal const char KeySeparator = '\0';
+
+    /// <summary>
+    /// The text standing in for an elided member ordinal. It ends in NUL, which no
+    /// metadata name can contain.
+    /// </summary>
+    /// <remarks>
+    /// The elided form is substituted into the compared operand text, so it shares a
+    /// namespace with every name that text can contain — not only the type and method
+    /// definitions this correspondence indexes, but member references, type references,
+    /// fields, and anything a future operand formatter renders. Enumerating those and
+    /// declining to fold on a match is a guess at a list; a member literally named
+    /// <c>&lt;M&gt;g__L|#_0</c> is unspellable in C# but legal in metadata, and one that
+    /// the list missed would render identically to a folded <c>&lt;M&gt;g__L|3_0</c>, so a
+    /// body that changed which of the two it calls would read as unchanged.
+    /// <para>
+    /// Ending the placeholder in NUL removes the list. Names reach the compared text
+    /// through <see cref="MetadataReader.GetString(StringHandle)"/>, and the
+    /// <c>#Strings</c> heap is NUL-terminated, so a name read back can never contain NUL
+    /// however the assembly was written — a type emitted as <c>A\0B</c> reads back as
+    /// <c>A</c>. The elided form therefore cannot equal any name, and no enumeration has
+    /// to be kept complete. Pinned by
+    /// <c>PlaceholderCannotBeSpelledByAMetadataName</c>, with the attack it defeats pinned
+    /// by <c>PlaceholderCollidingName_DoesNotHideARealTargetChange</c> and its member
+    /// reference and type-name siblings.
+    /// </para>
+    /// <para>
+    /// The NUL is invisible where a folded name reaches output, which happens only when a
+    /// row differs for some other reason; the visible <c>#</c> is what a reader sees.
+    /// </para>
+    /// </remarks>
+    internal const string OrdinalPlaceholder = "#\0";
 
     readonly Dictionary<MethodDefinitionHandle, string> _methods;
     readonly Dictionary<TypeDefinitionHandle, string> _types;
@@ -142,12 +197,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 continue;
             }
 
-            if (CollidesWithARawName(oldIndex, newIndex, oldIndex.MethodNames[handle])
-                || CollidesWithARawName(oldIndex, newIndex, newIndex.MethodNames[counterpart]))
-            {
-                continue;
-            }
-
             oldMethods[handle] = oldIndex.MethodNames[handle];
             newMethods[counterpart] = newIndex.MethodNames[counterpart];
         }
@@ -163,12 +212,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 continue;
             }
 
-            if (CollidesWithARawName(oldIndex, newIndex, oldIndex.TypeNames[handle])
-                || CollidesWithARawName(oldIndex, newIndex, newIndex.TypeNames[counterpart]))
-            {
-                continue;
-            }
-
             oldTypes[handle] = oldIndex.TypeNames[handle];
             newTypes[counterpart] = newIndex.TypeNames[counterpart];
         }
@@ -179,21 +222,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         return (new CompilerGeneratedOrdinalCorrespondence(oldMethods, oldTypes),
                 new CompilerGeneratedOrdinalCorrespondence(newMethods, newTypes));
     }
-
-    /// <summary>
-    /// Whether the elided form is spelled by some member's <em>raw</em> name on either
-    /// side, in which case folding onto it is unsafe.
-    /// </summary>
-    /// <remarks>
-    /// The elided form is substituted into the compared text, so it shares a namespace
-    /// with every raw name in either assembly. A member literally named
-    /// <c>&lt;M&gt;g__L|#_0</c> is unspellable in C# but legal in metadata, and it would
-    /// render identically to a folded <c>&lt;M&gt;g__L|3_0</c> — so a body that changed
-    /// which of the two it calls would read as unchanged. Declining the fold restores the
-    /// un-normalized comparison, which is the behavior the rest of this type promises.
-    /// </remarks>
-    static bool CollidesWithARawName(SideIndex oldIndex, SideIndex newIndex, string elided)
-        => oldIndex.RawNames.Contains(elided) || newIndex.RawNames.Contains(elided);
 
     /// <summary>
     /// Rewrites a Roslyn mangled name to its ordinal-free form, or returns null when the
@@ -274,9 +302,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         public required HashSet<string> AmbiguousTypes { get; init; }
         public required Dictionary<TypeDefinitionHandle, string> TypeNames { get; init; }
 
-        /// <summary>Every type and method name in this assembly, verbatim.</summary>
-        public required HashSet<string> RawNames { get; init; }
-
         public bool IsEmpty => Methods.Count == 0 && Types.Count == 0;
 
         public static SideIndex For(MetadataReader reader)
@@ -312,7 +337,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Types = [],
                     AmbiguousTypes = [],
                     TypeNames = [],
-                    RawNames = [],
                 };
             }
         }
@@ -325,17 +349,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             var types = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
             var ambiguousTypes = new HashSet<string>(StringComparer.Ordinal);
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
-            var rawNames = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
-                rawNames.Add(reader.GetString(type.Name));
 
                 string? typeKeyPrefix = TypeKeyPrefix(reader, typeHandle, typeNames);
-                foreach (var methodHandle in type.GetMethods())
-                    rawNames.Add(reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
-
                 if (typeKeyPrefix is null)
                     continue;
 
@@ -352,7 +371,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         continue;
 
                     methodNames[methodHandle] = elided;
-                    Add(methods, ambiguousMethods, $"{typeKeyPrefix}::{elided}", methodHandle);
+                    Add(methods, ambiguousMethods, typeKeyPrefix + KeySeparator + elided, methodHandle);
                 }
             }
 
@@ -364,7 +383,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 Types = types,
                 AmbiguousTypes = ambiguousTypes,
                 TypeNames = typeNames,
-                RawNames = rawNames,
             };
         }
 
@@ -419,17 +437,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         ?? reader.GetString(type.Name);
 
                 if (i == 0)
-                {
-                    string ns = reader.GetString(type.Namespace);
-                    if (ns.Length != 0)
-                        builder.Append(ns).Append('.');
-                }
-                else
-                {
-                    builder.Append('+');
-                }
+                    builder.Append(reader.GetString(type.Namespace));
 
-                builder.Append(name);
+                builder.Append(KeySeparator).Append(name);
             }
 
             return builder.ToString();
