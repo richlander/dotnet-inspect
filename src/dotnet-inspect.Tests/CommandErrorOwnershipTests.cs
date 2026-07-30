@@ -347,10 +347,14 @@ public class CommandErrorOwnershipTests
     /// metadata-derived routes are gated by its siblings -- among them
     /// <c>PayloadLensContainmentTests</c>, which drives <c>--info</c> onto
     /// this stream and scans what lands there, alongside
-    /// <c>UntrustedLibraryViewContainmentTests</c>,
-    /// <c>UntrustedProjectViewContainmentTests</c>, and
-    /// <c>MarkoutRowContainmentTests</c>. All of them share the
-    /// <c>HostileOutputAssert</c> oracle. Neither rule subsumes the
+    /// <c>UntrustedLibraryViewContainmentTests</c> and
+    /// <c>UntrustedProjectViewContainmentTests</c>. Those three share the
+    /// <c>HostileOutputAssert</c> oracle. <c>MarkoutRowContainmentTests</c>
+    /// backs them from the other end and shares nothing with them: it renders
+    /// no route and calls that oracle nowhere, asserting instead that each row
+    /// record contains its own fields in its initializer, so a field that
+    /// loses <c>LibraryViewText.Contain</c> is caught at the type rather than
+    /// on whichever stream happens to carry it. Neither rule subsumes the
     /// other -- this one says only accounted code may touch the stream, that
     /// family says what the accounted code puts on it is safe -- so a change
     /// that silences one should be read against the other rather than against
