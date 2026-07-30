@@ -21,6 +21,30 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    static IrFunction BuildCreateSpanReal()
+    {
+        var createSpan = new MethodRef(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "RuntimeHelpers"),
+            "CreateSpan",
+            s_readOnlySpanInt,
+            [s_runtimeFieldHandle],
+            HasThis: false)
+        {
+            TypeArguments = [s_int],
+        };
+        var token = new LoadToken(RuntimeTokenKind.Field, null, "<PrivateImplementationDetails>.Blob")
+        {
+            FieldRvaData = [1, 0, 0, 0, 2, 0, 0, 0],
+        };
+
+        var block = new Block();
+        block.Add(new Return(new Call(createSpan, isVirtual: false, [token])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(s_readOnlySpanInt, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [], body);
+    }
+
     static IrFunction BuildCreateSpanLookalike()
     {
         var createSpan = new MethodRef(
@@ -179,6 +203,70 @@ public class RvaSpanPassTests
 
         Assert.Single(function.Descendants.OfType<ArrayLiteral>());
         Assert.DoesNotContain(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    // The caller detaches the InitializeArray statement after folding. If the
+    // creation is that statement's own argument, folding would delete the array
+    // along with the call, so the shape is declined and the IL stands unraised.
+    [Fact]
+    public void InitializeArray_InlineCreation_StaysUnraisedRatherThanVanishing()
+    {
+        var intArray = TypeRef.SzArray(s_int);
+        var token = new LoadToken(RuntimeTokenKind.Field, null, "<PrivateImplementationDetails>.Blob")
+        {
+            FieldRvaData = [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0],
+        };
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            RealInitializeArray(),
+            isVirtual: false,
+            [new NewArray(s_int, new Constant(3, s_int)), token])));
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Single(function.Descendants.OfType<NewArray>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InitializeArray");
+        function.CheckInvariant();
+    }
+
+    // Every raise in this pass replaces one offset-bearing instruction with a
+    // synthesized literal, and the replacement is the only place that offset can
+    // survive. Facts and the mixed IL view both locate a statement by the offsets
+    // beneath it, so a dropped offset strands them on a neighbouring statement.
+    [Fact]
+    public void CreateSpan_RaisedLiteral_AdoptsTheCallsSourceOffset()
+    {
+        var function = BuildCreateSpanReal();
+        Assert.Single(function.Descendants.OfType<Call>()).SetSourceOffset(21);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        var literal = Assert.Single(function.Descendants.OfType<SpanLiteral>());
+        Assert.Equal(21, literal.SourceOffset);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReadOnlySpanRvaConstructor_RaisedLiteral_AdoptsTheConstructionsSourceOffset()
+    {
+        var function = BuildReadOnlySpanByteCtor([10, 20, 30, 0], spanLength: 3);
+        Assert.Single(function.Descendants.OfType<NewObject>()).SetSourceOffset(33);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        var literal = Assert.Single(function.Descendants.OfType<SpanLiteral>());
+        Assert.Equal(33, literal.SourceOffset);
         function.CheckInvariant();
     }
 
