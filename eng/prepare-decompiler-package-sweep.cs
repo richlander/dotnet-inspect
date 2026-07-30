@@ -667,8 +667,9 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
-string? unwritable = await WriteOrReport(
-    assembliesPath, () => File.WriteAllLinesAsync(assembliesPath, assemblies));
+string? unwritable = await ReplaceOrReport(
+    assembliesPath,
+    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)));
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -685,9 +686,9 @@ var manifest = new PackageSweepManifest(
     SelectedPackageCount: assemblies.Count,
     Packages: results);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
-unwritable = await WriteOrReport(manifestPath, () => File.WriteAllTextAsync(
+unwritable = await ReplaceOrReport(
     manifestPath,
-    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine));
+    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine);
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -739,7 +740,7 @@ if (refreshPin)
     // Rank lives in nuget-top-packages.json and is deliberately not repeated here.
     // Two files stating the same rank is two things to keep in step, and the one that
     // drifts is the one nothing reads.
-    unwritable = await WriteOrReport(pinPath, () => File.WriteAllTextAsync(
+    unwritable = await ReplaceOrReport(
         pinPath,
         JsonSerializer.Serialize(
             // No timestamp: the file is a pure function of the pins, so re-recording an
@@ -748,7 +749,7 @@ if (refreshPin)
             // #3349 found that hashing a file with a timestamp in it yields an identity
             // that never repeats.
             new PackagePinFile(SchemaVersion: 1, Packages: recorded),
-            jsonContext.PackagePinFile) + Environment.NewLine));
+            jsonContext.PackagePinFile) + Environment.NewLine);
     if (unwritable is not null)
     {
         // A refresh that cannot write the pin has not refreshed anything, and the file
@@ -903,22 +904,39 @@ static (string? Text, string? Problem) ReadBoundedText(string path)
     // and turn a healthy file into a refusal.
     const int TimeoutSeconds = 5;
 
+    // Not disposed on the timeout path: the abandoned read still holds this token, and
+    // disposing it under that thread trades one problem for an ObjectDisposedException
+    // nobody is waiting to catch.
+    var cancellation = new CancellationTokenSource();
     try
     {
         var read = Task.Factory.StartNew(
-            () => ReadAtMost(path, MaxBytes),
+            () => ReadAtMost(path, MaxBytes, cancellation.Token),
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
-        if (!read.Wait(TimeSpan.FromSeconds(TimeoutSeconds)))
+        // WaitAny and not Wait: Wait(TimeSpan) throws the AggregateException wrapping
+        // whatever the read threw, which is not what the filter below catches, so a
+        // directory named as a pin file exited 134 -- the crash this file exists to
+        // remove, reintroduced by the fix for the hang. WaitAny reports completion
+        // without inspecting the outcome, leaving GetResult below to raise the original
+        // exception unwrapped.
+        if (Task.WaitAny([read], TimeSpan.FromSeconds(TimeoutSeconds)) < 0)
         {
+            // Cancelling releases a read that has started and is trickling. It cannot
+            // release one still blocked in open(2), which no token reaches -- that
+            // thread is stuck until the process ends, which is why the deadline is the
+            // answer rather than the cleanup.
+            cancellation.Cancel();
             return (null,
-                $"produced no bytes within {TimeoutSeconds} seconds, so it is not a file "
-                + "this sweep can read");
+                $"was still being read after {TimeoutSeconds} seconds, so it is not a "
+                + "file this sweep can read");
         }
 
-        // Rethrows what the read threw, rather than the AggregateException wrapping it,
+        cancellation.Dispose();
+
+        // Raises what the read threw, rather than the AggregateException wrapping it,
         // so the catch below sees the same exceptions a direct read would raise.
         byte[]? bytes = read.GetAwaiter().GetResult();
         if (bytes is null)
@@ -937,13 +955,31 @@ static (string? Text, string? Problem) ReadBoundedText(string path)
 
 /// <summary>
 /// Returns the file's bytes, or null when it holds more than <paramref name="maxBytes"/>.
+///
+/// <para>Grown a chunk at a time rather than allocated at the ceiling. Reading the
+/// sixty-kilobyte lockfile used to allocate sixteen megabytes because that is what a
+/// too-large file would need, and a read abandoned at the deadline held that buffer for
+/// the life of the process on a thread nothing could reach.</para>
 /// </summary>
-static byte[]? ReadAtMost(string path, int maxBytes)
+static byte[]? ReadAtMost(string path, int maxBytes, CancellationToken cancellationToken)
 {
     using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-    var buffer = new byte[maxBytes + 1];
-    int read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-    return read > maxBytes ? null : buffer[..read];
+    using var accumulated = new MemoryStream();
+    var chunk = new byte[64 * 1024];
+
+    // One byte past the ceiling decides the question: a file of exactly maxBytes reads
+    // to its end and is returned, and one byte more leaves the loop with nothing.
+    while (accumulated.Length <= maxBytes)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        int read = stream.Read(chunk, 0, chunk.Length);
+        if (read == 0)
+            return accumulated.ToArray();
+
+        accumulated.Write(chunk, 0, read);
+    }
+
+    return null;
 }
 
 /// <summary>
@@ -1034,15 +1070,39 @@ static bool IsBarePackageId(string? id) =>
     !string.IsNullOrWhiteSpace(id)
     && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
 
-static async Task<string?> WriteOrReport(string path, Func<Task> write)
+/// <summary>
+/// Writes <paramref name="content"/> to a fresh sibling and moves it onto
+/// <paramref name="path"/>, or says why it could not.
+///
+/// <para>Never opens the destination for writing, which matters twice. A refresh
+/// interrupted partway through a direct write leaves the lockfile truncated -- a pin
+/// file that is neither the old one nor the new one, and the next sweep reads it. And
+/// the destination is a name, not a file: something can replace it with a FIFO between
+/// the read that checked it and the write, and opening that blocks until a reader
+/// appears, which is the hang the read path already had to grow a deadline for. A move
+/// onto the name replaces whatever is there instead of writing through it.</para>
+/// </summary>
+static async Task<string?> ReplaceOrReport(string path, string content)
 {
+    string temporary = path + $".{Environment.ProcessId}.tmp";
     try
     {
-        await write();
+        await File.WriteAllTextAsync(temporary, content);
+        File.Move(temporary, path, overwrite: true);
         return null;
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
+        // A leftover temporary is worse than the failure it came from: it is a file
+        // nothing reads and the next run collides with.
+        try
+        {
+            File.Delete(temporary);
+        }
+        catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+        {
+        }
+
         return $"Could not write '{path}': {ex.Message}";
     }
 }

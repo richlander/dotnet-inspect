@@ -149,6 +149,16 @@ public class EvilPoolPinTests
                     written.Add(("a path that never produces its bytes", "read", fifo));
             }
 
+            // Also about the read, and the reason there are two of these. The bound that
+            // answers the FIFO above waited on the read with Task.Wait, which throws the
+            // AggregateException wrapping whatever the read threw -- not the exception
+            // the reader catches. So a path that simply cannot be opened stopped being a
+            // refusal and became exit 134, the crash this suite exists to keep out, put
+            // there by the fix for the hang. A directory is the cheapest such path.
+            string unopenable = Path.Combine(scratch, "a-directory.lock.json");
+            Directory.CreateDirectory(unopenable);
+            written.Add(("a path that cannot be opened at all", "read-error", unopenable));
+
             var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
 
             Assert.True(
