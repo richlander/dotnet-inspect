@@ -560,7 +560,26 @@ foreach (var entry in selected)
         string destination = Path.Combine(
             destinationDirectory,
             Path.GetFileName(source));
-        File.Copy(source, destination, overwrite: true);
+        // Copied through a fresh sibling rather than onto the name, for the same reason
+        // the metadata writes are. File.Copy opens the destination and writes through a
+        // symlink sitting at it, so a link planted in the output directory took seven
+        // hundred kilobytes of assembly onto whatever it pointed at while the sweep
+        // reported success -- the arbitrary-file overwrite the metadata writes were
+        // hardened against, still open on the ninety-one writes per sweep that carry the
+        // pool itself.
+        string? uncopied = await CopyOntoOrReport(source, destination);
+        if (uncopied is not null)
+        {
+            // Recorded as this package failing rather than thrown away. A copy that did
+            // not happen is a package that is not in the pool, and a pool short a
+            // package must be short in the accounting too.
+            results.Add(Failed(
+                entry, "copy-failed", uncopied, resolvedPackage, package.Version,
+                selection.Tfm, package.FromCache));
+            Console.Error.WriteLine($"rank {entry.Rank}: {entry.Package}: {uncopied}");
+            continue;
+        }
+
         destination = Path.GetFullPath(destination);
 
         // Hashed after the copy, over the copy. A version and a TFM describe the
@@ -668,7 +687,7 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
-string? unwritable = await ReplaceOrReport(
+string? unwritable = await ReplaceTextOrReport(
     assembliesPath,
     string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)));
 if (unwritable is not null)
@@ -687,7 +706,7 @@ var manifest = new PackageSweepManifest(
     SelectedPackageCount: assemblies.Count,
     Packages: results);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
-unwritable = await ReplaceOrReport(
+unwritable = await ReplaceTextOrReport(
     manifestPath,
     JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine);
 if (unwritable is not null)
@@ -741,7 +760,7 @@ if (refreshPin)
     // Rank lives in nuget-top-packages.json and is deliberately not repeated here.
     // Two files stating the same rank is two things to keep in step, and the one that
     // drifts is the one nothing reads.
-    unwritable = await ReplaceOrReport(
+    unwritable = await ReplaceTextOrReport(
         pinPath,
         JsonSerializer.Serialize(
             // No timestamp: the file is a pure function of the pins, so re-recording an
@@ -1104,7 +1123,28 @@ static bool IsBarePackageId(string? id) =>
 /// appears, which is the hang the read path already had to grow a deadline for. A move
 /// onto the name replaces whatever is there instead of writing through it.</para>
 /// </summary>
-static async Task<string?> ReplaceOrReport(string path, string content)
+static async Task<string?> ReplaceTextOrReport(string path, string content) =>
+    await ReplaceOrReport(
+        path, stream => stream.WriteAsync(Encoding.UTF8.GetBytes(content)).AsTask());
+
+/// <summary>
+/// Copies <paramref name="source"/> onto <paramref name="destination"/> without opening
+/// the destination, or says why it could not.
+/// </summary>
+static async Task<string?> CopyOntoOrReport(string source, string destination) =>
+    await ReplaceOrReport(destination, async stream =>
+    {
+        await using var input = new FileStream(
+            source, FileMode.Open, FileAccess.Read, FileShare.Read);
+        await input.CopyToAsync(stream);
+    });
+
+/// <summary>
+/// The one way this sweep puts bytes at a name: into a fresh sibling nothing else can
+/// hold, then moved onto the name. Every write goes through here, because the property
+/// is not one a second implementation keeps -- File.Copy kept none of it.
+/// </summary>
+static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> write)
 {
     // Random and created exclusively, not a name another process can predict. A
     // temporary named after the pid is a name anything with write access to the
@@ -1119,7 +1159,7 @@ static async Task<string?> ReplaceOrReport(string path, string content)
             temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             created = true;
-            await stream.WriteAsync(Encoding.UTF8.GetBytes(content));
+            await write(stream);
         }
 
         File.Move(temporary, path, overwrite: true);
