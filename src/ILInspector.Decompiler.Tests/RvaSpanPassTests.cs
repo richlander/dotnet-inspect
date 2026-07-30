@@ -182,6 +182,22 @@ public class RvaSpanPassTests
         function.CheckInvariant();
     }
 
+    // The literal stands in for the newarr it replaces. Offset-keyed facts are
+    // anchored by the offsets left in the tree, so dropping the allocation's
+    // offset here would strand alloc.array on a neighbouring statement.
+    [Fact]
+    public void InitializeArray_RaisedLiteral_AdoptsTheAllocationsSourceOffset()
+    {
+        var function = BuildInitializeArrayRaising(RealInitializeArray());
+        Assert.Single(function.Descendants.OfType<NewArray>()).SetSourceOffset(9);
+
+        new RvaSpanPass().Run(function, PassContext.None);
+
+        var literal = Assert.Single(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Equal(9, literal.SourceOffset);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void InitializeArray_WrongFirstParameter_IsNotRaised()
     {

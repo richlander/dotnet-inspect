@@ -102,6 +102,9 @@ public sealed class RvaSpanPass : IIrPass
                 continue;
 
             var arrayLiteral = new ArrayLiteral(creation.ElementType, TypeRef.SzArray(creation.ElementType), arrayElements);
+            // The literal stands in for the newarr it replaces, so it inherits the
+            // offset; otherwise alloc.array has no node left to anchor to.
+            arrayLiteral.SetSourceOffset(creation.SourceOffset);
             context.Stepper.StepOver("raise InitializeArray RVA blob to array literal", creation);
             creation.ReplaceWith(arrayLiteral);
             statement.Detach();

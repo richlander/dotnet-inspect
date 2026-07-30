@@ -153,6 +153,10 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
             detachedElements[k] = (IrExpression)storeElement.DetachChildren()[2];
         }
         var literal = new ArrayLiteral(elementType, arrayType, detachedElements);
+        // The raise subsumes the newarr, so the literal inherits its offset. Without
+        // this the instruction's offset survives nowhere in the tree, and any fact
+        // keyed to it (alloc.array) has no node to anchor to.
+        literal.SetSourceOffset(newArray.SourceOffset);
         IrNode combined = place.IsSlot ? new StoreStackSlot(place.Index, literal) : new StoreLocal(place.Index, ArrayLocalType(block, seedIndex), literal);
 
         // Replace the first fill statement with the combined declaration, drop
