@@ -64,8 +64,9 @@ public readonly record struct SourceLinkResolution(string Remainder, string Url,
 ///     with the other.
 ///   </item>
 ///   <item>
-///     A non-conformant entry — a key that breaks the wildcard rules, or a value that is not a
-///     string — is rejected individually and recorded in <see cref="RejectedKeys"/>, rather than
+///     A non-conformant entry — a key that breaks the wildcard rules, a value that is not a
+///     string, or a value that names no origin source can be retrieved from — is rejected
+///     individually and recorded in <see cref="RejectedKeys"/>, rather than
 ///     invalidating the whole map. Rejecting the map would let one bad key deny source for every
 ///     other document, and keeping the entry would let it match and outrank valid, less specific
 ///     entries. The rejection is recorded here rather than being silently indistinguishable from
@@ -356,6 +357,14 @@ public class SourceLinkResolver
         }
 
         int urlStar = url.IndexOf('*', StringComparison.Ordinal);
+
+        // The substituted path is percent-escaped per segment, so it can introduce neither a
+        // scheme nor an authority: whatever origin the entry names is already fixed in the text
+        // before the wildcard. Checking that text is therefore checking every URL this entry can
+        // ever produce.
+        if (!NamesAFetchableOrigin(urlStar < 0 ? url : url[..urlStar]))
+            return false;
+
         if (urlStar < 0)
         {
             // Rule 2, in the direction the reference consumer states but does not enforce: "if
@@ -383,6 +392,45 @@ public class SourceLinkResolver
         entry = new Entry(normalizedKey, isPrefix, url[..urlStar], urlSuffix);
         return true;
     }
+
+    /// <summary>
+    /// Whether the fixed part of an entry's URL names an origin source can actually be retrieved
+    /// from — an absolute <c>http</c> or <c>https</c> URL.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the same defect round 7 fixed for a non-string value, in the one other shape it
+    /// takes. A value that is not a URL at all — <c>"*"</c>, <c>"/nope/*"</c>,
+    /// <c>"//evil.test/*"</c> — satisfies every wildcard rule, so it entered the map, matched, and
+    /// resolved documents to a string no consumer can fetch. Ordered by specificity like any
+    /// other entry, such a value outranked a valid less-specific entry and silently swallowed the
+    /// URL that would otherwise have resolved. The map is the wrong place to discover that: the
+    /// specification calls the value a URL "where the source file can be retrieved via http or
+    /// https", and the JSON schema types it as a string, so an entry that names no such origin is
+    /// non-conformant and is rejected individually into
+    /// <see cref="SourceLinkResolver.RejectedKeys"/> like any other non-conformant entry.
+    /// </para>
+    /// <para>
+    /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is
+    /// the same scope decision the host allow list makes: <c>file:///tmp/*</c> is a well-formed
+    /// absolute URI that this product will never fetch, because
+    /// <c>HttpClientFactory.IsAllowedFetchScheme</c> — the guard on every untrusted-source fetch —
+    /// admits <c>http</c> and <c>https</c> only. Admitting it into the map would reintroduce
+    /// exactly the shadowing this refuses, one layer later and out of sight. A consequence worth
+    /// stating: a wildcard inside the authority (<c>https://*.test/x</c>) leaves the fixed part
+    /// <c>https://</c>, which is not an absolute URL, so it is refused. That is intended — an
+    /// entry whose origin depends on the document path names no origin at all.
+    /// </para>
+    /// <para>
+    /// Gated by
+    /// <c>SourceLinkMapConformanceTests.AnEntryWhoseUrlNamesNoFetchableOrigin_IsRejectedRatherThanShadowingAValidEntry</c>,
+    /// whose accept rows are the shapes <c>Microsoft.SourceLink.GitHub</c> and
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> actually generate.
+    /// </para>
+    /// </remarks>
+    private static bool NamesAFetchableOrigin(string urlPrefix) =>
+        Uri.TryCreate(urlPrefix, UriKind.Absolute, out Uri? uri)
+        && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
     /// <summary>
     /// Reads the <c>documents</c> object, rejecting duplicate property names. A duplicated key

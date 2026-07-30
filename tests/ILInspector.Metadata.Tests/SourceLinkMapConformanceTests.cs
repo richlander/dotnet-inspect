@@ -310,6 +310,57 @@ public class SourceLinkMapConformanceTests
     }
 
     /// <summary>
+    /// An entry whose URL names no origin source can be retrieved from is rejected on the same
+    /// terms as a malformed value, rather than matching and resolving to a string nothing can
+    /// fetch.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the non-string defect in its other shape, and it was missed when that one was
+    /// fixed. <c>"*"</c> satisfies every wildcard rule — the key has a final wildcard, the URL has
+    /// exactly one — so it entered the map and resolved <c>/_/src/Foo.cs</c> to <c>Foo.cs</c>. As
+    /// the more specific entry it outranked a valid <c>/_/*</c>, so the second assertion is again
+    /// the load-bearing one: the entry that should have won must still be reached.
+    /// </para>
+    /// <para>
+    /// The accept rows are what <c>Microsoft.SourceLink.GitHub</c> and
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> actually generate, so a rule that refused a real
+    /// map would fail here rather than in the field.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("*", false)]
+    [InlineData("Foo/*", false)]
+    [InlineData("/nope/*", false)]
+    [InlineData("//evil.test/*", false)]
+    [InlineData("right.test/*", false)]
+    [InlineData("file:///tmp/*", false)]
+    [InlineData("ftp://h.test/*", false)]
+    [InlineData("javascript:alert(1)/*", false)]
+    [InlineData("https://*.test/x/*", false)]
+    [InlineData("https://raw.githubusercontent.com/o/r/0123456789012345678901234567890123456789/*", true)]
+    [InlineData("http://internal.test/src/*", true)]
+    [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*", true)]
+    public void AnEntryWhoseUrlNamesNoFetchableOrigin_IsRejectedRatherThanShadowingAValidEntry(
+        string url,
+        bool accepted)
+    {
+        var map = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"/_/src/*\":\"" + url +
+            "\",\"/_/*\":\"https://right.test/*\"}}");
+
+        if (accepted)
+        {
+            Assert.Empty(map.RejectedKeys);
+            Assert.NotEqual("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+            return;
+        }
+
+        Assert.Equal(["/_/src/*"], map.RejectedKeys);
+        Assert.Equal("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    /// <summary>
     /// A map with more than one valid reading resolves nothing, and says why. Reporting the
     /// reason is what keeps this distinguishable from a map that legitimately covers no document.
     /// </summary>
