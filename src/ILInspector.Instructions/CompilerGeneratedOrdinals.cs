@@ -145,6 +145,20 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// reference and type-name siblings.
     /// </para>
     /// <para>
+    /// The argument rests on the compared text being compared <em>ordinally</em>, and that
+    /// is a real dependency rather than a formality: NUL is collation-ignorable under ICU,
+    /// so <c>string.Compare</c>, <c>IndexOf</c>, <c>StartsWith</c> and <c>EndsWith</c> —
+    /// all culture-sensitive by default — report <c>&lt;M&gt;g__L|#_0</c> and
+    /// <c>&lt;M&gt;g__L|#\0_0</c> as equal. A single culture-sensitive comparison anywhere
+    /// on this path would restore the collision the placeholder exists to prevent. The
+    /// comparison that matters is <c>IlBodyDiff.CanonicalEquals</c>, which compares
+    /// <see cref="IlOperandIdentity"/> by record equality, and the key lookups here, which
+    /// use <see cref="StringComparer.Ordinal"/> explicitly. Making
+    /// <c>CanonicalEquals</c> culture-sensitive fails
+    /// <c>PlaceholderCollidingName_DoesNotHideARealTargetChange</c> and both of its
+    /// siblings, so those three controls gate this dependency as well as the collision.
+    /// </para>
+    /// <para>
     /// The NUL is invisible where a folded name reaches output, which happens only when a
     /// row differs for some other reason; the visible <c>#</c> is what a reader sees.
     /// </para>

@@ -177,6 +177,13 @@ public class CompilerGeneratedOrdinalTests
     /// placeholder must not become indistinguishable from a folded one, or a real change
     /// of call target reads as identical. The names here are unspellable in C# but legal
     /// in metadata, and this tool reads untrusted assemblies.
+    /// <para>
+    /// This control and its two siblings also gate the ordinal-comparison dependency the
+    /// placeholder rests on. NUL is collation-ignorable under ICU, so a culture-sensitive
+    /// comparison anywhere on the diff path reports the colliding raw name and the folded
+    /// form as equal and restores the collision. Making <c>IlBodyDiff.CanonicalEquals</c>
+    /// culture-sensitive fails all three.
+    /// </para>
     /// </summary>
     [Fact]
     public void PlaceholderCollidingName_DoesNotHideARealTargetChange()
