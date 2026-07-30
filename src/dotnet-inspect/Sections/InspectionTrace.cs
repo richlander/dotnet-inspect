@@ -34,6 +34,7 @@ public readonly record struct ScannerExecution(string Key, bool IsBundle, TimeSp
 public sealed class InspectionTrace
 {
     private readonly List<(string Section, string Scanner)> _demand = [];
+    private readonly List<(string Reason, string Scanner)> _commandDemand = [];
     private readonly List<string> _requested = [];
     private readonly List<string> _closure = [];
     private readonly List<ScannerExecution> _executions = [];
@@ -50,6 +51,13 @@ public sealed class InspectionTrace
 
     /// <summary>Sections that were selected and the scanner key each one demanded.</summary>
     public IReadOnlyList<(string Section, string Scanner)> Demand => _demand;
+
+    /// <summary>
+    /// Scanners the command asked for directly, with the reason. Kept separate from
+    /// <see cref="Demand"/> because no selected section named them, and separate from the
+    /// prerequisite closure because no prerequisite edge pulled them in.
+    /// </summary>
+    public IReadOnlyList<(string Reason, string Scanner)> CommandDemand => _commandDemand;
 
     /// <summary>Scanner keys demanded directly by a selected section.</summary>
     public IReadOnlyList<string> Requested => _requested;
@@ -85,6 +93,26 @@ public sealed class InspectionTrace
 
     /// <summary>Records that <paramref name="section"/> demanded <paramref name="scanner"/>.</summary>
     public void RecordDemand(string section, string scanner) => _demand.Add((section, scanner));
+
+    /// <summary>
+    /// Records a scanner the command itself asked for after section selection had finished — today
+    /// only discovery mode, which needs metadata table row counts to decide whether the
+    /// <c>@Metadata</c> category has anything worth listing.
+    ///
+    /// This has its own recorder rather than folding into the closure because the report's entire
+    /// value is that a reader can trust which mechanism pulled a scanner in. A command-level demand
+    /// rendered as "added by prerequisite" asserts a prerequisite edge that does not exist, and
+    /// sends anyone chasing an unexpected scan to the wrong declaration.
+    /// </summary>
+    public void RecordCommandDemand(string reason, string scanner)
+    {
+        _commandDemand.Add((reason, scanner));
+        if (!_requested.Contains(scanner, StringComparer.Ordinal))
+        {
+            _requested.Add(scanner);
+            _requested.Sort(StringComparer.Ordinal);
+        }
+    }
 
     /// <summary>Records the scanner keys demanded directly by the selected sections.</summary>
     public void RecordRequested(IEnumerable<string> keys)
@@ -155,6 +183,13 @@ public sealed class InspectionTrace
         {
             foreach (var (section, scanner) in _demand)
                 text.Append("    ").Append(section).Append(" -> ").AppendLine(scanner);
+        }
+
+        if (_commandDemand.Count > 0)
+        {
+            text.AppendLine("  demanded by the command");
+            foreach (var (reason, scanner) in _commandDemand)
+                text.Append("    ").Append(reason).Append(" -> ").AppendLine(scanner);
         }
 
         text.Append("  scanners requested   ").AppendLine(Join(_requested));

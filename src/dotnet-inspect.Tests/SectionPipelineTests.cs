@@ -1650,6 +1650,52 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void Trace_AttributesEveryAddedScannerToARealPrerequisiteEdge()
+    {
+        // "added by prerequisite" is a claim about *why* a scanner ran, and the report's whole value
+        // is that a reader can trust it. Anything added to the requested set after selection lands
+        // in the closure too, and rendering that as a prerequisite asserts an edge that does not
+        // exist -- sending whoever chases an unexpected scan to the wrong declaration. Discovery
+        // mode's Metadata scan is exactly that case, which is why it goes through the pipeline's
+        // commandDemand parameter rather than being bolted onto the returned set.
+        //
+        // Check against the registry's declared edges rather than a hand-written expectation, so
+        // the gate cannot drift as the scanner graph changes.
+        var registry = LibrarySections.CreateScannerRegistry();
+        (string, string)[] discoveryDemand = [("discovery catalog", LibrarySections.ScannerMetadata)];
+
+        foreach (var commandDemand in new[] { null, discoveryDemand })
+        {
+            var pipeline = LibrarySections.CreatePipeline();
+            var trace = new InspectionTrace();
+            var requested = pipeline.GetRequiredScanners(
+                Verbosity.Detailed, trace: trace, commandDemand: commandDemand);
+
+            trace.RecordClosure(registry.ExpandRequired(requested));
+
+            var reachable = new HashSet<string>(trace.Requested, StringComparer.Ordinal);
+            var queue = new Queue<string>(trace.Requested);
+            while (queue.Count > 0)
+            {
+                foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
+                {
+                    if (reachable.Add(requirement))
+                        queue.Enqueue(requirement);
+                }
+            }
+
+            Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
+        }
+
+        // Non-vacuity: the discovery case has to actually add a scanner the sections never named,
+        // or the loop above proves nothing beyond the plain case.
+        var plain = LibrarySections.CreatePipeline().GetRequiredScanners(Verbosity.Detailed);
+        var withDiscovery = LibrarySections.CreatePipeline()
+            .GetRequiredScanners(Verbosity.Detailed, commandDemand: discoveryDemand);
+        Assert.Equal([LibrarySections.ScannerMetadata], withDiscovery.Except(plain, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void Trace_RecordsNoBodyIndexForAScanThatDoesNotNeedOne()
     {
         // The negative half of the minimum-work claim, and the one worth gating. A regression that

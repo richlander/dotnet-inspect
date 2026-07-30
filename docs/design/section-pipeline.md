@@ -217,6 +217,7 @@ Five things are recorded, each at the only layer that knows it:
 | Fact | Recorded by |
 | --- | --- |
 | Which section demanded which scanner | `SectionPipeline.GetRequiredScanners` |
+| Which scanners the command asked for directly | `LibraryCommand` (discovery mode) |
 | What prerequisite expansion added | `ScannerRegistry.ExpandRequired`, via `InspectAsync` |
 | Which scanners ran, in order, with timings | `ScannerRegistry.RunScanners` |
 | Whether a scanner is a bundle (no work of its own) | `ScannerRegistry.RunScanners` |
@@ -230,6 +231,12 @@ Design points worth keeping:
 
 - **The typed record is the contract, not the text.** Tests assert on `InspectionTrace`, so the report
   can be reformatted without rewriting gates.
+- **Each of the three ways a scanner can be pulled in has its own bucket.** A section demanded it, the
+  command asked for it directly (today only discovery mode's metadata row counts), or a declared
+  prerequisite pulled it in. Collapsing the second into the third would render a prerequisite edge
+  that does not exist, and send anyone chasing an unexpected scan to the wrong declaration.
+  `Trace_AttributesEveryAddedScannerToARealPrerequisiteEdge` walks the registry's declared edges and
+  fails if anything shown as expansion is not actually reachable from a requested key.
 - **Resources are recorded at acquisition, not at request.** A resource that never appears was never
   built. That absence is the observable: a regression that makes a metadata-only scan open the
   whole-assembly IL index costs seconds and changes no output, so no other test would notice it.

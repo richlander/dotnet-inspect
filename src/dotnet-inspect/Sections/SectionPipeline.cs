@@ -578,9 +578,16 @@ public sealed class SectionPipeline<TModel>
     /// pipeline and the only place the section-to-scanner attribution exists — downstream, the
     /// registry sees a set of keys with no memory of who asked for them.
     /// </param>
+    /// <param name="commandDemand">
+    /// Scanners the caller needs for reasons no section expresses, each paired with the reason.
+    /// They belong here rather than being added to the returned set afterwards: this method is the
+    /// one place that knows the full requested set, so anything added later is a scanner the trace
+    /// cannot attribute and will misreport as prerequisite expansion.
+    /// </param>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
         HashSet<string>? include = null, bool fixedOverview = false,
-        InspectionTrace? trace = null)
+        InspectionTrace? trace = null,
+        IReadOnlyList<(string Reason, string Scanner)>? commandDemand = null)
     {
         HashSet<string> scanners = [];
         for (int i = 0; i < _entries.Count; i++)
@@ -592,6 +599,15 @@ public sealed class SectionPipeline<TModel>
             {
                 scanners.Add(entry.ScannerKey);
                 trace?.RecordDemand(entry.Name, entry.ScannerKey);
+            }
+        }
+
+        if (commandDemand is not null)
+        {
+            foreach (var (reason, scanner) in commandDemand)
+            {
+                scanners.Add(scanner);
+                trace?.RecordCommandDemand(reason, scanner);
             }
         }
 

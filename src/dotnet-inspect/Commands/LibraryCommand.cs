@@ -28,6 +28,19 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class LibraryCommand
 {
+    /// <summary>
+    /// Discovery must know which metadata tables carry rows, or the whole <c>@Metadata</c> category
+    /// filters out of the catalog: its sections are explicit-only, so no verbosity requests them,
+    /// and their applicability is the scanned row count. The scan is deliberately the cheap half of
+    /// the lens — table row counts, never rows — so listing the category accurately costs a header
+    /// read rather than a projection.
+    ///
+    /// Passed into <see cref="SectionPipeline.GetRequiredScanners"/> rather than added to its result,
+    /// so the one method that computes the requested set is also the one that records it.
+    /// </summary>
+    private static readonly (string Reason, string Scanner)[] DiscoveryScanners =
+        [("discovery catalog", LibrarySections.ScannerMetadata)];
+
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
         if (!options.Trace)
@@ -305,15 +318,8 @@ public class LibraryCommand
         if (trace is not null)
             trace.Verbosity = options.Verbosity.ToString();
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview, trace);
-
-        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
-        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
-        // them, and their applicability is the scanned row count. The scan is deliberately the
-        // cheap half of the lens -- table row counts, never rows -- so listing the category
-        // accurately costs a header read rather than a projection.
-        if (effectiveDiscovery)
-            scanners.Add(LibrarySections.ScannerMetadata);
+            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
+            effectiveDiscovery ? DiscoveryScanners : null);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
