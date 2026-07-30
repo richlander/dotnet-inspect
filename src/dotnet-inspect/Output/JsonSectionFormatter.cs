@@ -58,12 +58,58 @@ internal sealed class JsonSectionFormatter :
     private sealed class Section(string name, SectionKind kind)
     {
         public string Name { get; } = name;
-        public SectionKind Kind { get; set; } = kind;
-        public string[] Headers { get; set; } = [];
+        public SectionKind Kind { get; private set; } = kind;
+        public string[] Headers { get; private set; } = [];
         public List<string[]> Rows { get; } = [];
         public List<MarkoutField> Fields { get; } = [];
         public List<string> Items { get; } = [];
         public List<TreeNode> Tree { get; } = [];
+
+        /// <summary>
+        /// Records that <paramref name="incoming"/> content is being added to this section.
+        /// </summary>
+        /// <remarks>
+        /// Appending content of the kind a section already holds is lossless: fields merge into one
+        /// object, list items and tree nodes into one array. Changing the kind is not, because a
+        /// section serializes as exactly one JSON value, so whichever collection did not match the
+        /// final kind would vanish from the document without a word.
+        ///
+        /// That case is a gap in this projection, not a caller error, and the repository rule is to
+        /// keep failure visible rather than emit success-shaped output that quietly lost data. It is
+        /// unreachable from the single-table views wired today (dotnet-inspect#3494); throwing is
+        /// what forces the mixed-content shape to be designed when a multi-section view first needs
+        /// it, instead of shipping silent truncation.
+        /// </remarks>
+        public void Adopt(SectionKind incoming)
+        {
+            var occupied = Rows.Count > 0 || Fields.Count > 0 || Items.Count > 0 || Tree.Count > 0;
+            if (occupied && Kind != incoming)
+            {
+                throw new NotSupportedException(
+                    $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' mixes {Kind} and {incoming} content, " +
+                    "which the JSON view cannot represent as one value. Split the section or extend JsonSectionFormatter.");
+            }
+
+            Kind = incoming;
+        }
+
+        /// <summary>
+        /// Adopts the header set for this section's table. A second table in the same section would
+        /// otherwise replace the headers while its rows append to the first table's, silently
+        /// re-labelling data that was already buffered under different columns.
+        /// </summary>
+        public void SetHeaders(ReadOnlySpan<string> headers)
+        {
+            if (Rows.Count > 0 && !headers.SequenceEqual(Headers))
+            {
+                throw new NotSupportedException(
+                    $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' holds two tables with different columns " +
+                    $"([{string.Join(", ", Headers)}] then [{string.Join(", ", headers.ToArray())}]), " +
+                    "which the JSON view cannot represent as one array.");
+            }
+
+            Headers = headers.ToArray();
+        }
     }
 
     private readonly List<MarkoutField> _rootFields = [];
@@ -71,19 +117,26 @@ internal sealed class JsonSectionFormatter :
     private Section? _current;
     private Section? _streamingTable;
     private int _sectionLevel = 2;
+    private RowWindow? _rows;
 
     /// <summary>
     /// Resets heading tracking for a new document. <paramref name="options"/> supplies the same
     /// heading-level offset Markout applies, so the section level is recognized even when a caller
     /// nests the view under another document.
     /// </summary>
-    internal void BeginDocument(MarkoutWriterOptions options)
+    /// <param name="rows">
+    /// The <c>--rows</c> window to apply to table sections, or null for every row. The window is
+    /// applied to buffered data rows rather than to rendered text: a row window is a Shape
+    /// decision, and a line-oriented limiter would cut a pretty-printed document mid-object.
+    /// </param>
+    internal void BeginDocument(MarkoutWriterOptions options, RowWindow? rows = null)
     {
         _rootFields.Clear();
         _sections.Clear();
         _current = null;
         _streamingTable = null;
         _sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
+        _rows = rows;
     }
 
     /// <summary>
@@ -119,7 +172,7 @@ internal sealed class JsonSectionFormatter :
             return;
         }
 
-        _current.Kind = SectionKind.Fields;
+        _current.Adopt(SectionKind.Fields);
         foreach (var field in fields)
             _current.Fields.Add(field);
     }
@@ -132,8 +185,7 @@ internal sealed class JsonSectionFormatter :
         MarkoutWriterOptions options)
     {
         var section = RequireSection(SectionKind.Table);
-        section.Kind = SectionKind.Table;
-        section.Headers = headers.ToArray();
+        section.SetHeaders(headers);
         foreach (var row in rows)
             section.Rows.Add(row);
     }
@@ -141,8 +193,7 @@ internal sealed class JsonSectionFormatter :
     public void BeginTable(TextWriter writer, ReadOnlySpan<string> headers, MarkoutWriterOptions options)
     {
         var section = RequireSection(SectionKind.Table);
-        section.Kind = SectionKind.Table;
-        section.Headers = headers.ToArray();
+        section.SetHeaders(headers);
         _streamingTable = section;
     }
 
@@ -155,7 +206,6 @@ internal sealed class JsonSectionFormatter :
     public void FormatArray(TextWriter writer, string name, ReadOnlySpan<string> values, bool bold)
     {
         var section = RequireSection(SectionKind.List);
-        section.Kind = SectionKind.List;
         foreach (var value in values)
             section.Items.Add(value);
     }
@@ -163,14 +213,12 @@ internal sealed class JsonSectionFormatter :
     public void FormatListItem(TextWriter writer, string item)
     {
         var section = RequireSection(SectionKind.List);
-        section.Kind = SectionKind.List;
         section.Items.Add(item);
     }
 
     public void FormatTree(TextWriter writer, ReadOnlySpan<TreeNode> nodes, MarkoutWriterOptions options)
     {
         var section = RequireSection(SectionKind.Tree);
-        section.Kind = SectionKind.Tree;
         foreach (var node in nodes)
             section.Tree.Add(node);
     }
@@ -178,7 +226,6 @@ internal sealed class JsonSectionFormatter :
     public void FormatTreeNode(TextWriter writer, string text, string badge)
     {
         var section = RequireSection(SectionKind.Tree);
-        section.Kind = SectionKind.Tree;
         section.Tree.Add(new TreeNode(text) { Badge = badge });
     }
 
@@ -193,10 +240,10 @@ internal sealed class JsonSectionFormatter :
             json.WriteStartObject();
 
             foreach (var field in _rootFields)
-                json.WriteString(field.Key, field.Value);
+                json.WriteString(MachineKey(field.Key), field.Value);
 
             foreach (var section in _sections)
-                WriteSection(json, section);
+                WriteSection(json, section, _rows);
 
             json.WriteEndObject();
         }
@@ -204,14 +251,36 @@ internal sealed class JsonSectionFormatter :
         return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
-    private static void WriteSection(Utf8JsonWriter json, Section section)
+    /// <summary>
+    /// Converts a display heading or field label into the machine key a JSON consumer expects
+    /// ("Call Graph" to "call_graph").
+    /// </summary>
+    /// <remarks>
+    /// This is the same policy the pre-lowered serializers declare
+    /// (<c>JsonKnownNamingPolicy.SnakeCaseLower</c>), so <c>--json</c> does not change key casing
+    /// depending on whether a projection was requested. Table headers deliberately do not come
+    /// through here: Markout is asked for its JSONL vocabulary, which already supplies machine
+    /// names, and that is what keeps a projected row byte-identical to the same row under
+    /// <c>--jsonl</c>. It is a pure string transform, so it stays NativeAOT-safe.
+    /// </remarks>
+    private static string MachineKey(string display) =>
+        JsonNamingPolicy.SnakeCaseLower.ConvertName(display);
+
+    private static void WriteSection(Utf8JsonWriter json, Section section, RowWindow? rows)
     {
         switch (section.Kind)
         {
             case SectionKind.Table:
-                json.WriteStartArray(section.Name);
-                foreach (var row in section.Rows)
+                json.WriteStartArray(MachineKey(section.Name));
+                // Resolve the --rows window over the buffered rows. RowWindow.Resolve is the single
+                // place head/tail/range semantics are interpreted, so JSON keeps the same window the
+                // table formats get instead of reinterpreting the flag.
+                var (start, end) = rows is { IsUnlimited: false } window
+                    ? window.Resolve(section.Rows.Count)
+                    : (0, section.Rows.Count);
+                for (var r = start; r < end; r++)
                 {
+                    var row = section.Rows[r];
                     json.WriteStartObject();
                     // A row shorter than the header set is a Markout padding artifact, not data;
                     // stopping at the shorter of the two avoids inventing keys with null values.
@@ -224,23 +293,23 @@ internal sealed class JsonSectionFormatter :
                 break;
 
             case SectionKind.List:
-                json.WriteStartArray(section.Name);
+                json.WriteStartArray(MachineKey(section.Name));
                 foreach (var item in section.Items)
                     json.WriteStringValue(item);
                 json.WriteEndArray();
                 break;
 
             case SectionKind.Tree:
-                json.WriteStartArray(section.Name);
+                json.WriteStartArray(MachineKey(section.Name));
                 foreach (var node in section.Tree)
                     WriteTreeNode(json, node);
                 json.WriteEndArray();
                 break;
 
             default:
-                json.WriteStartObject(section.Name);
+                json.WriteStartObject(MachineKey(section.Name));
                 foreach (var field in section.Fields)
-                    json.WriteString(field.Key, field.Value);
+                    json.WriteString(MachineKey(field.Key), field.Value);
                 json.WriteEndObject();
                 break;
         }
@@ -266,7 +335,9 @@ internal sealed class JsonSectionFormatter :
     {
         // Content can precede any heading when a view renders a single unnamed section. Give it a
         // stable home rather than dropping it, so no content disappears from the JSON.
-        return _current ??= GetOrAddSection(string.Empty, kind);
+        var section = _current ??= GetOrAddSection(string.Empty, kind);
+        section.Adopt(kind);
+        return section;
     }
 
     private Section GetOrAddSection(string name, SectionKind kind)

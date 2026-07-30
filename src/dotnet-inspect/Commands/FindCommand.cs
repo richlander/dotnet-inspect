@@ -161,7 +161,9 @@ public class FindCommand
 
         OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
             (writer, formatter, writerOptions) =>
-                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
+                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+            !options.CompactJson,
+            options.Rows);
     }
 
     /// <summary>
@@ -179,7 +181,9 @@ public class FindCommand
 
         OutputFormatter.WriteProjectedJson(Console.Out, options.Columns, options.Fields,
             (writer, formatter, writerOptions) =>
-                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions));
+                MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+            !options.CompactJson,
+            options.Rows);
     }
 
     private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)

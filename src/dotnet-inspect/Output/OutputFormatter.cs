@@ -160,11 +160,18 @@ public static class OutputFormatter
         string[]? columns,
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
-        bool indented = true)
+        bool indented = true,
+        RowWindow? maxRows = null)
     {
         var writerOptions = CreateProjectedWriterOptions(columns, fields);
+        // Ask Markout for the JSONL flavor of the header names. The formatter is ours, so this
+        // does not change who renders the table -- it changes the vocabulary handed to the
+        // renderer, which is how --jsonl and the pre-lowered --json both get machine keys
+        // ("type") rather than the display headings Markdown shows ("Type"). Without it the same
+        // --json flag would change key casing depending on whether a projection was requested.
+        ConfigureTableWriterOptions(writerOptions, tsv: false, jsonl: true);
         var formatter = new JsonSectionFormatter();
-        formatter.BeginDocument(writerOptions);
+        formatter.BeginDocument(writerOptions, maxRows);
         serialize(TextWriter.Null, formatter, writerOptions);
         return formatter.Finish(indented);
     }
@@ -172,12 +179,20 @@ public static class OutputFormatter
     /// <summary>
     /// Writes the lowered JSON view produced by <see cref="RenderProjectedJson"/>.
     /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="WriteProjectedTable"/> this does not post-process the rendered text with
+    /// <see cref="LimitRenderedTableRows"/>. That limiter counts output lines, which is safe only
+    /// because every table format puts one row on one line; a pretty-printed JSON document has no
+    /// such correspondence and would be cut mid-object. The window is applied to the data instead.
+    /// </remarks>
     public static void WriteProjectedJson(
         TextWriter output,
         string[]? columns,
         string[]? fields,
-        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize) =>
-        output.WriteLine(RenderProjectedJson(columns, fields, serialize));
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        bool indented = true,
+        RowWindow? maxRows = null) =>
+        output.WriteLine(RenderProjectedJson(columns, fields, serialize, indented, maxRows));
 
     public static string ApplyRowLimit(string markdown, RowWindow? rows) =>
         MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);

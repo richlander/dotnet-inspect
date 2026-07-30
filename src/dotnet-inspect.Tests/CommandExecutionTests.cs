@@ -4442,13 +4442,142 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("produced unprojected output", error);
 
         using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement.GetProperty("Results");
+        var rows = document.RootElement.GetProperty("results");
         Assert.Equal(JsonValueKind.Array, rows.ValueKind);
         Assert.NotEmpty(rows.EnumerateArray().ToArray());
 
         // The projection is honored rather than dropped: the requested column is the only key.
         foreach (var row in rows.EnumerateArray())
-            Assert.Equal(["Type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+            Assert.Equal(["type"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("2..10")]
+    [InlineData("2+10")]
+    [InlineData("1..1")]
+    public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
+    {
+        // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
+        // applied to the buffered rows through RowWindow.Resolve rather than by the line-oriented
+        // LimitRenderedTableRows the table formats use -- counting lines is only safe when one row
+        // is one line, which a pretty-printed JSON document violates. Every window kind is covered
+        // because Resolve, not the caller, decides what head/range/start+count mean.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
+
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonExit);
+
+        // Skip the TSV header; what remains is one data row per line.
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("results")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("type").GetString())
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable()
+    {
+        // A window that selects nothing must still be a JSON document. The table formats emit an
+        // empty string here; JSON cannot, because "no bytes" is not a value a consumer can parse.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "100000..");
+
+        Assert.Equal(0, exit);
+        using var document = JsonDocument.Parse(output);
+        Assert.Empty(document.RootElement.GetProperty("results").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Find_CompactUnderProjectedJson_IsHonored()
+    {
+        // --compact is a Format concern, so the lowered view has to honor it the same way the
+        // pre-lowered view does rather than always pretty-printing.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\n  ", output, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.GetProperty("results").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Find_ProjectedJsonRows_CarryTheSameContentAsJsonl()
+    {
+        // The load-bearing invariant behind "JSON is a Format, not a Shape": at the same Shape,
+        // changing Format must not change content. --jsonl is JSON's closest sibling -- same
+        // projection, one row per line -- so every row of the projected --json array must carry the
+        // same keys, in the same order, with the same values. This is what catches key-casing drift
+        // (#3494 review): before Markout was asked for its JSONL vocabulary, --json emitted "Type"
+        // where --jsonl emitted "type" for the same query.
+        //
+        // Decoded pairs rather than raw bytes, because the two writers escape differently and that
+        // is encoding, not content: Utf8JsonWriter renders a backtick as \u0060 where Markout emits
+        // it literally. Matching Utf8JsonWriter is correct here -- it is what the pre-lowered
+        // --json already does, so the --json flag keeps one encoding whether or not a projection
+        // was requested.
+        var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--jsonl");
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--json");
+
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, jsonExit);
+
+        static string[] Pairs(JsonElement row) =>
+            [.. row.EnumerateObject().Select(property => $"{property.Name}={property.Value.GetString()}")];
+
+        var expected = jsonlOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return string.Join("\u001f", Pairs(row.RootElement));
+            })
+            .ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("results")
+            .EnumerateArray()
+            .Select(row => string.Join("\u001f", Pairs(row)))
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_RowWindowUnderProjectedJson_MatchesTheTableFormats()
+    {
+        // The member search reaches the lowered view through a separate call site; a fix applied to
+        // only one of the two would leave --rows silently dropped on the other.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "2");
+        var (jsonExit, jsonOutput, _) = await RunAppAsync(
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "2");
+
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonExit);
+
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var actual = document.RootElement.GetProperty("members")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("member").GetString())
+            .ToArray();
+
+        Assert.Equal(2, expected.Length);
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
@@ -4468,11 +4597,13 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("cannot be combined with --json", jsonError);
 
         using var document = JsonDocument.Parse(jsonOutput);
-        var keys = document.RootElement.GetProperty("Results")[0]
+        var keys = document.RootElement.GetProperty("results")[0]
             .EnumerateObject().Select(property => property.Name).ToArray();
         var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
 
-        Assert.Equal(tsvColumns.Length, keys.Length);
+        // Compare the key names, not just how many there are: a count alone passes even when the
+        // two formats disagree about casing, which is exactly the defect adversarial review found.
+        Assert.Equal(tsvColumns, keys);
         Assert.True(keys.Length > 1, $"expected the unprojected column set, got: {string.Join(",", keys)}");
     }
 
@@ -4487,12 +4618,12 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("cannot be combined with --json", error);
 
         using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement.GetProperty("Members");
+        var rows = document.RootElement.GetProperty("members");
         Assert.Equal(JsonValueKind.Array, rows.ValueKind);
         Assert.NotEmpty(rows.EnumerateArray().ToArray());
 
         foreach (var row in rows.EnumerateArray())
-            Assert.Equal(["Member"], row.EnumerateObject().Select(property => property.Name).ToArray());
+            Assert.Equal(["member"], row.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
