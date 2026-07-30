@@ -6424,3 +6424,72 @@ public sealed class CallArgClient
     public int CreateViaVolatileField()
         => _volatileRest.Create(new CallArgTarget { Name = Label }, default, _options);
 }
+
+// Declaration placement (#3591). A local the source declared inside a nested block
+// is emitted as a bare declaration hoisted to the top of the method, because
+// MetadataSource.LocalNames reads the portable PDB's LocalScope table for names only
+// and drops each scope's StartOffset/EndOffset. These two shapes are the discriminator
+// the PDB records and the printer currently ignores: in CreateNarrow the local's scope
+// is the try block, in CreateHoisted it is the whole method, and both print the same
+// way. Modeled on Azure.Data.Tables `TableClient.Create`. Appended at end of file so
+// these top-level types cannot shift any existing generated-code ordinal.
+public sealed class DeclScopeGuard : IDisposable
+{
+    public void Failed(Exception e) { }
+
+    public void Dispose() { }
+}
+
+public sealed class DeclScopeResult
+{
+    public string Value = "v";
+    public int Raw;
+}
+
+public sealed class DeclScopeOps
+{
+    public DeclScopeResult Create(string name, int timeout) => new DeclScopeResult { Value = name, Raw = timeout };
+}
+
+public sealed class DeclScopeClient
+{
+    readonly DeclScopeOps _ops = new();
+
+    // The local is read twice (so it survives as a slot rather than inlining) and is
+    // never referenced outside the try, so the PDB scopes it to the try block alone.
+    public string CreateNarrow(string name, int timeout)
+    {
+        using (DeclScopeGuard scope = new DeclScopeGuard())
+        {
+            try
+            {
+                DeclScopeResult response = _ops.Create(name, timeout);
+                return response.Value + response.Raw;
+            }
+            catch (Exception ex)
+            {
+                new DeclScopeGuard().Failed(ex);
+                throw;
+            }
+        }
+    }
+
+    // Control for the same shape: the catch arm reads the local, so the source
+    // genuinely must declare it above the try and the PDB scopes it to the whole
+    // method. Today's hoisting emitter is accidentally right here, which is why
+    // placement alone cannot be read off the current output.
+    public string CreateHoisted(string name, int timeout)
+    {
+        DeclScopeResult? response = null;
+        try
+        {
+            response = _ops.Create(name, timeout);
+            return response.Value + response.Raw;
+        }
+        catch (Exception ex)
+        {
+            new DeclScopeGuard().Failed(ex);
+            return response is null ? "none" : response.Value;
+        }
+    }
+}
