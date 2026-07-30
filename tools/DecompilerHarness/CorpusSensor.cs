@@ -2014,7 +2014,8 @@ internal static class CorpusSensor
         analysis.Add($"Current measured debt: {CurrentMeasuredDebt(current)}");
         analysis.Add(RegressionVerdict(regressions.Count));
 
-        string card = MarkoutTemplate.Parse(QualityDiffCardTemplate)
+        using var cardWriter = new StringWriter { NewLine = "\n" };
+        MarkoutTemplate.Parse(QualityDiffCardTemplate)
             .Bind("title", QualityCardTitleForProfile(current.Profile))
             .Bind("metric_table", metricTable)
             .Bind("has_staleness", staleness.Length > 0)
@@ -2031,9 +2032,9 @@ internal static class CorpusSensor
             .Bind("regressions", regressions)
             .Bind("has_caveat", caveat.Length > 0)
             .Bind("caveat", caveat)
-            .Render();
+            .Render(cardWriter);
 
-        return card.TrimEnd('\n') + "\n";
+        return cardWriter.ToString().TrimEnd('\n') + "\n";
     }
 
     static string RegressionCaveat(
