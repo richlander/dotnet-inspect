@@ -340,9 +340,19 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             Kind = type.Kind,
+            // Every identity fact carries over: this copy exists to narrow Members, and anything
+            // else it drops silently changes what sections and discovery see. Omitting the two
+            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
+            // every readonly/ref struct, because discovery builds its manifest from this copy.
+            Accessibility = type.Accessibility,
+            Attributes = type.Attributes,
+            EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            SourceAssemblyPath = type.SourceAssemblyPath,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,

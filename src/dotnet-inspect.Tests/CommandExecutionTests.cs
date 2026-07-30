@@ -3057,7 +3057,7 @@ public partial class CommandExecutionTests
         // property silently - including an unbounded one. Pinning the count makes any addition fail
         // here, so whoever adds a property has to state that it is a fixed fact about the type and
         // not a per-member row. Bump this only alongside that judgement.
-        Assert.Equal(21, vocabulary.Count);
+        Assert.Equal(11, vocabulary.Count);
 
         Assert.All(large, label => Assert.Contains(label, vocabulary));
         Assert.All(small, label => Assert.Contains(label, vocabulary));
@@ -3125,12 +3125,26 @@ public partial class CommandExecutionTests
     // An enum is the case that catches a census computed off a different member list than the one
     // discovery sees: DayOfWeek's only field is the compiler-generated `value__`.
     [InlineData("System.DayOfWeek")]
-    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(string typeName)
+    // A readonly ref struct: BuildFilteredTypeForSections did not copy IsReadOnly/IsByRefLike, so
+    // discovery hid the Modifiers row that -S renders.
+    [InlineData("System.Span`1")]
+    [InlineData("System.DateTime")]
+    // Filters narrow the type discovery builds its manifest from. Type Info reports identity, not
+    // the filtered slice, so its field set must not move when a filter is active.
+    [InlineData("System.String", "-m", "Contains")]
+    [InlineData("System.String", "--all")]
+    [InlineData("System.String", "-m", "5")]
+    [InlineData("System.String", "-k", "property")]
+    [InlineData("System.Span`1", "--unsafe")]
+    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(
+        string typeName,
+        params string[] extraArgs)
     {
-        var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "type", typeName, "-D", SectionNames.TypeInfo);
-        var (renderExit, renderOutput, _) = await RunAppAsync(
-            "type", typeName, "-S", SectionNames.TypeInfo);
+        string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
+        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
+
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
+        var (renderExit, renderOutput, _) = await RunAppAsync(renderArgs);
 
         Assert.Equal(0, discoverExit);
         Assert.Equal(0, renderExit);

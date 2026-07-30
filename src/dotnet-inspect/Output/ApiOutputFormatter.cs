@@ -360,15 +360,6 @@ public static class ApiOutputFormatter
 
         string? typeParamsInline = options.Verbosity == Verbosity.Quiet ? typeParamsSummary : null;
 
-        // The inline identity line and Type Info report the same member census, so they share one
-        // computation rather than two copies of ten count expressions that can drift apart.
-        //
-        // The census excludes compiler-generated members because every member section already does
-        // (BuildFilteredTypeForSections applies the same filter before discovery). Counting the raw
-        // list made both reports contradict the sections they summarize: System.DayOfWeek claimed
-        // "Fields: 1" from the enum's `value__` while the Fields section reported no data, and -D
-        // disagreed with -S because discovery renders its manifest from the already-filtered type.
-        var memberCounts = TypeMemberCounts.From(type.Members);
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
@@ -431,15 +422,15 @@ public static class ApiOutputFormatter
             Tfm = topFieldsOnly ? selectedTfm : null,
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
-            Constructors = topFieldsOnly ? memberCounts.Constructors : null,
-            Finalizer = topFieldsOnly ? memberCounts.Finalizer : null,
-            Fields = topFieldsOnly ? memberCounts.Fields : null,
-            Properties = topFieldsOnly ? memberCounts.Properties : null,
-            Methods = topFieldsOnly ? memberCounts.Methods : null,
-            Operators = topFieldsOnly ? memberCounts.Operators : null,
-            ExplicitInterfaceImplementations = topFieldsOnly ? memberCounts.ExplicitInterfaceImplementations : null,
-            ExtensionMethods = topFieldsOnly ? memberCounts.ExtensionMethods : null,
-            Events = topFieldsOnly ? memberCounts.Events : null,
+            Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Finalizer = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "finalizer")) : null,
+            Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
+            Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
+            Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
+            Operators = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "operator")) : null,
+            ExplicitInterfaceImplementations = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "explicit-interface-implementation")) : null,
+            ExtensionMethods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "extension-method")) : null,
+            Events = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "event")) : null,
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
@@ -456,16 +447,6 @@ public static class ApiOutputFormatter
                 Version = packageVersion,
                 Tfm = selectedTfm,
                 Source = apiSource,
-                Members = memberCounts.Members,
-                Constructors = memberCounts.Constructors,
-                Finalizer = memberCounts.Finalizer,
-                Fields = memberCounts.Fields,
-                Properties = memberCounts.Properties,
-                Methods = memberCounts.Methods,
-                Operators = memberCounts.Operators,
-                Events = memberCounts.Events,
-                ExplicitInterfaceImplementations = memberCounts.ExplicitInterfaceImplementations,
-                ExtensionMethods = memberCounts.ExtensionMethods,
             },
         };
 
@@ -2618,42 +2599,6 @@ public static class ApiOutputFormatter
 
     private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 
-    /// <summary>
-    /// The member census shared by the inline identity line and the <c>Type Info</c> section.
-    /// Compiler-generated members are excluded so the counts agree with the member sections, which
-    /// filter them out before rendering and before discovery.
-    /// </summary>
-    private readonly record struct TypeMemberCounts(
-        int? Members,
-        int? Constructors,
-        int? Finalizer,
-        int? Fields,
-        int? Properties,
-        int? Methods,
-        int? Operators,
-        int? Events,
-        int? ExplicitInterfaceImplementations,
-        int? ExtensionMethods)
-    {
-        public static TypeMemberCounts From(IEnumerable<ApiMember> members)
-        {
-            var visible = members.Where(m => !IsCompilerGenerated(m.Name)).ToList();
-            static int? NullIfZero(int count) => count > 0 ? count : null;
-            int? Count(Func<ApiMember, bool> predicate) => NullIfZero(visible.Count(predicate));
-
-            return new TypeMemberCounts(
-                Members: NullIfZero(visible.Count),
-                Constructors: Count(m => m.Kind == "constructor"),
-                Finalizer: Count(m => m.Kind == "finalizer"),
-                Fields: Count(m => m.Kind == "field" && !m.EnumValue.HasValue),
-                Properties: Count(m => m.Kind == "property"),
-                Methods: Count(m => m.Kind == "method"),
-                Operators: Count(m => m.Kind == "operator"),
-                Events: Count(m => m.Kind == "event"),
-                ExplicitInterfaceImplementations: Count(m => m.Kind == "explicit-interface-implementation"),
-                ExtensionMethods: Count(m => m.Kind == "extension-method"));
-        }
-    }
 
     private static readonly string[] MemberKinds =
     [

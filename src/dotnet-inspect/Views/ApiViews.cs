@@ -518,21 +518,6 @@ public class TypeInfoSection
     public string? Tfm { get; init; }
 
     public string? Source { get; init; }
-
-    public int? Members { get; init; }
-    public int? Constructors { get; init; }
-    public int? Finalizer { get; init; }
-    public int? Fields { get; init; }
-    public int? Properties { get; init; }
-    public int? Methods { get; init; }
-    public int? Operators { get; init; }
-    public int? Events { get; init; }
-
-    [MarkoutPropertyName("Explicit Interface Implementations")]
-    public int? ExplicitInterfaceImplementations { get; init; }
-
-    [MarkoutPropertyName("Extension Methods")]
-    public int? ExtensionMethods { get; init; }
 }
 
 /// <summary>
