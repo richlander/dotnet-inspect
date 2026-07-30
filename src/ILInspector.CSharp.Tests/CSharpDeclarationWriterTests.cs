@@ -1345,6 +1345,13 @@ public sealed class CSharpDeclarationWriterTests
     // A shorter quote run inside a longer delimiter is content, not a terminator.
     [InlineData("M", "void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int event = 0)",
         "public void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int @event = 0)")]
+    // A verbatim string is never raw ('@' cannot prefix a raw literal), so a run of
+    // quotes inside one is escaped content: @""""a holds a single quote and ends at the
+    // fourth. Found by probing SkipLiteral directly rather than by a reviewer.
+    [InlineData("M", "void M(string s = @\"\"\"\", int event = 0)",
+        "public void M(string s = @\"\"\"\", int @event = 0)")]
+    [InlineData("M", "void M(string s = @\"\"\"x)\"\"\", int event = 0)",
+        "public void M(string s = @\"\"\"x)\"\"\", int @event = 0)")]
     // Interpolated raw: the delimiter run terminates it, so holes need no modelling.
     [InlineData("M", "void M(string s = $\"\"\"{\"a)\"}\"\"\", int event = 0)",
         "public void M(string s = $\"\"\"{\"a)\"}\"\"\", int @event = 0)")]

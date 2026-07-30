@@ -1791,7 +1791,9 @@ internal static class CSharpDeclarationWriter
         int opening = 0;
         while (index + opening < text.Length && text[index + opening] == quote)
             opening++;
-        if (quote == '"' && opening >= 3)
+        // A raw string takes no '@' prefix, so in a verbatim string a run of quotes is
+        // escaped content rather than a delimiter: @""""a is one quote, not a raw string.
+        if (quote == '"' && !verbatim && opening >= 3)
             return SkipRawLiteral(text, index, opening);
 
         for (int i = index + 1; i < text.Length; i++)
