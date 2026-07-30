@@ -17,6 +17,12 @@ public sealed class ScannerContext : IDisposable
     public PdbContext? MetadataContext { get; init; }
 
     /// <summary>
+    /// When supplied, records scanner execution and expensive resource acquisition. Null for an
+    /// untraced run, which is every run that did not pass <c>--trace</c>.
+    /// </summary>
+    public InspectionTrace? Trace { get; init; }
+
+    /// <summary>
     /// Analysis features required by the complete scanner set. The shared body session computes
     /// their union once, so Array Pool Escapes can share acquisition with leverage/performance scans
     /// without making a resource-only request pay for unrelated body evidence.
@@ -69,14 +75,22 @@ public sealed class ScannerContext : IDisposable
         _sessionOpenAttempted = true;
         try
         {
-            _session = MetadataContext is { HasMetadata: true } context
-                ? AssemblyInspectionSession.Borrow(context)
-                : AssemblyInspectionSession.Open(AssemblyPath);
+            if (MetadataContext is { HasMetadata: true } context)
+            {
+                _session = AssemblyInspectionSession.Borrow(context);
+                Trace?.RecordResource("metadata session", "borrowed from the command's open image");
+            }
+            else
+            {
+                _session = AssemblyInspectionSession.Open(AssemblyPath);
+                Trace?.RecordResource("metadata session", "opened (no shared image available)");
+            }
         }
         catch (Exception)
         {
             // Left to the fallback path overload, which logs and produces the failed inspection.
             _session = null;
+            Trace?.RecordResource("metadata session", "failed to open; scanners reopen individually");
         }
 
         return _session;
@@ -130,11 +144,37 @@ public sealed class ScannerContext : IDisposable
     /// narrowed to the phases the requested scanners consume (see
     /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex() =>
-        (_bodySession ??= MethodBodyInspectionSession.OpenWithPrefetchedImage(
-            AssemblyPath,
-            GetMetadataContext(),
-            BodyAnalysisFeatures)).BodyIndex;
+    public Analysis.LibraryBodyIndex BodyIndex()
+    {
+        if (_bodySession is not null)
+            return _bodySession.BodyIndex;
+
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
+                AssemblyPath,
+                GetMetadataContext(),
+                BodyAnalysisFeatures);
+        }
+        catch (Exception ex)
+        {
+            // Scanners swallow a failed index and render an empty section, so without this the
+            // trace would show no body index for a run that tried to build one and failed —
+            // indistinguishable from a run that correctly never needed it.
+            Trace?.RecordResource("body index", $"FAILED after {Elapsed(start)}: {ex.GetType().Name}");
+            throw;
+        }
+
+        var index = _bodySession.BodyIndex;
+        Trace?.RecordResource(
+            "body index",
+            $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})");
+        return index;
+    }
+
+    private static string Elapsed(long start)
+        => $"{System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms";
 
     /// <summary>
     /// Stable member drill coordinates, derived once from the command's shared
@@ -142,10 +182,15 @@ public sealed class ScannerContext : IDisposable
     /// </summary>
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
         DrillMap()
-        => _drillMap ??=
-            LibraryMetadataService.BuildLibraryDrillMap(
-                GetMetadataContext(),
-                Logger);
+    {
+        if (_drillMap is not null)
+            return _drillMap;
+
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        _drillMap = LibraryMetadataService.BuildLibraryDrillMap(GetMetadataContext(), Logger);
+        Trace?.RecordResource("drill map", $"built in {Elapsed(start)} ({_drillMap.Count} members)");
+        return _drillMap;
+    }
 
     PdbContext GetMetadataContext()
         => MetadataContext
@@ -305,6 +350,10 @@ public sealed class ScannerRegistry
 
         running.Remove(key);
         ran.Add(key);
-        scan?.Invoke(context);
+
+        if (context.Trace is { } trace)
+            trace.Time(key, isBundle: scan is null, () => scan?.Invoke(context));
+        else
+            scan?.Invoke(context);
     }
 }

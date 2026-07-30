@@ -189,6 +189,60 @@ When the pipeline computes multiple sections and the output format is the defaul
 
 This is tracked on options objects, which distinguish the default format from an explicit tabular flag.
 
+## Tracing
+
+`--trace` writes a diagnostic report to **stderr** describing the work a run actually did. stdout is
+untouched, so a caller parsing the document is unaffected (gated by a byte-identical stdout check).
+
+The report answers "did this run do the correct minimum work?", which nothing else can:
+
+```text
+trace: library ILInspector.Decompiler.dll [Minimal]
+  sections demanding a scanner
+    Library Info -> InfoCounts
+  scanners requested   InfoCounts
+  added by prerequisite ClassifiedMethods, CustomAttributes, ExtensionMethods, Resources, TypeForwarders
+  scanners executed
+    ExtensionMethods            9.3 ms
+    ClassifiedMethods           48.6 ms
+    ...
+    InfoCounts                  0.0 ms  (bundle, no work of its own)
+  resources acquired
+    metadata session            borrowed from the command's open image
+  total scanner time           74.4 ms
+```
+
+Five things are recorded, each at the only layer that knows it:
+
+| Fact | Recorded by |
+| --- | --- |
+| Which section demanded which scanner | `SectionPipeline.GetRequiredScanners` |
+| What prerequisite expansion added | `ScannerRegistry.ExpandRequired`, via `InspectAsync` |
+| Which scanners ran, in order, with timings | `ScannerRegistry.RunScanners` |
+| Whether a scanner is a bundle (no work of its own) | `ScannerRegistry.RunScanners` |
+| Which expensive resources were built | `ScannerContext.Session`/`BodyIndex`/`DrillMap` |
+
+Section-to-scanner attribution exists only on the demand side — downstream the registry sees a set of
+keys with no memory of who asked for them — which is why it is captured there rather than
+reconstructed later.
+
+Design points worth keeping:
+
+- **The typed record is the contract, not the text.** Tests assert on `InspectionTrace`, so the report
+  can be reformatted without rewriting gates.
+- **Resources are recorded at acquisition, not at request.** A resource that never appears was never
+  built. That absence is the observable: a regression that makes a metadata-only scan open the
+  whole-assembly IL index costs seconds and changes no output, so no other test would notice it.
+- **A failed acquisition is recorded too.** Scanners swallow a failed body index and render an empty
+  section; without a `FAILED` line, a run that tried and failed would look exactly like a run that
+  correctly never needed the index.
+- **Untraced runs pay nothing.** Tracing is threaded as a nullable object rather than a flag, so an
+  untraced run allocates nothing and takes no branch beyond a null check. A gate holds the shared
+  scan count equal with and without tracing, because a diagnostic that perturbs what it measures is
+  worse than none.
+- **The report is written in a `finally`.** A failed run still reports what it had done before
+  failing, which is when the question is most worth asking.
+
 ## Design Decisions
 
 **Static abstract interfaces over instances.** Descriptors are never instantiated. The pipeline extracts static members into delegate-based `SectionEntry<T>` records at registration time. This avoids allocations and keeps metadata in a format that NativeAOT can optimize.

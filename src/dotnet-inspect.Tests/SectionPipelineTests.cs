@@ -1600,6 +1600,155 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
+    {
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in five scanners.
+        // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
+        // cost to a step that has none, and hide that the real work belongs to its prerequisites.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            Trace = trace,
+        };
+
+        var closure = registry.ExpandRequired([LibrarySections.ScannerInfoCounts]);
+        registry.RunScanners(closure, context);
+
+        Assert.Equal(
+            closure.OrderBy(k => k, StringComparer.Ordinal),
+            trace.Executions.Select(e => e.Key).OrderBy(k => k, StringComparer.Ordinal));
+
+        var bundles = trace.Executions.Where(e => e.IsBundle).Select(e => e.Key).ToArray();
+        Assert.Equal([LibrarySections.ScannerInfoCounts], bundles);
+    }
+
+    [Fact]
+    public void Trace_SeparatesDirectDemandFromPrerequisiteExpansion()
+    {
+        // The distinction is the point of the report: a key in the closure but not in the request
+        // is work no section asked for by name, which is where an unintended cost creeps in.
+        var pipeline = LibrarySections.CreatePipeline();
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+
+        var requested = pipeline.GetRequiredScanners(Verbosity.Minimal, trace: trace);
+        trace.RecordClosure(registry.ExpandRequired(requested));
+
+        // Minimal selects the target section only, and it demands exactly the bundle.
+        Assert.Equal([LibrarySections.ScannerInfoCounts], trace.Requested);
+        Assert.All(trace.Demand, d => Assert.Equal(LibrarySections.ScannerInfoCounts, d.Scanner));
+
+        // Everything the bundle names is expansion, not demand.
+        var added = trace.Closure.Except(trace.Requested, StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(
+            registry.RequirementsOf(LibrarySections.ScannerInfoCounts).ToHashSet(StringComparer.Ordinal),
+            added);
+    }
+
+    [Fact]
+    public void Trace_RecordsNoBodyIndexForAScanThatDoesNotNeedOne()
+    {
+        // The negative half of the minimum-work claim, and the one worth gating. A regression that
+        // makes a metadata-only scan open the whole-assembly IL index costs seconds and changes no
+        // output at all, so no other test in the suite would notice. Its absence from the resource
+        // list is the observable.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var metadataContext = PdbContext.Open(typeof(SectionPipelineTests).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            Trace = trace,
+        };
+
+        registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerInfoCounts]), context);
+
+        Assert.Contains(trace.Resources, r => r.Resource == "metadata session");
+        Assert.DoesNotContain(trace.Resources, r => r.Resource == "body index");
+        Assert.DoesNotContain(trace.Resources, r => r.Resource == "drill map");
+    }
+
+    [Fact]
+    public void Trace_RecordsTheBodyIndexWhenAScannerActuallyBuildsIt()
+    {
+        // Paired positive. Without it the negative above is satisfied by a trace that never
+        // records a body index under any circumstances, which would pass while observing nothing.
+        // The index needs the prefetched image the command opens for exactly this reason; a plain
+        // PdbContext.Open cannot back it, and the scanner would swallow the failure and render an
+        // empty section. Opening it the way InspectAsync does is what makes this a real positive.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            Trace = trace,
+        };
+
+        registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerUnsafeMembers]), context);
+
+        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
+        Assert.StartsWith("built in", bodyIndex.Detail);
+    }
+
+    [Fact]
+    public void Trace_RecordsAScannerThatThrew()
+    {
+        // The report is written in a finally, so a run that failed still says what it had done by
+        // the time it failed. If the throwing scanner were dropped from the record, the trace would
+        // implicate whichever scanner ran last before it.
+        var registry = new ScannerRegistry()
+            .Add("Boom", _ => throw new InvalidOperationException("boom"));
+        var trace = new InspectionTrace();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            Trace = trace,
+        };
+
+        Assert.Throws<InvalidOperationException>(() => registry.RunScanners(["Boom"], context));
+
+        Assert.Equal(["Boom"], trace.Executions.Select(e => e.Key));
+    }
+
+    [Fact]
+    public void Tracing_DoesNotChangeTheWorkTheRunDoes()
+    {
+        // A diagnostic that perturbs what it measures is worse than none. Held against the shared
+        // scan count, which is the observable the atomicity gates already rely on.
+        static int RunAndCountSharedScans(InspectionTrace? trace)
+        {
+            var registry = LibrarySections.CreateScannerRegistry();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+                Model = new LibraryInspection(),
+                Logger = new Output.VerboseLogger(false),
+                Trace = trace,
+            };
+
+            registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+            return context.SharedScanCount;
+        }
+
+        Assert.Equal(RunAndCountSharedScans(trace: null), RunAndCountSharedScans(new InspectionTrace()));
+    }
+
+    [Fact]
     public void SharedSessionScanners_MapTheirOwnFailuresRatherThanThrowing()
     {
         // Routing a scanner through the shared session means it runs its SESSION overload where it

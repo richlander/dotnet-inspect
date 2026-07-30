@@ -573,8 +573,14 @@ public sealed class SectionPipeline<TModel>
     /// Returns the set of scanner keys needed to satisfy all requested sections.
     /// Sections with a null scanner key are always collected and not included.
     /// </summary>
+    /// <param name="trace">
+    /// When supplied, records which section demanded which scanner. This is the demand side of the
+    /// pipeline and the only place the section-to-scanner attribution exists — downstream, the
+    /// registry sees a set of keys with no memory of who asked for them.
+    /// </param>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null, bool fixedOverview = false)
+        HashSet<string>? include = null, bool fixedOverview = false,
+        InspectionTrace? trace = null)
     {
         HashSet<string> scanners = [];
         for (int i = 0; i < _entries.Count; i++)
@@ -583,8 +589,13 @@ public sealed class SectionPipeline<TModel>
             if (entry.ScannerKey == null)
                 continue;
             if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            {
                 scanners.Add(entry.ScannerKey);
+                trace?.RecordDemand(entry.Name, entry.ScannerKey);
+            }
         }
+
+        trace?.RecordRequested(scanners);
         return scanners;
     }
 
