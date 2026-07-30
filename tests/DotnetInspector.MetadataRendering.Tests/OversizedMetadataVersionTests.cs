@@ -93,29 +93,112 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     }
 
     /// <summary>
-    /// Gates the one repair `MetadataReader` does not check for us.
+    /// Gates the repairs `MetadataReader` does not check for us.
     /// <para>
     /// Widening the version field grows the section that holds it, so the
-    /// optional header's <c>SizeOfCode</c> has to grow with it. SRM never reads
-    /// that field, so omitting the repair leaves every other assertion in this
-    /// class green while the image carries a header that contradicts its own
-    /// section table — review of this file demonstrated exactly that. Anything a
-    /// fixture claims to maintain but nothing checks is a claim that will
-    /// eventually stop being true.
+    /// containing section's raw size, every later section's raw pointer, and the
+    /// optional header's <c>SizeOfCode</c> all have to grow with it. SRM reads
+    /// none of those, so omitting any of them leaves the rest of this class
+    /// green while the image carries headers that contradict each other — review
+    /// of this file demonstrated exactly that, twice. Anything a fixture claims
+    /// to maintain but nothing checks is a claim that will eventually stop being
+    /// true.
     /// </para>
     /// <para>
-    /// The invariant is asserted against a compiler-produced assembly first, so
-    /// it is anchored in what real toolchains emit rather than being a rule
+    /// Self-consistency is not enough on its own. <c>SizeOfCode</c> equals the
+    /// sum of the code sections' raw sizes just as well when neither grew, so
+    /// that equality alone accepts an image whose metadata runs off the end of
+    /// its own section. The geometry assertions below are what make the
+    /// difference: metadata has to fit inside the section that claims to hold
+    /// it, and sections may not overlap on disk.
+    /// </para>
+    /// <para>
+    /// Every invariant is asserted against a compiler-produced assembly first,
+    /// so each is anchored in what real toolchains emit rather than being a rule
     /// invented for the fixture's convenience.
     /// </para>
     /// </summary>
     [Fact]
     public void HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable()
     {
-        string self = typeof(OversizedMetadataVersionTests).Assembly.Location;
-        Assert.Equal(SumOfCodeSectionRawSizes(File.ReadAllBytes(self)), SizeOfCode(File.ReadAllBytes(self)));
+        Assert.Equal(SumOfCodeSectionRawSizes(SelfImage), SizeOfCode(SelfImage));
 
         Assert.Equal(SumOfCodeSectionRawSizes(fixture.Bytes), SizeOfCode(fixture.Bytes));
+    }
+
+    /// <summary>
+    /// The metadata a PE declares must lie inside the section that holds it.
+    /// This is the assertion that fails when the version field is widened
+    /// without growing its section, which is the corruption the fixture is most
+    /// likely to reintroduce, because it leaves the image parseable.
+    /// </summary>
+    [Fact]
+    public void HostileImage_KeepsMetadataInsideItsOwningSection()
+    {
+        AssertMetadataFitsItsSection(SelfImage);
+
+        AssertMetadataFitsItsSection(fixture.Bytes);
+    }
+
+    /// <summary>
+    /// Sections must start on a file-alignment boundary and may not overlap on
+    /// disk. This is the assertion that fails when a section grows without the
+    /// later sections' raw pointers moving out of its way.
+    /// </summary>
+    [Fact]
+    public void HostileImage_KeepsSectionsAlignedAndDisjointOnDisk()
+    {
+        AssertSectionsAreAlignedAndDisjoint(SelfImage);
+
+        AssertSectionsAreAlignedAndDisjoint(fixture.Bytes);
+    }
+
+    /// <summary>A compiler-produced assembly, used to anchor each invariant.</summary>
+    static byte[] SelfImage
+        => File.ReadAllBytes(typeof(OversizedMetadataVersionTests).Assembly.Location);
+
+    static void AssertMetadataFitsItsSection(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        PEHeaders headers = peReader.PEHeaders;
+
+        int start = headers.MetadataStartOffset;
+        int end = start + headers.MetadataSize;
+
+        SectionHeader owner = Assert.Single(
+            headers.SectionHeaders.Where(s => start >= s.PointerToRawData
+                && start < s.PointerToRawData + s.SizeOfRawData));
+
+        Assert.InRange(end, start, owner.PointerToRawData + owner.SizeOfRawData);
+    }
+
+    static void AssertSectionsAreAlignedAndDisjoint(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        PEHeaders headers = peReader.PEHeaders;
+        int fileAlignment = headers.PEHeader!.FileAlignment;
+
+        var occupied = headers.SectionHeaders
+            .Where(static s => s.SizeOfRawData > 0)
+            .OrderBy(static s => s.PointerToRawData)
+            .ToArray();
+
+        Assert.NotEmpty(occupied);
+
+        int previousEnd = 0;
+        foreach (SectionHeader section in occupied)
+        {
+            Assert.Equal(0, section.PointerToRawData % fileAlignment);
+            Assert.True(
+                section.PointerToRawData >= previousEnd,
+                $"Section {section.Name} starts at {section.PointerToRawData}, inside the section ending at {previousEnd}.");
+
+            previousEnd = section.PointerToRawData + section.SizeOfRawData;
+        }
+
+        Assert.True(
+            previousEnd <= image.Length,
+            $"Sections run to {previousEnd}, past the {image.Length}-byte image.");
     }
 
     static int SizeOfCode(byte[] image)
@@ -147,14 +230,21 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 /// </para>
 /// <para>
 /// Those repairs are not equally self-enforcing, and it matters which is which.
-/// `MetadataReader` refuses the image if the stream offsets or the section
-/// geometry are wrong — omitting the stream-offset repair fails with
-/// `BadImageFormatException: Unknown tables: 0x4141414141414141`, the padding
-/// bytes being read as a table mask. It never reads `SizeOfCode`, so that repair
-/// is checked by
-/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable"/>
-/// instead; without that test the repair could be deleted with every assertion
-/// still green.
+/// Two of them `MetadataReader` checks itself, and dropping either fails loudly:
+/// without the stream-offset repair it throws `BadImageFormatException: Unknown
+/// tables: 0x4141414141414141`, the padding bytes being read as a table mask,
+/// and without the containing section's virtual-size growth it throws
+/// `BadImageFormatException: Section too small.`
+/// </para>
+/// <para>
+/// The other three it never reads: the containing section's raw size, the later
+/// sections' raw pointers, and `SizeOfCode`. Dropping any of those leaves an
+/// image SRM parses happily while its headers contradict each other, so each is
+/// gated by a test instead —
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsMetadataInsideItsOwningSection"/>,
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSectionsAlignedAndDisjointOnDisk"/>, and
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable"/>.
+/// Review of this file found two of the three ungated, on separate rounds.
 /// </para>
 /// </summary>
 public sealed class OversizedVersionFixture : IDisposable
