@@ -277,10 +277,11 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// </summary>
     static IEnumerable<(string Name, int Before, int After)> RvaFields(byte[] baseline, byte[] patched)
     {
-        yield return (
-            "AddressOfEntryPoint",
-            OptionalHeader(baseline).AddressOfEntryPoint,
-            OptionalHeader(patched).AddressOfEntryPoint);
+        foreach (var pair in Pair(OptionalHeaderRvas(baseline), OptionalHeaderRvas(patched)))
+            yield return pair;
+
+        foreach (var pair in Pair(SectionRvas(baseline), SectionRvas(patched)))
+            yield return pair;
 
         foreach (var pair in Pair(DataDirectories(baseline), DataDirectories(patched)))
             yield return pair;
@@ -294,6 +295,41 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         foreach (var pair in Pair(CliHeaderTargets(baseline), CliHeaderTargets(patched)))
             yield return pair;
     }
+
+    /// <summary>
+    /// The optional header's scalar RVA fields.
+    /// <para>
+    /// `BaseOfCode` and `BaseOfData` are here because review planted a stale
+    /// `BaseOfData` and nothing failed, against a scope statement that claimed
+    /// every RVA reachable from the optional header. They are typed address
+    /// fields, not incidental bytes, so the argument that rejected a heuristic
+    /// scan does not cover them. `BaseOfData` does not exist in PE32+, where the
+    /// slot is the low half of `ImageBase`;
+    /// <see cref="HostileImage_IsPe32AsTheseWalkersAssume"/> is what makes
+    /// reading it here safe.
+    /// </para>
+    /// </summary>
+    static (string Name, int Rva)[] OptionalHeaderRvas(byte[] image)
+    {
+        PEHeader header = OptionalHeader(image);
+
+        return
+        [
+            ("AddressOfEntryPoint", header.AddressOfEntryPoint),
+            ("BaseOfCode", header.BaseOfCode),
+            ("BaseOfData", header.BaseOfData),
+        ];
+    }
+
+    /// <summary>
+    /// Each section header's virtual address. These stay put — the expansion
+    /// moves raw pointers, not RVAs — but the scope statement covers every RVA
+    /// the image declares, and a section table is where an image declares most of
+    /// them.
+    /// </summary>
+    static (string Name, int Rva)[] SectionRvas(byte[] image)
+        => [.. Headers(image).SectionHeaders
+            .Select(s => ($"Section[{s.Name}].VirtualAddress", s.VirtualAddress))];
 
     static IEnumerable<(string Name, int Before, int After)> Pair(
         (string Name, int Rva)[] before, (string Name, int Rva)[] after)
