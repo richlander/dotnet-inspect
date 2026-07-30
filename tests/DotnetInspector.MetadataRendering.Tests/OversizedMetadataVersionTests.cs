@@ -400,6 +400,11 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// located in the baseline and its field re-read at the offset the expansion
     /// moved that byte to. The content is intact and unmodified; only what points
     /// at it is stale, which is the distinction this test exists to record.
+    /// That makes the baseline the sole authority on shape — where the descriptor
+    /// array ends, where each thunk list ends, which entries are ordinals — so a
+    /// structure present only in the patched image would not be walked at all.
+    /// <see cref="HostileImage_HasTheImportShapeItsBaselineWalkAssumes"/> is what
+    /// makes that safe, by failing if the two images ever disagree on shape.
     /// </para>
     /// <para>
     /// Entries with the ordinal flag set carry an ordinal rather than an RVA and
@@ -633,6 +638,102 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         "CorHeaderTable",
         "ReservedTable",
     ];
+
+    /// <summary>
+    /// The import walk is driven entirely by the baseline: which descriptor is
+    /// the null terminator, where each thunk list ends, and which entries carry
+    /// the ordinal flag are all decided by baseline bytes, because the patched
+    /// image's import directory is itself stale and following it lands in version
+    /// padding. That is sound only while the two images have the same import
+    /// *shape*, and nothing said so.
+    /// <para>
+    /// Review broke exactly that premise: it replaced the moved null descriptor
+    /// in the patched image with one carrying three typed RVAs. The baseline
+    /// stopped at its terminator, the walk never reached the new descriptor, and
+    /// all 146 tests passed. So the premise is asserted rather than assumed — the
+    /// same traversal runs twice, once reading baseline bytes and once reading
+    /// the patched bytes each site moved to, and the two shapes must agree.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_HasTheImportShapeItsBaselineWalkAssumes()
+    {
+        int insertionPoint = InsertionPointOf(fixture.Baseline);
+
+        Assert.Equal(
+            ImportShape(fixture.Baseline, site => ReadRva(fixture.Baseline, site)),
+            ImportShape(fixture.Baseline, site => ReadRva(
+                fixture.Bytes,
+                site < insertionPoint ? site : site + OversizedVersionFixture.Expansion)));
+    }
+
+    /// <summary>
+    /// The structural decisions <see cref="ImportTargets"/> makes — how many
+    /// descriptors there are, how many thunks each table holds, and which of
+    /// those are ordinals — expressed as a list, so the same traversal can be run
+    /// against either image and the results compared.
+    /// <para>
+    /// Sites are always baseline file offsets; it is the reader that decides
+    /// which image those offsets are read from. Only shape is recorded, never an
+    /// RVA value — the RVAs are expected to differ between the two images, and
+    /// classifying that difference is what
+    /// <see cref="HostileImage_BreaksOnlyTheRvasItIsKnownToBreak"/> is for.
+    /// </para>
+    /// </summary>
+    static string[] ImportShape(byte[] baseline, Func<int, int> read)
+    {
+        PEHeaders headers = Headers(baseline);
+        DirectoryEntry directory = headers.PEHeader!.ImportTableDirectory;
+
+        if (directory.RelativeVirtualAddress == 0)
+            return [];
+
+        List<string> shape = [];
+        int descriptor = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+        int end = descriptor + directory.Size;
+        int i = 0;
+
+        for (; descriptor + 20 <= end; i++, descriptor += 20)
+        {
+            int lookupTable = read(descriptor);
+            int name = read(descriptor + 12);
+            int addressTable = read(descriptor + 16);
+
+            if (lookupTable == 0 && addressTable == 0 && name == 0)
+                break;
+
+            shape.Add(
+                $"Import[{i}] lookup={lookupTable != 0} name={name != 0} address={addressTable != 0}");
+
+            Record($"Import[{i}].Lookup", lookupTable);
+            Record($"Import[{i}].Address", addressTable);
+        }
+
+        shape.Add($"Descriptors={i}");
+
+        return [.. shape];
+
+        void Record(string label, int tableRva)
+        {
+            if (tableRva == 0)
+                return;
+
+            int site = FileOffsetOf(headers, tableRva);
+
+            for (int slot = 0; ; slot++, site += 4)
+            {
+                int entry = read(site);
+
+                if (entry == 0)
+                {
+                    shape.Add($"{label} slots={slot}");
+                    return;
+                }
+
+                shape.Add($"{label}[{slot}] ordinal={(entry & unchecked((int)0x80000000)) != 0}");
+            }
+        }
+    }
 
     /// <summary>
     /// The certificate directory is the one entry whose value is a file offset
