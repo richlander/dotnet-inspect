@@ -133,6 +133,97 @@ public class CallerScopeResolverTests
         }
     }
 
+    /// <summary>
+    /// A file whose own name contains a character the enumeration API treats as a wildcard must
+    /// not be canonicalized onto a *different* file that the wildcard happens to match. Doing so
+    /// would collapse two distinct assemblies to one scope entry and lose the second's callers.
+    ///
+    /// <para>Windows forbids every Win32 wildcard character in a file name, so this can only be
+    /// staged where the filesystem permits one — which is where CI runs.</para>
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_DoesNotCanonicalizeAWildcardNamedFileOntoADifferentFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("caller-scope-wildcard-test").FullName;
+        try
+        {
+            var source = typeof(CallerScopeResolverTests).Assembly.Location;
+            var decoy = Path.Combine(directory, "abc.dll");
+            var wildcard = Path.Combine(directory, "ab<.dll");
+
+            File.Copy(source, decoy);
+            try
+            {
+                File.Copy(source, wildcard);
+            }
+            catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
+            {
+                Assert.Skip("Needs a filesystem that permits a Win32 wildcard character in a file name.");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await CallerScopeResolver.ResolveAsync(
+                directories: [directory],
+                projects: [],
+                packages: [],
+                tfm: null,
+                ownAssemblyPath: null,
+                httpClient,
+                new VerboseLogger(enabled: false));
+
+            Assert.Equal(2, assemblySet.Assemblies.Count);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A scope that names one assembly both directly and through a symbolic link must scan it
+    /// once. Left unresolved, the link and its target are two different paths under any comparer,
+    /// so every call site in the file is reported twice.
+    ///
+    /// <para>Creating a symbolic link needs Developer Mode or elevation on Windows, so this skips
+    /// where the OS refuses.</para>
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_CountsOnePhysicalFileOnceWhenAlsoReachedThroughASymbolicLink()
+    {
+        var directory = Directory.CreateTempSubdirectory("caller-scope-link-test").FullName;
+        try
+        {
+            var source = typeof(CallerScopeResolverTests).Assembly.Location;
+            var target = Path.Combine(directory, "Caller.dll");
+            File.Copy(source, target);
+
+            try
+            {
+                File.CreateSymbolicLink(Path.Combine(directory, "Link.dll"), target);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Assert.Skip("Needs permission to create a symbolic link.");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await CallerScopeResolver.ResolveAsync(
+                directories: [directory],
+                projects: [],
+                packages: [],
+                tfm: null,
+                ownAssemblyPath: null,
+                httpClient,
+                new VerboseLogger(enabled: false));
+
+            Assert.Single(assemblySet.Assemblies);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>The same path with the case of its last segment inverted.</summary>
     static string SwapLeafCase(string path)
     {
