@@ -157,26 +157,40 @@ if (declaredPassed != actualPassed || declaredFailed != actualFailed)
     return 2;
 }
 
+// Identity for *every* decision -- pins, coverage, and completeness alike --
+// comes from the structured type/method attributes, not the display name.
+// Splitting the two was a real bug: a row whose name said one thing and whose
+// method attribute said another could pass a new failure off as a pinned one.
+// The display name carries theory arguments and honors -methodDisplayOptions,
+// so it is a presentation string, not an identity.
 static string? TestName(XElement test)
 {
-    string? name = (string?)test.Attribute("name");
-    if (!string.IsNullOrWhiteSpace(name))
-        return name;
     string? type = (string?)test.Attribute("type");
     string? method = (string?)test.Attribute("method");
     if (!string.IsNullOrWhiteSpace(type) && !string.IsNullOrWhiteSpace(method))
         return $"{type}.{method}";
-    return null;
+    // Fall back to the display name only when the structured identity is
+    // absent entirely.
+    string? name = (string?)test.Attribute("name");
+    return string.IsNullOrWhiteSpace(name) ? null : name;
+}
+
+static string? TestClass(XElement test)
+{
+    string? type = (string?)test.Attribute("type");
+    if (!string.IsNullOrWhiteSpace(type))
+        return type;
+    if (TestName(test) is not string name)
+        return null;
+    int paren = name.IndexOf('(', StringComparison.Ordinal);
+    string bare = paren >= 0 ? name[..paren] : name;
+    int dot = bare.LastIndexOf('.');
+    return dot > 0 ? bare[..dot] : bare;
 }
 
 var passed = new HashSet<string>(StringComparer.Ordinal);
 var failed = new HashSet<string>(StringComparer.Ordinal);
 var notExecuted = new SortedDictionary<string, string>(StringComparer.Ordinal);
-// Method identity taken from the report's own type/method attributes rather
-// than parsed out of the display name. Display names carry theory arguments,
-// honor -methodDisplayOptions, and can contain the very characters a parser
-// would split on; type/method are unambiguous.
-var executedMethods = new HashSet<string>(StringComparer.Ordinal);
 var executedClasses = new HashSet<string>(StringComparer.Ordinal);
 int unidentified = 0;
 
@@ -204,27 +218,8 @@ foreach (var test in tests)
             break;
     }
 
-    if (result is "Pass" or "Fail")
-    {
-        string? type = (string?)test.Attribute("type");
-        string? method = (string?)test.Attribute("method");
-        if (!string.IsNullOrWhiteSpace(type) && !string.IsNullOrWhiteSpace(method))
-        {
-            executedMethods.Add($"{type}.{method}");
-            executedClasses.Add(type);
-        }
-        else
-        {
-            // Fall back to the display name only when the structured identity is
-            // absent. Cutting at the first '(' strips theory arguments; the last
-            // '.' separates class from method.
-            int paren = name.IndexOf('(', StringComparison.Ordinal);
-            string bare = paren >= 0 ? name[..paren] : name;
-            executedMethods.Add(bare);
-            int dot = bare.LastIndexOf('.');
-            executedClasses.Add(dot > 0 ? bare[..dot] : bare);
-        }
-    }
+    if (result is "Pass" or "Fail" && TestClass(test) is string cls)
+        executedClasses.Add(cls);
 }
 
 // A test that both passed and failed in one report (a retry) is treated as
@@ -312,12 +307,11 @@ if (!partial)
         return 2;
     }
 
-    // Discovery lists methods; identity comes from the report's type/method
-    // attributes, so theory arguments and display-name options cannot confuse
-    // the comparison.
-    missingTests = discovered.Except(executedMethods, StringComparer.Ordinal)
+    // `executed` is already keyed by method identity, so the comparison needs
+    // no name parsing.
+    missingTests = discovered.Except(executed, StringComparer.Ordinal)
         .Order(StringComparer.Ordinal).ToList();
-    unexpectedTests = executedMethods.Except(discovered, StringComparer.Ordinal)
+    unexpectedTests = executed.Except(discovered, StringComparer.Ordinal)
         .Order(StringComparer.Ordinal).ToList();
 }
 

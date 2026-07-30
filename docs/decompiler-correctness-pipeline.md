@@ -299,17 +299,27 @@ same run, so a report containing four of fifteen tests and honestly declaring
 results against a **discovery listing** produced by `-list methods/json` over
 the same preset, which enumerates what should run without running it. Every
 discovered test must appear in the results, and every result must correspond to
-a discovered test. Identity comes from the report's `type` and `method`
-attributes rather than from parsing display names, which carry theory arguments
-and honor `-methodDisplayOptions`.
+a discovered test. Identity for every decision — pins, class coverage, and
+completeness alike — comes from the report's `type` and `method` attributes.
+The display name is a presentation string: it carries theory arguments, honors
+`-methodDisplayOptions`, and can disagree with the structured attributes
+outright, so a row whose name claims to be a pinned test cannot pass a new
+failure off as a known one.
 
 That comparison is **method-granular**, and deliberately so: no `-list` mode
-enumerates theory cases. A theory with five cases is listed once, so a run that
-lost four of them would still satisfy the check. Method granularity is
-sufficient only while the gate classes declare no theories, and that is
-enforced rather than assumed —
-`GateExpectedClassesTests.PreMergeGateClasses_DeclareNoTheories` fails if a
-theory is added to a gate class, with a message pointing at this constraint.
+enumerates individual cases. A method that expands to five cases is listed
+once, so a run that lost four of them would still satisfy the check. Method
+granularity is sufficient only while every gate test is exactly one case, and
+that is enforced rather than assumed —
+`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
+every test in a gate class to carry exactly `FactAttribute`.
+
+It is an **allow list**, not a deny list, because rejecting only `[Theory]`
+would miss `[CulturedFact]` — which derives from `FactAttribute`, not
+`TheoryAttribute`, and still yields one case per culture — and would miss any
+future multi-case attribute. It scans the same method surface xUnit discovers,
+including inherited and non-public methods and interface declarations, because
+a theory inherited from a base class runs exactly like a declared one.
 Resolving each preset class by name in the same test also catches an arm naming
 a renamed or deleted class, which would otherwise select zero tests and exit 0.
 

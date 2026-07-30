@@ -41,22 +41,31 @@ public class GateExpectedClassesTests
     }
 
     /// <summary>
-    /// Forbids <c>[Theory]</c> in the <c>pre-merge</c> gate classes, and proves the preset
-    /// names classes that exist.
+    /// Requires every test in the <c>pre-merge</c> gate classes to be a plain <c>[Fact]</c>,
+    /// and proves the preset names classes that exist.
     ///
     /// <para>The CI completeness check compares the run against a <c>-list methods</c>
-    /// discovery listing, and no <c>-list</c> mode enumerates theory cases: a theory with
-    /// five cases is listed once, so a run that lost four of them would still satisfy the
-    /// check. Method granularity is sufficient only while the gate classes are fact-only.
-    /// This test is what makes that true instead of assumed — adding a theory to a gate
-    /// class fails here rather than silently weakening the gate.</para>
+    /// discovery listing, and no <c>-list</c> mode enumerates individual cases: a method
+    /// that expands to five cases is listed once, so a run that lost four of them would
+    /// still satisfy the check. Method granularity is sufficient only while every gate
+    /// test is exactly one case. This test is what makes that true instead of assumed.</para>
+    ///
+    /// <para>It is an allow list, not a deny list. Rejecting only <c>[Theory]</c> would miss
+    /// <c>[CulturedFact]</c>, which derives from <see cref="FactAttribute"/> rather than
+    /// <c>TheoryAttribute</c> and still yields one case per culture, and would miss any
+    /// future multi-case attribute. Requiring the attribute to be exactly
+    /// <see cref="FactAttribute"/> fails closed on all of them.</para>
+    ///
+    /// <para>The method surface scanned here mirrors what xUnit itself discovers —
+    /// inherited and non-public methods, plus interface declarations — because a theory
+    /// inherited from a base class is discovered and run exactly like a declared one.</para>
     ///
     /// <para>Resolving each class by name also catches a preset arm naming a renamed or
     /// deleted class. That matters because a <c>-class</c> filter matching nothing runs
     /// zero tests and exits 0, so the mistake is otherwise invisible.</para>
     /// </summary>
     [Fact]
-    public void PreMergeGateClasses_DeclareNoTheories()
+    public void PreMergeGateClasses_ContainOnlyPlainFacts()
     {
         GatePreset preset = Assert.Single(Program.Presets, p => p.Name == "pre-merge");
 
@@ -68,7 +77,11 @@ public class GateExpectedClassesTests
 
         Assert.NotEmpty(classNames);
 
-        var theories = new List<string>();
+        const BindingFlags Surface =
+            BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public
+            | BindingFlags.NonPublic | BindingFlags.FlattenHierarchy;
+
+        var offenders = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string className in classNames)
         {
             Type type = typeof(Program).Assembly.GetType(className)
@@ -77,20 +90,30 @@ public class GateExpectedClassesTests
                         + "assembly. A -class filter matching nothing runs zero tests and exits 0, "
                         + "so this would silently un-gate that class.");
 
-            theories.AddRange(
-                type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                    .Where(m => m.GetCustomAttribute<TheoryAttribute>() is not null)
-                    .Select(m => $"{className}.{m.Name}"));
+            IEnumerable<MethodInfo> methods = type.GetMethods(Surface)
+                .Concat(type.GetInterfaces().SelectMany(i => i.GetMethods(Surface)));
+
+            foreach (MethodInfo method in methods)
+            {
+                FactAttribute? fact = method
+                    .GetCustomAttributes(inherit: true)
+                    .OfType<FactAttribute>()
+                    .FirstOrDefault();
+
+                if (fact is not null && fact.GetType() != typeof(FactAttribute))
+                    offenders.Add($"{className}.{method.Name} [{fact.GetType().Name}]");
+            }
         }
 
         Assert.True(
-            theories.Count == 0,
+            offenders.Count == 0,
             "The pre-merge gate completeness check is method-granular because xUnit's discovery "
-                + "listing does not enumerate theory cases, so a theory that silently lost cases "
-                + "would still satisfy it. Either make these facts, or teach "
+                + "listing does not enumerate individual cases, so a test that expands to several "
+                + "cases and silently loses some would still satisfy it. Gate classes must contain "
+                + "only plain [Fact] tests. Either make these facts, or teach "
                 + "eng/check-decompiler-gate.cs a case-level expectation before adding them:"
                 + Environment.NewLine
-                + string.Join(Environment.NewLine, theories.Order(StringComparer.Ordinal).Select(t => "  " + t)));
+                + string.Join(Environment.NewLine, offenders.Select(o => "  " + o)));
     }
 
     // Fails rather than skips when the source tree is absent. A skip here would
