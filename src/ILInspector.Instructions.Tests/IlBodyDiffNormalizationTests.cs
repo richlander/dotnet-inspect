@@ -229,7 +229,6 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<.ctor>b__103_0", "<.ctor>b__128_0")]                // lambda in a constructor
     [InlineData("<Run>g__A__B|103_0", "<Run>g__A__B|128_0")]          // local name containing `__`
     [InlineData("<<Run>b__103_0>b__104_1", "<<Run>b__128_0>b__129_1")] // lambda nested in a lambda
-    [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]        // enclosing name declined, inner still normalizes
     public void NormalizeSynthesizedMemberOrdinals_ToleratesContainingMethodRenumbering(
         string oldName,
         string newName)
@@ -271,6 +270,12 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<Run>b__103_0\u203f", "<Run>b__128_0\u203f")]  // trailing connector punctuation (Pc)
     [InlineData("<Run>b__103_0\u200c", "<Run>b__128_0\u200c")]  // trailing format character (Cf)
     [InlineData("<Run>b__103_0\U00010400", "<Run>b__128_0\U00010400")] // trailing supplementary-plane letter
+    [InlineData("<Run>b__103_0!suffix", "<Run>b__128_0!suffix")]  // trailing text after a non-identifier char
+    [InlineData("x!<Run>b__103_0", "x!<Run>b__128_0")]            // synthesized form buried after leading text
+    [InlineData("<<Run>b__103_0", "<<Run>b__128_0")]              // buried behind an unbalanced `<`
+    [InlineData("<>b__103_0", "<>b__128_0")]                      // empty containing method with a lambda marker
+    [InlineData("<Run>g__|103_0", "<Run>g__|128_0")]              // empty local function name
+    [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]    // state machine of an async lambda: a type name
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)
@@ -356,86 +361,50 @@ public class IlBodyDiffNormalizationTests
     }
 
     /// <summary>
-    /// Each candidate <c>&lt;</c> starts its own forward scan for the <c>&gt;</c>
-    /// that closes it, so a name built from unbalanced <c>&lt;</c> characters
-    /// costs O(n²) without a budget. Member names come from untrusted metadata
-    /// and the threat model requires CPU amplification to be bounded
-    /// (docs/design/untrusted-data-threat-model.md). This pins the budget's
-    /// observable behavior instead of its timing: a closure name buried behind
-    /// a few unbalanced <c>&lt;</c> characters still normalizes, and one buried
-    /// behind enough of them to exhaust the budget is declined rather than
-    /// scanned. Declining can only cost a false positive, never a masked
-    /// difference.
+    /// Member names come from untrusted metadata and the threat model requires
+    /// CPU amplification to be bounded
+    /// (docs/design/untrusted-data-threat-model.md). Anchoring the grammar to
+    /// the whole name is what supplies that bound: there is exactly one
+    /// candidate start, so each nesting level performs one angle scan plus at
+    /// most one separator scan over a disjoint part of the same string, and
+    /// <c>MaxNestingDepth</c> bounds the levels. Work is therefore linear in
+    /// the name's length.
     /// </summary>
+    /// <remarks>
+    /// The property is only observable as timing, because an anchored scan
+    /// declines hostile input at every size rather than changing behavior at a
+    /// threshold. The bound is deliberately loose: the shapes below are
+    /// microseconds when the scan is anchored, and were measured at 5.7 s
+    /// (unbalanced angles) and 1.4 s (local-function separators) at a quarter
+    /// of this size back when each candidate rescanned. Anything that
+    /// reintroduces a per-candidate rescan misses this bound by orders of
+    /// magnitude.
+    /// </remarks>
     [Fact]
-    public void NormalizeSynthesizedMemberOrdinals_BoundsScanWorkOnUnbalancedNames()
+    public void NormalizeSynthesizedMemberOrdinals_BoundsScanWorkOnHostileNames()
     {
-        Assert.True(CompareMemberNames(
-            Buried(unbalanced: 4, ordinal: 103),
-            Buried(unbalanced: 4, ordinal: 128),
-            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "Within the scan budget a buried closure name must still normalize.");
+        string unbalanced = new string('<', 400_000) + "<Run>b__103_0";
+        string separators = "<Run>b__103_0" + string.Concat(Enumerable.Repeat("<>g__.", 64_000));
+
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
 
         Assert.False(CompareMemberNames(
-            Buried(unbalanced: 200, ordinal: 103),
-            Buried(unbalanced: 200, ordinal: 128),
+            unbalanced,
+            unbalanced.Replace("103", "128", StringComparison.Ordinal),
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "Past the scan budget the name must be declined rather than scanned quadratically.");
-    }
+            "A name that is not entirely one of these forms must compare literally.");
 
-    /// <summary>
-    /// A closure name preceded by <paramref name="unbalanced"/> <c>&lt;</c>
-    /// characters that never close, each of which starts its own failing scan.
-    /// </summary>
-    static string Buried(int unbalanced, int ordinal)
-        => new string('<', unbalanced) + $"<Run>b__{ordinal}_0";
-
-    /// <summary>
-    /// The local function form searches forward for the <c>|</c> that
-    /// terminates the local's own name, and that search runs to the end of the
-    /// string when there is none. Charging it to the same budget as the angle
-    /// scan is what stops a name built from <c>&lt;&gt;g__.</c> repeats from
-    /// costing O(n²): those repeats close their angles immediately, so the
-    /// angle scan alone never notices them.
-    /// </summary>
-    [Fact]
-    public void NormalizeSynthesizedMemberOrdinals_ChargesTheLocalFunctionSeparatorScan()
-    {
         Assert.False(CompareMemberNames(
-            LocalFunctionFiller(repeats: 200, ordinal: 103),
-            LocalFunctionFiller(repeats: 200, ordinal: 128),
+            separators,
+            separators.Replace("103", "128", StringComparison.Ordinal),
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "A separator search that runs to the end of the string must consume the scan budget.");
-    }
+            "A name that is not entirely one of these forms must compare literally.");
 
-    /// <summary>
-    /// Budget exhaustion has to decline the whole name however it is reached.
-    /// When it happens on the last candidate in the string the scan loop just
-    /// ends, so the in-loop check never runs again; without a check after the
-    /// loop the leading closure name would stay rewritten and two names that
-    /// differ only past the exhaustion point would compare equal. These
-    /// constants were found by searching for an input the two behaviors
-    /// disagree on.
-    /// </summary>
-    [Fact]
-    public void NormalizeSynthesizedMemberOrdinals_DeclinesWhenTheBudgetRunsOutOnTheLastCandidate()
-    {
-        Assert.False(CompareMemberNames(
-            LocalFunctionFiller(repeats: 22, ordinal: 103, trailing: 353),
-            LocalFunctionFiller(repeats: 22, ordinal: 128, trailing: 353),
-            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "A budget exhausted on the last candidate must decline the whole name, not leave it half-rewritten.");
-    }
+        elapsed.Stop();
 
-    /// <summary>
-    /// A closure name followed by <paramref name="repeats"/> local-function
-    /// prefixes that never supply a <c>|</c>, then <paramref name="trailing"/>
-    /// characters containing no <c>&lt;</c>.
-    /// </summary>
-    static string LocalFunctionFiller(int repeats, int ordinal, int trailing = 0)
-        => $"<Run>b__{ordinal}_0"
-            + string.Concat(Enumerable.Repeat("<>g__.", repeats))
-            + new string('A', trailing);
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5),
+            $"Scanning hostile names must stay linear; took {elapsed.Elapsed.TotalSeconds:F1}s.");
+    }
 
     [Fact]
     public void Compare_RejectsUndefinedOptions()

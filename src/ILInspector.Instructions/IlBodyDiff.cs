@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -71,6 +70,11 @@ public enum IlBodyDiffNormalization
     /// formatted operand. Declaring types, return types, parameter types,
     /// generic arguments, standalone signatures, and string literals are left
     /// alone, so the rewrite cannot reach text that is not a member name.
+    /// Within that name the match is anchored at both ends: the whole name
+    /// must be one of the three forms. A synthesized-looking <em>substring</em>
+    /// is never rewritten, so names that arrive from a producer other than C#
+    /// (<c>x!&lt;Run&gt;b__1_0</c>, <c>&lt;Run&gt;b__1_0!suffix</c>) keep
+    /// comparing literally.
     /// </para>
     /// <para>
     /// Known limitation, deliberately not addressed: overloads share a
@@ -1066,96 +1070,67 @@ public static class IlBodyDiff
         const int MaxNestingDepth = 16;
 
         /// <summary>
-        /// Bounds the total characters <see cref="FindClosingAngle"/> may
-        /// visit across one top-level call, expressed as a multiple of the
-        /// input length. Each candidate <c>&lt;</c> starts its own forward
-        /// scan, so a name made of unbalanced <c>&lt;</c> characters would
-        /// otherwise cost O(n²)
-        /// (see docs/design/untrusted-data-threat-model.md, which requires CPU
-        /// amplification over hostile input to be bounded). Every recognized
-        /// form pairs its angles off in one scan per nesting level, so real
-        /// input stays far inside the budget; exhausting it means the name is
-        /// not one of these forms.
+        /// Shortest recognized form, <c>&lt;&gt;9__0_0</c>.
         /// </summary>
-        const int ScanBudgetFactor = MaxNestingDepth + 1;
+        const int MinNameLength = 8;
 
         /// <summary>
-        /// Normalizes every synthesized name inside a member's simple name
-        /// (for example <c>&lt;Run&gt;b__103_0</c>), rewriting only the
-        /// containing-method ordinal in each.
+        /// Normalizes a member's simple name when the <em>whole</em> name is
+        /// one of the recognized synthesized forms (for example
+        /// <c>&lt;Run&gt;b__103_0</c>), rewriting only the containing-method
+        /// ordinal. Any other name is returned unchanged.
         /// </summary>
         public static string Normalize(string value)
-        {
-            int budget = ScanBudgetFactor * (value.Length + 16);
-            return Normalize(value, depth: 0, ref budget);
-        }
+            => Normalize(value, depth: 0);
 
-        static string Normalize(string value, int depth, ref int budget)
+        static string Normalize(string value, int depth)
         {
             // Every recognized form opens with '<', which C# cannot spell, and
-            // carries the separator. Both checks are cheap rejects.
-            if (!value.Contains("__", StringComparison.Ordinal))
-                return value;
-
-            StringBuilder? builder = null;
-            int copied = 0;
-
-            for (int i = 0; i < value.Length; i++)
+            // carries the '__' separator. Both checks are cheap rejects.
+            if (value.Length < MinNameLength
+                || value[0] != '<'
+                || !value.Contains("__", StringComparison.Ordinal))
             {
-                if (value[i] != '<')
-                    continue;
-
-                // Only start at a '<' that opens a name. One preceded by an
-                // identifier character is interior text. A '<' preceded by
-                // '<' or '>' is reachable and must be scanned: a successful
-                // match jumps past the whole name it consumed, so the only way
-                // to arrive at a nested '<' is for the enclosing name to have
-                // been declined (`<<Run>b__103_0>d__1`, the state machine of an
-                // async lambda), and the name inside it still needs normalizing.
-                if (i > 0 && IsInteriorChar(value[i - 1]))
-                    continue;
-
-                // Out of scan budget: abandon the whole string rather than
-                // return it half-rewritten. Declining can only cost a false
-                // positive, never a masked difference.
-                if (budget < 0)
-                    return value;
-
-                if (!TryNormalizeName(value, i, depth, ref budget, out string replacement, out int end))
-                    continue;
-
-                builder ??= new StringBuilder(value.Length);
-                builder.Append(value, copied, i - copied);
-                builder.Append(replacement);
-                copied = end;
-                i = end - 1;
+                return value;
             }
 
-            // The budget can also run out on the last candidate in the string,
-            // after which the loop simply ends and the check above is never
-            // reached again. Re-check here so an exhausted scan always declines
-            // the whole string, whatever position exhausted it.
-            if (builder is null || budget < 0)
-                return value;
-
-            builder.Append(value, copied, value.Length - copied);
-            return builder.ToString();
+            return TryNormalizeName(value, depth, out string replacement) ? replacement : value;
         }
 
         /// <summary>
-        /// Matches <c>&lt;&gt;9__N_M</c>, <c>&lt;Name&gt;b__N_M</c>, or
-        /// <c>&lt;Name&gt;g__Local|N_M</c> starting at <paramref name="start"/>
-        /// and rewrites only <c>N</c>. Any other identifier, including the
-        /// state-machine form <c>&lt;Name&gt;d__N</c>, is declined.
+        /// Matches <paramref name="value"/> in its entirety against
+        /// <c>&lt;&gt;9__N_M</c>, <c>&lt;Name&gt;b__N_M</c>, or
+        /// <c>&lt;Name&gt;g__Local|N_M</c> and rewrites only <c>N</c>. Any
+        /// other name, including the state-machine form
+        /// <c>&lt;Name&gt;d__N</c>, is declined.
         /// </summary>
-        static bool TryNormalizeName(string value, int start, int depth, ref int budget, out string replacement, out int end)
+        /// <remarks>
+        /// <para>
+        /// The match is anchored at both ends on purpose. These names arrive
+        /// from arbitrary metadata, not only from Roslyn, so recognizing a
+        /// synthesized-looking <em>substring</em> would let unrelated names
+        /// collapse: <c>x!&lt;Run&gt;b__103_0</c> and
+        /// <c>&lt;Run&gt;b__103_0!suffix</c> are legal metadata names that no
+        /// C# compiler emits, and normalizing an ordinal buried inside them
+        /// would equate members that genuinely differ.
+        /// </para>
+        /// <para>
+        /// Anchoring also bounds the work. There is exactly one candidate
+        /// start, so each nesting level performs one angle scan plus at most
+        /// one separator scan over a disjoint part of the same string, and the
+        /// depth cap bounds the levels — linear overall, with no per-candidate
+        /// rescan for a hostile name to amplify
+        /// (see docs/design/untrusted-data-threat-model.md).
+        /// </para>
+        /// </remarks>
+        static bool TryNormalizeName(string value, int depth, out string replacement)
         {
             replacement = "";
-            end = start;
 
-            // The enclosing name may itself be synthesized (a nested lambda),
-            // so match the '>' that closes this name rather than the first one.
-            int close = FindClosingAngle(value, start, ref budget);
+            // The enclosing name may itself be synthesized (a lambda inside a
+            // lambda, or one inside top-level statements' `<Main>$`), so match
+            // the '>' that closes this name rather than the first one.
+            int close = FindClosingAngle(value);
             if (close < 0)
                 return false;
 
@@ -1168,17 +1143,23 @@ public static class IlBodyDiff
                 return false;
             }
 
+            // Roslyn omits the containing-method name only for the lambda
+            // cache field `<>9__N_M`; the lambda and local-function forms
+            // always carry one. Pinning that correspondence keeps names no C#
+            // compiler emits, such as `<>b__1_0`, comparing literally.
+            bool namesContainingMethod = close > 1;
+            if (namesContainingMethod != (value[marker] is 'b' or 'g'))
+                return false;
+
             int digitsStart = marker + 3;
             if (value[marker] == 'g')
             {
                 // Local function: the ordinal follows the '|' that terminates
-                // the local's own name, which cannot contain '|'. This search
-                // runs to the end of the string when there is no '|', so it is
-                // charged to the same budget as the angle scan; leaving it
-                // uncharged keeps the quadratic behavior the budget exists to
-                // bound.
-                int bar = FindLocalFunctionSeparator(value, digitsStart, ref budget);
-                if (bar < 0)
+                // the local's own name, which cannot contain '|'. The name
+                // must be non-empty, so the separator cannot sit immediately
+                // after `g__`.
+                int bar = value.IndexOf('|', digitsStart);
+                if (bar <= digitsStart)
                     return false;
                 digitsStart = bar + 1;
             }
@@ -1193,76 +1174,44 @@ public static class IlBodyDiff
             // wrong slot still differs.
             if (digitsEnd == digitsStart
                 || digitsEnd >= value.Length
-                || value[digitsEnd] != '_'
-                || digitsEnd + 1 >= value.Length
-                || !char.IsAsciiDigit(value[digitsEnd + 1]))
+                || value[digitsEnd] != '_')
             {
                 return false;
             }
 
-            // The trailing index must end the name. Roslyn emits nothing after
-            // it, so a name that continues (`<Run>b__103_0_extra`,
-            // `<Run>b__103_0$x`) is not one of these forms and must keep
-            // comparing literally. The test is the inverse of a delimiter
-            // allow list on purpose: metadata names are untrusted, and a
-            // producer other than C# can use any identifier character here.
-            int lambdaEnd = digitsEnd + 1;
+            // `M` must be digits that run to the end of the name. Roslyn emits
+            // nothing after the per-method index, so a name that continues is
+            // not one of these forms and must keep comparing literally.
+            int lambdaStart = digitsEnd + 1;
+            int lambdaEnd = lambdaStart;
             while (lambdaEnd < value.Length && char.IsAsciiDigit(value[lambdaEnd]))
                 lambdaEnd++;
 
-            if (lambdaEnd < value.Length && IsInteriorChar(value[lambdaEnd]))
+            if (lambdaEnd == lambdaStart || lambdaEnd != value.Length)
                 return false;
 
             // The enclosing name carries its own ordinal when it is itself a
             // closure, so normalize it under the same grammar. Recursing rather
             // than rescanning is what keeps an authored enclosing method named
             // `b__1_0` distinct from one named `b__2_0`.
-            string inner = value[(start + 1)..close];
+            string inner = value[1..close];
             string normalizedInner = depth < MaxNestingDepth
-                ? Normalize(inner, depth + 1, ref budget)
+                ? Normalize(inner, depth + 1)
                 : inner;
 
-            replacement = string.Concat(
-                "<",
-                normalizedInner,
-                value.AsSpan(close, digitsStart - close),
-                Placeholder.ToString());
-            end = digitsEnd;
+            replacement = $"<{normalizedInner}{value[close..digitsStart]}{Placeholder}{value[digitsEnd..]}";
             return true;
         }
 
         /// <summary>
-        /// Returns the index of the <c>|</c> at or after <paramref name="start"/>
-        /// that terminates a local function's own name, or -1 when there is
-        /// none or when <paramref name="budget"/> runs out.
-        /// </summary>
-        static int FindLocalFunctionSeparator(string value, int start, ref int budget)
-        {
-            for (int i = start; i < value.Length; i++)
-            {
-                if (--budget < 0)
-                    return -1;
-
-                if (value[i] == '|')
-                    return i;
-            }
-
-            return -1;
-        }
-
-        /// <summary>
         /// Returns the index of the <c>&gt;</c> closing the <c>&lt;</c> at
-        /// <paramref name="start"/>, honoring nesting, or -1 when unbalanced
-        /// or when <paramref name="budget"/> runs out.
+        /// index 0, honoring nesting, or -1 when unbalanced.
         /// </summary>
-        static int FindClosingAngle(string value, int start, ref int budget)
+        static int FindClosingAngle(string value)
         {
             int depth = 0;
-            for (int i = start; i < value.Length; i++)
+            for (int i = 0; i < value.Length; i++)
             {
-                if (--budget < 0)
-                    return -1;
-
                 if (value[i] == '<')
                 {
                     depth++;
@@ -1275,30 +1224,6 @@ public static class IlBodyDiff
 
             return -1;
         }
-
-        /// <summary>
-        /// True for characters that can continue an identifier. Metadata names
-        /// come from any .NET producer, not just C#, so this covers every
-        /// Unicode category the language admits as an identifier-part
-        /// character, plus <c>$</c>, which several compilers emit. A surrogate
-        /// counts as interior so a name continuing into a supplementary-plane
-        /// character is still recognized as continuing.
-        /// </summary>
-        /// <remarks>
-        /// Used only to decide whether a name <em>ends</em> where a recognized
-        /// form does. Erring toward "interior" therefore declines to
-        /// normalize, which is the safe direction.
-        /// </remarks>
-        static bool IsInteriorChar(char c)
-            => char.IsLetterOrDigit(c)
-                || c is '_' or '$'
-                || char.IsSurrogate(c)
-                || CharUnicodeInfo.GetUnicodeCategory(c) is
-                    UnicodeCategory.LetterNumber
-                    or UnicodeCategory.NonSpacingMark
-                    or UnicodeCategory.SpacingCombiningMark
-                    or UnicodeCategory.ConnectorPunctuation
-                    or UnicodeCategory.Format;
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
