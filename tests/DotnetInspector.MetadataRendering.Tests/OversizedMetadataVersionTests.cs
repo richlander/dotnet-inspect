@@ -91,6 +91,46 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         Assert.False(overview.MetadataVersionTruncated);
         Assert.DoesNotContain('…', overview.MetadataVersion);
     }
+
+    /// <summary>
+    /// Gates the one repair `MetadataReader` does not check for us.
+    /// <para>
+    /// Widening the version field grows the section that holds it, so the
+    /// optional header's <c>SizeOfCode</c> has to grow with it. SRM never reads
+    /// that field, so omitting the repair leaves every other assertion in this
+    /// class green while the image carries a header that contradicts its own
+    /// section table — review of this file demonstrated exactly that. Anything a
+    /// fixture claims to maintain but nothing checks is a claim that will
+    /// eventually stop being true.
+    /// </para>
+    /// <para>
+    /// The invariant is asserted against a compiler-produced assembly first, so
+    /// it is anchored in what real toolchains emit rather than being a rule
+    /// invented for the fixture's convenience.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable()
+    {
+        string self = typeof(OversizedMetadataVersionTests).Assembly.Location;
+        Assert.Equal(SumOfCodeSectionRawSizes(File.ReadAllBytes(self)), SizeOfCode(File.ReadAllBytes(self)));
+
+        Assert.Equal(SumOfCodeSectionRawSizes(fixture.Bytes), SizeOfCode(fixture.Bytes));
+    }
+
+    static int SizeOfCode(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        return peReader.PEHeaders.PEHeader!.SizeOfCode;
+    }
+
+    static int SumOfCodeSectionRawSizes(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        return peReader.PEHeaders.SectionHeaders
+            .Where(static s => (s.SectionCharacteristics & SectionCharacteristics.ContainsCode) != 0)
+            .Sum(static s => s.SizeOfRawData);
+    }
 }
 
 /// <summary>
@@ -103,9 +143,18 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 /// is then widened in place, shifting everything after it and repairing what
 /// records a position: the stream header offsets, the CLI header's metadata
 /// size, the containing section's virtual and raw sizes, the raw pointer of
-/// every later section, and the optional header's `SizeOfCode`. Skipping any one
-/// of those yields an image SRM refuses, which is why the repair is this
-/// specific.
+/// every later section, and the optional header's `SizeOfCode`.
+/// </para>
+/// <para>
+/// Those repairs are not equally self-enforcing, and it matters which is which.
+/// `MetadataReader` refuses the image if the stream offsets or the section
+/// geometry are wrong — omitting the stream-offset repair fails with
+/// `BadImageFormatException: Unknown tables: 0x4141414141414141`, the padding
+/// bytes being read as a table mask. It never reads `SizeOfCode`, so that repair
+/// is checked by
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable"/>
+/// instead; without that test the repair could be deleted with every assertion
+/// still green.
 /// </para>
 /// </summary>
 public sealed class OversizedVersionFixture : IDisposable
