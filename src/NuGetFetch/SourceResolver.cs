@@ -1,6 +1,46 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Xml.Linq;
+using Inert;
 
 namespace NuGetFetch;
+
+/// <summary>
+/// Thrown when a resolved package source cannot be used as a NuGet source.
+/// </summary>
+/// <remarks>
+/// Resolution is the only chokepoint every source passes through, whichever route it arrived
+/// by, so it is the only place a rejection can be complete. That places the rejection well
+/// after parsing, where returning a message is no longer an option, so it is raised and the
+/// CLI converts it to an <c>Error:</c> line.
+/// </remarks>
+public sealed class UnsupportedSourceException(string message) : Exception(message)
+{
+    /// <summary>
+    /// Throws when <paramref name="url"/> cannot be used as a NuGet source.
+    /// </summary>
+    /// <remarks>
+    /// The throwing half of a pair, in the shape of <see cref="ArgumentNullException.ThrowIfNull"/>.
+    /// A caller that would rather not be thrown at asks
+    /// <see cref="SourceResolver.IsSupportedSource"/> first and handles the answer — which is what
+    /// the CLI's option validators do, so a mistyped <c>--source</c> is an ordinary parse error.
+    /// This guard is what remains for the paths that asked nothing, where a source that cannot
+    /// work should stop the operation rather than quietly fail later as a 401.
+    /// </remarks>
+    public static void ThrowIfUnsupported(string url)
+    {
+        if (!SourceResolver.IsSupportedSource(url, out string? problem))
+            throw new UnsupportedSourceException(problem);
+    }
+
+    /// <summary>
+    /// Throws when any of <paramref name="sources"/> cannot be used as a NuGet source.
+    /// </summary>
+    public static void ThrowIfUnsupported(IEnumerable<PackageSource> sources)
+    {
+        if (!SourceResolver.IsSupportedSource(sources, out string? problem))
+            throw new UnsupportedSourceException(problem);
+    }
+}
 
 /// <summary>
 /// Resolves NuGet package sources from nuget.config files.
@@ -11,16 +51,106 @@ public static class SourceResolver
     private static readonly string NuGetOrgUrl = "https://api.nuget.org/v3/index.json";
 
     /// <summary>
+    /// Reports whether <paramref name="url"/> can be used as a NuGet source.
+    /// </summary>
+    /// <remarks>
+    /// Every source is checked, nuget.org included, because a check that exempts the sources it
+    /// expects to be well-formed only holds while that expectation does.
+    /// </remarks>
+    public static bool IsSupportedSource(string url) => IsSupportedSource(url, out _);
+
+    /// <summary>
+    /// Reports whether <paramref name="url"/> can be used as a NuGet source, and why not when it
+    /// cannot.
+    /// </summary>
+    /// <param name="url">The source URL to test.</param>
+    /// <param name="problem">
+    /// The reason the source is unusable, set only when this returns false.
+    /// </param>
+    /// <remarks>
+    /// Credentials embedded in the URL are the case this exists to catch. NuGet has no support
+    /// for them — the client never sends the userinfo component — so they authenticate against
+    /// nothing, and the request that follows fails as an ordinary 401 that gives the operator no
+    /// hint the credential they supplied was never sent. The form is a git and curl convention,
+    /// which is exactly why it gets typed here.
+    ///
+    /// The reason carries the URL stripped of its userinfo, so reporting the problem does not
+    /// itself put the credential on a terminal or in a log.
+    /// </remarks>
+    public static bool IsSupportedSource(string url, [NotNullWhen(false)] out string? problem)
+    {
+        problem = null;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            || string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return true;
+        }
+
+        string withoutCredentials = new UriBuilder(uri)
+        {
+            UserName = "",
+            Password = "",
+        }.Uri.ToString();
+
+        problem = $"Source URL '{InertText.Encode(withoutCredentials)}' embeds "
+            + "<user>:<password>, which NuGet does not support. Configure the credentials in a "
+            + "nuget.config, or use a credential provider.";
+        return false;
+    }
+
+    /// <summary>
+    /// Reports whether every source in <paramref name="sources"/> can be used, and why not when
+    /// one cannot.
+    /// </summary>
+    /// <param name="sources">The sources to test.</param>
+    /// <param name="problem">
+    /// The reason the first unusable source is unusable, set only when this returns false.
+    /// </param>
+    public static bool IsSupportedSource(
+        IEnumerable<PackageSource> sources,
+        [NotNullWhen(false)] out string? problem)
+    {
+        foreach (PackageSource source in sources)
+        {
+            if (!IsSupportedSource(source.Url, out problem))
+            {
+                return false;
+            }
+        }
+
+        problem = null;
+        return true;
+    }
+
+    private static IReadOnlyList<PackageSource> Validated(IReadOnlyList<PackageSource> sources)
+    {
+        UnsupportedSourceException.ThrowIfUnsupported(sources);
+        return sources;
+    }
+
+    /// <summary>
     /// Resolves NuGet sources in priority order.
     /// Config files are processed most-distant first (machine → user → project-level),
     /// matching the official NuGet client semantics. A &lt;clear/&gt; in a project-level
     /// config clears sources accumulated from parent directories.
     /// </summary>
+    /// <exception cref="UnsupportedSourceException">
+    /// A resolved source cannot be used. Callers that would rather test than catch use
+    /// <see cref="IsSupportedSource"/> on the sources they supply.
+    /// </exception>
     public static IReadOnlyList<PackageSource> ResolveSources(
         string? explicitSource = null,
         string? configPath = null,
         IEnumerable<string>? additionalSources = null,
         string? workingDirectory = null)
+        => Validated(BuildSources(explicitSource, configPath, additionalSources, workingDirectory));
+
+    private static IReadOnlyList<PackageSource> BuildSources(
+        string? explicitSource,
+        string? configPath,
+        IEnumerable<string>? additionalSources,
+        string? workingDirectory)
     {
         // Explicit source overrides everything
         if (explicitSource is not null)
@@ -28,7 +158,7 @@ public static class SourceResolver
             return [new PackageSource("explicit", explicitSource)];
         }
 
-        List<PackageSource> sources = [.. ResolveConfiguredSources(configPath, workingDirectory)];
+        List<PackageSource> sources = [.. BuildConfiguredSources(configPath, workingDirectory)];
 
         // Default to nuget.org if no config sources found
         if (sources.Count == 0)
@@ -61,6 +191,11 @@ public static class SourceResolver
     /// apart use this method and decide for themselves.
     /// </remarks>
     public static IReadOnlyList<PackageSource> ResolveConfiguredSources(
+        string? configPath = null,
+        string? workingDirectory = null)
+        => Validated(BuildConfiguredSources(configPath, workingDirectory));
+
+    private static IReadOnlyList<PackageSource> BuildConfiguredSources(
         string? configPath = null,
         string? workingDirectory = null)
     {
@@ -163,7 +298,7 @@ public static class SourceResolver
             result.Add(new PackageSource(name, url, credential));
         }
 
-        return result;
+        return Validated(result);
     }
 
     /// <summary>

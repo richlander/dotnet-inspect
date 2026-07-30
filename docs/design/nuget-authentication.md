@@ -303,6 +303,41 @@ Nothing else in the path is. On Azure DevOps the organization, project and feed 
 path segments, so collapsing the path would leave a message that cannot say *which* source
 refused — its one job.
 
+## Rejecting credentials embedded in a source URL
+
+NuGet does not support `https://<user>:<password>@host/...`, so a source URL carrying userinfo
+is rejected rather than attempted. The check lives on `PackageSource`'s constructor, not at the
+option parser, because a source arrives by four routes — `--source`, `--add-source`, an explicit
+`--nugetconfig`, and a `nuget.config` discovered by walking up from the working directory — and
+a validator attached to the two command-line ones silently misses the other two. Construction is
+the single point every source passes through whatever route it took.
+
+`SourceResolver` exposes both halves, so a caller chooses whether a bad source is an exception:
+
+```csharp
+if (!SourceResolver.IsSupportedSource(url, out string? problem)) { /* report it */ }
+UnsupportedSourceException.ThrowIfUnsupported(url);   // the ArgumentNullException.ThrowIfNull shape
+```
+
+The message names the source but never quotes the credential — it prints the URL with userinfo
+removed, so the operator can still tell *which* source was rejected.
+
+### Untrusted URL text is made inert before it is printed
+
+A source URL is untrusted input, and a message that quotes one hands attacker-controlled text to
+a terminal. `Uri` percent-encodes C0 controls, so an ANSI escape cannot survive a round trip
+through it — but it passes `Cf` straight through, and `Cf` is where Trojan Source (CVE-2021-42574)
+lives. A right-to-left override in a feed name reorders the rest of the line.
+
+Every URL that reaches a message or a log goes through [`InertText.Encode`](../../src/InertText/InertText.cs)
+first, which re-spells anything in `Cc`, `Cf`, `Cs`, `Zl` or `Zp` as a visible escape. It is
+lossless and invertible rather than a filter, so the reader still sees what was actually there.
+
+`InertText` sits below every other project and references nothing, because the assemblies that
+print artifact-derived text include the dependency-free leaves. Note its limit: it guarantees the
+text cannot *act* on a sink, not that the text is honest. `https://evil.com／nuget.org/index.json`
+uses a fullwidth solidus and is entirely graphic characters, so it passes through untouched.
+
 ## Service index discovery
 
 Resolving a package from a non-nuget.org feed takes two requests: the V3 service index, to find

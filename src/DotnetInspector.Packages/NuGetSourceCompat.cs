@@ -50,38 +50,6 @@ public static class NuGetSourceResolver
     }
 
     /// <summary>
-    /// Returns a description of why <paramref name="url"/> cannot be used as a NuGet source, or
-    /// null when it can.
-    /// </summary>
-    /// <remarks>
-    /// Credentials embedded in the URL are the one case worth catching here. NuGet has no
-    /// support for them — the client never sends userinfo — so they authenticate against
-    /// nothing and the request fails as an ordinary 401, giving the operator no hint that the
-    /// credential they supplied was never used. Saying so plainly costs one comparison.
-    ///
-    /// Like <see cref="DescribeConfigProblem"/>, this reports rather than throws, because its
-    /// caller is a parse-time validator.
-    /// </remarks>
-    public static string? DescribeSourceProblem(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
-            || string.IsNullOrEmpty(uri.UserInfo))
-        {
-            return null;
-        }
-
-        string withoutCredentials = new UriBuilder(uri)
-        {
-            UserName = "",
-            Password = "",
-        }.Uri.ToString();
-
-        return $"Source URL '{withoutCredentials}' embeds <user>:<password>, which NuGet does "
-            + "not support. Configure the credentials in a nuget.config, or use a credential "
-            + "provider.";
-    }
-
-    /// <summary>
     /// Returns a description of why <paramref name="configFile"/> cannot be used as a NuGet
     /// config, or null when it can. Exposed so the CLI can report the same problem at parse
     /// time rather than letting it surface as an exception from whichever service resolves
@@ -119,9 +87,20 @@ public static class NuGetSourceResolver
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
         // reaches this point — and SourceResolver then finds no packageSources and substitutes
         // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
-        if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+        try
         {
-            return $"NuGet config file '{configFile}' declares no usable package sources.";
+            if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+            {
+                return $"NuGet config file '{configFile}' declares no usable package sources.";
+            }
+        }
+        catch (UnsupportedSourceException ex)
+        {
+            // Resolution rejects a source the config declares. That rejection is a throw because
+            // it guards every path that reaches a feed, most of which are far past parsing; here,
+            // where the config is only being inspected, it converts back to the returned string
+            // this method promises so the CLI reports it as an option error.
+            return ex.Message;
         }
 
         return null;

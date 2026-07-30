@@ -169,7 +169,7 @@ public class SharedOptions
     {
         foreach (var token in result.Tokens)
         {
-            if (NuGetSourceResolver.DescribeSourceProblem(token.Value) is string problem)
+            if (!NuGetFetch.SourceResolver.IsSupportedSource(token.Value, out string? problem))
                 result.AddError(problem);
         }
     }

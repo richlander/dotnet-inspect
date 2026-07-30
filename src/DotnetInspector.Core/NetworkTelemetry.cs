@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
+using Inert;
 
 namespace DotnetInspector.Core;
 
@@ -263,7 +264,7 @@ public sealed record NetworkRequestObservation(
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return RedactRelativeUrl(uri.ToString());
+            return InertText.Encode(RedactRelativeUrl(uri.ToString()));
 
         var builder = new UriBuilder(uri)
         {
@@ -273,18 +274,23 @@ public sealed record NetworkRequestObservation(
 
         builder.Query = RedactQuery(builder.Query);
         builder.Path = RedactPath(builder.Path);
-        return builder.Uri.ToString();
+
+        // Redaction removes the secrets; this removes the ability to act on the terminal that
+        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
+        // though this were already handled, but it passes Cf straight through — so a bidi
+        // override in a source URL survives into a failure message and reorders it.
+        return InertText.Encode(builder.Uri.ToString());
     }
 
     internal static string RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? value;
+            return RedactUrl(absolute) ?? InertText.Encode(value);
 
         if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return RedactRelativeUrl(relative.ToString());
+            return InertText.Encode(RedactRelativeUrl(relative.ToString()));
 
-        return value;
+        return InertText.Encode(value);
     }
 
     private static string RedactRelativeUrl(string url)
