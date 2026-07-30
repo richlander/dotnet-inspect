@@ -26,11 +26,18 @@ public class PackageExtractorCoordinateRefusalTests
 
         // No HttpClient request should be attempted, so a client with no base address is fine:
         // reaching the network would itself be the failure this guards.
-        var nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
-            new HttpClient(), id, version, log.Add);
+        string? nuspec = null;
+        var stderr = await StderrCapture.RunAsync(() =>
+            nuspec = PackageExtractor.TryGetNuspecXmlAsync(
+                new HttpClient(), id, version, log.Add).GetAwaiter().GetResult());
 
         Assert.Null(nuspec);
-        Assert.Contains(log, m => m.Contains("Refusing unsafe package coordinate", StringComparison.Ordinal));
+
+        // Asserted on stderr, not on `log`. This test used to supply its own Action<string> and
+        // assert the message arrived there, which proved only that the product wrote to a channel
+        // the test itself opened: no caller in the product passes a logger here, so the refusal
+        // reached nobody. It now goes to stderr unconditionally, which is what a user sees.
+        Assert.Contains("refusing unsafe package coordinate", stderr, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -43,10 +50,11 @@ public class PackageExtractorCoordinateRefusalTests
         NuGetCache.Initialize("dotnet-inspect-test");
         var log = new List<string>();
 
-        await PackageExtractor.TryGetNuspecXmlAsync(
-            new HttpClient(), "Newtonsoft.Json", "13.0.3", log.Add);
+        var stderr = await StderrCapture.RunAsync(() =>
+            PackageExtractor.TryGetNuspecXmlAsync(
+                new HttpClient(), "Newtonsoft.Json", "13.0.3", log.Add).GetAwaiter().GetResult());
 
-        Assert.DoesNotContain(log, m => m.Contains("Refusing unsafe package coordinate", StringComparison.Ordinal));
+        Assert.DoesNotContain("refusing unsafe package coordinate", stderr, StringComparison.Ordinal);
     }
 
     /// <summary>

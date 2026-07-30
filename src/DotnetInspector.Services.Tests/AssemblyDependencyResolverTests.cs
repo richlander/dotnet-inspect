@@ -400,7 +400,7 @@ public class AssemblyDependencyResolverTests
 
     [Theory]
     [MemberData(nameof(HostileDependencyIds))]
-    public void PackageDependencyReferencePaths_WithTraversingDependencyId_DoesNotEscapePackageRoot(string hostileId)
+    public async Task PackageDependencyReferencePaths_WithTraversingDependencyId_DoesNotEscapePackageRoot(string hostileId)
     {
         string sandbox = Directory.CreateTempSubdirectory("dotnet-inspect-deps-traversal-").FullName;
         try
@@ -439,12 +439,29 @@ public class AssemblyDependencyResolverTests
             // Positive control: the guard must refuse traversal specifically, not stop resolving.
             string legit = CreatePackageAsset(root, "Legit.Package", "1.0.0", "lib", "net8.0", "Legit.dll");
 
-            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
+            IReadOnlyList<string> references = [];
+            var stderr = await StderrCapture.RunAsync(() =>
+                references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]));
 
-            Assert.Contains(legit, references);
-            Assert.DoesNotContain(payload, references);
-            Assert.DoesNotContain(literal, references);
-            Assert.All(references, path => Assert.StartsWith(root + Path.DirectorySeparatorChar, path, StringComparison.Ordinal));
+            // The refusal has to reach the user. It was reported through the optional
+            // Action<string>? log, and no caller in the product passes one, so the message went
+            // nowhere: the dependency simply vanished from the result and the run exited 0. A
+            // refused coordinate is indistinguishable from an absent one unless it is announced.
+            Assert.Contains("refusing unsafe package coordinate", stderr, StringComparison.Ordinal);
+            Assert.Contains(hostileId, stderr, StringComparison.Ordinal);
+
+            // Canonicalise before comparing. Path.Combine does not normalise, so an escaping id
+            // yields "<root>/../escape/lib/net8.0/Payload.dll" -- a string that both StartsWith
+            // "<root>/" and differs character-for-character from the payload's own path. Asserting
+            // on the raw strings therefore passed with the guard entirely removed: only the "CON"
+            // row failed, and the traversal rows, the whole point of the theory, proved nothing.
+            var resolved = references.Select(Path.GetFullPath).ToList();
+            var rootPrefix = Path.GetFullPath(root) + Path.DirectorySeparatorChar;
+
+            Assert.Contains(Path.GetFullPath(legit), resolved);
+            Assert.DoesNotContain(Path.GetFullPath(payload), resolved);
+            Assert.DoesNotContain(Path.GetFullPath(literal), resolved);
+            Assert.All(resolved, path => Assert.StartsWith(rootPrefix, path, StringComparison.Ordinal));
         }
         finally
         {

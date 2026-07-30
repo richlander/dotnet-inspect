@@ -210,7 +210,7 @@ public static class ProjectAssetsParser
                         if (!HardenedPath.IsSafeRelativePath(packagePath) ||
                             !HardenedPath.IsSafeRelativePath(asm.Name))
                         {
-                            log?.Invoke($"Refusing unsafe asset path '{packagePath}/{asm.Name}' from {assetsPath}");
+                            HardenedPath.ReportRefusal($"refusing unsafe asset path '{packagePath}/{asm.Name}' from {assetsPath}");
                             continue;
                         }
 

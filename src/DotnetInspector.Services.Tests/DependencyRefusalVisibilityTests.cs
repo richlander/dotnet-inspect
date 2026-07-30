@@ -21,7 +21,7 @@ public class DependencyRefusalVisibilityTests
     /// asset in the same file is the control: it must still be added.
     /// </summary>
     [Fact]
-    public void UnsafeDepsJsonAssetPath_IsRefusedAndReported()
+    public async Task UnsafeDepsJsonAssetPath_IsRefusedAndReported()
     {
         var root = Directory.CreateTempSubdirectory("di-refusal-deps-");
         try
@@ -75,14 +75,21 @@ public class DependencyRefusalVisibilityTests
                     Log = messages.Add
                 });
 
-            _ = resolver.ResolveAll();
+            var stderr = await StderrCapture.RunAsync(() => resolver.ResolveAll());
 
             // The refusal is reported, and it names the value it refused.
-            Assert.Contains(messages, m => m.Contains("Refusing unsafe deps.json", StringComparison.Ordinal));
-            Assert.Contains(messages, m => m.Contains("escape.dll", StringComparison.Ordinal));
+            //
+            // Asserted on stderr rather than on the `messages` list this test supplies. Asserting
+            // on `messages` proved only that the product wrote to a channel the test itself opened:
+            // the resolver's Log is optional and no product caller passes one that a default run
+            // would surface, so a refusal reached the user nowhere at all. `messages` is still
+            // wired up below as the negative control for the benign entry.
+            Assert.Contains("refusing unsafe deps.json", stderr, StringComparison.Ordinal);
+            Assert.Contains("escape.dll", stderr, StringComparison.Ordinal);
 
             // Positive control: the benign entry in the same file was NOT refused. Without this a
             // guard that rejected every path would satisfy the assertion above.
+            Assert.DoesNotContain("Benign.dll", stderr, StringComparison.Ordinal);
             Assert.DoesNotContain(messages, m => m.Contains("Benign.dll", StringComparison.Ordinal));
         }
         finally
@@ -93,10 +100,11 @@ public class DependencyRefusalVisibilityTests
 
     /// <summary>
     /// The log channel is optional, so a caller that supplies none must not fault. This is the
-    /// regression guard for threading <c>log</c> through the recursive collection walk.
+    /// regression guard for threading <c>log</c> through the recursive collection walk, and it is
+    /// now also the case that matches every real caller, none of which supply one.
     /// </summary>
     [Fact]
-    public void RefusalWithoutALogChannel_DoesNotThrow()
+    public async Task RefusalWithoutALogChannel_DoesNotThrow()
     {
         var root = Directory.CreateTempSubdirectory("di-refusal-nolog-");
         try
@@ -130,13 +138,21 @@ public class DependencyRefusalVisibilityTests
                     IncludeDepsJsonAssets = true
                 });
 
-            var resolved = resolver.ResolveAll();
+            // Captured even though nothing here asserts on the text: the refusal now writes to
+            // stderr unconditionally, and an uncaptured write would land in whichever parallel
+            // test holds the redirect and fail it on output it never produced.
+            IReadOnlyList<ResolvedAssemblyDependency> resolved = [];
+            var stderr = await StderrCapture.RunAsync(() => resolved = resolver.ResolveAll());
 
             // The escaping asset is not in the graph...
             Assert.DoesNotContain(resolved, r => r.Path.Contains("escape.dll", StringComparison.Ordinal));
 
             // ...and the run completed, which is the actual claim: no log channel, no fault.
             Assert.NotNull(resolved);
+
+            // With no log channel at all, the refusal still reaches the user. That is the whole
+            // point of moving it off the optional delegate.
+            Assert.Contains("refusing unsafe deps.json", stderr, StringComparison.Ordinal);
         }
         finally
         {

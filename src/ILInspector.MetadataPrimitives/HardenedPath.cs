@@ -238,4 +238,28 @@ public static class HardenedPath
         => char.IsHighSurrogate(value[index])
            && index + 1 < value.Length
            && char.IsLowSurrogate(value[index + 1]);
+
+    /// <summary>
+    /// Announces that an untrusted coordinate was refused. Writes to stderr unconditionally.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A refusal removes something the user would otherwise have been shown, and the result it
+    /// leaves behind -- a dependency with no children, a package with no assets -- is
+    /// indistinguishable from that thing genuinely being absent. Reporting it through the callers'
+    /// optional <c>Action&lt;string&gt;? log</c> made it invisible twice over: most call sites pass
+    /// no logger at all, so the message went nowhere, and the ones that do pass
+    /// <c>VerboseLogger.Log</c>, which is silent without <c>--verbose</c>. Either way the default
+    /// run exited 0 with a quietly thinner answer, which is the success-shaped failure
+    /// <c>AGENTS.md</c> forbids.
+    /// </para>
+    /// <para>
+    /// It lives beside the rule rather than at the six call sites because a refusal that is
+    /// announced six different ways is the same drift this type exists to end. It cannot become
+    /// noise: sweeps of 26,584 shared-framework assemblies and 138 restored packages produced no
+    /// refusals at all. <c>CoreCache</c> already reports its cache-escape refusal this way.
+    /// </para>
+    /// </remarks>
+    public static void ReportRefusal(string message)
+        => Console.Error.WriteLine($"Warning: {message}");
 }

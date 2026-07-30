@@ -500,7 +500,7 @@ public static class PackageExtractor
         if (!HardenedPath.IsSafePathComponent(normalizedName)
             || !HardenedPath.IsSafePathComponent(normalizedVersion))
         {
-            log?.Invoke($"Refusing unsafe package coordinate '{packageId}.{version}'");
+            HardenedPath.ReportRefusal($"refusing unsafe package coordinate '{packageId}.{version}'");
             return null;
         }
 

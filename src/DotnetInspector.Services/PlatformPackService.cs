@@ -270,7 +270,7 @@ public static class PlatformPackService
         // than resolve, matching the null the caller already handles for an unavailable pack.
         if (!HardenedPath.IsSafePathComponent(packName) || !HardenedPath.IsSafePathComponent(version))
         {
-            log?.Invoke($"Refusing unsafe pack coordinate: {packName} {version}");
+            HardenedPath.ReportRefusal($"refusing unsafe pack coordinate: {packName} {version}");
             return null;
         }
 

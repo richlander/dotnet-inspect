@@ -350,7 +350,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             // loop's existing behavior for a dependency that does not resolve.
             if (!HardenedPath.IsSafePathComponent(id) || !HardenedPath.IsSafePathComponent(version))
             {
-                log?.Invoke($"Refusing unsafe package coordinate '{id}/{version}' from {packageDirectory}");
+                HardenedPath.ReportRefusal($"refusing unsafe package coordinate '{id}/{version}' from {packageDirectory}");
                 continue;
             }
 
@@ -747,7 +747,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 if (HardenedPath.IsSafeRelativePath(localPath))
                     addReference(Path.Combine(targetDirectory, NativePath(localPath)));
                 else
-                    log?.Invoke($"Refusing unsafe deps.json localPath '{localPath}' for library '{library.Name}'");
+                    HardenedPath.ReportRefusal($"refusing unsafe deps.json localPath '{localPath}' for library '{library.Name}'");
             }
 
             if (libraryPaths.TryGetValue(library.Name, out var packagePath))
@@ -755,7 +755,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 if (HardenedPath.IsSafeRelativePath(packagePath) && HardenedPath.IsSafeRelativePath(asset.Name))
                     addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
                 else
-                    log?.Invoke($"Refusing unsafe deps.json asset '{packagePath}/{asset.Name}' for library '{library.Name}'");
+                    HardenedPath.ReportRefusal($"refusing unsafe deps.json asset '{packagePath}/{asset.Name}' for library '{library.Name}'");
             }
         }
     }
