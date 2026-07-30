@@ -1313,6 +1313,14 @@ public sealed class CSharpDeclarationWriterTests
     // A tuple return must still be left alone when a literal is present.
     [InlineData("Pair", "(int, int) Pair(string s = \")\", int event = 0)",
         "public (int, int) Pair(string s = \")\", int @event = 0)")]
+    // GPT round-4 finding: in a verbatim string a backslash is an ordinary character,
+    // so treating it as an escape swallowed the rest of the signature. This worked
+    // before the literal fix and must keep working.
+    [InlineData("M", "void M(string s = @\"\\\", int event = 0)",
+        "public void M(string s = @\"\\\", int @event = 0)")]
+    // '""' is the escape inside a verbatim string.
+    [InlineData("M", "void M(string s = @\"a\"\")\"\"b\", int event = 0)",
+        "public void M(string s = @\"a\"\")\"\"b\", int @event = 0)")]
     public void MemberDeclaration_TreatsPunctuationInsideLiteralsAsText(
         string name, string signature, string expected)
     {
@@ -1337,6 +1345,16 @@ public sealed class CSharpDeclarationWriterTests
         "public (int, int) M<T>(int @event) where T : System.IComparable<(int, int)>")]
     [InlineData("M", "void M<T>(int event) where T : new()",
         "public void M<T>(int @event) where T : new()")]
+    // GPT round-4 finding: U+0301 is a valid C# identifier continuation but is not a
+    // letter or digit, so classifying the type-parameter name rejected a real constraint.
+    [InlineData("M", "void M<T\u0301>(int event) where T\u0301 : class",
+        "public void M<T\u0301>(int @event) where T\u0301 : class")]
+    // A constraint with no space before the colon must still be recognised.
+    [InlineData("M", "void M<T>(int event) where T:struct",
+        "public void M<T>(int @event) where T:struct")]
+    // Multiple constraint clauses.
+    [InlineData("M", "void M<T, U>(int event) where T : class where U : struct",
+        "public void M<T, U>(int @event) where T : class where U : struct")]
     public void MemberDeclaration_RequiresFullConstraintShapeNotJustTheWord(
         string name, string signature, string expected)
     {

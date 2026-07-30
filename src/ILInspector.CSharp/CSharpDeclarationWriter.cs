@@ -1442,30 +1442,30 @@ internal static class CSharpDeclarationWriter
     /// <c>where</c> is a contextual keyword, so a member may legally be named it, and a
     /// tuple-returning one puts that name exactly where a constraint would go:
     /// <c>(int, int) where (int a)</c>. Matching the word alone classifies the tuple as
-    /// a parameter list and mangles it to <c>(@int, @int)</c>. A constraint always names
-    /// a type parameter and a colon; a member name is always followed by its parameter
-    /// list instead.
+    /// a parameter list and mangles it to <c>(@int, @int)</c>.
+    ///
+    /// The two are told apart by which delimiter arrives first: a constraint reaches its
+    /// <c>:</c>, whereas a member name reaches the <c>(</c> or <c>&lt;</c> of its
+    /// parameter or type-argument list. Deciding on the delimiter rather than on the
+    /// shape of the name in between keeps this correct for type parameters spelled with
+    /// characters <see cref="IsIdentifierPart"/> does not model, such as the combining
+    /// marks C# permits as identifier continuations.
     /// </remarks>
     static bool StartsWithConstraintClause(ReadOnlySpan<char> trailing)
     {
         if (!trailing.StartsWith("where", StringComparison.Ordinal))
             return false;
-
-        int i = 5;
-        if (i >= trailing.Length || !char.IsWhiteSpace(trailing[i]))
-            return false;
-        while (i < trailing.Length && char.IsWhiteSpace(trailing[i]))
-            i++;
-
-        int nameStart = i;
-        while (i < trailing.Length && (IsIdentifierPart(trailing[i]) || trailing[i] == '@'))
-            i++;
-        if (i == nameStart)
+        if (trailing.Length <= 5 || !char.IsWhiteSpace(trailing[5]))
             return false;
 
-        while (i < trailing.Length && char.IsWhiteSpace(trailing[i]))
-            i++;
-        return i < trailing.Length && trailing[i] == ':';
+        for (int i = 6; i < trailing.Length; i++)
+        {
+            if (trailing[i] == ':')
+                return true;
+            if (trailing[i] is '(' or '<')
+                return false;
+        }
+        return false;
     }
 
     static string EscapeParameterName(string parameter)
@@ -1745,12 +1745,34 @@ internal static class CSharpDeclarationWriter
     /// <see cref="OpensParameterList"/> see leftover text and decline to escape a real
     /// parameter list. An unterminated literal returns the last index so every caller
     /// still makes progress rather than looping.
+    ///
+    /// Both literal forms are handled: in a verbatim string a backslash is an ordinary
+    /// character and <c>""</c> is the escape, so treating <c>@"\"</c> as backslash-escaped
+    /// would swallow the rest of the signature. Interpolated strings are deliberately not
+    /// modelled — correct handling needs full brace and nesting tracking, and
+    /// <c>ApiSurfaceExtractor.StringLiteral</c> only ever emits backslash-escaped regular
+    /// literals, so neither an interpolated nor a verbatim string is reachable from
+    /// metadata. Verbatim is supported anyway because a hand-authored signature can carry
+    /// one; interpolation is left alone rather than half-modelled.
     /// </remarks>
     static int SkipLiteral(string text, int index)
     {
         char quote = text[index];
+        bool verbatim = quote == '"' && index > 0 && text[index - 1] == '@';
+
         for (int i = index + 1; i < text.Length; i++)
         {
+            if (verbatim)
+            {
+                if (text[i] != quote)
+                    continue;
+                if (i + 1 < text.Length && text[i + 1] == quote)
+                {
+                    i++;
+                    continue;
+                }
+                return i;
+            }
             if (text[i] == '\\')
             {
                 i++;
