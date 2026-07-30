@@ -33,6 +33,24 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    public void RaisedArrayLiteral_AnchorsToItsOwnStatement_NotThePrecedingOne()
+    {
+        // object first = new object(); return new object[] { first };
+        // Both allocations are real and distinct. The array's newarr is subsumed
+        // by the array-literal fold, so this only holds because the fold hands
+        // the literal the offset it consumed — otherwise nothing in the tree
+        // covers that offset and the fact falls back onto the preceding store.
+        var (_, map) = AnchorFor(nameof(AllocSampleClass.AllocatesTwice));
+
+        var arrayOwner = Assert.Single(map, e => e.Value.Any(a => a.Descriptor.Id == "alloc.array")).Key;
+        var newOwner = Assert.Single(map, e => e.Value.Any(a => a.Descriptor.Id == "alloc.new")).Key;
+
+        Assert.IsType<Return>(arrayOwner);
+        Assert.IsType<StoreLocal>(newOwner);
+        Assert.NotSame(arrayOwner, newOwner);
+    }
+
+    [Fact]
     public void EveryAnnotation_IsAnchoredSomewhere()
     {
         // Positive-only: a fact is never silently dropped.
