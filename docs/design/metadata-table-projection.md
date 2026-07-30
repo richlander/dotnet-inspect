@@ -426,22 +426,43 @@ The rendering axis does not remove or replace dangerous characters; it
 **visually encodes** them so the sink cannot interpret them. The term and the
 contract are borrowed from BSD [`vis(3)`](https://man.netbsd.org/vis.3), which
 encodes arbitrary input into graphic characters only and pairs every encoder
-with a decoder (`unvis`) so the transform is unique and invertible. The
-spelling is `vis(3)`'s too: it introduces with a backslash and puts standard
-**caret notation** — `cat -v`'s and `less`'s convention, dating to the PDP-6
-up-arrow the 1967 ASCII revision replaced with `^` — *inside* that, as `\^C`.
+with a decoder (`unvis`) so the transform is unique and invertible.
+
+**What is encoded** is defined by Unicode general category, not by a list.
+Lists drift, and the drift is invisible: a list written against terminal
+escapes will not contain the character that attacks a *different* sink.
+
+| Category | Contains | Sink it attacks |
+| --- | --- | --- |
+| `Cc` | C0, `DEL`, C1 | terminal control sequences |
+| `Cf` | bidi overrides/isolates/marks, `U+FEFF`, zero-width joiners | visual reordering — Trojan Source |
+| `Cs` | unpaired surrogates | UTF-8 conversion |
+| `Zl`, `Zp` | `U+2028`, `U+2029` | line-oriented and JS-adjacent consumers |
+
+`Cf` is the category that matters most here and is the one a hand-written list
+always misses. It contains every code point `rustc` made a deny-by-default
+error after Trojan Source (CVE-2021-42574) — `U+202A`–`U+202E`,
+`U+2066`–`U+2069`, `U+200E`, `U+200F`, `U+061C` — none of which is anywhere
+near C1. A rule stated as "C0, `DEL`, and C1" silently excludes all of them.
+
+The rule pulls in 2,158 BMP code points and leaves ordinary text — including
+CJK, diacritics, and ligatures — untouched.
+
+**How it is spelled** is `vis(3)`'s: introduce with a backslash, and put
+standard **caret notation** — `cat -v`'s and `less`'s convention, dating to the
+PDP-6 up-arrow the 1967 ASCII revision replaced with `^` — inside it.
 
 | Input | Spelling | Source |
 | --- | --- | --- |
 | C0 (`U+0000`–`U+001F`) | `\^` + (code point + `0x40`); `ESC` is `\^[` | `vis(3)` + caret notation |
 | `DEL` (`U+007F`) | `\^?` | `vis(3)` + caret notation |
-| C1 (`U+0080`–`U+009F`) | `\u` plus four hex digits; `U+009F` is `\u009F` | `vis(3)` shape, C# spelling |
+| every other encoded code point | `\u` plus four hex digits; `U+202E` is `\u202E` | `vis(3)` shape, C# spelling |
 | literal `\` | `\\` | `vis(3)` |
 
-C1 is the one place the spelling diverges. `vis(3)` and `cat -v` spell values
-above `0x7F` in meta notation (`\M^_`), but that is a convention about a *byte*
-with its high bit set; our input is a .NET `string`, where `U+009F` is a code
-point and no such byte exists. `\uXXXX` is C#'s own spelling for exactly that.
+The `\uXXXX` form diverges from `vis(3)`'s meta notation deliberately: meta
+notation describes a *byte* with its high bit set, and our input is a .NET
+`string` of code points. `\uXXXX` is C#'s own spelling, and it is already the
+spelling the rest of this repository uses for these characters.
 
 **Do not introduce with the caret**, which is the obvious simplification and is
 wrong. Caret notation alone is not invertible, and the collision is not exotic:
@@ -452,6 +473,13 @@ outside the caret image. That is the whole reason for the backslash, and it is
 worth writing down because the caret-introduced version looks correct and
 survives casual inspection.
 
+**The exempt set is per-sink, and only ever shrinks the C0 part.** A metadata
+name has no business containing `CR`, `LF`, or `TAB`, so a field sink encodes
+them. Prose — a package description — is legitimately multi-line, so a prose
+sink exempts those three and nothing else. `vis(3)` parameterizes exactly this
+(`VIS_NL`, `VIS_TAB`, `VIS_SAFE`). No sink may exempt `Cf`: there is no
+rendering context in which an artifact needs to reorder the reader's screen.
+
 The properties that matter are `vis(3)`'s: the output is **inert** (no sink
 interprets it), **lossless** (nothing is dropped, so the view still answers
 "what is actually in this field"), and **invertible** (a decoder recovers the
@@ -461,10 +489,13 @@ Those three are an asserted property, so the encoding ships with the gate that
 proves them: a decoder, plus a round-trip over every single code unit in
 `U+0000`–`U+FFFF`, plus a round-trip-and-injectivity sweep over strings built
 from the characters that can collide — `\`, `^`, `u`, `?`, `@`, `[`, hex
-digits, and a representative of C0, `DEL`, C1, and the boundary above it.
-Encode-without-a-decoder is not this pattern, and an invertibility claim with
-no decoder in the test is not evidence: a caret-introduced spelling passes
-every casual inspection and fails this sweep on `U+001E`.
+digits, and a representative of each encoded category. The category rule needs
+its own gate, asserting membership for the full `rustc` set by name rather than
+by category lookup, so that a future narrowing of the rule fails rather than
+silently stops covering them. Encode-without-a-decoder is not this pattern, and
+an invertibility claim with no decoder in the test is not evidence: a
+caret-introduced spelling passes every casual inspection and fails this sweep
+on `U+001E`.
 
 Because the encoding is inert, it needs no opt-in. It is the default on every
 artifact-text path, with exactly one named opt-out
@@ -601,20 +632,24 @@ safe. That is what makes `mdi` the reference example of consuming the
 projection: a consumer should render `MetadataValue` cases and add nothing,
 rather than defend itself.
 
-The corollary is the failure mode, and it is not hypothetical. Because `mdi`
-contains nothing explicitly, a value that reaches presentation *without* being
-projected inherits nothing, and no call site looks any different. The metadata
-root's version stamp was exactly that: an artifact-derived counted string that
-`MetadataImageInspector` reported straight into the image overview, emitting a
-raw `ESC` in Markdown and TSV from both `mdi --overview` and the CLI's
-`Metadata: Image` section.
+The cost of that arrangement is that the escaping lives in exactly one place —
+the projector — so any text that reaches output *around* the projector is never
+escaped at all. Nothing at the call site reveals it: rendering an already-safe
+string and rendering a raw one are the same line of code.
 
-That bug is the argument for the target model above, not merely for the fix it
-received. Containment applied by *calling a function* is containment you can
-forget, and `string` is the type of both a contained and an uncontained value,
-so no reviewer or compiler can see the difference. The durable fix is for
-artifact-derived text to be its own type that a renderer cannot accept as a raw
-`string` — the shape `HardenedJson` already uses, where the guarantee comes
+That is not hypothetical. The metadata root's version stamp is an
+artifact-derived counted string, and `MetadataImageInspector` reported it
+straight into the image overview without projecting it, so a hostile assembly
+could emit a live `ESC` in Markdown and TSV from both `mdi --overview` and the
+CLI's `Metadata: Image` section. #3518 fixed it by routing the value through
+the projector's escaper.
+
+That fix was right, but the defect argues for more than itself. Containment
+applied by *calling a function* is containment you can forget, and `string` is
+the type of both a contained and an uncontained value, so neither a reviewer
+nor the compiler can tell which one a given variable holds. The durable fix is
+for artifact-derived text to be its own type that a renderer cannot accept as a
+raw `string` — the shape `HardenedJson` already uses, where the guarantee comes
 from choosing the type rather than from remembering the call. Auditing then
 becomes a search for a type rather than an argument about coverage.
 
@@ -631,6 +666,10 @@ from `MetadataTableFormat` itself, so a new format is gated on arrival. The
 `--references` view renders only coordinates and counts, so it carries no
 artifact text and is asserted against raw controls alone, as a regression net
 rather than a payload-carrying case; the file says so.
+
+That payload covers only what the projector recognizes today, which is `Cc`.
+It contains no `Cf` character, so the gate would not notice a bidi override
+reaching output. Widening the payload is part of adopting the category rule.
 
 Those tests gate the *current* neutralizing behavior. Adopting the target model
 changes what they assert — a control character in a name becomes a rejection

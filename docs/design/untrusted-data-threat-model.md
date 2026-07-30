@@ -390,7 +390,12 @@ This is established practice for tools that read hostile bytes:
 - **`less`** renders control characters in caret notation by default and
   reserves raw output for `-r`.
 - **`rustc`** made bidirectional control characters a deny-by-default hard
-  error after Trojan Source (CVE-2021-42574) rather than stripping them.
+  error after Trojan Source (CVE-2021-42574) rather than stripping them. Its
+  denied set — `U+202A`–`U+202E`, `U+2066`–`U+2069`, `U+200E`, `U+200F`,
+  `U+061C` — is why the encoded set is defined by Unicode general category
+  (`Cc`, `Cf`, `Cs`, `Zl`, `Zp`) rather than by a list. Every one of those is
+  `Cf`, and none is anywhere near C1, so a rule written as "control
+  characters" excludes all of them.
 - **`binutils`** is the cautionary case rather than a model: its parsers are
   continuously fuzzed, and fuzzing has repeatedly found parser defects that
   received CVEs.
@@ -501,7 +506,15 @@ only ordinary compiler output.
     renders controls as `\uXXXX` but only escapes `\` when `escapeStructural`
     is set, and `NeutralizeControls` passes `false`, so a literal `\u001b` in
     artifact text and a real `ESC` produce identical output.11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
-    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
+
+    Adopt the general-category rule at the same time. `IsControl` is
+    `c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f')` — `Cc` only — so
+    the metadata path does not encode bidi overrides, `U+2028`/`U+2029`, or
+    `U+FEFF`. Other paths in this repository already do: `AppliedTasteSection`
+    gates `\u202E`, `\u061C`, and `\u2066`, and the IL string-literal printer
+    gates `\u2028`/`\u2029`. One product with two containment sets is the same
+    inheritance failure as the version stamp, one layer up, and the narrower
+    set is the one a reader of this design would have copied.11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
     Printability here is a function of **provenance, not content**: the same
     helper receives user-typed coordinates and artifact-derived ones, so it
     cannot be decided by inspecting the value. Two graph-resolved paths reach
