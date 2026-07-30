@@ -824,6 +824,13 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// asserted somewhere.
     /// </para>
     /// <para>
+    /// The payload's extent comes from the patched image's own declared version
+    /// length rather than from the baseline's plus the expansion. Recomputing it
+    /// would make the tiling check a tautology of this test's own arithmetic —
+    /// an assertion that cannot fail, which is the failure mode this whole file
+    /// exists to avoid.
+    /// </para>
+    /// <para>
     /// Non-vacuity matters as much as the bound. Every documented repair is
     /// asserted to have happened *and* to have the value it should, so an
     /// expansion that quietly stopped repairing anything fails here rather than
@@ -847,14 +854,21 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         int oldVersionLength = ReadRva(baseline, metadataRoot + 12);
         int versionStart = metadataRoot + 16;
         int insertionPoint = versionStart + oldVersionLength;
-        int newVersionLength = checked(oldVersionLength + expansion);
+
+        // The payload's extent is read from the patched image's own declared
+        // version length, not recomputed from the baseline's. Recomputing it
+        // would move both sides of every check below together, so a fixture that
+        // declared one length and wrote another would satisfy them all.
+        int newVersionLength = ReadRva(patched, metadataRoot + 12);
 
         Assert.Equal(baseline.Length + expansion, patched.Length);
 
         // The three ranges tile the patched image with no gap and no overlap:
         // [0, versionStart), [versionStart, payloadEnd), [payloadEnd, patched.Length).
+        // This is the check that the declared length agrees with the geometry the
+        // rest of the test assumes.
         int payloadEnd = versionStart + newVersionLength;
-        Assert.Equal(payloadEnd, insertionPoint + expansion);
+        Assert.Equal(insertionPoint + expansion, payloadEnd);
 
         // Everything the expansion rewrites in place, all of which happens to
         // precede the insertion point. Each grows by exactly the expansion.
