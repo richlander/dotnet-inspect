@@ -545,6 +545,15 @@ public static class OutputFormatter
     /// every format agreeing about which requests are valid, which is the same reason an unmatched
     /// column already fails closed (dotnet-inspect#3494 review). Matching is case-insensitive
     /// because column selection is.
+    /// <para>
+    /// This is the second gate, not the first. <c>SharedOptions</c> attaches the same check to the
+    /// <c>--columns</c>/<c>--fields</c> options themselves, so a duplicate is normally rejected at
+    /// parse time as a clean one-line error. That matters because a throw from inside the
+    /// invocation pipeline is only reported cleanly by commands that happen to catch it: <c>find</c>
+    /// does, <c>package</c> does not, and there it would surface as an unhandled-exception stack
+    /// trace. This check remains because <c>BuildProjection</c> is reachable from callers that do
+    /// not come through those options, and a duplicate must not reach a writer either way.
+    /// </para>
     /// </remarks>
     private static void RejectDuplicates(string[]? names, string flag)
     {

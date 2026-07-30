@@ -148,6 +148,47 @@ public class SharedOptions
             if (token is not null && !RowSelector.TryParse(token, out _))
                 result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
         });
+
+        // A repeated name asks for the same column twice. Under the table formats the
+        // second copy is a redundant duplicate column; under --json/--jsonl it produces
+        // a repeated JSON property, which Utf8JsonWriter does not reject and which
+        // parsers resolve inconsistently. Reject it rather than emit either.
+        //
+        // Validating on the option (not per command) is what makes the rejection
+        // uniform: the same spelling fails the same way everywhere --columns/--fields
+        // are accepted. Doing it at parse time also keeps it out of the invocation
+        // pipeline, which System.CommandLine renders as an unhandled-exception stack
+        // trace unless the individual command happens to catch it -- `find` does,
+        // `package` does not (dotnet-inspect#3494 review).
+        AddDuplicateNameValidator(Columns, "--columns");
+        AddDuplicateNameValidator(Fields, "--fields");
+    }
+
+    /// <summary>
+    /// Rejects a comma/semicolon-separated projection list that names the same entry
+    /// more than once. Matching is case-insensitive because column matching is.
+    /// </summary>
+    private static void AddDuplicateNameValidator(Option<string?> option, string flag)
+    {
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count == 0)
+                return;
+
+            var names = ParseCommaSeparatedList(result.Tokens[^1].Value);
+            if (names is null)
+                return;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+            {
+                if (!seen.Add(name))
+                {
+                    result.AddError($"Duplicate {flag} entry: {name}");
+                    return;
+                }
+            }
+        });
     }
 
     /// <summary>

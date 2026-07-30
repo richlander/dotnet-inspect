@@ -4660,6 +4660,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task DuplicateProjection_IsRejectedByCommandsThatDoNotCatchIt()
+    {
+        // The duplicate check must fire at parse time, not from inside the invocation pipeline.
+        // A throw there is only reported cleanly by commands that happen to catch it: `find` has a
+        // catch-all that prints "Error: ...", but `package` catches only HttpRequestException, so a
+        // pipeline throw reached System.CommandLine's default handler and printed a stack trace.
+        // Validating on the --columns/--fields options themselves is what makes the contract
+        // uniform across every command. Found by adversarial review of #3494.
+        //
+        // This asserts on the *absence* of a stack trace, because exit 1 and a message on stderr
+        // were already true of the crashing form -- the stack trace was the whole defect.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--fields", "Authors,Authors", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --fields entry: Authors", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Newtonsoft", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_UnmatchedColumnUnderJson_StillFailsClosed()
     {
         // Lowering must not turn a bad column name into a success-shaped empty document. The
