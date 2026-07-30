@@ -305,9 +305,10 @@ npx markdownlint-cli <file>
 
 ### Do not start a round until the branch is settled
 
-**A review round does not begin until the PR is stable, CI-green, and free of
-merge conflicts — and for a stacked PR, until every layer is.** This is a gate,
-not a preference: hold the round until that state clears.
+**A review round does not begin until the PR is stable, free of merge conflicts,
+and green on every check that runs for it — and for a stacked PR, until every
+layer is.** This is a gate, not a preference: hold the round until that state
+clears.
 
 Adversarial review is the scarcest resource in this workflow — several models, a
 self-contained prompt, isolated worktrees, real runs. A branch whose head is
@@ -389,16 +390,16 @@ should reference it rather than restating it:
 - MAI-Code
 
 **Always use the highest version a model offers** — if both Opus 4.8 and Opus 5
-are available, use Opus 5. For a two-model review, do not review with your own
+are available, use Opus 5. In the two-model tier, do not review with your own
 model when another listed family is available.
 
 These tiers assume a harness — such as the GitHub Copilot CLI — that can
 delegate to any family in the roster. A harness exposing only its own vendor's
 models (Claude Code, Codex) changes how the reviews are obtained, never the bar:
-it satisfies the **single-review** tier with its own model, and for the
+it satisfies the **single-round** tier with its own model, and for the
 **two-model** tier it reviews with its own model and then **requests a second,
-different-family review from the user**, not marking the PR ready until that
-review arrives.
+different-family round from the user**, not marking the PR ready until that
+round arrives.
 
 ### Running the round
 
@@ -455,7 +456,7 @@ until it is unreviewable, and over parallel PRs that race in the same files.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
 - **Green and mergeable is checked stack-wide, before any slice's round** — see
   [Adversarial review](#adversarial-review).
-- **A moved head — including one moved by a restack — needs a clean review at
+- **A moved head — including one moved by a restack — needs a clean round at
   the new head**, and a restack never retires an open finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
