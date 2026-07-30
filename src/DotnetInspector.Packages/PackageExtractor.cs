@@ -92,6 +92,10 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
+        // Collect source failures for the whole acquisition so that a lookup ending in "no
+        // version found" can tell an absent package apart from a source that never answered.
+        using var failureScope = FeedFailureTelemetry.Scope();
+
         // Keep redirect traversal outside exact-coordinate acquisition so one
         // package flight never waits on another package key.
         var visitedPackageIds = new HashSet<string>(
@@ -225,7 +229,9 @@ public static class PackageExtractor
                 if (HttpClientFactory.IsOffline)
                     return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
 
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                return PackageExtractionOutcome.Error(
+                    FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                        ?? $"Package '{packageName}' not found.");
             }
         }
 
@@ -340,7 +346,8 @@ public static class PackageExtractor
                 if (knownVersions == null || knownVersions.Count == 0)
                 {
                     return PackageExtractionOutcome.Error(
-                        $"Package '{packageName}' not found.");
+                        FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                            ?? $"Package '{packageName}' not found.");
                 }
 
                 return PackageExtractionOutcome.Error(

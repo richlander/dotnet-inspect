@@ -118,10 +118,23 @@ and neither works: a `ClearTextPassword` with no `Username` (both halves are req
 though Azure DevOps ignores the username), and userinfo in the source URL
 (`https://user:pass@host/...`, which is never turned into a header).
 
-Every one of these is dropped without a diagnostic. Because an unauthenticated feed reports as
-*package not found* rather than as an authentication failure (issue #3417, bug 1), each is
-indistinguishable from a typo in the package name. That is what makes the silence expensive, and
-it is why the diagnosis is worth fixing independently of which mechanisms are supported.
+Every one of these is dropped without a diagnostic, so a source configured through an
+unsupported mechanism is read as though no credential were supplied at all.
+
+What that then looks like has changed. A source that answers 401 or 403 is now reported as
+unreadable rather than as a missing package, naming the source, the status, and the phase:
+
+```console
+$ dotnet-inspect package Markout --source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json
+Error: Package 'markout' could not be resolved because a source requires credentials.
+  https://pkgs.dev.azure.com/.../index.json — HTTP 401 Unauthorized while reading the service index
+The package may exist; the source was not readable. Supply credentials for this source and retry.
+```
+
+A genuine 404 still reports as *not found*, because that is the one status that means the
+package is actually absent. The remaining gap is narrower than it was: the credential is still
+dropped silently, but the resulting failure is no longer indistinguishable from a typo in the
+package name.
 
 ## Credential providers
 
@@ -227,11 +240,41 @@ themselves, and if invalid, should call the credential provider again with -IsRe
 Credentials from a plugin are **not** written to any configuration file. They live in memory for
 the process lifetime and are re-acquired on the next run.
 
-Bug 1 (issue #3417) — an authentication failure reported as *package not found* — is not a
+Bug 1 (issue #3417) — an authentication failure reported as *package not found* — was never a
 prerequisite for any of this, because the handler never needs the status code to reach a caller.
-It remains worth fixing so that a feed which refuses every available credential says so. NuGet's
-wording is a good target: `NU1301: Unable to load the service index for source ... 401
-(Unauthorized)`.
+It has since been fixed: a feed that refuses every available credential now says so, naming the
+source, status, and phase. The mechanism is described under [Reporting an unreadable
+source](#reporting-an-unreadable-source).
+
+## Reporting an unreadable source
+
+Azure DevOps answers **401** rather than 404 for a feed the caller cannot see, so an
+unauthenticated private feed and a mistyped package name arrive at the same place: nothing
+resolved. Reporting both as *package not found* was issue #3417 bug 1, and it is the failure
+users hit most often once credentials are configured, because an expired credential is the
+normal end state of every PAT.
+
+The status is known inside
+[`HttpRetryHelper`](../../src/DotnetInspector.Packages/HttpRetryHelper.cs), but the signatures
+between there and the caller return `string?` and `List<string>?`, so it cannot be returned
+without changing every one of them. Instead
+[`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
+ambient-scope shape already used by `NetworkTelemetry`: `ExtractPackageAsync` opens one scope,
+nested async work records into the same collector, and the "nothing resolved" path consults it
+before choosing a message.
+
+Two rules keep the message honest:
+
+- **404 is never recorded.** It is the one status that genuinely means the package is absent,
+  so a real miss still reports *not found*. A recorder that captured every non-success status
+  would destroy that message, which is why the test suite pins the 404 case as a control.
+- **A recorded failure is advisory, not fatal.** The collector is only consulted when the
+  overall lookup produced nothing, so if one source 401s and another answers, the successful
+  result stands. That is this codebase's answer to the third open design question in #3417.
+
+The phase (`reading the service index`, `listing versions`) is taken from the ambient
+`NetworkTrafficKind`, which the network telemetry scope already tracks, so no call site had to
+be taught to describe itself.
 
 ## Service index discovery
 
