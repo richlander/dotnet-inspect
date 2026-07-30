@@ -105,25 +105,30 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// true.
     /// </para>
     /// <para>
-    /// Self-consistency is not enough on its own. <c>SizeOfCode</c> equals the
-    /// sum of the code sections' raw sizes just as well when neither grew, so
-    /// that equality alone accepts an image whose metadata runs off the end of
-    /// its own section. The geometry assertions below are what make the
-    /// difference: metadata has to fit inside the section that claims to hold
-    /// it, and sections may not overlap on disk.
+    /// Self-consistency is not enough on its own, and neither is any one
+    /// relationship. Every gate here was first written narrowly and then beaten
+    /// by a change that kept the relationship it checked intact:
+    /// <c>SizeOfCode</c> still equals the code sections' raw sizes when neither
+    /// grew, and every offset still lines up when a section grows by one byte
+    /// short of a file-alignment unit. What survives is a set of assertions that
+    /// no single coherent-looking edit satisfies at once — the optional header's
+    /// size fields against the section table, metadata inside its own section,
+    /// and sections aligned and disjoint on disk.
     /// </para>
     /// <para>
     /// Every invariant is asserted against a compiler-produced assembly first,
     /// so each is anchored in what real toolchains emit rather than being a rule
-    /// invented for the fixture's convenience.
+    /// invented for the fixture's convenience. The set is not a general PE
+    /// validator and does not try to be; it covers the ways this fixture can
+    /// plausibly rot.
     /// </para>
     /// </summary>
     [Fact]
-    public void HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable()
+    public void HostileImage_KeepsOptionalHeaderSizesConsistentWithItsSectionTable()
     {
-        Assert.Equal(SumOfCodeSectionRawSizes(SelfImage), SizeOfCode(SelfImage));
+        AssertOptionalHeaderSizesMatchTheSectionTable(SelfImage);
 
-        Assert.Equal(SumOfCodeSectionRawSizes(fixture.Bytes), SizeOfCode(fixture.Bytes));
+        AssertOptionalHeaderSizesMatchTheSectionTable(fixture.Bytes);
     }
 
     /// <summary>
@@ -141,9 +146,12 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     }
 
     /// <summary>
-    /// Sections must start on a file-alignment boundary and may not overlap on
-    /// disk. This is the assertion that fails when a section grows without the
-    /// later sections' raw pointers moving out of its way.
+    /// Sections must start and end on file-alignment boundaries and may not
+    /// overlap on disk. The start check fails when a section grows without the
+    /// later sections' raw pointers moving out of its way; the size check fails
+    /// when a section grows by an amount that is not a whole number of
+    /// file-alignment units, which leaves every offset relationship intact and
+    /// so is invisible to every other assertion here.
     /// </summary>
     [Fact]
     public void HostileImage_KeepsSectionsAlignedAndDisjointOnDisk()
@@ -153,9 +161,67 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         AssertSectionsAreAlignedAndDisjoint(fixture.Bytes);
     }
 
+    /// <summary>
+    /// Pins the premise that lets the fixture leave <c>SizeOfInitializedData</c>
+    /// alone: the section it grows contributes to <c>SizeOfCode</c> and to
+    /// nothing else.
+    /// <para>
+    /// `ManagedPEBuilder` emits `.text` as code-only, so widening the version
+    /// stamp moves no initialized-data total and the field needs no repair. That
+    /// is a fact about the builder, not a law — were `.text` ever to gain
+    /// <see cref="SectionCharacteristics.ContainsInitializedData"/>, the fixture
+    /// would silently owe a repair it does not make. Reviewers reached for
+    /// <c>SizeOfInitializedData</c> twice on the reasonable assumption that
+    /// growing a section must move it, which is exactly the kind of premise that
+    /// should be checked rather than remembered.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_GrowsASectionThatOnlyCountsAsCode()
+    {
+        using var peReader = new PEReader(new MemoryStream(fixture.Bytes, writable: false));
+        PEHeaders headers = peReader.PEHeaders;
+        int start = headers.MetadataStartOffset;
+
+        SectionHeader owner = Assert.Single(
+            headers.SectionHeaders.Where(s => start >= s.PointerToRawData
+                && start < s.PointerToRawData + s.SizeOfRawData));
+
+        Assert.Equal(
+            SectionCharacteristics.ContainsCode,
+            owner.SectionCharacteristics & (SectionCharacteristics.ContainsCode
+                | SectionCharacteristics.ContainsInitializedData
+                | SectionCharacteristics.ContainsUninitializedData));
+    }
+
     /// <summary>A compiler-produced assembly, used to anchor each invariant.</summary>
     static byte[] SelfImage
         => File.ReadAllBytes(typeof(OversizedMetadataVersionTests).Assembly.Location);
+
+    static void AssertOptionalHeaderSizesMatchTheSectionTable(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        PEHeaders headers = peReader.PEHeaders;
+        PEHeader header = headers.PEHeader!;
+
+        Assert.Equal(SumOfRawSizes(headers, SectionCharacteristics.ContainsCode), header.SizeOfCode);
+        Assert.Equal(
+            SumOfRawSizes(headers, SectionCharacteristics.ContainsInitializedData),
+            header.SizeOfInitializedData);
+
+        int end = headers.SectionHeaders
+            .Max(static s => s.VirtualAddress + s.VirtualSize);
+
+        Assert.Equal(AlignUp(end, header.SectionAlignment), header.SizeOfImage);
+    }
+
+    static int SumOfRawSizes(PEHeaders headers, SectionCharacteristics characteristic)
+        => headers.SectionHeaders
+            .Where(s => (s.SectionCharacteristics & characteristic) != 0)
+            .Sum(static s => s.SizeOfRawData);
+
+    static int AlignUp(int value, int alignment)
+        => checked((value + alignment - 1) / alignment * alignment);
 
     static void AssertMetadataFitsItsSection(byte[] image)
     {
@@ -189,6 +255,7 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         foreach (SectionHeader section in occupied)
         {
             Assert.Equal(0, section.PointerToRawData % fileAlignment);
+            Assert.Equal(0, section.SizeOfRawData % fileAlignment);
             Assert.True(
                 section.PointerToRawData >= previousEnd,
                 $"Section {section.Name} starts at {section.PointerToRawData}, inside the section ending at {previousEnd}.");
@@ -199,20 +266,6 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         Assert.True(
             previousEnd <= image.Length,
             $"Sections run to {previousEnd}, past the {image.Length}-byte image.");
-    }
-
-    static int SizeOfCode(byte[] image)
-    {
-        using var peReader = new PEReader(new MemoryStream(image, writable: false));
-        return peReader.PEHeaders.PEHeader!.SizeOfCode;
-    }
-
-    static int SumOfCodeSectionRawSizes(byte[] image)
-    {
-        using var peReader = new PEReader(new MemoryStream(image, writable: false));
-        return peReader.PEHeaders.SectionHeaders
-            .Where(static s => (s.SectionCharacteristics & SectionCharacteristics.ContainsCode) != 0)
-            .Sum(static s => s.SizeOfRawData);
     }
 }
 
@@ -243,16 +296,35 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 /// gated by a test instead —
 /// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsMetadataInsideItsOwningSection"/>,
 /// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSectionsAlignedAndDisjointOnDisk"/>, and
-/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSizeOfCodeConsistentWithItsSectionTable"/>.
+/// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsOptionalHeaderSizesConsistentWithItsSectionTable"/>.
 /// Review of this file found two of the three ungated, on separate rounds.
+/// </para>
+/// <para>
+/// Two fields deliberately need no repair, and that is also checked rather than
+/// remembered. `SizeOfInitializedData` does not move because `ManagedPEBuilder`
+/// emits `.text` as code-only, which
+/// <see cref="OversizedMetadataVersionTests.HostileImage_GrowsASectionThatOnlyCountsAsCode"/>
+/// pins; `SizeOfImage` does not move because the expansion stays inside the
+/// containing section's existing virtual footprint. Both are covered by the
+/// optional-header gate, so if either premise ever changes the fixture fails
+/// rather than quietly emitting a contradictory image.
 /// </para>
 /// </summary>
 public sealed class OversizedVersionFixture : IDisposable
 {
     /// <summary>
-    /// Bytes added to the version field. A multiple of the file alignment keeps
-    /// every later section's raw pointer aligned, so no other header needs
-    /// rewriting.
+    /// Bytes added to the version field. A whole number of file-alignment units
+    /// keeps both the grown section's raw size and every later section's raw
+    /// pointer aligned, so no other header needs rewriting.
+    /// <para>
+    /// The builder rejects any other value, because an expansion that is even one
+    /// byte short leaves every offset relationship intact — metadata still inside
+    /// its section, sections still disjoint, `SizeOfCode` still matching — while
+    /// producing a section header PE/COFF does not permit. Review of this file
+    /// found exactly that gap;
+    /// <see cref="OversizedMetadataVersionTests.HostileImage_KeepsSectionsAlignedAndDisjointOnDisk"/>
+    /// now catches it, and this guard stops it being reached by accident.
+    /// </para>
     /// </summary>
     const int Expansion = 1536;
 
