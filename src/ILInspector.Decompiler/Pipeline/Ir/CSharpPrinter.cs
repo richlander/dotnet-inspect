@@ -218,7 +218,7 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
@@ -287,7 +287,7 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new PrintedRangeMap();
-            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink, _expressionText = [] };
             string output = printer.PrintBody(function);
             printedRanges = sink.Complete(output);
             return printer.Result(output, function);
@@ -507,6 +507,14 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
     PrintedRangeMap? _printedRanges;
+
+    /// <summary>
+    /// Text captured per expression node while <see cref="_printedRanges"/> is
+    /// collecting, so <see cref="RecordExpressionRanges"/> can bind expressions to
+    /// characters. Null whenever the sink is, so the shipped print path allocates
+    /// nothing and runs the same code it did before.
+    /// </summary>
+    Dictionary<IrNode, string>? _expressionText;
 
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
@@ -1708,7 +1716,133 @@ public sealed partial class CSharpPrinter
         }
         int start = sb.Length;
         AppendStatementCore(sb, node, indent);
+        RecordExpressionRanges(sb, node, start);
         _printedRanges.Record(node, start, sb.Length);
+    }
+
+    /// <summary>
+    /// Binds each expression under <paramref name="statement"/> to the characters
+    /// it contributed, now that the statement sits at a known offset.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A statement records its range by bracketing the builder, which is exact.
+    /// An expression cannot: the expression printer composes text bottom-up by
+    /// returning strings, so a node's characters do not exist at a known offset
+    /// until an enclosing statement has been appended. What is knowable during
+    /// composition is the text each node produced, which
+    /// <see cref="Expression(IrExpression)"/> captures, and this rebases it.
+    /// </para>
+    /// <para>
+    /// The binding is by unique occurrence <em>within the characters the node's
+    /// parent claimed</em>. Searching the whole statement is not sound: emission
+    /// can reformat a statement after its expressions were composed -- a fluent
+    /// chain past the width budget is re-broken one call per line -- so a node's
+    /// captured spelling may no longer occur at the node's own site, while an
+    /// unrelated occurrence (inside a string literal, say) survives and becomes
+    /// the only match. That yields a range that is precise and wrong, the one
+    /// outcome worse than the coarse whole-statement underline this replaces.
+    /// Constraining each node to its parent's window makes a claim structurally
+    /// consistent by construction: reformatting breaks the chain at the first
+    /// ancestor whose text no longer occurs, and every node beneath it refuses.
+    /// </para>
+    /// <para>
+    /// Refusal is also the answer to ambiguity. Where a spelling repeats within
+    /// the window -- <c>x + x</c>, two calls spelled identically -- composition
+    /// order does not say which occurrence belongs to which node, so no range is
+    /// recorded, the node stays absent from the map, and a consumer falls back to
+    /// the enclosing statement, which is what it had before. A node that never
+    /// had text captured claims nothing but does not block its children, since
+    /// its silence is an absence of evidence rather than evidence of a rewrite.
+    /// </para>
+    /// <para>
+    /// Claims are collected parent-first (<see cref="IrNode.Descendants"/> is
+    /// pre-order, and a window must exist before anything is measured against it)
+    /// and recorded so that a node follows every descendant. Siblings come out in
+    /// <em>child</em> order, which is what walking <see cref="IrNode.Children"/>
+    /// produces; it is <em>not</em> the order their characters appear, and the
+    /// map's contract deliberately promises neither. Post-ordering holds for
+    /// expression-inside-expression nesting, not merely for expressions
+    /// inside their statement. Nested statements record earlier still -- they are
+    /// appended while this statement's body runs, and <c>Record</c> keeps the
+    /// first range a node is given -- so an expression inside a nested block is
+    /// claimed against that block, where it is more likely to be unique. That is
+    /// also why a structured statement's body enumerates before its condition.
+    /// </para>
+    /// </remarks>
+    void RecordExpressionRanges(StringBuilder sb, IrNode statement, int start)
+    {
+        if (_expressionText is null || _expressionText.Count == 0 || sb.Length <= start)
+            return;
+
+        string text = sb.ToString(start, sb.Length - start);
+        var windows = new Dictionary<IrNode, (int Start, int End)>();
+        HashSet<IrNode>? refused = null;
+
+        foreach (var descendant in statement.Descendants)
+        {
+            int windowStart = 0, windowEnd = text.Length;
+            bool blocked = false;
+            for (var parent = descendant.Parent;
+                 parent is not null && !ReferenceEquals(parent, statement);
+                 parent = parent.Parent)
+            {
+                if (windows.TryGetValue(parent, out var window))
+                {
+                    (windowStart, windowEnd) = window;
+                    break;
+                }
+                if (refused?.Contains(parent) == true)
+                {
+                    blocked = true;
+                    break;
+                }
+            }
+
+            if (blocked)
+            {
+                (refused ??= []).Add(descendant);
+                continue;
+            }
+
+            if (!_expressionText.TryGetValue(descendant, out string? printed) || printed.Length == 0)
+                continue;
+
+            int at = text.IndexOf(printed, windowStart, windowEnd - windowStart, StringComparison.Ordinal);
+            if (at < 0
+                || (at + 1 < windowEnd
+                    && text.IndexOf(printed, at + 1, windowEnd - at - 1, StringComparison.Ordinal) >= 0))
+            {
+                (refused ??= []).Add(descendant);
+                continue;
+            }
+
+            windows[descendant] = (at, at + printed.Length);
+        }
+
+        if (windows.Count == 0)
+            return;
+
+        // Windows had to be computed parent-first, but a node must be recorded
+        // after every descendant. Siblings come out in child order -- not in the
+        // order their characters appear. Pushing children forward pops them
+        // right-first, so reversing the walk yields exactly that.
+        var pending = new Stack<IrNode>();
+        var completion = new List<IrNode>();
+        pending.Push(statement);
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            completion.Add(node);
+            foreach (var child in node.Children)
+                pending.Push(child);
+        }
+
+        for (int i = completion.Count - 1; i >= 0; i--)
+        {
+            if (windows.TryGetValue(completion[i], out var claim))
+                _printedRanges!.Record(completion[i], start + claim.Start, start + claim.End);
+        }
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
@@ -2951,7 +3085,27 @@ public sealed partial class CSharpPrinter
         return true;                    // unknown backing: wrap to be safe
     }
 
-    string Expression(IrExpression node) => node switch
+    /// <summary>
+    /// The text <paramref name="node"/> printed, captured on the way out so an
+    /// enclosing statement can bind it to characters once it knows its own
+    /// offset. See <see cref="RecordExpressionRanges"/>.
+    /// </summary>
+    /// <remarks>
+    /// Capture is keyed by node and the last write wins. A node printed more than
+    /// once keeps its most recent text, which is the one an enclosing statement
+    /// is about to append; an earlier, different rendering would simply not be
+    /// found in the statement and would claim nothing.
+    /// </remarks>
+    string Expression(IrExpression node)
+    {
+        if (_expressionText is null)
+            return ExpressionCore(node);
+        string text = ExpressionCore(node);
+        _expressionText[node] = text;
+        return text;
+    }
+
+    string ExpressionCore(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),
@@ -4343,7 +4497,15 @@ public sealed partial class CSharpPrinter
             return null;
         }
 
-        return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string text = $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        // This spelling is composed here rather than by Expression(), which is
+        // otherwise the one place a node's text is captured. Without recording it
+        // the shortened form claims no characters at all, so a fact on the
+        // creation falls back to underlining the whole declaration -- exactly the
+        // `List<object> sink = new();` case in #3328.
+        if (_expressionText is not null)
+            _expressionText[creation] = text;
+        return text;
     }
 
     /// <summary>
