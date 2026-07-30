@@ -380,15 +380,28 @@ worked example that document points at.
   `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
   `StringBudget_…` asserts only that the full length is reported and the
   preview is non-empty.
-- **Parse, never load.** SRM-only, NativeAOT-friendly, Roslyn-free. A malformed
+- **Parse, never load — the tool is execution incapable.** Reading is SRM-only,
+  and the shipped tool is Native AOT: there is no JIT, so `Assembly.Load` and
+  friends cannot bring new IL to life. Nothing the tool downloads can be
+  executed, whatever the metadata says. That is a structural property, not a
+  convention. The gate is the AOT build itself — `PublishAot` is `true` by
+  default for `src/dotnet-inspect`, and `release.yml` builds every shipped
+  RID-specific package that way, so a change that needed runtime code
+  generation would fail to build rather than fail a test. The one caveat worth
+  naming: the RID-neutral `any` fallback package is deliberately non-AOT
+  (`-p:PublishAot=false`), so on that package the property rests on the code
+  being SRM-only rather than on the runtime being unable to comply. A malformed
   coded index resolves to a visible failure marker, not a fabricated target.
-  This is an architectural constraint with no single gate naming it; treat the
-  property as unverified here.
 - **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
-  amplification surface, so they are never dumped by default. Gated by
-  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing`, which
-  covers `-v:q` and `-v:d` — the ends of the ladder, not `-v:m` or `-v:n`. The
-  middle of the ladder is unverified.
+  amplification surface, so nothing that merely asks for *more output* may turn
+  one on — only naming a heap section does. Verbosity is the axis that would
+  otherwise leak them, which is what
+  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing` gates: it
+  runs the two maximal requests the CLI accepts, `-v:d` (defined by the output
+  contract as "all sections") and `-S @All`, and asserts no heap section
+  renders under either. `-v:m` and `-v:n` are not run and do not need to be —
+  they are strict subsets of `-v:d`, so a section absent there cannot appear
+  under them.
 
 ### Two orthogonal axes
 
