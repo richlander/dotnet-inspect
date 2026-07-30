@@ -1324,6 +1324,30 @@ public sealed class CSharpDeclarationWriterTests
                 type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
     }
 
+    [Theory]
+    // GPT round-3 finding: 'where' is a contextual keyword, so a member may be named it.
+    // A tuple-returning one puts that name exactly where a constraint would go.
+    [InlineData("where", "(int, int) where (int event)", "public (int, int) where (int @event)")]
+    // 'where' needs no escape in member-name position; it is contextual, not reserved.
+    [InlineData("where", "void where(int event)", "public void where(int @event)")]
+    [InlineData("where", "(int, int) where<T>(T event)", "public (int, int) where<T>(T @event)")]
+    // A real constraint clause must still be recognised, so the parameter list before it
+    // is escaped and a tuple inside the constraint is left alone.
+    [InlineData("M", "(int, int) M<T>(int event) where T : System.IComparable<(int, int)>",
+        "public (int, int) M<T>(int @event) where T : System.IComparable<(int, int)>")]
+    [InlineData("M", "void M<T>(int event) where T : new()",
+        "public void M<T>(int @event) where T : new()")]
+    public void MemberDeclaration_RequiresFullConstraintShapeNotJustTheWord(
+        string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
+    }
+
     [Fact]
     public void TypeDeclaration_EscapesKeywordTypeParametersInInterfaces()
     {

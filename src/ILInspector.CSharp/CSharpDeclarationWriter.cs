@@ -1434,9 +1434,39 @@ internal static class CSharpDeclarationWriter
         return trailing.IsEmpty || StartsWithConstraintClause(trailing);
     }
 
+    /// <summary>
+    /// True when <paramref name="trailing"/> begins a generic constraint clause.
+    /// </summary>
+    /// <remarks>
+    /// Requires the whole <c>where T :</c> shape, not just the leading word.
+    /// <c>where</c> is a contextual keyword, so a member may legally be named it, and a
+    /// tuple-returning one puts that name exactly where a constraint would go:
+    /// <c>(int, int) where (int a)</c>. Matching the word alone classifies the tuple as
+    /// a parameter list and mangles it to <c>(@int, @int)</c>. A constraint always names
+    /// a type parameter and a colon; a member name is always followed by its parameter
+    /// list instead.
+    /// </remarks>
     static bool StartsWithConstraintClause(ReadOnlySpan<char> trailing)
-        => trailing.StartsWith("where", StringComparison.Ordinal)
-            && (trailing.Length == 5 || char.IsWhiteSpace(trailing[5]));
+    {
+        if (!trailing.StartsWith("where", StringComparison.Ordinal))
+            return false;
+
+        int i = 5;
+        if (i >= trailing.Length || !char.IsWhiteSpace(trailing[i]))
+            return false;
+        while (i < trailing.Length && char.IsWhiteSpace(trailing[i]))
+            i++;
+
+        int nameStart = i;
+        while (i < trailing.Length && (IsIdentifierPart(trailing[i]) || trailing[i] == '@'))
+            i++;
+        if (i == nameStart)
+            return false;
+
+        while (i < trailing.Length && char.IsWhiteSpace(trailing[i]))
+            i++;
+        return i < trailing.Length && trailing[i] == ':';
+    }
 
     static string EscapeParameterName(string parameter)
     {
