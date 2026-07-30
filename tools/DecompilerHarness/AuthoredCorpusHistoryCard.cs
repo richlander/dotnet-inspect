@@ -66,6 +66,12 @@ static class AuthoredCorpusHistoryCard
             runs.Add(run);
         }
 
+        // A digest no run could have produced is a schema error, not a measurement
+        // defect, so it is refused at the boundary where the file is read rather than
+        // left for a consumer to walk past.
+        if (AuthoredCorpusRatchet.RefuseMalformedIdentities(runs) is { } malformed)
+            throw new JsonException($"History row records an identity no run could produce: {malformed}");
+
         return runs;
     }
 

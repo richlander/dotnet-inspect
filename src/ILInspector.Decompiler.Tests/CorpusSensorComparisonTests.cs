@@ -797,14 +797,21 @@ public class CorpusSensorComparisonTests
         Assert.Same(fidelityDiff, aligned.FidelityDiff);
     }
 
+    /// <summary>
+    /// Contract V1 must compose every declared <see cref="IlBodyDiffNormalization"/>
+    /// option. The enforcement set is derived from the enum rather than restated,
+    /// so a newly declared option fails here until someone decides explicitly
+    /// whether the compile-back oracle should apply it — a stale entry and a
+    /// missing entry both fail, instead of the pin silently drifting.
+    /// </summary>
     [Fact]
     public void FidelityContractV1_ComposesAllIlBodyNormalizations()
     {
-        Assert.Equal(
-            IlBodyDiffNormalization.NormalizeVariableLayout
-            | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope,
-            FidelityCheck.ContractV1BodyDiffNormalization);
+        IlBodyDiffNormalization allDeclared = Enum.GetValues<IlBodyDiffNormalization>()
+            .Where(option => option != IlBodyDiffNormalization.None)
+            .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+
+        Assert.Equal(FidelityCheck.ContractV1BodyDiffNormalization, allDeclared);
     }
 
     [Fact]

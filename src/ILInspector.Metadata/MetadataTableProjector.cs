@@ -1342,8 +1342,14 @@ public static class MetadataTableProjector
     /// enforced on the output length, not the input length;
     /// <paramref name="truncated"/> reports whether any input was dropped to keep
     /// the text within budget.
+    /// <para>
+    /// Internal rather than private because the image overview
+    /// (<see cref="MetadataImageInspector"/>) reports an artifact-derived string
+    /// of its own — the metadata root's version stamp — and must neutralize it
+    /// with this same escaper rather than a parallel one.
+    /// </para>
     /// </summary>
-    static string NeutralizeControls(string value, int maxChars, out bool truncated)
+    internal static string NeutralizeControls(string value, int maxChars, out bool truncated)
         => EscapeCore(value, maxChars, escapeStructural: false, out truncated);
 
     /// <summary>

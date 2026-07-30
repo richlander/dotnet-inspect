@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1189,6 +1190,241 @@ public sealed class CSharpDeclarationWriterTests
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
 
         Assert.Equal("void @event.@class()", declaration);
+    }
+
+    [Theory]
+    // A C# tuple type is parenthesized, so a parameter-list scan that takes the first
+    // '(' mistakes a tuple-typed return for a parameter list and escapes each element's
+    // trailing token. Unnamed elements end in the type keyword, so `(int, string)`
+    // became `(@int, @string)` — an identifier that does not bind (CS0246). Named
+    // elements hid the bug, because their trailing token is the element name.
+    [InlineData("(int, string) Pair(int a)", "public (int, string) Pair(int a)")]
+    [InlineData("(int Sum, int Product) Pair(int a)", "public (int Sum, int Product) Pair(int a)")]
+    [InlineData(
+        "(int, int, int, int, int, int, int, int) Rest(int a)",
+        "public (int, int, int, int, int, int, int, int) Rest(int a)")]
+    [InlineData("((int, int), int) Nested(int a)", "public ((int, int), int) Nested(int a)")]
+    [InlineData(
+        "T Echo<T>(T a) where T : System.IComparable<(int, int)>",
+        "public T Echo<T>(T a) where T : System.IComparable<(int, int)>")]
+    // Parameter escaping itself must keep working, including when the keyword-named
+    // parameter is itself tuple-typed and when the member is an operator.
+    [InlineData("void M(int event)", "public void M(int @event)")]
+    [InlineData("void M((int, int) event)", "public void M((int, int) @event)")]
+    [InlineData("Samples.Op operator +(Samples.Op class, Samples.Op b)", "public Samples.Op operator +(Samples.Op @class, Samples.Op b)")]
+    public void MemberDeclaration_EscapesParameterNamesWithoutManglingTupleTypes(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// Pins how <c>EscapeParameterLists</c> resolves a <c>(</c> preceded by whitespace,
+    /// which is the one genuinely ambiguous position.
+    ///
+    /// A tuple return follows the modifier/return-type run, so the token before it is a
+    /// C# keyword (<c>public static (int, int) Pair(…)</c>). A parameter list follows the
+    /// member name (<c>void M (int a)</c>), which is never a bare keyword — a
+    /// keyword-named member is escaped to <c>@name</c> before this runs.
+    ///
+    /// Deciding from the previous character alone is not sufficient in either direction:
+    /// rejecting all whitespace drops the escape on <c>void M (int event)</c>, while
+    /// accepting any preceding identifier character mangles <c>static (int, int)</c>,
+    /// whose previous non-whitespace character is the <c>c</c> of <c>static</c> (#3489).
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_ClassifiesParenGroupsByTrailingContext()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        // Ends the declaration -> parameter list, so the keyword parameter escapes.
+        Assert.Equal(
+            "public void M (int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M (int event)" }));
+
+        // Followed by the member name -> tuple return, left alone, while the real
+        // parameter list is still escaped. Both halves must hold at once.
+        Assert.Equal(
+            "public static (int, int) Pair(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "Pair", Kind = "method", Signature = "static (int, int) Pair(int event)" }));
+
+        // A generic member's '>' precedes the space, and an escaped member name is not a
+        // keyword: neither is decidable from the preceding token, both are from trailing
+        // context.
+        Assert.Equal(
+            "public void M<T> (T @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M<T> (T event)" }));
+
+        Assert.Equal(
+            "public void @event (int @class)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "event", Kind = "method", Signature = "void event (int class)" }));
+
+        // A modifier run that is not itself a reserved keyword must not turn the tuple
+        // return into a parameter list.
+        Assert.Equal(
+            "public partial (int, int) M(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "partial (int, int) M(int event)" }));
+    }
+
+    [Theory]
+    // A conversion operator returning a tuple: the tuple's paren comes first, so a
+    // first-paren scan bails out and leaves the raw op_Implicit spelling.
+    [InlineData("op_Implicit", "(int a, int b) op_Implicit(Samples.Tuples value)",
+        "public static implicit operator (int a, int b)(Samples.Tuples value)")]
+    [InlineData("op_Explicit", "(int, int) op_Explicit(Samples.Tuples value)",
+        "public static explicit operator (int, int)(Samples.Tuples value)")]
+    // Non-tuple returns must keep rendering exactly as before.
+    [InlineData("op_Implicit", "int op_Implicit(Samples.Tuples value)",
+        "public static implicit operator int(Samples.Tuples value)")]
+    [InlineData("op_Addition", "Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)",
+        "public static Samples.Tuples operator +(Samples.Tuples left, Samples.Tuples right)")]
+    // A parameter or return type may itself be named op_*: the member occurrence is the
+    // one followed by the parameter list, not the last textual one.
+    [InlineData("op_Implicit", "Samples.Converter op_Implicit(op_Implicit value)",
+        "public static implicit operator Samples.Converter(op_Implicit value)")]
+    [InlineData("op_Implicit", "op_Implicit op_Implicit(Samples.Tuples value)",
+        "public static implicit operator op_Implicit(Samples.Tuples value)")]
+    [InlineData("op_Addition", "op_Addition op_Addition(op_Addition left, op_Addition right)",
+        "public static op_Addition operator +(op_Addition left, op_Addition right)")]
+    public void MemberDeclaration_FormatsOperatorsWithTupleReturns(string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = name, Kind = "method", Signature = signature, IsStatic = true };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    // MAI-Code round-3 finding: a ')' inside a string default terminated the parameter
+    // list early, so the trailing-context rule saw leftover text and declined to escape.
+    [InlineData("M", "void M(int event = \")\")", "public void M(int @event = \")\")")]
+    [InlineData("M", "void M(int event = \"(\")", "public void M(int @event = \"(\")")]
+    [InlineData("M", "void M(char c = ')', int event = 0)", "public void M(char c = ')', int @event = 0)")]
+    // A ',' inside a string default must not split one parameter into two.
+    [InlineData("M", "void M(string s = \",\", int event = 0)", "public void M(string s = \",\", int @event = 0)")]
+    // An escaped quote inside the literal must not end it early.
+    [InlineData("M", "void M(string s = \"\\\")\", int event = 0)", "public void M(string s = \"\\\")\", int @event = 0)")]
+    // A tuple return must still be left alone when a literal is present.
+    [InlineData("Pair", "(int, int) Pair(string s = \")\", int event = 0)",
+        "public (int, int) Pair(string s = \")\", int @event = 0)")]
+    // GPT round-4 finding: in a verbatim string a backslash is an ordinary character,
+    // so treating it as an escape swallowed the rest of the signature. This worked
+    // before the literal fix and must keep working.
+    [InlineData("M", "void M(string s = @\"\\\", int event = 0)",
+        "public void M(string s = @\"\\\", int @event = 0)")]
+    // '""' is the escape inside a verbatim string.
+    [InlineData("M", "void M(string s = @\"a\"\")\"\"b\", int event = 0)",
+        "public void M(string s = @\"a\"\")\"\"b\", int @event = 0)")]
+    // GPT round-5 finding: both orders of the verbatim-interpolated prefix must behave
+    // the same. Keying on the single character before the quote made '$@' work and
+    // '@$' fail.
+    [InlineData("M", "void M(string s = $@\"\\\", int event = 0)",
+        "public void M(string s = $@\"\\\", int @event = 0)")]
+    [InlineData("M", "void M(string s = @$\"\\\", int event = 0)",
+        "public void M(string s = @$\"\\\", int @event = 0)")]
+    // An interpolation hole may contain a quote or a paren; brace tracking keeps them
+    // out of the structural scan.
+    [InlineData("M", "void M(string s = $\"{\")\"}\", int event = 0)",
+        "public void M(string s = $\"{\")\"}\", int @event = 0)")]
+    [InlineData("M", "void M(string s = $\"{{)}}\", int event = 0)",
+        "public void M(string s = $\"{{)}}\", int @event = 0)")]
+    // MAI-Code round-5 finding: a raw string literal has no escape character at all, so
+    // the closing delimiter is a quote run of at least the opening length. This exact
+    // input already round-tripped before the fix, because three quotes coincidentally
+    // pair up as three degenerate literals; the two rows below are the ones that fail
+    // without SkipRawLiteral.
+    [InlineData("M", "void M(string s = \"\"\"x)\"\"\", int event = 0)",
+        "public void M(string s = \"\"\"x)\"\"\", int @event = 0)")]
+    // A shorter quote run inside a longer delimiter is content, not a terminator.
+    [InlineData("M", "void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int event = 0)",
+        "public void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int @event = 0)")]
+    // A verbatim string is never raw ('@' cannot prefix a raw literal), so a run of
+    // quotes inside one is escaped content: @""""a holds a single quote and ends at the
+    // fourth. Found by probing SkipLiteral directly rather than by a reviewer.
+    [InlineData("M", "void M(string s = @\"\"\"\", int event = 0)",
+        "public void M(string s = @\"\"\"\", int @event = 0)")]
+    [InlineData("M", "void M(string s = @\"\"\"x)\"\"\", int event = 0)",
+        "public void M(string s = @\"\"\"x)\"\"\", int @event = 0)")]
+    // Interpolated raw: the delimiter run terminates it, so holes need no modelling.
+    [InlineData("M", "void M(string s = $\"\"\"{\"a)\"}\"\"\", int event = 0)",
+        "public void M(string s = $\"\"\"{\"a)\"}\"\"\", int @event = 0)")]
+    public void MemberDeclaration_TreatsPunctuationInsideLiteralsAsText(
+        string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
+    }
+
+    [Fact]
+    // GPT round-5 finding: SkipLiteral and SkipInterpolationHole are mutually recursive,
+    // so deeply nested interpolation used to stack-overflow at ~4,800 levels. A stack
+    // overflow is uncatchable process death, so the depth is capped; this test dies with
+    // the host if the cap is ever removed.
+    public void MemberDeclaration_DoesNotOverflowOnDeeplyNestedInterpolation()
+    {
+        const int Depth = 10_000;
+        var literal = new StringBuilder();
+        for (int i = 0; i < Depth; i++)
+            literal.Append("$\"{");
+        literal.Append('x');
+        for (int i = 0; i < Depth; i++)
+            literal.Append("}\"");
+
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var rendered = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            new ApiMember
+            {
+                Name = "M",
+                Kind = "method",
+                Signature = $"void M(string s = {literal}, int event = 0)",
+            });
+
+        Assert.StartsWith("public void M(string s = ", rendered);
+    }
+
+    [Theory]
+    // A tuple-returning one puts that name exactly where a constraint would go.
+    [InlineData("where", "(int, int) where (int event)", "public (int, int) where (int @event)")]
+    // 'where' needs no escape in member-name position; it is contextual, not reserved.
+    [InlineData("where", "void where(int event)", "public void where(int @event)")]
+    [InlineData("where", "(int, int) where<T>(T event)", "public (int, int) where<T>(T @event)")]
+    // A real constraint clause must still be recognised, so the parameter list before it
+    // is escaped and a tuple inside the constraint is left alone.
+    [InlineData("M", "(int, int) M<T>(int event) where T : System.IComparable<(int, int)>",
+        "public (int, int) M<T>(int @event) where T : System.IComparable<(int, int)>")]
+    [InlineData("M", "void M<T>(int event) where T : new()",
+        "public void M<T>(int @event) where T : new()")]
+    // GPT round-4 finding: U+0301 is a valid C# identifier continuation but is not a
+    // letter or digit, so classifying the type-parameter name rejected a real constraint.
+    [InlineData("M", "void M<T\u0301>(int event) where T\u0301 : class",
+        "public void M<T\u0301>(int @event) where T\u0301 : class")]
+    // A constraint with no space before the colon must still be recognised.
+    [InlineData("M", "void M<T>(int event) where T:struct",
+        "public void M<T>(int @event) where T:struct")]
+    // Multiple constraint clauses.
+    [InlineData("M", "void M<T, U>(int event) where T : class where U : struct",
+        "public void M<T, U>(int @event) where T : class where U : struct")]
+    public void MemberDeclaration_RequiresFullConstraintShapeNotJustTheWord(
+        string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
     }
 
     [Fact]

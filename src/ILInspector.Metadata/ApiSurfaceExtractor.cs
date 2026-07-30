@@ -1715,9 +1715,14 @@ public static class ApiSurfaceExtractor
                 bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                     || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
                 var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
-                string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
+                // An interop-marshalled `ref` parameter sets both In and Out, so
+                // neither flag alone identifies a C# `out`/`in`. Spelling such a
+                // parameter `out` breaks definite assignment in the body.
+                bool isOut = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0;
+                bool isIn = (param.Attributes & System.Reflection.ParameterAttributes.In) != 0;
+                string? refKind = isOut && !isIn
                     ? "out"
-                    : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
+                    : isIn && !isOut
                         ? "in"
                         : null;
 
