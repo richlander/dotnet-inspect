@@ -682,6 +682,7 @@ public class ScanTokenTests
         var rebuilt = new StringBuilder();
         int scans = 0;
         var scannedInputs = new HashSet<string>();
+        var tokenCounts = new SortedDictionary<ScanTokenKind, int>();
 
         foreach (var input in swept)
         {
@@ -698,6 +699,9 @@ public class ScanTokenTests
                 Assert.Fail($"input \"{lines[0]}\": {gap}");
 
             scannedInputs.Add(lines[0]);
+
+            foreach (var token in tokens)
+                tokenCounts[token.Kind] = tokenCounts.GetValueOrDefault(token.Kind) + 1;
             rebuilt.Clear();
 
             foreach (var token in tokens)
@@ -744,6 +748,19 @@ public class ScanTokenTests
         // 8^L distinct strings of length L, so observing that many is observing all of them and
         // nothing about the input is left unpinned.
         AssertScannedAlphabet(" \"$@\\a{}", scannedInputs);
+        // Coverage and reconstruction both describe where the tokens START and END. Neither
+        // says how many there are: a change that merged two adjacent tokens, or split one, would
+        // cover the same characters and rebuild the same string. The token population is
+        // therefore pinned as well, per kind, so the sweep observes the stream's SHAPE and not
+        // only its extent.
+        Assert.Equal(
+            new[]
+            {
+                (ScanTokenKind.Word, 152_262),
+                (ScanTokenKind.Punctuator, 742_172),
+                (ScanTokenKind.StringLiteral, 165_535),
+            },
+            tokenCounts.Select(x => (x.Key, x.Value)));
         Assert.Equal(
             new[] { (1, 8), (2, 64), (3, 512), (4, 4_096), (5, 32_768), (6, 262_144) },
             scannedInputs.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
