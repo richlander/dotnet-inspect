@@ -2,6 +2,7 @@
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
+using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -887,6 +888,12 @@ static (PackagePinFile? Pin, string? Problem) ReadPinFile(string path)
 /// </summary>
 static (string? Text, string? Problem) ReadBoundedText(string path)
 {
+    // A BOM is stripped by hand rather than by StreamReader's detection, because
+    // detection reinstates a replacing decoder for the file it detects and that is the
+    // decoder this refuses to use.
+    ReadOnlySpan<byte> Utf8ByteOrderMark = [0xEF, 0xBB, 0xBF];
+    var StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     // A pin file is tens of kilobytes. File.ReadAllText has no ceiling, and '/dev/zero'
     // is infinite: reading it exited 134 with an OutOfMemoryException, a crash where the
     // contract promises a refusal, from the one argument --validate-pin invites a caller
@@ -942,9 +949,24 @@ static (string? Text, string? Problem) ReadBoundedText(string path)
         if (bytes is null)
             return (null, $"is larger than {MaxBytes} bytes, which no input of this sweep is");
 
-        using var buffered = new MemoryStream(bytes);
-        using var reader = new StreamReader(buffered, detectEncodingFromByteOrderMarks: true);
-        return (reader.ReadToEnd(), null);
+        // Strictly, and not through a StreamReader. The default decoder replaces every
+        // byte it cannot make sense of with U+FFFD, so a pin file holding invalid UTF-8
+        // inside a string parsed cleanly and validated as well formed at exit 0 -- the
+        // sweep answering for a file it had silently rewritten, over a question this PR
+        // exists to answer about bytes. JSON is UTF-8; bytes that are not are not a pin
+        // file this sweep can read, and saying so beats reading something else.
+        ReadOnlySpan<byte> content = bytes;
+        if (content.StartsWith(Utf8ByteOrderMark))
+            content = content[Utf8ByteOrderMark.Length..];
+
+        try
+        {
+            return (StrictUtf8.GetString(content), null);
+        }
+        catch (DecoderFallbackException ex)
+        {
+            return (null, $"is not valid UTF-8: {ex.Message.TrimEnd('.')}");
+        }
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
         or ArgumentException or NotSupportedException)

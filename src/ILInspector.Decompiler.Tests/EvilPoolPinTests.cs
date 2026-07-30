@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
@@ -158,6 +159,20 @@ public class EvilPoolPinTests
             string unopenable = Path.Combine(scratch, "a-directory.lock.json");
             Directory.CreateDirectory(unopenable);
             written.Add(("a path that cannot be opened at all", "read-error", unopenable));
+
+            // The third read case, and the one that was answered wrongly rather than not
+            // at all. Decoding through a StreamReader replaces every byte it cannot make
+            // sense of with U+FFFD, so a pin file holding invalid UTF-8 inside a string
+            // parsed cleanly and was called well formed at exit 0 -- the sweep answering
+            // for a file it had silently rewritten. The bytes here are the committed pin
+            // with one impossible byte inside an added string value, so nothing but the
+            // encoding is wrong with it.
+            string notUtf8 = Path.Combine(scratch, "not-utf8.lock.json");
+            string valid = original.ToJsonString();
+            File.WriteAllBytes(
+                notUtf8,
+                [.. Encoding.UTF8.GetBytes(valid[..^1]), .. ",\"opaque\":\""u8, 0xFF, .. "\"}"u8]);
+            written.Add(("a file that is not valid UTF-8", "encoding", notUtf8));
 
             var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
 
