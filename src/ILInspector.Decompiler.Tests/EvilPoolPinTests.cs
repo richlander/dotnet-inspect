@@ -352,12 +352,29 @@ public class EvilPoolPinTests
             $"the sweep could not list its pin rules (exit {process.ExitCode}); stdout was:"
             + $"\n{output}\nstderr was:\n{errors}");
 
-        var names = output
+        var listed = output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))
             .Where(line => line.StartsWith("Pin rule '", StringComparison.Ordinal) && line.EndsWith("'.", StringComparison.Ordinal))
             .Select(line => line["Pin rule '".Length..^2])
-            .ToHashSet(StringComparer.Ordinal);
+            .ToArray();
+
+        // Checked before the set below collapses them. Two rules sharing a name are one
+        // name to the coverage check, so a rule added under a name already there rides
+        // in holding nothing -- round fourteen's ungated rule again, through the one
+        // door set equality cannot see.
+        var repeated = listed
+            .GroupBy(name => name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        Assert.True(
+            repeated.Length == 0,
+            "the sweep lists more than one pin rule under the same name "
+            + $"({string.Join(", ", repeated)}), so one of them is held by another rule's "
+            + $"case rather than by one of its own; stdout was:\n{output}");
+
+        var names = listed.ToHashSet(StringComparer.Ordinal);
 
         // A sweep that listed nothing would make the coverage check below pass over an
         // empty set, which is the vacuous green this whole test exists to refuse.
