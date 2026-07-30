@@ -7754,9 +7754,14 @@ public partial class CommandExecutionTests
         // the third spelling of the same success-shaped empty output. The note now expands doors
         // through DiscoverOutput.TryResolveCategory, the lookup discovery itself performs, rather
         // than a second category matcher that would be free to disagree with it.
+        // Both door spellings, because discovery matches a door case-insensitively: a
+        // case-SENSITIVE expansion in the note left discovery working while the diagnostic
+        // silently vanished for `-D @dependencies`, and testing only the canonical casing
+        // could not tell the two apart.
+        foreach (var door in new[] { "@Dependencies", "@dependencies" })
         foreach (var extra in new[] { Array.Empty<string>(), new[] { "--schema" } })
         {
-            string[] args = ["library", "System.Text.Json", "-D", "@Dependencies", .. extra, "--tips", "q"];
+            string[] args = ["library", "System.Text.Json", "-D", door, .. extra, "--tips", "q"];
             var (exit, _, error) = await RunAppAsync(args);
 
             Assert.Equal(0, exit);

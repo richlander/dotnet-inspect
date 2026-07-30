@@ -1614,8 +1614,12 @@ public class SectionPipelineTests
         var quietKey = declared.First(k => !LibraryMetadataService.ReferenceReadingScannerKeys.Contains(k));
         var path = typeof(SectionPipelineTests).Assembly.Location;
 
+        // nonPublic: true. GetSetMethod(nonPublic: true) answers null for `internal set`, and LibraryOptions
+        // lives in the same assembly as the parser that fills it, so an internal setter is an
+        // axis a user can reach. Skipping those did not fail the couldNotVary assertion either:
+        // the property never entered the sweep at all, so a read keyed on one passed silently.
         var settable = typeof(LibraryOptions).GetProperties()
-            .Where(p => p.CanWrite && p.GetSetMethod() is not null)
+            .Where(p => p.CanWrite && p.GetSetMethod(nonPublic: true) is not null)
             .OrderBy(p => p.Name, StringComparer.Ordinal)
             .ToList();
 
@@ -1624,68 +1628,92 @@ public class SectionPipelineTests
         var couldNotVary = new List<string>();
         var leaked = new List<string>();
 
-        foreach (var property in settable)
+        async Task ProbeAsync(Action<LibraryOptions> mutate, string label)
         {
-            if (OptionsTheSweepCannotVary.Contains(property.Name))
-                continue;
+            foreach (var (request, shouldRead) in new[]
+            {
+                (new List<string> { quietKey }, false),
+                (new List<string> { readingKey }, true),
+            })
+            foreach (var isPlatformAssembly in new[] { false, true })
+            {
+                // Every probe carries an explicit section selection, which is what keeps
+                // LibrarySourcePlan cache- and network-free. Without it, sweeping verbosity
+                // up to Normal authorizes a cached PDB read, and the probe stops being a
+                // pure metadata read.
+                var options = new LibraryOptions
+                {
+                    UserVerbosityOverride = Verbosity.Quiet,
+                    IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "Library Info",
+                    },
+                };
+                mutate(options);
 
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    path,
+                    options,
+                    logger,
+                    null,
+                    null,
+                    httpClient,
+                    scanners: new HashSet<string>(request, StringComparer.Ordinal),
+                    scannerRegistry: LibrarySections.CreateScannerRegistry(),
+                    isPlatformAssembly: isPlatformAssembly);
+
+                if (inspection is null)
+                {
+                    couldNotVary.Add(label);
+                    return;
+                }
+
+                if (inspection.AssemblyReferenceInspection.HasFindings() != shouldRead)
+                {
+                    leaked.Add(
+                        $"{label} with {string.Join("+", request)} "
+                            + $"(isPlatformAssembly: {isPlatformAssembly}, "
+                            + $"expected reference extraction: {shouldRead})");
+                }
+            }
+        }
+
+        var sweepable = settable
+            .Where(p => !OptionsTheSweepCannotVary.Contains(p.Name))
+            .ToList();
+
+        foreach (var property in sweepable)
+        {
             if (NonDefaultValuesFor(property) is { Count: > 0 } values)
             {
                 foreach (var value in values)
-                {
-                    foreach (var (request, shouldRead) in new[]
-                    {
-                        (new List<string> { quietKey }, false),
-                        (new List<string> { readingKey }, true),
-                    })
-                    foreach (var isPlatformAssembly in new[] { false, true })
-                    {
-                        // Every probe carries an explicit section selection, which is what keeps
-                        // LibrarySourcePlan cache- and network-free. Without it, sweeping verbosity
-                        // up to Normal authorizes a cached PDB read, and the probe stops being a
-                        // pure metadata read.
-                        var options = new LibraryOptions
-                        {
-                            UserVerbosityOverride = Verbosity.Quiet,
-                            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                            {
-                                "Library Info",
-                            },
-                        };
-                        property.SetValue(options, value);
-
-                        var inspection = await LibraryMetadataService.InspectAsync(
-                            path,
-                            options,
-                            logger,
-                            null,
-                            null,
-                            httpClient,
-                            scanners: new HashSet<string>(request, StringComparer.Ordinal),
-                            scannerRegistry: LibrarySections.CreateScannerRegistry(),
-                            isPlatformAssembly: isPlatformAssembly);
-
-                        if (inspection is null)
-                        {
-                            couldNotVary.Add(property.Name);
-                            break;
-                        }
-
-                        if (inspection.AssemblyReferenceInspection.HasFindings() != shouldRead)
-                        {
-                            leaked.Add(
-                                $"{property.Name}={value} with {string.Join("+", request)} "
-                                    + $"(isPlatformAssembly: {isPlatformAssembly}, "
-                                    + $"expected reference extraction: {shouldRead})");
-                        }
-                    }
-                }
+                    await ProbeAsync(o => property.SetValue(o, value), $"{property.Name}={value}");
             }
             else
             {
                 couldNotVary.Add(property.Name);
             }
         }
+
+        // The maximal probe: every sweepable option moved off its default at once. Varying one
+        // option at a time cannot observe a condition keyed on a CONJUNCTION of two of them, and a
+        // conjunction is exactly what a drifting read grows. Asserting over the maximal set fails
+        // every such condition at once, rather than only the pairing a tamper happened to pick.
+        var maximalMutations = sweepable
+            .Select(property => (property, values: NonDefaultValuesFor(property)))
+            .Where(pair => pair.values is { Count: > 0 })
+            .Select(pair => (pair.property, value: pair.values![0]))
+            .ToList();
+
+        Assert.NotEmpty(maximalMutations);
+
+        await ProbeAsync(
+            o =>
+            {
+                foreach (var (property, value) in maximalMutations)
+                    property.SetValue(o, value);
+            },
+            $"all {maximalMutations.Count} sweepable options set at once");
 
         Assert.True(
             leaked.Count == 0,
@@ -1789,7 +1817,7 @@ public class SectionPipelineTests
             // LoopOnly is declared first and was the only member this ever moved.
             foreach (var nested in underlying.GetProperties())
             {
-                if (!nested.CanWrite || nested.GetSetMethod() is null)
+                if (!nested.CanWrite || nested.GetSetMethod(nonPublic: true) is null)
                     continue;
 
                 foreach (var nestedValue in CandidateValuesFor(nested.PropertyType, depth + 1))
@@ -1802,6 +1830,32 @@ public class SectionPipelineTests
                     yield return mutated;
                 }
             }
+
+            // ...and one instance with EVERY writable member moved at once. Varying members one at
+            // a time cannot observe a condition keyed on a CONJUNCTION of them: a read gated on
+            // `PerformanceTriage.LoopOnly && PerformanceTriage.Top.HasValue` is false under either
+            // single mutation and only becomes true when both are set. This is the nested form of
+            // the maximal-set probe below.
+            var maximal = Activator.CreateInstance(underlying)!;
+            var movedAny = false;
+            foreach (var nested in underlying.GetProperties())
+            {
+                if (!nested.CanWrite || nested.GetSetMethod(nonPublic: true) is null)
+                    continue;
+
+                foreach (var nestedValue in CandidateValuesFor(nested.PropertyType, depth + 1))
+                {
+                    if (Equals(nested.GetValue(maximal), nestedValue))
+                        continue;
+
+                    nested.SetValue(maximal, nestedValue);
+                    movedAny = true;
+                    break;
+                }
+            }
+
+            if (movedAny)
+                yield return maximal;
         }
 
         // Types whose instances come from factory methods -- RowWindow.Head(int), .Tail(int).

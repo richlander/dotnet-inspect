@@ -636,6 +636,40 @@ internal static class LibraryMetadataService
     /// it. Naming it as a gate here would describe a line that enforces nothing.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Renders an attacker-controlled name safe to write into a one-line diagnostic.
+    /// </summary>
+    /// <remarks>
+    /// The refusal message is the one place a rejected name is echoed back, so the names it prints
+    /// are exactly the hostile ones. Written verbatim, a name containing U+000A forges additional
+    /// diagnostic lines and one containing U+001B injects terminal escape sequences into the
+    /// operator's console. Escaping is a display concern only: the node keeps the raw
+    /// <c>reference.Name</c> as its identity, because identity and presentation are separate and
+    /// the structured writers escape on their own terms.
+    /// A name that passes <see cref="IsSafeAssemblySimpleName"/> contains no control characters, so
+    /// this is a no-op for every name that is not already refused.
+    /// </remarks>
+    internal static string DescribeUntrustedName(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return string.Empty;
+
+        var builder = new StringBuilder(name.Length);
+        foreach (var c in name)
+        {
+            if (char.IsControl(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+            {
+                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:X4}");
+            }
+            else
+            {
+                builder.Append(c);
+            }
+        }
+
+        return builder.ToString();
+    }
+
     internal static bool IsSafeAssemblySimpleName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)
@@ -1027,7 +1061,7 @@ internal static class LibraryMetadataService
             // in the metadata, and dropping it would hide evidence; only resolution is refused.
             if (!IsSafeAssemblySimpleName(reference.Name))
             {
-                logger.Warn($"refusing to resolve reference with unsafe assembly name: '{reference.Name}'");
+                logger.Warn($"refusing to resolve reference with unsafe assembly name: '{DescribeUntrustedName(reference.Name)}'");
                 nodes.Add(node);
                 continue;
             }
