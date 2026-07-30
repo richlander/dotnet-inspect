@@ -21,12 +21,12 @@ public class LoweredFidelityGateTests
 
     /// <summary>
     /// Methods whose lowered C# still differs under compile-back fidelity contract V1 — the open
-    /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
-    /// Beyond the shared sugared docket (BothPositive, GotoCommonExit,
-    /// SelectBoolReturn), the lowered view adds ReverseCopy:
-    /// lowering deliberately skips
-    /// IncrementDecrementPass, so the dup-based ++/-- idiom round-trips as an explicit temp
-    /// rather than the folded operator — a benign by-design divergence for this view.
+    /// lowered docket. The gate tolerates these but fails if a NEW method joins the set, and
+    /// <see cref="DocketRowsStayCheckedDiffs"/> fails if a listed method stops differing.
+    /// The lowered view's by-design divergences (for example lowering skipping
+    /// IncrementDecrementPass, so a dup-based ++/-- idiom round-trips as an explicit temp rather
+    /// than the folded operator) land here alongside the shared sugared docket. Rows are annotated
+    /// individually below; #3584 retired the entries that had silently stopped differing.
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
@@ -322,6 +322,9 @@ public class LoweredFidelityGateTests
                     FidelityCheck.CompileBackStatus.NotFull =>
                         $"{method}: dropped to NotFull — it now imports below Full fidelity, so no opcode "
                         + "verdict is formed. That is a validity regression, not a docketed diff.",
+                    FidelityCheck.CompileBackStatus.FidelityUnavailable =>
+                        $"{method}: the body comparison produced no verdict, so the row gates nothing. "
+                        + $"BodyComparisonRemainsAvailable reports the cause.\n  detail: {result.Detail}",
                     _ =>
                         $"{method}: regressed to {result.Status} — its lowered C# no longer recompiles, so it "
                         + $"silently left the diff set the docket gates.\n  detail: {result.Detail}",

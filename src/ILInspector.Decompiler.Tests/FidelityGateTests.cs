@@ -594,6 +594,9 @@ public class FidelityGateTests
                     FidelityCheck.CompileBackStatus.NotFull =>
                         $"{method}: dropped to NotFull — it now imports below Full fidelity, so no opcode "
                         + "verdict is formed. That is a validity regression, not a docketed diff.",
+                    FidelityCheck.CompileBackStatus.FidelityUnavailable =>
+                        $"{method}: the body comparison produced no verdict, so the row gates nothing. "
+                        + $"BodyComparisonRemainsAvailable reports the cause.\n  detail: {result.Detail}",
                     _ =>
                         $"{method}: regressed to {result.Status} — its decompiled C# no longer recompiles, so "
                         + $"it silently left the diff set the docket gates.\n  detail: {result.Detail}",
