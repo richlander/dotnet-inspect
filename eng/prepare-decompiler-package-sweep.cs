@@ -557,6 +557,27 @@ foreach (var entry in selected)
             $"{entry.Rank:D3}-{SafePathSegment(entry.Package)}",
             SafePathSegment(package.Version ?? "unknown"));
         Directory.CreateDirectory(destinationDirectory);
+
+        // Every directory between the output directory and here is one this sweep
+        // created, so a link in that stretch is not an arrangement the caller made --
+        // it is one planted where the pool goes. Directory.CreateDirectory traverses
+        // it without complaint and the assembly lands outside the directory the sweep
+        // was given, which is the escape the terminal name was hardened against one
+        // commit ago, one level up. The caller's own path is deliberately not checked:
+        // it may legitimately run through links, as /tmp does on some systems.
+        string? planted = FirstLinkBelow(outputDirectory, destinationDirectory);
+        if (planted is not null)
+        {
+            string escape =
+                $"'{planted}' is a link, so the pool would be written outside "
+                + $"'{outputDirectory}'";
+            results.Add(Failed(
+                entry, "copy-failed", escape, resolvedPackage, package.Version,
+                selection.Tfm, package.FromCache));
+            Console.Error.WriteLine($"rank {entry.Rank}: {entry.Package}: {escape}");
+            continue;
+        }
+
         string destination = Path.Combine(
             destinationDirectory,
             Path.GetFileName(source));
@@ -1111,6 +1132,27 @@ static bool IsBareVersion(string? version) =>
 
 static bool IsSha256(string? value) =>
     value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
+
+/// <summary>
+/// The first directory between <paramref name="outputDirectory"/> and
+/// <paramref name="leaf"/> that is a link, or null when the whole stretch is real.
+/// The output directory itself is not examined: that path is the caller's, and a link
+/// in it is the caller's business.
+/// </summary>
+static string? FirstLinkBelow(string outputDirectory, string leaf)
+{
+    string root = Path.GetFullPath(outputDirectory).TrimEnd(Path.DirectorySeparatorChar);
+    string prefix = root + Path.DirectorySeparatorChar;
+    for (var directory = new DirectoryInfo(Path.GetFullPath(leaf));
+        directory is not null && directory.FullName.StartsWith(prefix, StringComparison.Ordinal);
+        directory = directory.Parent)
+    {
+        if (directory.LinkTarget is not null)
+            return directory.FullName;
+    }
+
+    return null;
+}
 
 // NuGet ids are letters, digits, and the separators '.', '_' and '-'. Anything else --
 // '@' most of all -- is a reference, a path, or a typo.
