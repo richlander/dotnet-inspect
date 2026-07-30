@@ -20,7 +20,7 @@ public enum FeedFailureKind
 /// <summary>
 /// A single request to a source that did not succeed and was not a plain "no such package".
 /// </summary>
-/// <param name="Url">The request URL that failed.</param>
+/// <param name="Url">The request URL that failed, already redacted of userinfo and sensitive query values.</param>
 /// <param name="Status">The status the source returned, if a response arrived at all.</param>
 /// <param name="Phase">The traffic kind in flight, which names what was being attempted.</param>
 public readonly record struct FeedFailure(string Url, HttpStatusCode? Status, NetworkTrafficKind Phase)
@@ -82,11 +82,21 @@ public static class FeedFailureTelemetry
     /// Records a failed request against the current scope. Does nothing when no scope is open,
     /// so the HTTP helpers stay usable outside a collecting context.
     /// </summary>
+    /// <remarks>
+    /// The URL is redacted before it is stored, not merely before it is rendered. A source URL
+    /// can carry userinfo (<c>https://user:pass@host/...</c>, a configuration operators do try)
+    /// or a token query parameter, and this failure text is printed to the console. Redacting on
+    /// the way in means the secret never reaches the collector, whose contents are publicly
+    /// readable through <see cref="FeedFailureCollector.Failures"/>.
+    /// </remarks>
     /// <param name="url">The request URL that failed.</param>
     /// <param name="status">The status returned, or null when no response arrived.</param>
     public static void Record(string url, HttpStatusCode? status)
     {
-        CurrentValue.Value?.Add(new FeedFailure(url, status, NetworkTelemetry.CurrentTrafficKind));
+        CurrentValue.Value?.Add(new FeedFailure(
+            NetworkRequestObservation.RedactSensitiveUrlText(url),
+            status,
+            NetworkTelemetry.CurrentTrafficKind));
     }
 
     private sealed class CollectorScope(FeedFailureCollector? previous) : IDisposable

@@ -263,9 +263,7 @@ ambient-scope shape already used by `NetworkTelemetry`: `ExtractPackageAsync` op
 nested async work records into the same collector, and the "nothing resolved" path consults it
 before choosing a message.
 
-Two rules keep the message honest:
-
-- **404 is never recorded.** It is the one status that genuinely means the package is absent,
+Two rules keep the message honest:- **404 is never recorded.** It is the one status that genuinely means the package is absent,
   so a real miss still reports *not found*. A recorder that captured every non-success status
   would destroy that message, which is why the test suite pins the 404 case as a control.
 - **A recorded failure is advisory, not fatal.** The collector is only consulted when the
@@ -275,6 +273,22 @@ Two rules keep the message honest:
 The phase (`reading the service index`, `listing versions`) is taken from the ambient
 `NetworkTrafficKind`, which the network telemetry scope already tracks, so no call site had to
 be taught to describe itself.
+
+### The URL is redacted before it is stored
+
+This message prints a source URL, and a source URL can carry a secret: userinfo
+(`https://user:pass@host/...`, which the [ignored mechanisms](#what-is-ignored) section notes
+operators do try) or a token query parameter. The URL is therefore passed through
+`NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector, not on the
+way out to the console — `FeedFailureCollector.Failures` is public, so an unredacted URL sitting
+in it would already be an exposure.
+
+```console
+$ dotnet-inspect package Markout --source 'https://user:hunter2@pkgs.dev.azure.com/.../index.json?access_token=hunter2'
+  https://pkgs.dev.azure.com/.../index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
+```
+
+The host survives redaction, because an operator still needs to know *which* source refused.
 
 ## Service index discovery
 

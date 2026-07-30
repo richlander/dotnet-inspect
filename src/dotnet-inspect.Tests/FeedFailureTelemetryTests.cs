@@ -115,6 +115,41 @@ public class FeedFailureTelemetryTests
         Assert.Null(FeedFailureTelemetry.Current);
     }
 
+    /// <summary>
+    /// The failure text is printed to the console, and a source URL can carry a secret: operators
+    /// do try userinfo in the URL (the auth design doc calls it out), and feeds hand out tokens as
+    /// query parameters. A URL recorded verbatim would print that secret. Redaction happens on the
+    /// way in, so the secret never reaches the collector at all.
+    /// </summary>
+    [Theory]
+    [InlineData("https://user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("https://private.example/v3/index.json?access_token=sup3rs3cret", "sup3rs3cret")]
+    [InlineData("https://private.example/v3/index.json?sig=sup3rs3cret", "sup3rs3cret")]
+    public async Task ASecretInTheSourceUrlIsNeverStoredOrPrinted(string url, string secret)
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            url,
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+
+        // Stored, not merely rendered: Failures is public, so a secret here is already exposed.
+        Assert.DoesNotContain(secret, failure.Url, StringComparison.Ordinal);
+
+        var described = FeedFailureTelemetry.Current!.DescribeFailure("markout");
+        Assert.NotNull(described);
+        Assert.DoesNotContain(secret, described, StringComparison.Ordinal);
+
+        // Redaction must not blank the whole URL; the operator still needs to know which source.
+        Assert.Contains("private.example", failure.Url, StringComparison.Ordinal);
+    }
+
     private sealed class FixedStatusHandler(HttpStatusCode status) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
