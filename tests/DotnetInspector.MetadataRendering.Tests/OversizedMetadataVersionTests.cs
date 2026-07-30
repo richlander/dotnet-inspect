@@ -423,6 +423,14 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// The RVAs in the CLI header. Its metadata pointer is what the fixture is
     /// built around, so a walk that skipped this structure would leave the one
     /// thing SRM follows unclassified.
+    /// <para>
+    /// Offset 20 is the one field whose *meaning* is conditional: it holds a
+    /// managed entry-point token normally, and an RVA when the header sets
+    /// `NativeEntryPoint`. Review planted a stale RVA there behind that flag and
+    /// the walk did not see it, because the field was omitted on the unstated
+    /// premise that the flag is never set. It is read as an RVA exactly when the
+    /// flag says it is one.
+    /// </para>
     /// </summary>
     static (string Name, int Rva)[] CliHeaderTargets(byte[] image)
     {
@@ -433,10 +441,14 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
             return [];
 
         int header = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+        var flags = (CorFlags)ReadRva(image, header + 16);
 
         (string Name, int Offset)[] fields =
         [
             ("Cli.MetaData", 8),
+            .. flags.HasFlag(CorFlags.NativeEntryPoint)
+                ? new[] { ("Cli.NativeEntryPoint", 20) }
+                : [],
             ("Cli.Resources", 24),
             ("Cli.StrongNameSignature", 32),
             ("Cli.CodeManagerTable", 40),
@@ -489,6 +501,17 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         Assert.Equal(
             new[] { "ImportTable", "BaseRelocationTable", "ImportAddressTable", "CorHeaderTable" },
             present);
+
+        // Metadata stores RVAs too, in the MethodDef bodies and the FieldRva
+        // table. This fixture has neither, which is why the walkers stop at the
+        // CLI header — but that is a property of the fixture, not a law, so it is
+        // asserted rather than assumed.
+        using var peReader = new PEReader(new MemoryStream(fixture.Bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        Assert.Equal(0, reader.GetTableRowCount(TableIndex.FieldRva));
+        Assert.Empty(reader.MethodDefinitions
+            .Where(h => reader.GetMethodDefinition(h).RelativeVirtualAddress != 0));
     }
 
     /// <summary>
