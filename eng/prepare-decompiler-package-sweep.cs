@@ -1106,20 +1106,36 @@ static bool IsBarePackageId(string? id) =>
 /// </summary>
 static async Task<string?> ReplaceOrReport(string path, string content)
 {
-    string temporary = path + $".{Environment.ProcessId}.tmp";
+    // Random and created exclusively, not a name another process can predict. A
+    // temporary named after the pid is a name anything with write access to the
+    // directory can occupy first, and a write through a planted symlink lands wherever
+    // that link points. CreateNew refuses to open anything that already exists, so the
+    // sweep either makes this file itself or writes nothing.
+    string temporary = path + $".{Path.GetRandomFileName()}.tmp";
+    bool created = false;
     try
     {
-        await File.WriteAllTextAsync(temporary, content);
+        await using (var stream = new FileStream(
+            temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            created = true;
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(content));
+        }
+
         File.Move(temporary, path, overwrite: true);
         return null;
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
         // A leftover temporary is worse than the failure it came from: it is a file
-        // nothing reads and the next run collides with.
+        // nothing reads and the next run collides with. Only one this run created,
+        // though -- something already sitting at that name is not this sweep's to
+        // remove, and deleting whatever is found there would be a worse answer than
+        // the failure being reported.
         try
         {
-            File.Delete(temporary);
+            if (created)
+                File.Delete(temporary);
         }
         catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
         {
