@@ -326,10 +326,12 @@ round:
   where the resolution is itself unreviewed.
 - **The PR is mergeable and green.** Use `gh pr view <n> --json
   mergeable,mergeStateStatus` for conflicts and `gh pr checks <n> --required`
-  for the gating runs. Pending is not green: `gh pr checks` exits `8` while
-  checks are still running, and a `skipping` result from a path-filtered job is
-  not a pass signal either. Wait for completion (`--watch`) rather than reading
-  either state as clear.
+  for the gating runs; when the repository marks no check required, `--required`
+  reports none and exits non-zero, so fall back to plain `gh pr checks <n>` and
+  require every reported run to be complete and passing. Pending is not green —
+  `gh pr checks` exits `8` while checks are still running — and a `skipping`
+  result from a path-filtered job is not a pass signal either. Wait for
+  completion (`--watch`) rather than reading either state as clear.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
