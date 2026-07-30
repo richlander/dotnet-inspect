@@ -246,41 +246,92 @@ public class PrintedRangeMapTests
     }
 
     [Fact]
-    public void EnumerationOrder_OrdersSiblingsByPosition_NotOnlyAncestorsAfterDescendants()
+    public void EnumerationOrder_RecordsAStatementsBodyBeforeItsCondition()
     {
-        // Ancestor-after-descendant is only half the contract, and the weaker
-        // half: any sibling order satisfies it, including backwards. The
-        // contract names position rather than composition deliberately --
-        // `CallText` composes an instance call's arguments before its receiver,
-        // so "the order the printer finished each node" would be a claim about
-        // which interpolation hole is filled first, not about the output.
-        var (output, ranges) = Print(
+        // Pins the *known inversion*, so that "siblings enumerate in child
+        // order" cannot quietly be believed again. The printer recurses into
+        // the block while composing the statement and records the condition
+        // only afterwards, so the then-block subtree enumerates entirely before
+        // the condition. Measured over 41,952 methods this inverts 20,145 of
+        // 222,205 sibling checks, 17,480 of them IfStatement.
+        //
+        // Two earlier sweeps reported zero violations here because a Block
+        // records no range of its own: comparing only those children that are
+        // themselves recorded never compares condition against body. Subtree
+        // extents are therefore what this compares.
+        var (_, ranges) = Print(
             typeof(PrintedRangeExpressionFixture),
-            nameof(PrintedRangeExpressionFixture.TwoDistinctOperands));
+            nameof(PrintedRangeExpressionFixture.GuardedReturn));
 
         var position = new Dictionary<IrNode, int>();
         for (int i = 0; i < ranges.Count; i++)
             position[ranges[i].Node] = i;
 
-        int compared = 0;
+        var branch = Assert.Single(ranges.Select(r => r.Node).OfType<IfStatement>().Distinct());
+        var condition = Extent(branch.Condition, position);
+        var body = Extent(branch.Then, position);
+
+        Assert.True(condition.Hi >= 0, "the condition records no range at all");
+        Assert.True(body.Hi >= 0, "the body records no range at all");
+
+        // The whole body precedes the whole condition. If this ever fails, the
+        // ordering changed and the contract on PrintedRangeMap must change with it.
+        Assert.True(
+            body.Hi < condition.Lo,
+            $"expected body [{body.Lo}..{body.Hi}] entirely before condition [{condition.Lo}..{condition.Hi}]");
+    }
+
+    [Fact]
+    public void EnumerationOrder_IsPostOrderAcrossWholeSubtrees_NotJustRecordedChildren()
+    {
+        // Descendants-before-ancestors is the one thing enumeration promises, so
+        // it is checked over subtree extents rather than only over directly
+        // recorded children -- the weaker form is what hid the sibling defect.
+        var (_, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.GuardedReturn));
+
+        var position = new Dictionary<IrNode, int>();
+        for (int i = 0; i < ranges.Count; i++)
+            position[ranges[i].Node] = i;
+
+        int checks = 0;
         foreach (var (node, _) in ranges)
         {
-            foreach (var sibling in node.Parent?.Children ?? [])
+            foreach (var child in node.Children)
             {
-                if (ReferenceEquals(sibling, node) || !ranges.TryGetRange(sibling, out _))
+                if (child is null)
                     continue;
-                var mine = ranges.First(r => ReferenceEquals(r.Node, node));
-                var theirs = ranges.First(r => ReferenceEquals(r.Node, sibling));
-                if (Offsets(mine, output.Length).Start >= Offsets(theirs, output.Length).Start)
+                var sub = Extent(child, position);
+                if (sub.Hi < 0)
                     continue;
-
-                // node is textually to the left of sibling, so it enumerates first.
-                compared++;
-                Assert.True(position[node] < position[sibling]);
+                checks++;
+                Assert.True(sub.Hi < position[node], $"{node.GetType().Name} precedes its own descendant");
             }
         }
 
-        Assert.True(compared > 0);
+        Assert.True(checks > 0);
+    }
+
+    static (int Lo, int Hi) Extent(IrNode? node, Dictionary<IrNode, int> position)
+    {
+        if (node is null)
+            return (int.MaxValue, -1);
+
+        int lo = int.MaxValue, hi = -1;
+        if (position.TryGetValue(node, out int self))
+            (lo, hi) = (self, self);
+
+        foreach (var child in node.Children)
+        {
+            var sub = Extent(child, position);
+            if (sub.Hi < 0)
+                continue;
+            lo = Math.Min(lo, sub.Lo);
+            hi = Math.Max(hi, sub.Hi);
+        }
+
+        return (lo, hi);
     }
 
     [Fact]
@@ -469,6 +520,35 @@ public static class PrintedRangeExpressionFixture
     /// here: identical spellings claim nothing.
     /// </summary>
     public static int TwoDistinctOperands(int x, int y) => x + y;
+
+    /// <summary>
+    /// The same ambiguity as <c>TwiceTheSame</c>, but on a line other than the
+    /// first. A one-line fixture cannot tell "fell back to the ancestor's line"
+    /// apart from "hard-coded line 0", so a test asserting the fallback needs
+    /// the answer not to be zero.
+    /// </summary>
+    public static int TwiceTheSameOnALaterLine(int x)
+    {
+        int y = x + 1;
+        return y + y;
+    }
+
+    /// <summary>
+    /// A structured statement, so the enumeration contract is exercised against
+    /// something with a <c>Block</c> child. Every other fixture here is a single
+    /// expression-bodied statement, which is precisely why the printer recording
+    /// a body before its condition went unnoticed: with no branch in any fixture,
+    /// no test ever compared a condition subtree against a body subtree.
+    /// </summary>
+    public static int GuardedReturn(int x)
+    {
+        if (x > 10)
+        {
+            return x + 1;
+        }
+
+        return 0;
+    }
 
     /// <summary>
     /// A spelling that repeats across the statement but occurs once inside the

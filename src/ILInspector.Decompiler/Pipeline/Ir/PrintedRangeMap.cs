@@ -24,29 +24,51 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// lookups, while the correlation seams enumerate to build line tables.
 /// </para>
 /// <para>
-/// Enumeration order is <em>post-order over the tree</em>: every node follows
-/// all of its descendants, and siblings follow one another in the order they
-/// appear among their parent's children.
+/// Enumeration order promises exactly one thing: <em>every node follows all of
+/// its descendants</em>. Nothing else. Measured over 41,952 printed methods,
+/// that held on all 434,843 parent/descendant checks.
 /// </para>
 /// <para>
-/// Sibling order is <em>not</em> promised to match the order the characters
-/// appear in the text, because a printer may emit an operand out of child
-/// order. <c>UnionSwitchExpression</c> is the case that makes this real: it
-/// stores the null arm after the type arms but prints <c>null =&gt; ...</c>
-/// first, so its recorded ranges enumerate 111 (at offset 48) before 222 (at
-/// offset 32). A consumer that needs textual order must sort by position and
-/// say so at its own call site.
+/// Sibling order is <em>unspecified</em> — not textual order, and not child
+/// order either. Two independent effects break it, and both are real:
 /// </para>
 /// <para>
-/// That is deliberately weaker than "the order the printer finished composing
-/// each node", which it would be tempting to claim and which is <em>not</em>
-/// true. <c>CallText</c> builds an instance call's arguments before its
-/// receiver, so <c>sink.Add(new object())</c> genuinely completes
+/// A printer may emit an operand out of child order.
+/// <c>UnionSwitchExpression</c> stores the null arm after the type arms but
+/// prints <c>null =&gt; ...</c> first, so the null arm's value is recorded last
+/// although its characters come first — child order, not textual order.
+/// </para>
+/// <para>
+/// More broadly, a structured statement records its <em>body</em> before its
+/// <em>condition</em>, because the printer recurses into the block while
+/// composing the statement and only then records the condition expression. So
+/// an <c>IfStatement</c>'s then-block subtree enumerates before its condition
+/// subtree — textual order and child order at once. Comparing whole subtree
+/// extents rather than only directly-recorded children, 20,145 of 222,205
+/// sibling checks invert, across <c>IfStatement</c> (17,480), <c>ForLoop</c>,
+/// <c>WhileLoop</c>, <c>Fixed</c>, <c>Lock</c>, <c>Switch</c>,
+/// <c>UsingStatement</c>, <c>ForeachStatement</c> and <c>CatchClause</c>.
+/// </para>
+/// <para>
+/// That second effect is easy to miss and was missed twice here, because a
+/// <c>Block</c> records no range of its own: a sweep that compares only those
+/// children which are themselves recorded never compares the condition against
+/// the body at all, and reports zero violations. Any future check of this
+/// contract must compare subtree extents.
+/// </para>
+/// <para>
+/// A consumer needing either textual or child order must sort and say so at its
+/// own call site.
+/// </para>
+/// <para>
+/// The promise is also deliberately weaker than "the order the printer finished
+/// composing each node", which it would be tempting to claim and which is
+/// <em>not</em> true. <c>CallText</c> builds an instance call's arguments before
+/// its receiver, so <c>sink.Add(new object())</c> genuinely completes
 /// <c>new object()</c> first even though <c>sink</c> is printed to its left.
 /// Composition order is an artefact of which interpolation hole a printing
 /// method happens to fill first; it would flip under a refactor that changed
-/// nothing observable. Tree order is stable under that refactor, which is why
-/// it is what the contract names.
+/// nothing observable.
 /// </para>
 /// <para>
 /// Sorting the whole map by start position is still <em>not</em> promised —

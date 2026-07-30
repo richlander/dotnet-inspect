@@ -1758,16 +1758,16 @@ public sealed partial class CSharpPrinter
     /// <para>
     /// Claims are collected parent-first (<see cref="IrNode.Descendants"/> is
     /// pre-order, and a window must exist before anything is measured against it)
-    /// and recorded in post-order: a node follows every descendant, and siblings
-    /// follow one another in the order their characters appear. That is exactly
-    /// the map's documented enumeration contract -- which names <em>position</em>
-    /// rather than composition for a reason, since <c>CallText</c> composes an
-    /// instance call's arguments before its receiver. It holds for
+    /// and recorded so that a node follows every descendant. Siblings come out in
+    /// <em>child</em> order, which is what walking <see cref="IrNode.Children"/>
+    /// produces; it is <em>not</em> the order their characters appear, and the
+    /// map's contract deliberately promises neither. Post-ordering holds for
     /// expression-inside-expression nesting, not merely for expressions
     /// inside their statement. Nested statements record earlier still -- they are
     /// appended while this statement's body runs, and <c>Record</c> keeps the
     /// first range a node is given -- so an expression inside a nested block is
-    /// claimed against that block, where it is more likely to be unique.
+    /// claimed against that block, where it is more likely to be unique. That is
+    /// also why a structured statement's body enumerates before its condition.
     /// </para>
     /// </remarks>
     void RecordExpressionRanges(StringBuilder sb, IrNode statement, int start)
@@ -1823,10 +1823,10 @@ public sealed partial class CSharpPrinter
         if (windows.Count == 0)
             return;
 
-        // Windows had to be computed parent-first, but enumeration order is
-        // post-order: a node follows every descendant, and siblings follow one
-        // another in the order their characters appear. Pushing children forward
-        // pops them right-first, so reversing the walk yields exactly that.
+        // Windows had to be computed parent-first, but a node must be recorded
+        // after every descendant. Siblings come out in child order -- not in the
+        // order their characters appear. Pushing children forward pops them
+        // right-first, so reversing the walk yields exactly that.
         var pending = new Stack<IrNode>();
         var completion = new List<IrNode>();
         pending.Push(statement);

@@ -55,15 +55,19 @@ public class PrintedBodyMapTests
     [Fact]
     public void AFactOnARefusedNodeFallsBackToItsAncestorRatherThanVanishing()
     {
-        // TwiceTheSame prints "return x + x;", so the LoadArgument spelling is
-        // ambiguous and the printer deliberately records no range for it. Facts
-        // are positive-only -- always shown somewhere -- so a fact keyed to that
-        // node must still be placed, via the nearest recorded ancestor.
+        // TwiceTheSameOnALaterLine prints "return y + y;" on a line after the
+        // first, so the LoadLocal spelling is ambiguous and the printer
+        // deliberately records no range for it. Facts are positive-only --
+        // always shown somewhere -- so a fact keyed to that node must still be
+        // placed, via the nearest recorded ancestor. The later line matters: on
+        // a one-line body, "fell back to the ancestor" and "hard-coded zero" are
+        // indistinguishable, and a mutation pinning refused facts to line 0
+        // passed against such a fixture.
         var source = MetadataSource.Open(typeof(PrintedRangeExpressionFixture).Assembly.Location);
-        var fn = IrImporter.Import(source, typeof(PrintedRangeExpressionFixture).FullName!, nameof(PrintedRangeExpressionFixture.TwiceTheSame))!;
+        var fn = IrImporter.Import(source, typeof(PrintedRangeExpressionFixture).FullName!, nameof(PrintedRangeExpressionFixture.TwiceTheSameOnALaterLine))!;
         CSharpPrinter.PrintRaised(fn, out var ranges);
 
-        var refused = fn.Body.Descendants.OfType<LoadArgument>()
+        var refused = fn.Body.Descendants.OfType<LoadLocal>()
             .FirstOrDefault(n => !ranges.TryGetRange(n, out _));
         Assert.NotNull(refused);
 
@@ -73,6 +77,48 @@ public class PrintedBodyMapTests
 
         var fact = Assert.Single(map.Annotations);
         Assert.Equal("kept", fact.Detail);
+
+        // Surviving is not enough: assert *where* it landed. Checking only the
+        // count and detail let an implementation that never walks Parent and
+        // always emits line 0 pass unchanged.
+        Assert.True(AnnotationAnchor.TryGetPrintedLine(refused!, ranges, out int ancestorLine));
+        Assert.Equal(ancestorLine, fact.Line);
+
+        // Without this the assertion above passes against a hard-coded zero.
+        Assert.True(ancestorLine > 0, "fixture must place the refused node off line 0");
+
+        // The node itself was refused, so the position degrades honestly to the
+        // whole line rather than blending the ancestor's line with a column that
+        // was never established for it.
+        Assert.Equal(0, fact.Column);
+        Assert.Equal(-1, fact.Length);
+    }
+
+    [Fact]
+    public void ConditionalityReachesTheEnvelope_SoAReplayRendersTheSameLabel()
+    {
+        // AnnotationText appends "cached-once" / "per-iteration" to the rendered
+        // label, so a payload that dropped conditionality would render a
+        // *different* annotation than the in-process renderer -- silently
+        // promoting a cached allocation to an unconditional one.
+        var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
+        var statement = ranges[^1].Node;
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [statement] = [new Annotation(Alloc, 0, "cached", AnnotationConditionality.CachedOnce)],
+            });
+
+        var fact = Assert.Single(map.Annotations);
+        Assert.Equal(AnnotationConditionality.CachedOnce, fact.Conditionality);
+
+        string json = JsonSerializer.Serialize(map);
+        var replayed = JsonSerializer.Deserialize<PrintedBodyMap>(json);
+        Assert.Equal(
+            AnnotationConditionality.CachedOnce,
+            Assert.Single(replayed!.Annotations).Conditionality);
     }
 
     [Fact]
@@ -86,8 +132,13 @@ public class PrintedBodyMapTests
         foreach (var property in typeof(PrintedNodeSpan).GetProperties())
             Assert.True(property.PropertyType == typeof(string) || property.PropertyType == typeof(int));
 
+        // Enums are permitted: they carry no reference and serialise by value.
         foreach (var property in typeof(PrintedAnnotationSpan).GetProperties())
-            Assert.True(property.PropertyType == typeof(string) || property.PropertyType == typeof(int));
+            Assert.True(
+                property.PropertyType == typeof(string)
+                    || property.PropertyType == typeof(int)
+                    || property.PropertyType.IsEnum,
+                $"{property.Name} is {property.PropertyType}, which can carry a reference into the IR");
 
         Assert.NotEmpty(map.Nodes);
     }
@@ -178,7 +229,7 @@ public class PrintedBodyMapTests
         // comparison that stops short of a total order makes the serialised
         // payload differ between runs over identical input. Each pair below
         // differs in exactly one field.
-        var baseline = new PrintedAnnotationSpan("alloc.new", "Allocation", "NewObject", 3, 7, 12, "List<int>", 40);
+        var baseline = new PrintedAnnotationSpan("alloc.new", "Allocation", AnnotationConditionality.Always, "NewObject", 3, 7, 12, "List<int>", 40);
 
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Line = 4 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Column = 8 }));
@@ -187,6 +238,7 @@ public class PrintedBodyMapTests
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { SourceOffset = 41 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Length = 13 }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Kind = "Box" }));
+        Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Conditionality = AnnotationConditionality.PerIteration }));
         Assert.NotEqual(0, PrintedBodyMap.Compare(baseline, baseline with { Detail = "int" }));
 
         Assert.Equal(0, PrintedBodyMap.Compare(baseline, baseline));

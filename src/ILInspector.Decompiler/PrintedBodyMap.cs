@@ -17,6 +17,7 @@ public readonly record struct PrintedNodeSpan(string Kind, int Line, int Column,
 /// </summary>
 /// <param name="Descriptor">The fact family's id, e.g. <c>alloc.new</c>.</param>
 /// <param name="Category">The fact family's category, e.g. <c>Allocation</c>. Carried because a gesture selector chooses on category as well as id, and a consumer holding only this payload must be able to make that choice.</param>
+/// <param name="Conditionality">How often the fact materialises at run time. Carried because it is part of the rendered label — <c>AnnotationText</c> appends <c>cached-once</c> or <c>per-iteration</c> — so a consumer holding only this payload would otherwise render a <em>different</em> annotation than the in-process renderer, silently promoting a cached allocation to an unconditional one.</param>
 /// <param name="Kind">The node kind the fact was found on.</param>
 /// <param name="Line">0-based line within the printed body.</param>
 /// <param name="Column">0-based column within <paramref name="Line"/>.</param>
@@ -26,6 +27,7 @@ public readonly record struct PrintedNodeSpan(string Kind, int Line, int Column,
 public readonly record struct PrintedAnnotationSpan(
     string Descriptor,
     string Category,
+    AnnotationConditionality Conditionality,
     string Kind,
     int Line,
     int Column,
@@ -99,6 +101,8 @@ public sealed record PrintedBodyMap(
         if (c != 0) return c;
         c = string.CompareOrdinal(a.Kind, b.Kind);
         if (c != 0) return c;
+        c = a.Conditionality.CompareTo(b.Conditionality);
+        if (c != 0) return c;
         return string.CompareOrdinal(a.Detail, b.Detail);
     }
 
@@ -156,6 +160,7 @@ public sealed record PrintedBodyMap(
                     facts.Add(new PrintedAnnotationSpan(
                         annotation.Descriptor.Id,
                         annotation.Descriptor.Category.ToString(),
+                        annotation.Conditionality,
                         kind,
                         line,
                         placed ? column : 0,
