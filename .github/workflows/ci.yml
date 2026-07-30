@@ -431,6 +431,15 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
+      # here. The completeness check compares a discovery listing against a
+      # results file, and both steps below run with --no-build against whatever
+      # the Build step produced. That comparison is only meaningful because the
+      # two provably come from one build: the checkout is fresh, nothing
+      # restores binaries, and Build is fail-fast, so neither step can run
+      # against a stale or partial binary. Caching build outputs would break
+      # that silently -- the gate would still pass, while comparing a listing
+      # and a report from different builds.
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -443,6 +452,9 @@ jobs:
       # solution must be built: building only the test project leaves the
       # fixtures absent and the gates fail with a FileNotFoundException that
       # reads exactly like a product regression.
+      #
+      # Deliberately not continue-on-error: the two --no-build steps below
+      # depend on this having succeeded.
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 

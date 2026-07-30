@@ -1,5 +1,6 @@
 using System.Reflection;
 using ILInspector.Decompiler.Tests.Gating;
+using Xunit.v3;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -56,9 +57,24 @@ public class GateExpectedClassesTests
     /// future multi-case attribute. Requiring the attribute to be exactly
     /// <see cref="FactAttribute"/> fails closed on all of them.</para>
     ///
+    /// <para>The scan is anchored on <see cref="IFactAttribute"/> rather than on
+    /// <see cref="FactAttribute"/> because that is the abstraction xUnit itself keys on:
+    /// <c>ExtensibilityPointFactory.GetMethodFactAttributes</c> returns
+    /// <c>IReadOnlyCollection&lt;IFactAttribute&gt;</c>. An attribute may implement that
+    /// interface directly, without deriving from <see cref="FactAttribute"/>, and supply a
+    /// discoverer that emits several cases. Anchoring on the class would discover such an
+    /// attribute in xUnit and miss it here, which is the same mistake as a deny list in a
+    /// different disguise.</para>
+    ///
     /// <para>The method surface scanned here mirrors what xUnit itself discovers —
     /// inherited and non-public methods, plus interface declarations — because a theory
-    /// inherited from a base class is discovered and run exactly like a declared one.</para>
+    /// inherited from a base class is discovered and run exactly like a declared one.
+    /// The interface arm is load-bearing and measured, not defensive: a <c>[Fact]</c> on a
+    /// default interface method runs on the implementing class, and a <c>[Fact]</c> on an
+    /// interface method *declaration* runs in addition to the one on the implementation,
+    /// producing two cases from two perfectly ordinary <see cref="FactAttribute"/>s.
+    /// That last shape is why multiplicity is counted per signature rather than judged
+    /// per attribute: both attributes are plain, and only their number is wrong.</para>
     ///
     /// <para>Resolving each class by name also catches a preset arm naming a renamed or
     /// deleted class. That matters because a <c>-class</c> filter matching nothing runs
@@ -93,15 +109,37 @@ public class GateExpectedClassesTests
             IEnumerable<MethodInfo> methods = type.GetMethods(Surface)
                 .Concat(type.GetInterfaces().SelectMany(i => i.GetMethods(Surface)));
 
+            // Keyed by signature, not by MethodInfo: a [Fact] on an interface
+            // method declaration and a [Fact] on its implementation are two
+            // distinct MethodInfos, and xUnit runs the method twice. Counting
+            // per signature is what makes that visible.
+            var factsBySignature = new Dictionary<string, List<IFactAttribute>>(StringComparer.Ordinal);
+
             foreach (MethodInfo method in methods)
             {
-                FactAttribute? fact = method
+                foreach (IFactAttribute fact in method
                     .GetCustomAttributes(inherit: true)
-                    .OfType<FactAttribute>()
-                    .FirstOrDefault();
+                    .OfType<IFactAttribute>())
+                {
+                    string signature = method.Name
+                        + "(" + string.Join(",", method.GetParameters().Select(p => p.ParameterType.FullName)) + ")";
 
-                if (fact is not null && fact.GetType() != typeof(FactAttribute))
-                    offenders.Add($"{className}.{method.Name} [{fact.GetType().Name}]");
+                    if (!factsBySignature.TryGetValue(signature, out List<IFactAttribute>? facts))
+                        factsBySignature[signature] = facts = [];
+
+                    facts.Add(fact);
+                }
+            }
+
+            foreach ((string signature, List<IFactAttribute> facts) in factsBySignature)
+            {
+                string name = signature[..signature.IndexOf('(', StringComparison.Ordinal)];
+
+                foreach (IFactAttribute fact in facts.Where(f => f.GetType() != typeof(FactAttribute)))
+                    offenders.Add($"{className}.{name} [{fact.GetType().Name}]");
+
+                if (facts.Count > 1)
+                    offenders.Add($"{className}.{name} [{facts.Count} fact attributes on one method]");
             }
         }
 

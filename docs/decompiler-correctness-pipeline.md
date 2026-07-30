@@ -265,6 +265,7 @@ and treats drift in **both** directions as an error:
 | an expected class with nothing executed | the preset stopped selecting it |
 | a discovered test with no row in the report | the report is incomplete |
 | a row for a test discovery never listed | report and listing describe different runs |
+| one test with more than one result row | the method expanded into several cases |
 | a `<test>` with no usable name | the report is malformed |
 | the report contradicts its own declared totals | truncated or rewritten |
 | the report declares skipped, not-run, or errored tests | coverage did not run |
@@ -317,11 +318,30 @@ every test in a gate class to carry exactly `FactAttribute`.
 It is an **allow list**, not a deny list, because rejecting only `[Theory]`
 would miss `[CulturedFact]` — which derives from `FactAttribute`, not
 `TheoryAttribute`, and still yields one case per culture — and would miss any
-future multi-case attribute. It scans the same method surface xUnit discovers,
+future multi-case attribute. It is anchored on `IFactAttribute` rather than on
+`FactAttribute`, because that is the abstraction xUnit itself keys on
+(`ExtensibilityPointFactory.GetMethodFactAttributes` returns
+`IReadOnlyCollection<IFactAttribute>`): an attribute can implement that
+interface directly, skip `FactAttribute` entirely, and supply a discoverer that
+emits several cases. It scans the same method surface xUnit discovers,
 including inherited and non-public methods and interface declarations, because
-a theory inherited from a base class runs exactly like a declared one.
-Resolving each preset class by name in the same test also catches an arm naming
-a renamed or deleted class, which would otherwise select zero tests and exit 0.
+a theory inherited from a base class runs exactly like a declared one, and
+because a `[Fact]` on a *default interface method* runs on the implementing
+class. Multiplicity is counted per method signature, not judged per attribute:
+a plain `[Fact]` on an interface method declaration and a plain `[Fact]` on its
+implementation produce two cases from two perfectly ordinary `FactAttribute`s,
+so only their number is wrong. Resolving each preset class by name in the same
+test also catches an arm naming a renamed or deleted class, which would
+otherwise select zero tests and exit 0.
+
+That guard is prevention, and it has been wrong three times, so it is not the
+only line of defence. The checker independently fails any report in which one
+`(type, method)` produced more than one row. That check is purely
+observational: it needs to know nothing about xUnit's attribute model, and it
+catches every multi-case shape above — plus any future one — by counting what
+the run actually produced. The two are complementary. The guard fails fast, in
+the fast lane, before a multi-case test can ever reach the gate; the row check
+is the backstop for the case where the guard's reflection is wrong again.
 
 The declared totals are still cross-checked, including `passed` and `failed`
 against the actual rows, but only as an internal-consistency check on a

@@ -192,6 +192,7 @@ var passed = new HashSet<string>(StringComparer.Ordinal);
 var failed = new HashSet<string>(StringComparer.Ordinal);
 var notExecuted = new SortedDictionary<string, string>(StringComparer.Ordinal);
 var executedClasses = new HashSet<string>(StringComparer.Ordinal);
+var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
 int unidentified = 0;
 
 foreach (var test in tests)
@@ -203,6 +204,8 @@ foreach (var test in tests)
         unidentified++;
         continue;
     }
+
+    occurrences[name] = occurrences.GetValueOrDefault(name) + 1;
 
     string result = (string?)test.Attribute("result") ?? "(no result attribute)";
     switch (result)
@@ -267,6 +270,29 @@ var missingClasses = partial
 // GateExpectedClassesTests.PreMergeGateClasses_DeclareNoTheories enforces it,
 // and adding a theory to a gate class fails that test rather than quietly
 // weakening this one.
+// Method-granular completeness is only sufficient while one method means one
+// case. Rather than trust that, measure it: if any (type, method) produced
+// more than one row, that method expanded, and a lost case would be invisible
+// to the comparison below.
+//
+// This is deliberately observational. The fast-lane guard
+// (GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts) tries to
+// prevent multi-case tests by inspecting attributes, but that reflection has
+// been wrong repeatedly -- it missed [CulturedFact], then attributes that
+// implement IFactAttribute without deriving from FactAttribute, then a plain
+// [Fact] declared on *both* an interface method and its implementation, which
+// yields two cases from two ordinary FactAttributes. This check needs to know
+// none of that: it counts what the run actually produced.
+//
+// A duplicate here means one of two things, and both must fail: the method
+// expanded into several cases, or the same case was reported twice (a retry).
+// Neither is compatible with method-granular completeness.
+var multiCase = occurrences
+    .Where(kv => kv.Value > 1)
+    .Select(kv => $"{kv.Key} ({kv.Value} rows)")
+    .Order(StringComparer.Ordinal)
+    .ToList();
+
 List<string> missingTests = [];
 List<string> unexpectedTests = [];
 
@@ -364,6 +390,20 @@ if (missingTests.Count > 0)
     Console.WriteLine();
 }
 
+if (multiCase.Count > 0)
+{
+    Console.WriteLine($"MULTI-CASE TESTS ({multiCase.Count}) — one method, several result rows:");
+    foreach (var name in multiCase)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  Completeness here is method-granular, because no '-list' mode enumerates");
+    Console.WriteLine("  individual cases. A method that expands to several cases breaks that: it is");
+    Console.WriteLine("  discovered once, so losing all but one of its cases would look complete.");
+    Console.WriteLine("  Make these plain single-case [Fact] tests, or teach this checker a");
+    Console.WriteLine("  case-level expectation before adding them to a gate class.");
+    Console.WriteLine();
+}
+
 if (unexpectedTests.Count > 0)
 {
     Console.WriteLine($"UNEXPECTED RESULTS ({unexpectedTests.Count}) — in the results but never discovered:");
@@ -429,6 +469,7 @@ if (newFailures.Count == 0
     && missingClasses.Count == 0
     && missingTests.Count == 0
     && unexpectedTests.Count == 0
+    && multiCase.Count == 0
     && unidentified == 0)
 {
     Console.WriteLine("OK: the failing set matches the known-red list exactly.");
