@@ -158,6 +158,16 @@ public class FidelityGateTests
         "ManualDuplicateNameFactory",
         "ManualUnspellableNameFactory",
         "ManualConstantOnlyAddFactory",
+        // ManualConstantOnlyComparisonFactory belongs to the same constant-only
+        // manual-factory group, but arrived later (#3053) than the group's docket
+        // entry and so was never added. Its diff is the group's diff — compile-back
+        // reshapes the hand-emitted Expression.* calls around stack-slot temporaries
+        // (added stloc/stloc + ldloc/ldloc, no opcode-kind change elsewhere). It is
+        // an omission unmasked by running this Speed=Slow gate, not a new regression:
+        // the raise itself is pinned by
+        // ExpressionTreeLambdaTests.ManualConstantOnlyComparisonFactory_StaysFactoryCalls,
+        // which stays green. Tracked as #3502.
+        "ManualConstantOnlyComparisonFactory",
         "ManualConstantOnlySubtractFactory",
         "ManualConstantOnlyMultiplyFactory",
         "ManualNestedConstantSubtreeFactory",
@@ -204,9 +214,31 @@ public class FidelityGateTests
         "InvokeLocalCapture",
         "JustBreak",
         "LocalBodyLambda",
+        // MakeConsumerWithTwoLeadingArgs (#3272): ExpressionInliningPass removes only
+        // one of the two single-use spill temps around the trailing object
+        // initializer, leaving an extra stloc/ldloc pair on compile-back. #3290 added
+        // this to the LOWERED docket (see LoweredFidelityGateTests.KnownDiffs) but not
+        // here, even though the raised rail produces the identical residual — verified
+        // by comparing the two gates' opcode streams, which differ only by the same
+        // inserted stloc/ldloc. A docket omission that this Speed=Slow gate could not
+        // report while it was being cancelled, not a raised-path regression; the fold
+        // itself stays Valid + Correct and is pinned by
+        // ObjectInitializerPassTests. Tracked as #3490.
+        "MakeConsumerWithTwoLeadingArgs",
         "NonCapturingLambda",
         "RecursiveLocalFunction",
         "StatementBodyLambda",
+        // StatementBodyLambdaInsideIf is the same benign reconstruction-ordinal
+        // class as TwoLocalFunctionQuadrants and the iterator entries below: the
+        // opcode stream is identical, but recompiling the reconstructed fixture type
+        // assigns the cached lambda a different synthesized ordinal
+        // (<>9__103_0 -> <>9__128_0, with the matching <>c method and cache field),
+        // which contract V1 observes as changed symbolic targets. Nothing about the
+        // raise changed — the fixture's position in CfgSampleClass did, as fixtures
+        // were added after #2987 introduced it. Tracked as #3503, which proposes
+        // canonicalizing synthesized ordinals in the oracle so this whole class of
+        // row stops needing docket entries.
+        "StatementBodyLambdaInsideIf",
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
         // Tuple-switch fixture additions changed the reconstructed source ordinal

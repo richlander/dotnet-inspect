@@ -1364,6 +1364,12 @@ public static class IrImporter
                     // (new DateTime(...)) is not misread as a heap allocation.
                     constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
                     constructor = source.CrossAssembly.Upgrade(constructor, function.UsesUpdatedMemorySafetyRules);
+                    // A same-assembly MethodDef ctor whose body proves it effect-free
+                    // (a trivial direct-Object parameterless ctor with no static ctor)
+                    // lets ObjectInitializerPass hoist an enclosing call's this-field
+                    // receiver read past this newobj when folding an initializer argument.
+                    if (ctorHandle.Kind == HandleKind.MethodDefinition)
+                        constructor = ConstructorConfinementFacts.Stamp(source, (MethodDefinitionHandle)ctorHandle, constructor);
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);

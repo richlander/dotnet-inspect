@@ -134,6 +134,9 @@ public class LoweredFidelityGateTests
         "ManualDuplicateNameFactory",
         "ManualUnspellableNameFactory",
         "ManualConstantOnlyAddFactory",
+        // Same group, added later (#3053) and never docketed on either rail; see the
+        // matching entry in FidelityGateTests.KnownDiffs. Tracked as #3502.
+        "ManualConstantOnlyComparisonFactory",
         "ManualConstantOnlySubtractFactory",
         "ManualConstantOnlyMultiplyFactory",
         "ManualNestedConstantSubtreeFactory",
@@ -150,6 +153,23 @@ public class LoweredFidelityGateTests
         "DayNumber",
         "DoubleViaLocalFunction",
         "StaticLocalFunctionCalledTwice",
+        // Synthesized local-function ordinals. Recompiling the reconstructed fixture
+        // type renumbers each local function's `g__Name|N_M` symbol (and the display
+        // class backing a captured one), which contract V1 observes as changed
+        // symbolic targets even though the opcode stream is unchanged. De-sugaring
+        // does not touch those ordinals, so this class of row affects the lowered
+        // rail exactly as it affects the sugared one — and the sugared gate already
+        // dockets all five with per-fixture rationale (see
+        // FidelityGateTests.KnownDiffs; #2983 covers the two EnumArg* entries,
+        // TwoLocalFunctionQuadrants records the |5_* -> |31_* shift). The lowered
+        // docket simply fell behind the sugared one while this Speed=Slow gate was
+        // being cancelled rather than reported. Tracked as #3491, and #3503 proposes
+        // canonicalizing synthesized ordinals so neither docket needs these rows.
+        "EnumArgInInlineLocalFunction",
+        "EnumArgInLocalFunctionWithLocal",
+        "RecursiveLocalFunction",
+        "StaticLocalFunctionWithLocal",
+        "TwoLocalFunctionQuadrants",
         // MakeConsumerWithTwoLeadingArgs (#3272): the trailing object initializer
         // with TWO preceding constructor arguments folds correctly (Valid + Correct)
         // to `new InitConsumer3(Identity(tag), Identity(a), new InitTarget { ... })`,
@@ -238,19 +258,29 @@ public class LoweredFidelityGateTests
     [Fact]
     public void NoNewFidelityDiffsBeyondKnownDocket()
     {
-        var diffs = EvaluateFixtures()
+        var diffResults = EvaluateFixtures()
             .Where(r => r.Status is
                 FidelityCheck.CompileBackStatus.OpcodeDiff
                 or FidelityCheck.CompileBackStatus.OperandDiff)
-            .Select(r => r.Method)
-            .OrderBy(m => m, StringComparer.Ordinal)
+            .OrderBy(r => r.Method, StringComparer.Ordinal)
             .ToList();
 
-        var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
+        var unexpected = diffResults.Where(r => !KnownDiffs.Contains(r.Method)).ToList();
+        var details = unexpected.Select(result =>
+        {
+            string fidelityRows = result.FidelityDiff is { Rows.Length: > 0 } diff
+                ? "\n  fidelity:\n" + string.Join('\n', diff.Rows.Take(6).Select(row => $"    {row.Message}"))
+                : "";
+            return $"{result.Method} [{result.Status}]\n"
+                + $"  original : {result.OriginalOpcodes}\n"
+                + $"  recompiled: {result.RecompiledOpcodes}\n"
+                + $"  detail: {result.Detail}{fidelityRows}";
+        });
 
         Assert.True(unexpected.Count == 0,
-            $"New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL): " +
-            $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
+            "New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL):\n"
+            + string.Join("\n\n", details)
+            + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(r => r.Method))}");
     }
 
     [Fact]

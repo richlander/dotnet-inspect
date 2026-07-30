@@ -92,8 +92,15 @@ namespace DotnetInspector.Output;
 ///
 /// Sibling entry points that are not in this CLI's project closure --
 /// <c>mdi</c> above all -- read the same untrusted metadata, write their own
-/// stderr, and cannot reach this writer. They are out of scope by construction,
-/// tracked as issue #3444.
+/// stderr, and cannot reach this writer. That is why they opt out of the
+/// analyzer with <c>OwnsItsOwnStderr</c>: they own the stream they write. It is
+/// not a gap in their containment. Issue #3444 reported that <c>mdi</c> renders
+/// untrusted metadata uncontained; measured against a hostile artifact the
+/// premise did not hold, because <c>mdi</c> routes every view through
+/// <c>MetadataProjectionRenderer</c> over values <c>MetadataTableProjector</c>
+/// has already neutralized. What was missing was a gate naming that inherited
+/// property, which <c>MdiContainmentTests</c> now is (#3518). So the boundary
+/// here is ownership of the stream, not reach of the containment.
 ///
 /// And the rule is stated over <see cref="Console"/>'s members, so it binds the
 /// names a program uses, not the descriptor it ends up writing to. Every

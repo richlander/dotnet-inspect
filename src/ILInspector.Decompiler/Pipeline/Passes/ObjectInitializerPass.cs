@@ -89,7 +89,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
             context.Stepper.StepOver(
                 $"raise {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
-            var produced = Apply(plan);
+            var produced = Apply(plan, function);
             spillDerived?.Add(produced);
         }
 
@@ -114,7 +114,7 @@ public sealed class ObjectInitializerPass : IIrPass
 
             context.Stepper.StepOver(
                 $"raise named-local {creation.Constructor.DeclaringType.Name} {(plan.IsCollection ? "collection" : "object")} initializer", seed);
-            var produced = Apply(plan);
+            var produced = Apply(plan, function);
             spillDerived?.Add(produced);
         }
     }
@@ -129,7 +129,8 @@ public sealed class ObjectInitializerPass : IIrPass
         NewObject Creation,
         bool IsCollection,
         IReadOnlyList<EntryPlan> Entries,
-        InitializerTarget Target);
+        InitializerTarget Target,
+        IReadOnlyList<IrNode>? Skipped = null);
 
     /// <summary>
     /// A planned initializer entry. A flat entry carries its leaf <see cref="Arguments"/>
@@ -168,6 +169,12 @@ public sealed class ObjectInitializerPass : IIrPass
         // chain). They are left in place and the escape is treated as if they were
         // not present. See the skip branch below.
         var skipped = new List<IrNode>();
+        // The subset of skipped statements proven reorder-safe (side-effect-free and
+        // non-throwing) by IsReorderSafeSpill. Only these are inlined back into the
+        // folded call by InlineSingleUseSpills — a pure value moves to any position
+        // without changing behavior. The offset-guarded (ExecutesBefore) skips, which
+        // may be impure, are left in place for a later inlining pass.
+        var inlinableSkipped = new List<IrNode>();
         bool? isCollection = null;
 
         // A run of nested ops on the same member folds into one InitializerBlock
@@ -283,6 +290,53 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
+            // A side-effect-free, non-throwing spill interleaved in the construction
+            // region: a pure receiver or argument the compiler spilled to its own slot
+            // for the *enclosing call* whose argument this initializer becomes — e.g.
+            // `S_257 = _rest;` before the members, or `V_0 = default;` in the gap
+            // between the last member and the call. Use-site folding moves the
+            // construction (the `newobj`, its constructor call, and every member value)
+            // to the call-argument position, past this statement, so the statement must
+            // commute with all of that.
+            //
+            // Soundness has two crossings, gated separately (see IsReorderSafeSpill):
+            //   * The `newobj` constructor. The fold moves the construction — the
+            //     `newobj`, its constructor, and every member value — down to the call
+            //     argument position, past this spill. A `this`-field receiver read
+            //     hoisted this way lands BEFORE the `newobj`, so the constructor (and
+            //     the type initializer `newobj` triggers) must not mutate what the read
+            //     observes. A parameterless ctor alone does NOT prove that: `newobj`
+            //     also runs the type's `.cctor`, and a trivial-looking ctor can escape
+            //     through a base ctor, a setter, or a static read. We therefore admit a
+            //     `this`-field read only when the constructor is proven EFFECT-FREE —
+            //     body exactly `ldarg.0; call object::.ctor; ret`, declaring type with
+            //     no static ctor (see MethodRef.ConstructorEffectFree /
+            //     ConstructorConfinementFacts). That is Roslyn-faithful (it assumes a
+            //     non-null `this`), not arbitrary-IL-sound, and preserves the real
+            //     `new TableProperties { ... }` / `new CallArgTarget { ... }` shape.
+            //     Other reorder-safe spills read only args/locals/constants, which a
+            //     parameterless ctor and its `.cctor` cannot reach, so they need no
+            //     constructor proof.
+            //   * The member values. A position-independent value (constant / `default`
+            //     / `sizeof` / `ldtoken`) reads no mutable state and commutes anywhere.
+            //     A mutable read (a field, argument, or local load — e.g. the receiver
+            //     `_rest`) is admitted ONLY before the first entry: inlining it feeds
+            //     the folded call's receiver position (evaluated before the argument),
+            //     so a member value that ran before it must not be reordered after it.
+            //     Requiring it to precede every entry keeps the read ahead of all
+            //     member values in both the original and the folded order. (The
+            //     impure-receiver case is handled by the offset skip below.)
+            var beforeFirstEntry = entries.Count == 0;
+            if (pendingInner is null
+                && creation.Arguments.Count == 0
+                && !TouchesAnySlot(statement, aliasSlots)
+                && IsReorderSafeSpill(statement, aliasSlots, function, function.Signature.HasThis, beforeFirstEntry, creation.Constructor.ConstructorEffectFree))
+            {
+                skipped.Add(statement);
+                inlinableSkipped.Add(statement);
+                continue;
+            }
+
             // A statement interleaved before the first initializer entry that neither
             // reads nor writes the threaded reference — e.g. `t = new(); a = Other();
             // t.X = ...` where `a` is a preceding constructor argument the stackifier
@@ -387,7 +441,8 @@ public sealed class ObjectInitializerPass : IIrPass
             entries,
             contiguousEscape
                 ? new StackSlotTarget(outsideUses[0])
-                : new StackSlotSeedTarget(seed, outsideUses[0]));
+                : new StackSlotSeedTarget(seed, outsideUses[0]),
+            inlinableSkipped);
     }
 
     static Plan? TryBuild(IrFunction function, StoreLocal seed, NewObject creation)
@@ -922,6 +977,106 @@ public sealed class ObjectInitializerPass : IIrPass
         return false;
     }
 
+    /// <summary>
+    /// Whether an interleaved statement is a reorder-safe spill that use-site folding
+    /// may move the construction (the <c>newobj</c>, its constructor, and every member
+    /// value) past. Two tiers, per <paramref name="beforeFirstEntry"/>: a
+    /// position-independent value (see <see cref="IsPositionIndependentValue"/>) is
+    /// admitted anywhere, while a mutable-memory read (a field, argument, or local load)
+    /// is admitted only before the first initializer entry, so it is never reordered
+    /// across a member value that could write the memory it reads. A struct
+    /// <c>default</c> init (<c>initobj</c> zeroing a local) writes only that fresh local
+    /// and reads nothing mutable, and is admitted when the local's address is taken
+    /// exactly once (its own <c>initobj</c>), so no other statement aliases it.
+    /// A <c>this</c>-field read additionally requires
+    /// <paramref name="constructorEffectFree"/>, because folding hoists it before the
+    /// <c>newobj</c> whose constructor and type initializer could otherwise mutate the
+    /// field (see <see cref="IsReorderSafeValue"/>). The other reorder-safe values read
+    /// only args/locals/constants, which a parameterless constructor and its
+    /// <c>.cctor</c> cannot reach, so they do not depend on the flag.
+    /// </summary>
+    static bool IsReorderSafeSpill(IrNode statement, HashSet<int> aliasSlots, IrFunction function, bool hasThis, bool beforeFirstEntry, bool constructorEffectFree) => statement switch
+    {
+        StoreStackSlot store => !aliasSlots.Contains(store.Slot) && IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry, constructorEffectFree),
+        StoreLocal store => IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry, constructorEffectFree),
+        // `default(T)` for a struct: `initobj` zeroing a local. Pure and non-throwing,
+        // and it reads no mutable state — but only when nothing else can observe or
+        // alias that local across the move. Require the local's address to be taken
+        // exactly once (this `initobj` itself): otherwise a member value could pass
+        // `ref V_0` to a call whose mutation this write would be reordered across.
+        InitObject { Address: LoadLocalAddress { Index: var index } } => AddressTakenOnce(function, index),
+        _ => false,
+    };
+
+    // Whether the local at <paramref name="index"/> has exactly one address-of use in
+    // the function (the caller's own `initobj`), so no other statement — a constructor
+    // argument or a member value — holds a `ref` to it that the fold could reorder
+    // across. Scoped to this function's slot pool (nested functions have their own).
+    static bool AddressTakenOnce(IrFunction function, int index)
+        => GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+            .OfType<LoadLocalAddress>()
+            .Count(address => address.Index == index) == 1;
+
+    /// <summary>
+    /// Whether an expression is side-effect-free, non-throwing, and — when
+    /// <paramref name="beforeFirstEntry"/> is false — free of any mutable-memory read
+    /// whose value a member store could have changed. So moving the object
+    /// construction across a statement that computes it is unobservable.
+    ///
+    /// A <see cref="IsPositionIndependentValue"/> reads no mutable state and is
+    /// admitted regardless of position. A non-volatile instance field read off the
+    /// non-null <c>this</c> receiver is non-throwing but *is* a mutable-memory read;
+    /// it is admitted only before the first entry, because inlining it feeds the
+    /// folded call's receiver position (evaluated before the initializer argument) and
+    /// a member value that ran before it could otherwise be reordered after it. The
+    /// <c>this</c>-field carve-out further requires <paramref name="hasThis"/> (in a
+    /// static method argument 0 is an ordinary, possibly null parameter, so a field
+    /// read off it can throw <see cref="System.NullReferenceException"/>) AND
+    /// <paramref name="constructorEffectFree"/>: folding hoists the field read before
+    /// the <c>newobj</c>, so the constructor and the type initializer it triggers must
+    /// not mutate the field. Only a proven effect-free ctor (a trivial direct-<c>Object</c>
+    /// parameterless ctor with no static ctor — see
+    /// <see cref="MethodRef.ConstructorEffectFree"/>) guarantees that; this is
+    /// Roslyn-faithful, not arbitrary-IL-sound.
+    /// Everything else (calls, static or nested field reads, indexers, throwing
+    /// arithmetic) is rejected.
+    /// </summary>
+    static bool IsReorderSafeValue(IrExpression value, bool hasThis, bool beforeFirstEntry, bool constructorEffectFree) => value switch
+    {
+        _ when IsPositionIndependentValue(value) => true,
+        LoadField { IsVolatile: false, Instance: LoadArgument { Index: 0 } } => hasThis && beforeFirstEntry && constructorEffectFree,
+        // An argument load reads a caller-supplied slot. It cannot throw, but the slot
+        // is mutable memory: a member value could pass `ref arg` to a call (`ldarga`)
+        // and mutate it, so moving the read across the members is observable. Admit it
+        // only before the first entry, keeping the read ahead of every member value in
+        // both the original and the folded order — the same rule as a field/local read.
+        //
+        // Unlike the `this`-field arm this does NOT require constructorEffectFree: a
+        // parameterless ctor (and the `.cctor` newobj triggers) receives no reference to
+        // the caller's argument/local slots, so it cannot reach them — UNDER THE
+        // ROSLYN-FAITHFUL THREAT MODEL. Reaching a caller slot needs a prior address
+        // escape (`ldarga`/`ldloca` -> `conv.u` -> `stsfld`) the ctor later writes
+        // through; that is unverifiable unsafe IL Roslyn never emits, the same accepted
+        // arbitrary-IL boundary as the null-`this` receiver read documented on
+        // MethodRef.ConstructorEffectFree. Not gated here by deliberate scope decision.
+        LoadArgument => beforeFirstEntry,
+        LoadLocal => beforeFirstEntry,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether an expression reads no mutable memory and cannot throw, so it commutes
+    /// with the object construction and every member value in either direction — a
+    /// constant, a struct <c>default</c>, or a <c>sizeof</c>/<c>ldtoken</c>. An
+    /// argument load is deliberately NOT here: its slot is mutable via <c>ldarga</c>,
+    /// so it belongs to the before-first-entry tier in <see cref="IsReorderSafeValue"/>.
+    /// </summary>
+    static bool IsPositionIndependentValue(IrExpression value) => value switch
+    {
+        Constant or DefaultValue or SizeOf or LoadToken => true,
+        _ => false,
+    };
+
     // True when the statement's own computation completed BEFORE `creation`'s
     // `newobj` executed in the original IL, so keeping it ahead of the folded
     // `newobj` preserves observable order. See EffectOffset for how the offset is
@@ -978,7 +1133,7 @@ public sealed class ObjectInitializerPass : IIrPass
         return false;
     }
 
-    static ObjectInitializerExpression Apply(Plan plan)
+    static ObjectInitializerExpression Apply(Plan plan, IrFunction function)
     {
         // Drop the lowered run from the block, then lift the creation and leaf
         // arguments out of those now-detached statements before reparenting them
@@ -1003,6 +1158,18 @@ public sealed class ObjectInitializerPass : IIrPass
                 var initializer = new ObjectInitializerExpression(plan.Creation, plan.IsCollection, entries);
                 initializer.InheritSourceOffset(plan.Creation);
                 stackSlot.Use.ReplaceWith(initializer);
+                // Use-site folding collapsed the dup-chain region into a single
+                // expression at the call-argument position. The pure receiver and
+                // argument spills the stackifier materialized for that call (left in
+                // place as skipped, reorder-safe statements) now feed the call with no
+                // intervening dup chain, so inlining each single-use spill back into its
+                // load restores the canonical stack-only spelling — e.g.
+                // `S_257 = _rest; ... S_257.Create(new T { ... }, ...)` becomes
+                // `_rest.Create(new T { ... }, ...)` — which recompiles byte-for-byte to
+                // the original IL. Reorder-safety was already proven when the statement
+                // was skipped, and the single-use guard keeps any spill read elsewhere.
+                if (plan.Skipped is { } skipped)
+                    InlineSingleUseSpills(skipped, function, initializer);
                 return initializer;
             }
 
@@ -1029,6 +1196,149 @@ public sealed class ObjectInitializerPass : IIrPass
             default:
                 throw new InvalidOperationException($"Unhandled initializer target {plan.Target.GetType().Name}.");
         }
+    }
+
+    /// <summary>
+    /// Inlines each single-use reorder-safe spill back into its sole load, restoring
+    /// the stack-only spelling the stackifier split into a named spill. Only the
+    /// direct-value forms (<see cref="StoreStackSlot"/> / <see cref="StoreLocal"/>)
+    /// are inlined; a default-struct init (<c>InitObject</c> writing a local in place)
+    /// already round-trips and is left alone. The single-use guard (exactly one
+    /// remaining load) prevents dropping a value read elsewhere, and the value's
+    /// reorder-safety was established when the statement was skipped.
+    ///
+    /// A mutable-memory read (a field / local / argument load) carries an extra
+    /// guard: it may be inlined only when its sole load evaluates BEFORE the folded
+    /// <paramref name="initializer"/> in the enclosing call (the receiver, or an
+    /// argument to its left). Leaving such a spill as a statement keeps the read in
+    /// its original pre-call position, so declining the inline is always sound; but
+    /// inlining a read into an argument to the RIGHT of the initializer would move it
+    /// past the member values, which C# evaluates first — if a member value writes
+    /// that memory, the read would observe the post-write value. Position-independent
+    /// values (constants, <c>default</c>, <c>sizeof</c>, <c>ldtoken</c>) read no
+    /// mutable state and are inlined regardless of position (e.g. the real witness's
+    /// trailing <c>default</c> argument).
+    /// </summary>
+    static void InlineSingleUseSpills(IReadOnlyList<IrNode> skipped, IrFunction function, IrNode initializer)
+    {
+        // Count and rewrite only within this function's own scope. IrNode.Descendants
+        // crosses into nested lambda/local-function bodies, whose stack slots and local
+        // indices live in a separate pool that can collide with the outer spill's slot
+        // — over-counting a load would wrongly block the inline, and (worse) inlining
+        // into a nested scope's load would reparent an outer expression across the
+        // closure boundary. DescendantsOutsideNestedFunctions stops at those bounds.
+        IEnumerable<IrNode> Scoped() => GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function);
+
+        foreach (var statement in skipped)
+        {
+            switch (statement)
+            {
+                case StoreStackSlot store:
+                {
+                    var loads = Scoped().OfType<LoadStackSlot>()
+                        .Where(load => load.Slot == store.Slot)
+                        .ToList();
+                    var writers = Scoped().OfType<StoreStackSlot>()
+                        .Count(other => other.Slot == store.Slot);
+                    if (loads.Count != 1 || writers != 1)
+                        continue;
+                    if (!IsPositionIndependentValue(store.Value)
+                        && !LoadEvaluatesBeforeInitializer(loads[0], initializer))
+                        continue;
+                    var value = store.Value;
+                    value.Detach();
+                    loads[0].ReplaceWith(value);
+                    store.Detach();
+                    break;
+                }
+
+                case StoreLocal store:
+                {
+                    var loads = Scoped().OfType<LoadLocal>()
+                        .Where(load => load.Index == store.Index)
+                        .ToList();
+                    var writers = Scoped().OfType<StoreLocal>()
+                        .Count(other => other.Index == store.Index);
+                    var addressUses = Scoped().OfType<LoadLocalAddress>()
+                        .Count(address => address.Index == store.Index);
+                    if (loads.Count != 1 || writers != 1 || addressUses != 0)
+                        continue;
+                    if (!IsPositionIndependentValue(store.Value)
+                        && !LoadEvaluatesBeforeInitializer(loads[0], initializer))
+                        continue;
+                    var value = store.Value;
+                    value.Detach();
+                    loads[0].ReplaceWith(value);
+                    store.Detach();
+                    break;
+                }
+
+                // `T V = default;` for a struct: an `initobj` zeroing a local in place.
+                // Keeping it as a separate statement emits the `initobj` at the top of
+                // the method, but the original evaluates `default` at the argument
+                // position (mid-stream). Inline it as `default(T)` at the sole load so
+                // the opcode order matches. Require the temp to be read exactly once
+                // with no other writer or address escape beyond this init.
+                case InitObject { Address: LoadLocalAddress { Index: var index } } init:
+                {
+                    var loads = Scoped().OfType<LoadLocal>()
+                        .Where(load => load.Index == index)
+                        .ToList();
+                    var addressUses = Scoped().OfType<LoadLocalAddress>()
+                        .Count(address => address.Index == index);
+                    var stores = Scoped().OfType<StoreLocal>()
+                        .Count(store => store.Index == index);
+                    if (loads.Count != 1 || stores != 0 || addressUses != 1)
+                        continue;
+                    loads[0].ReplaceWith(new DefaultValue(init.Type));
+                    init.Detach();
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="load"/> is evaluated before <paramref name="initializer"/>
+    /// in the enclosing call. Both feed the same call whose argument the initializer
+    /// became, so their lowest common ancestor is that <see cref="Call"/> (or a
+    /// <see cref="NewObject"/> when the initializer is a constructor argument), whose
+    /// arguments — receiver first — evaluate strictly left-to-right; the branch with
+    /// the smaller <see cref="IrNode.ChildIndex"/> evaluates first. Any other common
+    /// ancestor (a conditional, short-circuit, or assignment does not evaluate its
+    /// children left-to-right) is treated conservatively as "not before", declining
+    /// the inline rather than risk reordering a read past a member value.
+    /// </summary>
+    static bool LoadEvaluatesBeforeInitializer(IrNode load, IrNode initializer)
+    {
+        var ancestor = LowestCommonAncestor(load, initializer);
+        if (ancestor is not (Call or NewObject))
+            return false;
+        var loadBranch = BranchUnder(ancestor, load);
+        var initBranch = BranchUnder(ancestor, initializer);
+        return loadBranch is not null && initBranch is not null
+            && loadBranch.ChildIndex < initBranch.ChildIndex;
+    }
+
+    static IrNode? LowestCommonAncestor(IrNode a, IrNode b)
+    {
+        var seen = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        for (IrNode? n = a; n is not null; n = n.Parent)
+            seen.Add(n);
+        for (IrNode? n = b; n is not null; n = n.Parent)
+            if (seen.Contains(n))
+                return n;
+        return null;
+    }
+
+    // The direct child of `ancestor` on the path to `node` (node itself when it is a
+    // direct child), or null when node is not a descendant of ancestor.
+    static IrNode? BranchUnder(IrNode ancestor, IrNode node)
+    {
+        for (IrNode? n = node; n is not null; n = n.Parent)
+            if (ReferenceEquals(n.Parent, ancestor))
+                return n;
+        return null;
     }
 
     static InitializerEntry BuildEntry(EntryPlan entry)

@@ -483,6 +483,38 @@ table with a `## <Name> (rows)` heading over a pipe table; TSV and JSONL carry a
 leading `Table` column so every row self-identifies, keeping those outputs pure
 machine-readable streams (one `WriteTable` block per table).
 
+Containment is inherited, not reimplemented — but only along paths that
+actually go through the projection. `mdi` performs no escaping of its own:
+metadata names are untrusted input, and `MetadataTableProjector` neutralizes
+every control character before a value leaves the projection, so each projected
+view hands the renderer text that is already safe. That is what makes `mdi` the
+reference example of consuming the projection — a consumer should render
+`MetadataValue` cases and add nothing, rather than defend itself.
+
+The corollary is the failure mode, and it is not hypothetical. Because `mdi`
+contains nothing explicitly, a value that reaches presentation *without* being
+projected inherits nothing, and no call site looks any different. The metadata
+root's version stamp was exactly that: an artifact-derived counted string that
+`MetadataImageInspector` reported straight into the image overview, emitting a
+raw `ESC` in Markdown and TSV from both `mdi --overview` and the CLI's
+`Metadata: Image` section. The fix neutralizes it at the metadata layer, reusing
+the projector's escaper rather than adding a second one — a value that skips the
+projection must still not skip its containment.
+
+That is why the property needs its own gate rather than a comment.
+`MdiContainmentTests` splices a payload spanning all three control ranges the
+projector recognizes — a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1
+control — into a real `#Strings` entry *and* into the version stamp, then renders
+the patched assembly through every view and format. The three views that carry
+artifact text — table, heap, and overview — each assert both that no raw control
+character survives and that the neutralized form of every control is present, so
+they cannot pass by rendering nothing, and the multi-range payload means
+narrowing containment to `ESC` alone fails rather than passes. Coverage is driven
+from `MetadataTableFormat` itself, so a new format is gated on arrival. The
+`--references` view renders only coordinates and counts, so it carries no
+artifact text and is asserted against raw controls alone, as a regression net
+rather than a payload-carrying case; the file says so.
+
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be
 human-friendly without weakening the oracle. Supported-table coverage is kept in

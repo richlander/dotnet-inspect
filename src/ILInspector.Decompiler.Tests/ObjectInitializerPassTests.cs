@@ -18,6 +18,18 @@ public class ObjectInitializerPassTests
 
     static string Print(string methodName) => CSharpPrinter.Print(Raised(methodName)).Output!;
 
+    // Raises a method on any top-level fixture type in this assembly (not just
+    // CfgSampleClass), for fixtures declared as their own types at end of file.
+    static IrFunction RaisedFrom(string typeFullName, string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, null, RuntimeResolver);
+        var function = IrImporter.Import(source, typeFullName, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return function!;
+    }
+
     static readonly IAssemblyReferenceResolver RuntimeResolver = TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
 
     [Fact]
@@ -612,6 +624,185 @@ public class ObjectInitializerPassTests
             CSharpPrinter.Print(function).Output);
     }
 
+    // #3459: an object initializer used as a CALL ARGUMENT whose enclosing call has a
+    // pure receiver spill (`_rest`, a field off `this`) and a `default` struct argument
+    // spilled around the member store — the Azure.Data.Tables `TableClient.Create`
+    // shape. The fold moves the construction to the call-argument position AND inlines
+    // both reorder-safe spills back into their operands, restoring the canonical
+    // stack-only spelling that recompiles byte-for-byte to the original IL.
+    [Fact]
+    public void CallArgumentInitializer_FoldsAndInlinesReorderSafeSpills()
+    {
+        var function = RaisedFrom("ILInspector.Decompiler.Tests.CallArgClient", "CreateViaField");
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["Name"], initializer.Members);
+
+        // Both reorder-safe spills are inlined: the receiver `_rest` (no residual slot
+        // store) and the `default` struct argument (the spilling initobj is gone).
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<InitObject>());
+
+        Assert.Contains(
+            "return _rest.Create(new CallArgTarget { Name = Label }, default(Nullable<CallArgFlag>), _options);",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3459 breadth: a VOLATILE field receiver. The receiver read runs before the
+    // `newobj`, so it is an offset-guarded skip rather than a reorder-safe one — the
+    // object-initializer pass leaves it in place (only reorder-safe spills are inlined
+    // by this pass; a later copy-propagation pass may still hoist it). Either way the
+    // initializer folds, and the result stays byte-neutral (verified on the standalone
+    // witness). This pins that a volatile receiver never blocks the call-argument fold.
+    [Fact]
+    public void CallArgumentInitializer_WithVolatileReceiver_StillFolds()
+    {
+        var function = RaisedFrom("ILInspector.Decompiler.Tests.CallArgClient", "CreateViaVolatileField");
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["Name"], initializer.Members);
+
+        Assert.Contains(
+            "Create(new CallArgTarget { Name = Label }, default(Nullable<CallArgFlag>), _options)",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3459 constructor-confinement gate (blocking negative): a `this`-field receiver
+    // read that runs AFTER the `newobj` is admitted as a reorder-safe skip ONLY when
+    // the target constructor is proven effect-free (exactly `ldarg.0; call object::.ctor;
+    // ret`, declaring no `.cctor`). This builder is byte-identical in shape to
+    // MutableReadSpillFeedingLaterArgument_IsNotInlined — whose ctor carries
+    // ConstructorEffectFree = true and DOES fold — except the ctor is left NOT
+    // effect-free (the default), modelling a target whose `.cctor` (or non-trivial ctor)
+    // could mutate the field the receiver read observes. With the fact absent, the
+    // `this.Field` read is no longer reorder-safe, the interleaved-spill run breaks, and
+    // the fold declines: no object initializer forms and the read stays a spill. This is
+    // the regression proof that the fact is what admits the hoist — set it true here and
+    // the initializer folds (recreating the round-3 unsoundness).
+    [Fact]
+    public void ReceiverSpillWithNonEffectFreeConstructor_IsNotFolded()
+    {
+        var function = FunctionWithMutableReadSpillAndNonEffectFreeCtor();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The fold declines: no object initializer forms, the bare construction
+        // survives, and the `this.Field` receiver read remains a distinct spill.
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Contains(
+            function.Descendants.OfType<LoadField>(),
+            load => load.Instance is LoadArgument { Index: 0 });
+        function.CheckInvariant();
+    }
+    // slot is loaded MORE THAN ONCE must NOT be inlined — replacing one load and
+    // detaching the store would leave the other load dangling on a removed slot. The
+    // guard leaves the spill store in place; the initializer still folds via the use
+    // site. (Roslyn never spills a pure value it reads twice — it re-loads it — so this
+    // shape is reached only through hand-written IL or an unusual lowering, exercised
+    // here with a synthetic function.)
+    [Fact]
+    public void ReorderSafeSpillWithMultipleUses_IsNotInlined()
+    {
+        var function = FunctionWithReorderSafeSpillUsedTwice();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["X"], initializer.Members);
+
+        // The twice-used reorder-safe spill store survives (not inlined), and both of
+        // its loads remain intact.
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 257));
+        function.CheckInvariant();
+    }
+
+    // #3459 blocking negative (reorder soundness): a receiver field read that sits
+    // AFTER a member value which may write that field must NOT be hoisted ahead of the
+    // member value. Inlining `this.Rest` into the folded receiver position (evaluated
+    // before the initializer argument) would observe the pre-`MutateRest()` receiver.
+    // The spill store must survive, and the dangerous reordered spelling must not
+    // appear.
+    [Fact]
+    public void FieldReceiverSpillAfterMutatingEntry_IsNotHoistedAcrossSideEffect()
+    {
+        var function = FunctionWithFieldReceiverSpillAfterMutatingEntry();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The receiver read is left as a spill store (not inlined ahead of the mutation).
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.DoesNotContain("this.Rest.Consume(new", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant();
+    }
+
+    // #3459 blocking negative (throw soundness): in a STATIC method argument 0 is an
+    // ordinary, possibly null parameter, so reading a field off it can throw. It must
+    // not be admitted as a non-throwing reorder-safe spill and inlined as the folded
+    // receiver, which would change when the NullReferenceException is observed.
+    [Fact]
+    public void StaticArg0FieldReceiverSpill_IsNotInlined()
+    {
+        var function = FunctionWithStaticArg0FieldReceiverSpill();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The receiver read remains a spill store (not treated as a `this` field read).
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        function.CheckInvariant();
+    }
+
+    // #3459 blocking negative (constructor crossing): a receiver field read spilled
+    // before the members is only reorder-safe to inline as the folded receiver when
+    // the construction cannot observe or mutate what it reads. A non-parameterless
+    // constructor receives a reference (here `this`) and may mutate `this.Rest`, and
+    // the use-site fold evaluates the receiver `this.Rest` before that constructor —
+    // reordering the read across the mutation. The parameterless-ctor gate must block
+    // admitting the receiver spill as a reorder-safe skip, so the dangerous use-site
+    // spelling `this.Rest.Consume(new InitTarget(this) { ... })` never appears.
+    [Fact]
+    public void ReceiverSpillWithArgumentedCtor_IsNotFoldedAcrossConstructor()
+    {
+        var function = FunctionWithReceiverSpillAndArgumentedCtor();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The receiver read survives as a spill store (never inlined as the folded
+        // receiver), and no initializer is hoisted into the call ahead of it.
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.DoesNotContain(".Consume(new", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant();
+    }
+
+    // #3459 blocking negative (argument-position soundness): a mutable-memory read
+    // spilled before the members is admitted as a reorder-safe skip, but inlining it
+    // is sound only when its load evaluates BEFORE the folded initializer in the
+    // enclosing call. Here `this.Field` feeds the SECOND argument while the
+    // initializer feeds the first, so C# evaluates the initializer (and its
+    // side-effecting member value `Mutate()`, which may write `this.Field`) first,
+    // then the second argument — inlining `this.Field` there would observe the
+    // post-mutation value. The construction still folds at the use site, but the
+    // read must stay a spill statement in its original pre-call position.
+    [Fact]
+    public void MutableReadSpillFeedingLaterArgument_IsNotInlined()
+    {
+        var function = FunctionWithMutableReadSpillFeedingLaterArgument();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The construction still folds into an initializer at the first argument.
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["X"], initializer.Members);
+
+        // But the mutable read (feeding the later argument) is NOT inlined: its spill
+        // store survives so the read keeps its original pre-call position.
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 257);
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 257);
+        function.CheckInvariant();
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -755,6 +946,265 @@ public class ObjectInitializerPassTests
             "ForeignReadBeforeMembers",
             TypeRef.Definition("Synthetic", "Samples", "Owner"),
             new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_257 = n; S_256.X = 1; return Consume(S_256, S_257, S_257);`
+    // where S_257 (a reorder-safe LoadArgument spill) is loaded TWICE in the escape call.
+    // The pass folds the initializer into the call-argument position but must leave the
+    // twice-used spill store in place (inlining it would drop the second load).
+    static IrFunction FunctionWithReorderSafeSpillUsedTwice()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var consume = new MethodRef(owner, "Consume", intType, [type, intType, intType], HasThis: false);
+
+        const int seed = 256;
+        const int spill = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(spill, new LoadArgument(0, "n", intType)));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Constant(1, intType)));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(seed, type),
+            new LoadStackSlot(spill, intType),
+            new LoadStackSlot(spill, intType),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "ReorderSafeSpillUsedTwice",
+            owner,
+            new MethodSignature(intType, [new Parameter("n", intType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_256.X = MutateRest(); S_257 = this.Rest;
+    // return S_257.Consume(S_256);` in an INSTANCE method. The receiver field read
+    // `this.Rest` is a reorder-safe candidate (non-volatile field off `this`), but it
+    // sits AFTER a member value `MutateRest()` that has a side effect and may write
+    // `this.Rest`. Inlining it into the folded call's receiver position would move the
+    // read ahead of `MutateRest()`, observing the pre-mutation receiver. The pass must
+    // NOT admit a mutable-memory read after an entry, so `this.Rest` is never inlined
+    // as the folded receiver.
+    static IrFunction FunctionWithFieldReceiverSpillAfterMutatingEntry()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var rest = TypeRef.Definition("Synthetic", "Samples", "Rest");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var mutateRest = new MethodRef(owner, "MutateRest", intType, [], HasThis: false);
+        var consume = new MethodRef(rest, "Consume", intType, [type], HasThis: true);
+        var restField = new FieldRef(owner, "Rest", rest);
+
+        const int seed = 256;
+        const int receiver = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Call(mutateRest, isVirtual: false, [])));
+        block.Add(new StoreStackSlot(receiver, new LoadField(restField, new LoadArgument(0, "this", owner))));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(receiver, rest),
+            new LoadStackSlot(seed, type),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "FieldReceiverSpillAfterMutatingEntry",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new(); S_257 = holder.Rest; S_256.X = 1;
+    // return S_257.Consume(S_256);` in a STATIC method, where argument 0 (`holder`) is
+    // an ordinary, possibly null parameter rather than `this`. Reading `holder.Rest`
+    // can throw NullReferenceException, so it is NOT reorder-safe: moving it (and the
+    // construction) would change when the throw is observed. The pass must decline to
+    // inline it as the folded receiver.
+    static IrFunction FunctionWithStaticArg0FieldReceiverSpill()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var rest = TypeRef.Definition("Synthetic", "Samples", "Rest");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var consume = new MethodRef(rest, "Consume", intType, [type], HasThis: true);
+        var restField = new FieldRef(owner, "Rest", rest);
+
+        const int seed = 256;
+        const int receiver = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(receiver, new LoadField(restField, new LoadArgument(0, "holder", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Constant(1, intType)));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(receiver, rest),
+            new LoadStackSlot(seed, type),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "StaticArg0FieldReceiverSpill",
+            owner,
+            new MethodSignature(intType, [new Parameter("holder", owner)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new InitTarget(this); S_257 = this.Rest; S_256.X = 1;
+    // return S_257.Consume(S_256);` in an INSTANCE method whose target constructor is
+    // NOT parameterless — it receives `this` and may mutate `this.Rest`. A use-site
+    // fold would evaluate the receiver `this.Rest` before that constructor, reordering
+    // the read across the mutation. The parameterless-ctor gate must decline to admit
+    // the receiver spill as a reorder-safe skip, so this dangerous fold never happens.
+    static IrFunction FunctionWithReceiverSpillAndArgumentedCtor()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var rest = TypeRef.Definition("Synthetic", "Samples", "Rest");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [owner], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var consume = new MethodRef(rest, "Consume", intType, [type], HasThis: true);
+        var restField = new FieldRef(owner, "Rest", rest);
+
+        const int seed = 256;
+        const int receiver = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [new LoadArgument(0, "this", owner)])));
+        block.Add(new StoreStackSlot(receiver, new LoadField(restField, new LoadArgument(0, "this", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Constant(1, intType)));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(receiver, rest),
+            new LoadStackSlot(seed, type),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "ReceiverSpillAndArgumentedCtor",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Builds `S_256 = new InitTarget(); S_257 = this.Field; S_256.X = Mutate();
+    // return Consume(S_256, S_257);` in an INSTANCE method. The mutable read
+    // `this.Field` is spilled before the member value (beforeFirstEntry), so it is
+    // admitted as a reorder-safe skip and the construction folds into an initializer
+    // at the FIRST argument. But `this.Field` feeds the SECOND argument, which C#
+    // evaluates after the first — after the side-effecting member value `Mutate()`.
+    // Inlining the read there would move it past the mutation, so the pass must leave
+    // it as a spill statement.
+    static IrFunction FunctionWithMutableReadSpillFeedingLaterArgument()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true) { ConstructorEffectFree = true };
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var mutate = new MethodRef(owner, "Mutate", intType, [], HasThis: false);
+        var consume = new MethodRef(owner, "Consume", intType, [type, intType], HasThis: false);
+        var field = new FieldRef(owner, "Field", intType);
+
+        const int seed = 256;
+        const int spill = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(spill, new LoadField(field, new LoadArgument(0, "this", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Call(mutate, isVirtual: false, [])));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(seed, type),
+            new LoadStackSlot(spill, intType),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "MutableReadSpillFeedingLaterArgument",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Same shape as FunctionWithMutableReadSpillFeedingLaterArgument, but the target
+    // constructor is left NOT effect-free (ConstructorEffectFree defaults to false),
+    // modelling a target whose `.cctor` or non-trivial ctor could mutate the field the
+    // receiver read observes. Without the effect-free fact, the `this.Field` read that
+    // runs after the `newobj` is no longer a reorder-safe skip, so the fold declines.
+    static IrFunction FunctionWithMutableReadSpillAndNonEffectFreeCtor()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var mutate = new MethodRef(owner, "Mutate", intType, [], HasThis: false);
+        var consume = new MethodRef(owner, "Consume", intType, [type, intType], HasThis: false);
+        var field = new FieldRef(owner, "Field", intType);
+
+        const int seed = 256;
+        const int spill = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(spill, new LoadField(field, new LoadArgument(0, "this", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Call(mutate, isVirtual: false, [])));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(seed, type),
+            new LoadStackSlot(spill, intType),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "MutableReadSpillAndNonEffectFreeCtor",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
             [],
             body);
     }
