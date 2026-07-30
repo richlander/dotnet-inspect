@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.CSharpBodySlicer.Tests;
@@ -671,16 +672,38 @@ public class ScanTokenTests
         var swept = AllStringsOver(Alphabet, 6);
         Assert.Equal(299_592, swept.Count);
 
+        // Reading the loop variable back would pin the intended input rather than the scanned
+        // one, so each scan is reconstructed from its own output: tokens are laid down at their
+        // columns and the gaps between them filled with spaces, which is exact because a space is
+        // the only character in this alphabet that no token covers. Collapsing the loop to one
+        // string leaves the alphabet and the count intact and was otherwise silent (adversarial
+        // review, GPT).
+        var scanned = new HashSet<string>();
+        var rebuilt = new StringBuilder();
+
         foreach (var input in swept)
         {
-            // No local holds the scanned line: an in-loop substitution would have to be spelled
-            // at the scan call itself, which is the visible, out-of-scope class rather than a
-            // silent weakening of a value the test supplies (adversarial review, GPT).
-            string? gap = FindCoverageGap([input], BodySlicer.ScanTokens([input]));
+            var tokens = BodySlicer.ScanTokens([input]);
+            string? gap = FindCoverageGap([input], tokens);
 
             if (gap is not null)
                 Assert.Fail($"input \"{input}\": {gap}");
+
+            rebuilt.Clear();
+
+            foreach (var token in tokens)
+            {
+                rebuilt.Append(' ', token.Column - rebuilt.Length);
+                rebuilt.Append(token.TextIn(input));
+            }
+
+            scanned.Add(rebuilt.ToString().TrimEnd());
         }
+
+        // Trailing spaces are the one ambiguity: an unterminated literal's token runs to the end
+        // of the line and swallows them, while outside one they belong to no token at all. Both
+        // sides are trimmed so the comparison is exact; nothing else about the input is discarded.
+        Assert.Equal(swept.Select(x => x.TrimEnd()).ToHashSet().Order(), scanned.Order());
     }
 
     /// <summary>
@@ -737,18 +760,38 @@ public class ScanTokenTests
         var tails = AllStringsOver(Alphabet, 3);
         Assert.Equal(6 + 36 + 216, tails.Count);
 
+        // What the scanner actually saw, read back out of its own output rather than from the
+        // loop variable. Pinning the opener list by value does not pin that the loop uses it:
+        // collapsing the body to `openers[0]` left the list intact, scanned one opener seven
+        // times, and let a wrong depth through at the multi-dollar raw branch (adversarial
+        // review, GPT). Recording the loop variable instead would restore that hole, since it
+        // would again describe the intended input rather than the scanned one.
+        // The tail is read back the same way. Its alphabet holds no whitespace, so the line's
+        // tokens cover it exactly and concatenating them reconstructs what the scanner consumed.
+        var openersScanned = new HashSet<string>();
+        var tailsScanned = new HashSet<string>();
+
         foreach (string opener in openers)
         {
             foreach (string tail in tails)
             {
                 var lines = new[] { "{", "    x = [", "        " + opener, tail };
-                var first = BodySlicer.ScanTokens(lines).First(t => t.Line == 3);
+                var tokens = BodySlicer.ScanTokens(lines);
+                var opened = tokens.Single(t => t.Line == 2);
+                var first = tokens.First(t => t.Line == 3);
+
+                openersScanned.Add(opened.TextIn(lines[2]).ToString().TrimStart());
+                tailsScanned.Add(string.Concat(
+                    tokens.Where(t => t.Line == 3).Select(t => t.TextIn(lines[3]).ToString())));
 
                 Assert.Equal(
                     (ScanTokenKind.StringLiteral, 1, 1),
                     (first.Kind, first.Depth, first.BracketDepth));
             }
         }
+
+        Assert.Equal(openers.Order(), openersScanned.Order());
+        Assert.Equal(tails.Order(), tailsScanned.Order());
     }
 
     /// <summary>
