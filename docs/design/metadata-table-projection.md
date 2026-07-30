@@ -384,49 +384,87 @@ points at.
 
 Safety here is two independent decisions, and conflating them into one flag is
 a design error. One decides whether hostile input is *tolerated*; the other
-decides how artifact text is *spelled*. They compose:
+decides how artifact text is *spelled*.
 
-| Axis | Default | Opt-out |
-| --- | --- | --- |
-| **Trust** — does a concerning pattern abort? | abort at the first one | `--survey` reports every site without content; `--dangerously-skip-checks` proceeds |
-| **Rendering** — how is artifact text printed? | transliterated, always | `--dangerously-print-raw-text` |
+**Trust** — what happens when a concerning pattern is found:
 
-`--dangerously-skip-checks` is defensible **only because the rendering axis
-stays conservative underneath it**. It means "do not refuse," not "attack my
-terminal." Emitting a live `ESC` requires both flags — two separately named
-mistakes. `--dangerously-print-raw-text` alone is the unrestricted mode.
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | abort at the first one |
+| `--survey` | keep going and report every site — offset and pattern kind, never content |
+| `--dangerously-skip-checks` | keep going and render the values anyway |
+
+**Rendering** — how artifact text is spelled once something is printed:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | visually encoded: control characters re-spelled into an inert form |
+| `--dangerously-print-raw-text` | the artifact's bytes, unmodified |
+
+The axes are independent, and that is the whole design. Visual encoding is the
+default on **every** artifact-text path, including under
+`--dangerously-skip-checks` — which is exactly what makes that flag defensible.
+It means "do not refuse," not "attack my terminal." Reaching a live `ESC` on a
+terminal therefore takes **both** flags: one to stop refusing, one to stop
+encoding. Two separately named mistakes.
 
 `--survey` is the mode that keeps a hostile image inspectable without handing
 over its bytes: it reports *where* and *what kind*, never *what*. This is the
 shape `grep` has had for decades — `Binary file X matches` by default, content
 only under `-a`/`--text`.
 
-### Transliteration, not neutralization
+### Visual encoding, not neutralization
 
 The rendering axis does not remove or replace dangerous characters; it
-**re-spells** them so the sink cannot interpret them:
+**visually encodes** them so the sink cannot interpret them. The term and the
+contract are borrowed from BSD [`vis(3)`](https://man.netbsd.org/vis.3), which
+encodes arbitrary input into graphic characters only and pairs every encoder
+with a decoder (`unvis`) so the transform is unique and invertible. The
+spelling is `vis(3)`'s too: it introduces with a backslash and puts standard
+**caret notation** — `cat -v`'s and `less`'s convention, dating to the PDP-6
+up-arrow the 1967 ASCII revision replaced with `^` — *inside* that, as `\^C`.
 
-| Input | Spelling |
-| --- | --- |
-| C0 (`U+0000`–`U+001F`) | `^` + (code point + `0x40`); `ESC` is `^[` |
-| `DEL` (`U+007F`) | `^?` |
-| C1 (`U+0080`–`U+009F`) | `^u` plus four hex digits; `U+009F` is `^u009F` |
-| literal `^` | `^^` |
+| Input | Spelling | Source |
+| --- | --- | --- |
+| C0 (`U+0000`–`U+001F`) | `\^` + (code point + `0x40`); `ESC` is `\^[` | `vis(3)` + caret notation |
+| `DEL` (`U+007F`) | `\^?` | `vis(3)` + caret notation |
+| C1 (`U+0080`–`U+009F`) | `\u` plus four hex digits; `U+009F` is `\u009F` | `vis(3)` shape, C# spelling |
+| literal `\` | `\\` | `vis(3)` |
 
-The forms do not collide: C0 lands `^` on `@`–`_`, so a lowercase `u` after the
-caret can only introduce the hex form, and escaping the introducer makes the
-whole mapping injective. Every other code point is itself.
+C1 is the one place the spelling diverges. `vis(3)` and `cat -v` spell values
+above `0x7F` in meta notation (`\M^_`), but that is a convention about a *byte*
+with its high bit set; our input is a .NET `string`, where `U+009F` is a code
+point and no such byte exists. `\uXXXX` is C#'s own spelling for exactly that.
 
-The properties that matter are that it is **inert** (no sink interprets the
-result), **lossless** (nothing is dropped, so the view still answers "what is
-actually in this field"), and **reversible** (the spelling is unambiguous, so
-tooling can recover the original bytes). Neutralization has none of the three:
-it must be *right* about what is dangerous, and being wrong is silent.
+**Do not introduce with the caret**, which is the obvious simplification and is
+wrong. Caret notation alone is not invertible, and the collision is not exotic:
+`U+001E` (RS) is `0x1E + 0x40 = 0x5E`, which *is* `^`, so RS spells `^^` — the
+same as any escape of a literal `^`. `cat -v` lives with this because it never
+claims to be reversible; `vis(3)` avoids it by introducing with a character
+outside the caret image. That is the whole reason for the backslash, and it is
+worth writing down because the caret-introduced version looks correct and
+survives casual inspection.
 
-Because it is inert, transliteration is unconditional. Gating it behind a flag
-would buy no safety and would recreate the inheritance failure described below
-— a path that forgets to opt in. Nothing passes a flag to make
-`System.Text.Json` escape `\u001b`; this is that, for text sinks.
+The properties that matter are `vis(3)`'s: the output is **inert** (no sink
+interprets it), **lossless** (nothing is dropped, so the view still answers
+"what is actually in this field"), and **invertible** (a decoder recovers the
+original exactly). Neutralization has none of the three.
+
+Those three are an asserted property, so the encoding ships with the gate that
+proves them: a decoder, plus a round-trip over every single code unit in
+`U+0000`–`U+FFFF`, plus a round-trip-and-injectivity sweep over strings built
+from the characters that can collide — `\`, `^`, `u`, `?`, `@`, `[`, hex
+digits, and a representative of C0, `DEL`, C1, and the boundary above it.
+Encode-without-a-decoder is not this pattern, and an invertibility claim with
+no decoder in the test is not evidence. The caret-introduced scheme above was
+caught *by* that sweep, during review of this document.
+
+Because the encoding is inert, it needs no opt-in. It is the default on every
+artifact-text path, with exactly one named opt-out
+(`--dangerously-print-raw-text`) rather than a per-call-site choice. Gating it
+behind an opt-in would buy no safety and would recreate the inheritance failure
+described below — a path that forgets to ask for it. Nothing passes a flag to
+make `System.Text.Json` escape `\u001b`.
 
 ### Failure messages carry no artifact bytes
 
@@ -439,10 +477,10 @@ channel the check just closed.
 ### Status
 
 The bounded-traversal, parse-never-load, and opt-in-heap contracts above are
-implemented. The trust/rendering axes, `--survey`, the transliteration
-spelling, and the failure-message rule are the **target model** and are not yet
-implemented; today the projector neutralizes control characters unconditionally
-and continues. See the threat model's open work.
+implemented. The trust and rendering axes, `--survey`, the visual-encoding
+spelling and its decoder, and the failure-message rule are the **target model**
+and are not yet implemented; today the projector neutralizes control characters
+unconditionally and continues. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 

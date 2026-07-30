@@ -80,14 +80,26 @@ properties are rejected; the rest of the stack does not need to know the rule
 exists. A rule enforced by *calling a function* is a rule a new path can forget,
 and `string` is the type of both a checked and an unchecked value.
 
-One thing this rule does **not** forbid is escaping and transliteration.
-Escaping a value on the way into a sink — JSON string escapes, caret notation
-for control characters — is a property of the *encoding*, applied uniformly to
-all text, lossless and reversible. Sanitization is different: it inspects a
-value, decides it is dangerous, and alters or drops part of it so the rest can
-proceed. The first has to be correct about the sink's grammar, which is written
-down. The second has to be correct about what an attacker might do, which is
-not.
+One thing this rule does **not** forbid is escaping and encoding. Escaping a
+value on the way into a sink — JSON string escapes, `vis(3)`-style visual
+encoding of control characters — is a property of the *encoding*, applied
+uniformly to all text, lossless and invertible. Sanitization is different: it
+inspects a value, judges it dangerous, and alters or drops part of it so the
+rest can proceed.
+
+Both have to know which characters the sink interprets; a terminal has no
+formal grammar, so encoding for one is not the free lunch that escaping for
+JSON is. The distinction is what happens when you are **wrong** about that set:
+
+- Under-encode, and the fix is to widen the set in one place. Nothing was
+  lost, the decoder still recovers the original, and every call site inherits
+  the correction at once.
+- Under-sanitize, and the data is already gone, the judgment is spread across
+  every call site that made it, and there is no decoder to appeal to.
+
+Uniformity is the other half. An encoder does not decide *whether* a given
+value is hostile, so it cannot be wrong about a value — only about the sink.
+That is a much smaller thing to be right about, and it is written down.
 
 ### Failure messages carry no artifact data
 
@@ -324,43 +336,75 @@ Artifact text can contain Markdown delimiters, newlines, terminal control
 characters, URLs, or prompt-like instructions. Renderers must preserve output
 structure and must not interpret inspected text as authority.
 
+> **Status.** The two axes below are the **target model**, not current
+> behavior. Today the metadata projector neutralizes control characters
+> unconditionally and continues, with no flags on either axis. See open work
+> item 10, and
+> [metadata-table-projection.md](metadata-table-projection.md#status).
+
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
-is a design error:
+is a design error.
 
-| Axis | Question | Default | Opt-out |
-| --- | --- | --- | --- |
-| Trust | does a concerning pattern abort the run? | abort at the first one | a survey mode reporting location and pattern kind but no content; then an explicitly `dangerously`-named skip |
-| Rendering | how is artifact text spelled? | transliterated, unconditionally | an explicitly `dangerously`-named raw mode |
+**Trust** — what happens when a concerning pattern is found:
 
-A skip on the trust axis is defensible **only because the rendering axis stays
-conservative underneath it**: it means "do not refuse," not "attack my
-terminal." Emitting a live control character requires opting out of both — two
-separately named mistakes.
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | abort at the first one |
+| survey mode | keep going; report location and pattern kind, never content |
+| a `dangerously`-named skip | keep going and render the values anyway |
 
-Rendering is **transliteration, not neutralization**: control characters are
-re-spelled into an inert, lossless, reversible form rather than removed or
-replaced. That combination is what lets it be unconditional — it costs the
-reader nothing, so there is no case for a flag, and an unconditional rule
+**Rendering** — how artifact text is spelled once something is printed:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | visually encoded into an inert form |
+| a `dangerously`-named raw mode | the artifact's bytes, unmodified |
+
+The axes are independent, and that is the design. Visual encoding is the
+default on **every** artifact-text path, including underneath the trust-axis
+skip — which is precisely what makes that skip defensible: it means "do not
+refuse," not "attack my terminal." Reaching a live control character therefore
+requires opting out of both axes, two separately named mistakes.
+
+Rendering is **visual encoding, not neutralization**: control characters are
+re-spelled into an inert, lossless, invertible form rather than removed or
+replaced. The vocabulary is borrowed rather than coined — see below — and the
+three properties together are what let the encoding be the default: it costs
+the reader nothing, so there is no case for making it opt-in, and a default
 cannot be forgotten by a new path. Nothing passes a flag to make a JSON
 serializer escape `\u001b`.
 
-This is established practice for tools that read hostile bytes. `grep` refuses
-binary content by default and prints `Binary file X matches` — location, never
-content — with `-a`/`--text` as the named opt-in, for exactly this threat.
-`less` renders control characters in caret notation by default and reserves raw
-output for `-r`. `rustc` made bidirectional control characters a deny-by-default
-hard error after Trojan Source (CVE-2021-42574) rather than stripping them.
+This is established practice for tools that read hostile bytes:
+
+- **BSD `vis(3)`** is where the vocabulary and the contract come from. It
+  visually encodes arbitrary input into graphic characters only, and pairs the
+  encoder with a decoder (`unvis`) so the transform is unique and invertible.
+  Encode-without-a-decoder is not this pattern.
+- **Caret notation** — `^[` for `ESC`, `^?` for `DEL` — is the standard
+  spelling for C0 and `DEL`, used by `cat -v`, `less`, and `stty`, and dating
+  to the PDP-6 up-arrow that the 1967 ASCII revision replaced with `^`. Specify
+  it; do not invent a spelling.
+- **`grep`** refuses binary content by default and prints `Binary file X
+  matches` — location, never content — with `-a`/`--text` as the named opt-in,
+  for exactly this threat.
+- **`less`** renders control characters in caret notation by default and
+  reserves raw output for `-r`.
+- **`rustc`** made bidirectional control characters a deny-by-default hard
+  error after Trojan Source (CVE-2021-42574) rather than stripping them.
+- **`binutils`** is the cautionary case rather than a model: its parsers have
+  produced a continuous CVE stream, found almost entirely by fuzzing.
 
 Do not copy `less`'s one mistake: its protection is conditional on stdout being
-a TTY, and it degrades to `cat` when piped. A pipe is precisely where an agent
-or a log is.
+a TTY, and it degrades to `cat` when output is redirected — `-r` makes no
+difference there, because nothing is being encoded in the first place. A pipe
+is precisely where an agent or a log is.
 
 JSON serializers provide structural escaping. Markdown, table, plain-text, and
 stderr paths need equivalent discipline, and stderr especially — see
 [failure messages carry no artifact data](#failure-messages-carry-no-artifact-data).
 
 [metadata-table-projection.md](metadata-table-projection.md#safety) works this
-through on one surface and specifies a concrete transliteration spelling.
+through on one surface and specifies a concrete encoding.
 
 ## Verification obligations
 
@@ -445,16 +489,35 @@ only ordinary compiler output.
     neutralizes. `MetadataTableProjector` repairs control characters in
     artifact text and continues, which is the sanitize strategy this document
     now argues against, and it is applied by calling a helper rather than by
-    construction — which is how the metadata version stamp reached presentation
-    uncontained. Introduce the trust axis (default abort, survey, named skip),
-    move rendering into a type a renderer cannot bypass, and re-point
-    `MdiContainmentTests` at the new property.
+    construction — which is how the metadata version stamp reached
+    presentation uncontained. Introduce the trust axis (default abort, survey,
+    named skip), move rendering into a type a renderer cannot bypass, and
+    re-point `MdiContainmentTests` at the new property. Ship the encoder with
+    its decoder and the round-trip/injectivity gate described in
+    [metadata-table-projection.md](metadata-table-projection.md#safety); a
+    caret-introduced spelling is not invertible and must not be used.
 11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
-    throws `Invalid {name}: '{value}'`, echoing the value it just rejected. Note
-    that printability here is a function of **provenance, not content**: the
-    same helper is called with user-typed coordinates and with
-    graph-resolved ones, so it cannot be decided by inspecting the value. That
-    is a further argument for provenance-carrying types.
+    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
+    Printability here is a function of **provenance, not content**: the same
+    helper receives user-typed coordinates and artifact-derived ones, so it
+    cannot be decided by inspecting the value. Two graph-resolved paths reach
+    it, both verified:
+
+    - `ProjectCommand` → `ProjectAssetsParser` package references →
+      `PackageExtractor.ExtractPackageAsync`.
+    - `NuspecParser` → `PackageDependency.Id`/`.Version` →
+      `DependencyResolutionService.ResolveDependencyTreeAsync` →
+      `PackageExtractor.TryGetNuspecXmlAsync` → `NuGetCache.TryGetCachedPackage`.
+
+    The second path leaks twice and reaches a package the user never named.
+    `DependencyResolutionService` logs `dep.Id`/`dep.Version` before any
+    validation, then catches `Exception` and logs `ex.Message`, re-emitting the
+    rejected value; that same handler returns an empty result, which is the
+    success-shaped failure this document forbids elsewhere.
+    `ValidatePathComponent` does not reject control characters other than
+    `NUL`, so an `ESC` passes it outright. This is the natural first
+    application of the hardened-entrypoint pattern, alongside the nuspec input
+    contract behind #3394 and #3418.
 12. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers have
     produced a continuous CVE stream found almost entirely by fuzzing. Most of
