@@ -27,7 +27,8 @@ public sealed record MetadataImageOverview
         int MetadataSize,
         ImmutableArray<MetadataHeapSummary> Heaps,
         ImmutableArray<MetadataTableSummary> Tables,
-        MetadataImageHeaders Headers)
+        MetadataImageHeaders Headers,
+        bool MetadataVersionTruncated = false)
     {
         ArgumentNullException.ThrowIfNull(MetadataVersion);
         ArgumentOutOfRangeException.ThrowIfNegative(MetadataOffset);
@@ -46,6 +47,7 @@ public sealed record MetadataImageOverview
         this.Heaps = Heaps;
         this.Tables = Tables;
         this.Headers = Headers;
+        this.MetadataVersionTruncated = MetadataVersionTruncated;
     }
 
     /// <summary>
@@ -53,6 +55,21 @@ public sealed record MetadataImageOverview
     /// is the metadata format stamp, not the assembly's target framework.
     /// </summary>
     public string MetadataVersion { get; }
+
+    /// <summary>
+    /// True when <see cref="MetadataVersion"/> is a prefix of the stamp the image
+    /// actually carries, because neutralizing it exceeded the display budget.
+    /// A conforming stamp can never trip this: ECMA-335 II.24.2.1 bounds the
+    /// field at 255 bytes, which cannot outgrow the budget even if every byte is
+    /// a control character. It exists because the stamp is read straight out of
+    /// the image and a malformed image is exactly the case this type must survive
+    /// describing.
+    ///
+    /// Consumers must render a truncated value distinguishably — the renderer
+    /// appends an ellipsis — so a clipped stamp is never mistaken for a whole
+    /// one, matching <see cref="MetadataValue.HeapReference.Truncated"/>.
+    /// </summary>
+    public bool MetadataVersionTruncated { get; }
 
     /// <summary>Whether the metadata is plain ECMA-335 or a Windows-Runtime flavour.</summary>
     public MetadataKind Kind { get; }
