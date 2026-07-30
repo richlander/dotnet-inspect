@@ -22,6 +22,16 @@ rules. Detailed design, subsystem mechanics, version requirements, and
 historical context belong with their owning code, workflow, or focused
 documentation.
 
+### Nightshift is opt-in
+
+`NIGHTSHIFT.md`, the `nightshift` skills, and the
+`nightshift`/`turnstile`/`octoshift` tools describe a separate multi-agent
+operating model with its own vocabulary and its own stricter gates. **They apply
+only when you have been explicitly told that you are working in Nightshift mode
+for this session.** Otherwise they are inapplicable: follow this file, and do
+not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
+those documents exist.
+
 ## Before changing files
 
 - `main` is protected. Keep the primary repository checkout attached to
@@ -35,11 +45,12 @@ documentation.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Do not reuse a worktree across unrelated changes.
 - Never amend commits; create follow-up commits.
-- Before requesting review, fetch `origin/main` and incorporate it into the
-  feature branch. Rebase only before the branch's first push. Once a branch is
-  public or under review, merge `origin/main`; never amend, rebase, or
-  force-push reviewed history. A slice in a stack is the standing exception:
-  restacking rebases and force-pushes a public branch by design — see
+- Integrate `origin/main` into the feature branch before **every** review round,
+  not only the first — see [Adversarial review](#adversarial-review). Rebase
+  only before the branch's first push. Once a branch is public or under review,
+  merge `origin/main`; never amend, rebase, or force-push reviewed history. A
+  slice in a stack is the standing exception: restacking rebases and
+  force-pushes a public branch by design — see
   [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues) for
   the discipline that replaces this rule there.
 - After updating from main or resolving conflicts, re-read `AGENTS.md` and
@@ -112,6 +123,23 @@ skill listing.
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 
+### Output contract
+
+Commands that render sections follow this verbosity model:
+
+- `-v:q`: compact fields only; include high-value fields only.
+- `-v:m`: one section, plus an optional text line. Include all high-value
+  fields in that section.
+- `-v:n`: multiple sections are allowed; include all sections that are not
+  network-bound.
+- `-v:d`: all sections.
+
+New sections must not enter the default `-v:m` view unless they are the
+command's single high-value section. Focused flags may explicitly select a
+section and promote verbosity as needed. Keep alternate lenses, section
+selection, row queries, and rendering formats orthogonal; follow the current
+progressive-disclosure and output-shape docs for detailed behavior.
+
 ### Terminology
 
 Prefer inclusive terminology in code, identifiers, comments, output, and docs.
@@ -122,99 +150,6 @@ These substitutions are required, not stylistic:
 
 Match the surrounding casing and word form when substituting (for example
 `allowList`/`AllowList` for an identifier, "deny-listed" for an adjective).
-
-## Evidence and validation
-
-Match evidence to the claim and use the smallest existing check that proves it:
-
-- Start with focused tests for the changed subsystem; expand only when the
-  change crosses boundaries or focused results expose broader risk.
-- For compiler-, metadata-, or IL-shape claims, include a compiled fixture or
-  real artifact canary when practical. Synthetic fixtures are appropriate for
-  unreachable states and seam isolation, but not as the only proof of a
-  compiler-produced shape.
-- Pair every new discriminator or heuristic with close negative cases. Preserve
-  candidate identity, provenance, local semantics, and default output unless
-  the change explicitly intends otherwise.
-- For output changes, exercise the affected Markdown and structured modes,
-  schema/query fields, ordering, and verbosity behavior.
-- For any taste- or style-oriented raise or rendering change, consult **both**
-  facets of the dotnet/runtime style oracle before landing it and record what
-  each says: the **declared** facet (`dotnet/runtime`'s `.editorconfig` and
-  enabled analyzers — quote the `dotnet_style_*`/`csharp_style_*` key or state
-  it is silent) and the **revealed** facet (the dominant form in
-  `dotnet/runtime` source, with `path/file.cs:line` witnesses). Cite the facet a
-  claim rests on; never assert "oracle approved" uncited, and never infer one
-  facet from the other. A knowing divergence is legitimate only when the
-  consultation happened and is recorded. See
-  [`docs/decompiler-taste.md`](docs/decompiler-taste.md#consulting-both-facets-is-required).
-- For corpus or performance claims, record the pinned input, command, baseline,
-  and result. Static analysis proves structural evidence, not runtime heat,
-  frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
-- Documentation-only changes that make no measured behavior claim require
-  Markdown validation, not product builds or tests.
-- A doc comment or README that asserts a safety, soundness, or faithfulness
-  property must name the gate that enforces it, or explicitly mark the
-  property as unverified.
-
-### Asserted properties name their gate
-
-"Unverified" is an acceptable answer; an unmarked, ungated claim is not. A
-green suite plus a confident comment reads exactly like a verified property,
-and a reviewer can only tell them apart by tampering with the code to see
-whether anything notices. Naming the gate moves that cost to the author, where
-it is a one-line answer.
-
-Prefer making the declaration *drive* the enforcement set over restating it, so
-that stale and missing entries both fail:
-
-- `ByteNeutralityGateTests` derives its coverage set from the style catalog
-  (`StyleOptionCatalog.Options.Where(o => !o.ByteDivergent)`) and asserts set
-  equality against the specimens.
-- `SpanAttributionTests` asserts set equality between the body-intrinsic error
-  allowlist and the pin for the current `MethodologyVersion`.
-
-When the property depends on wiring rather than on a set, write one named
-non-vacuity test that fails if the wiring dies, and say in its doc comment that
-it is that test —
-`IrInvariantCheckTests.PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree`
-is the example.
-
-A gate only counts if it runs in the configuration the suite uses. The suite
-runs Release for fixture fidelity (see [Building and
-testing](#building-and-testing)), so a `[Conditional("DEBUG")]` check asserts
-nothing. Make such a check a runtime opt-in that the test host arms; do not
-switch the suite to Debug.
-
-### Harness boundary
-
-Test harnesses own orchestration, fixtures, independent oracles, comparison,
-and reporting. When behavior belongs to the product, a harness must exercise
-the product-owned capability rather than reconstructing or replacing it.
-
-Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
-shape recognition, or normalization that compensates for missing, incomplete,
-or incorrect product behavior. Such compensation hides the product gap and
-makes the harness a second implementation.
-
-If a test cannot express its claim without covering for the product, stop and
-ask for guidance. File an issue against the missing product capability and
-either fix that capability first or record the harness work as blocked; do not
-make the harness substitute for the product.
-
-Decompiler raising, typing, structuring, fidelity, or printer changes have
-additional evidence requirements. Follow the decompiler docs and PR templates
-rather than duplicating their evolving commands and gates here.
-
-## File-based apps
-
-Do not use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files.
-Prefer .NET file-based apps for throwaway probes unless a specific Python
-library is needed. Write probes under `/tmp/` and run them with:
-
-```bash
-dotnet run /tmp/check.cs
-```
 
 ## Building and testing
 
@@ -335,26 +270,107 @@ libraries have no versioning story and no API-stability commitment; treat their
 public surface as an internal design constraint, not an external compatibility
 surface. `PackagingSurfaceTests` pins both halves.
 
-## Output contract
+### File-based apps
 
-Commands that render sections follow this verbosity model:
+Do not use `dotnet-script`, `dotnet script`, `dotnet-fsi`, or `.csx` files.
+Prefer .NET file-based apps for throwaway probes unless a specific Python
+library is needed. Write probes under `/tmp/` and run them with:
 
-- `-v:q`: compact fields only; include high-value fields only.
-- `-v:m`: one section, plus an optional text line. Include all high-value
-  fields in that section.
-- `-v:n`: multiple sections are allowed; include all sections that are not
-  network-bound.
-- `-v:d`: all sections.
+```bash
+dotnet run /tmp/check.cs
+```
 
-New sections must not enter the default `-v:m` view unless they are the
-command's single high-value section. Focused flags may explicitly select a
-section and promote verbosity as needed. Keep alternate lenses, section
-selection, row queries, and rendering formats orthogonal; follow the current
-progressive-disclosure and output-shape docs for detailed behavior.
+## Evidence and validation
 
-When all merge-blocking validation, CI, and required review are complete, post
-a PR comment that says `Ready to merge`. Label later work as non-blocking
-follow-up so readiness remains unambiguous.
+Match evidence to the claim and use the smallest existing check that proves it:
+
+- Start with focused tests for the changed subsystem; expand only when the
+  change crosses boundaries or focused results expose broader risk.
+- For compiler-, metadata-, or IL-shape claims, include a compiled fixture or
+  real artifact canary when practical. Synthetic fixtures are appropriate for
+  unreachable states and seam isolation, but not as the only proof of a
+  compiler-produced shape.
+- Pair every new discriminator or heuristic with close negative cases. Preserve
+  candidate identity, provenance, local semantics, and default output unless
+  the change explicitly intends otherwise.
+- For output changes, exercise the affected Markdown and structured modes,
+  schema/query fields, ordering, and verbosity behavior.
+- For any taste- or style-oriented raise or rendering change, consult **both**
+  facets of the dotnet/runtime style oracle before landing it and record what
+  each says: the **declared** facet (`dotnet/runtime`'s `.editorconfig` and
+  enabled analyzers — quote the `dotnet_style_*`/`csharp_style_*` key or state
+  it is silent) and the **revealed** facet (the dominant form in
+  `dotnet/runtime` source, with `path/file.cs:line` witnesses). Cite the facet a
+  claim rests on; never assert "oracle approved" uncited, and never infer one
+  facet from the other. A knowing divergence is legitimate only when the
+  consultation happened and is recorded. See
+  [`docs/decompiler-taste.md`](docs/decompiler-taste.md#consulting-both-facets-is-required).
+- For corpus or performance claims, record the pinned input, command, baseline,
+  and result. Static analysis proves structural evidence, not runtime heat,
+  frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
+- Documentation-only changes that make no measured behavior claim require
+  Markdown validation, not product builds or tests.
+- A doc comment or README that asserts a safety, soundness, or faithfulness
+  property must name the gate that enforces it, or explicitly mark the
+  property as unverified.
+
+### Asserted properties name their gate
+
+"Unverified" is an acceptable answer; an unmarked, ungated claim is not. A
+green suite plus a confident comment reads exactly like a verified property,
+and a reviewer can only tell them apart by tampering with the code to see
+whether anything notices. Naming the gate moves that cost to the author, where
+it is a one-line answer.
+
+Prefer making the declaration *drive* the enforcement set over restating it, so
+that stale and missing entries both fail:
+
+- `ByteNeutralityGateTests` derives its coverage set from the style catalog
+  (`StyleOptionCatalog.Options.Where(o => !o.ByteDivergent)`) and asserts set
+  equality against the specimens.
+- `SpanAttributionTests` asserts set equality between the body-intrinsic error
+  allowlist and the pin for the current `MethodologyVersion`.
+
+When the property depends on wiring rather than on a set, write one named
+non-vacuity test that fails if the wiring dies, and say in its doc comment that
+it is that test —
+`IrInvariantCheckTests.PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree`
+is the example.
+
+A gate only counts if it runs in the configuration the suite uses. The suite
+runs Release for fixture fidelity (see [Building and
+testing](#building-and-testing)), so a `[Conditional("DEBUG")]` check asserts
+nothing. Make such a check a runtime opt-in that the test host arms; do not
+switch the suite to Debug.
+
+### Harness boundary
+
+Test harnesses own orchestration, fixtures, independent oracles, comparison,
+and reporting. When behavior belongs to the product, a harness must exercise
+the product-owned capability rather than reconstructing or replacing it.
+
+Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
+shape recognition, or normalization that compensates for missing, incomplete,
+or incorrect product behavior. Such compensation hides the product gap and
+makes the harness a second implementation.
+
+If a test cannot express its claim without covering for the product, stop and
+ask for guidance. File an issue against the missing product capability and
+either fix that capability first or record the harness work as blocked; do not
+make the harness substitute for the product.
+
+Decompiler raising, typing, structuring, fidelity, or printer changes have
+additional evidence requirements. Follow the decompiler docs and PR templates
+rather than duplicating their evolving commands and gates here.
+
+### Markdown
+
+All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
+
+```bash
+npx markdownlint-cli --fix <file>
+npx markdownlint-cli <file>
+```
 
 ## Adversarial review
 
@@ -403,6 +419,42 @@ tier**: there the harness reviews with its own model (independent passes on the
 fixed head), then **requests a second, different-family review from the user**, and
 does **not** mark the PR ready until that different-model review is obtained.
 
+**A review round is expensive; do not spend one on a branch in an undefined
+state.** Adversarial review is the scarcest resource in this workflow — several
+models, a self-contained prompt, isolated worktrees, and real runs. A branch
+whose head is unpushed, whose base is stale, whose CI is red, or whose PR
+reports a conflict has no single answer to "what am I reviewing?", so every
+finding it produces is provisional and every clean result is worthless. Reach
+the following state before requesting a round, and reach it again before each
+subsequent round:
+
+- **The reviewed head is pushed and named.** Reviewers get an exact base and
+  head, not a branch name that can move under them.
+- **`origin/main` is integrated.** Fetch and merge `origin/main`, resolve any
+  conflicts, and re-run the validation the change claims; the resulting head is
+  what you hand out. Reviewing a stale head spends the review on code that is
+  not what will merge, and defers conflict resolution to *after* the reviews are
+  clean — where the resolution is itself unreviewed.
+- **The PR is mergeable and green.** Confirm the PR reports no conflict and that
+  its required checks have completed and passed — `gh pr view <n>` for
+  mergeability, `gh pr checks <n>` for the runs. A reviewer cannot tell your
+  defect from the merge's, and a round spent on a head that cannot land is a
+  round wasted.
+- **A slice in a stack rebases onto its parent, not onto `main`.** Before
+  changing any branch's base, check whether it is part of a stack. Only the
+  stack's bottom open slice takes `origin/main` as its base; every slice above
+  it is based on its parent slice's branch until that parent lands. Merging or
+  rebasing an upper slice onto `main` pulls in work its parent has not landed
+  yet and makes the slice's diff report its parent's changes as its own — see
+  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
+- **Every PR in a stack meets these conditions**, not only the slice under
+  review. A parent that has gone red or conflicted is a red or conflicted base
+  for everything above it.
+
+Do not integrate main under a reviewer mid-read. When integration is what moved
+the head, say so on the PR and name the merge commit, so the re-review reads as
+a confirmation rather than a second full pass.
+
 Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
 Isolate every reviewer in a separate linked review worktree; never detach the
@@ -429,6 +481,9 @@ until every required fixed-head review is clean.
 - Keep PR summaries conclusion-first. Include the behavioral claim, evidence,
   compatibility or non-action boundary, and exact validation appropriate to
   the change.
+- When all merge-blocking validation, CI, and required review are complete, post
+  a PR comment that says `Ready to merge`. Label later work as non-blocking
+  follow-up so readiness remains unambiguous.
 
 ### Stacked PRs for multi-slice issues
 
@@ -498,6 +553,10 @@ worse.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's total
   size. A long stack does not make a trivial slice risky, and a small slice in a
   risky area still earns the two-model tier.
+- **Green and mergeable is checked stack-wide, per round.** The
+  [Adversarial review](#adversarial-review) precondition applies to every open
+  PR in the stack before any slice's review round, because a red or conflicted
+  parent is a red or conflicted base for everything above it.
 - **A slice's head moves for reasons other than findings** — a restack, or a
   retarget after the parent lands. The fixed-head rule applies to those the same
   way: a reviewed slice whose head has moved is not ready until a review is clean
@@ -515,12 +574,3 @@ worse.
   head did is an unresolved finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
-
-## Markdown
-
-All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
-
-```bash
-npx markdownlint-cli --fix <file>
-npx markdownlint-cli <file>
-```
