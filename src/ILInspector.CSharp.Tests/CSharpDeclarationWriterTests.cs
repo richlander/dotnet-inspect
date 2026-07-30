@@ -1300,6 +1300,30 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
+    [Theory]
+    // MAI-Code round-3 finding: a ')' inside a string default terminated the parameter
+    // list early, so the trailing-context rule saw leftover text and declined to escape.
+    [InlineData("M", "void M(int event = \")\")", "public void M(int @event = \")\")")]
+    [InlineData("M", "void M(int event = \"(\")", "public void M(int @event = \"(\")")]
+    [InlineData("M", "void M(char c = ')', int event = 0)", "public void M(char c = ')', int @event = 0)")]
+    // A ',' inside a string default must not split one parameter into two.
+    [InlineData("M", "void M(string s = \",\", int event = 0)", "public void M(string s = \",\", int @event = 0)")]
+    // An escaped quote inside the literal must not end it early.
+    [InlineData("M", "void M(string s = \"\\\")\", int event = 0)", "public void M(string s = \"\\\")\", int @event = 0)")]
+    // A tuple return must still be left alone when a literal is present.
+    [InlineData("Pair", "(int, int) Pair(string s = \")\", int event = 0)",
+        "public (int, int) Pair(string s = \")\", int @event = 0)")]
+    public void MemberDeclaration_TreatsPunctuationInsideLiteralsAsText(
+        string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
+    }
+
     [Fact]
     public void TypeDeclaration_EscapesKeywordTypeParametersInInterfaces()
     {

@@ -1670,6 +1670,11 @@ internal static class CSharpDeclarationWriter
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
             if (c is '<' or '[' or '(') depth++;
             else if (c is '>' or ']' or ')') depth--;
             else if (c == ',' && depth == 0)
@@ -1686,10 +1691,45 @@ internal static class CSharpDeclarationWriter
         int depth = 0;
         for (int i = open; i < text.Length; i++)
         {
-            if (text[i] == openChar) depth++;
-            else if (text[i] == closeChar && --depth == 0) return i;
+            char c = text[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
+            if (c == openChar) depth++;
+            else if (c == closeChar && --depth == 0) return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the closing quote of the string or character literal that
+    /// starts at <paramref name="index"/>.
+    /// </summary>
+    /// <remarks>
+    /// Brace/paren scanners over a signature must not read punctuation inside a literal
+    /// as structure. A parameter default may legally contain any character, so
+    /// <c>void M(int event = ")")</c> otherwise terminates the parameter list at the
+    /// <c>)</c> inside the string — which makes the trailing-context classification in
+    /// <see cref="OpensParameterList"/> see leftover text and decline to escape a real
+    /// parameter list. An unterminated literal returns the last index so every caller
+    /// still makes progress rather than looping.
+    /// </remarks>
+    static int SkipLiteral(string text, int index)
+    {
+        char quote = text[index];
+        for (int i = index + 1; i < text.Length; i++)
+        {
+            if (text[i] == '\\')
+            {
+                i++;
+                continue;
+            }
+            if (text[i] == quote)
+                return i;
+        }
+        return text.Length - 1;
     }
 
     sealed record TypeNamePlan(
