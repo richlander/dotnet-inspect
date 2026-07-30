@@ -907,6 +907,51 @@ caching state and lifetime questions to the projector. If `mdi`'s default path
 becomes a memory complaint, this table says to start with `Scalar`/`Flags`
 interning and the `Nil` singleton, and the probe says how to prove it moved.
 
+## Implemented: hex table selection
+
+`-S "Metadata: 0x02"` and `-S "Metadata: TypeDef"` are the same selector. The
+motivation is mechanical: this tool's own output prints hex tokens, so a reader
+following a `0x02000015` reference already has the table index in hand and
+should not have to translate `0x02` to `TypeDef` before asking for the table.
+
+The alias rewrites the **input selector**; it does not register a second
+section. That is the whole design, and it is what makes the two spellings *one*
+section rather than two that happen to render alike. A hex alias registered in
+the catalog would print its own heading, sort independently in the section
+order, count separately under `--count`, and appear as a second entry under
+`-D`. Rewriting at the boundary means everything downstream — the orderer, the
+heading, `--count`, the document schema, the effective-section cache key — only
+ever sees the canonical name, so those failure modes are not merely untested but
+unreachable.
+
+`MetadataSectionNames.TryGetTable` therefore stays canonical-only. Teaching it
+hex as well would put alias resolution in two places, and would make
+`IsMetadataSection` claim a name that selection resolution — which matches
+against the canonical catalog — would still reject.
+
+Three rules follow from treating the hex form as an address rather than a name:
+
+- **Hex carries its `0x`.** A bare `02` is a table *name* position, and
+  inferring a radix would let one spelling mean two things. This matches the
+  `--heap` address rule.
+- **Only projected tables resolve.** The alias table is derived from
+  `MetadataTableProjector.ProjectedTables`, the same array the canonical names
+  come from, so a table the projection does not cover cannot become selectable
+  by its index. The rejection names the projected tables in both spellings,
+  because a caller who pasted an index is thinking in hex.
+- **A metadata token is not a table.** `0x02000015` addresses a *row*; its high
+  byte is the table. Width is checked **textually** — a table index is one byte,
+  hence one or two hex digits — because a numeric range check alone accepts an
+  eight-digit token whose value happens to fit, so `0x00000001` (a Module row
+  token) would resolve as table `0x01`, TypeRef.
+
+A bad index fails the run even beside a selector that does match — a deliberate
+divergence from the unknown-*name* rule, which tolerates a miss when something
+else matched. That tolerance exists for names that may exist in one inspected
+assembly and not another; a hex index outside the projection is not that, since
+no image can ever supply it. Tolerating it would silently drop a selector the
+caller definitely got wrong.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
@@ -960,4 +1005,5 @@ Resolved:
   and the listing states which, so a partial view is never mistaken for a whole
   one. See [Heaps are not tables](#heaps-are-not-tables).
 - **Table selection grammar.** Both, since output already prints hex tokens and
-  users will paste them: `TypeDef` and `0x02` address the same table.
+  users will paste them: `TypeDef` and `0x02` address the same table. See
+  [Hex table selection](#implemented-hex-table-selection).

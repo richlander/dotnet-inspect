@@ -1,5 +1,9 @@
 # Member body substrate
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 How the product renders a type and its member bodies through **one producer
 contract** repeated at each layer, so that skeleton source, full source, the
 merged IL+C# view, and the implementation diff are built from parallel
