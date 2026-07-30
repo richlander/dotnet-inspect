@@ -122,17 +122,17 @@ public class ScanTokenTests
     {
         var lines = new[] { "{", "    x = [", "        \"\"\"", "} raw { text", "        \"\"\"", "    ];", "}" };
 
-        var literals = BodySlicer.ScanTokens(lines)
-            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-            .ToList();
-
-        // The token text is asserted alongside the depths so that the assertion reads the very
-        // characters the fixture relies on. Replacing the carried line's leading `}` with plain
-        // text stops it reaching the brace emission site, and pinning position alone left that
-        // substitution silent (adversarial review, GPT).
+        // The text is asserted with the depths so the assertion reads the very characters the
+        // fixture relies on: replacing the carried line's leading `}` with plain text stops it
+        // reaching the brace emission site, and pinning position alone left that silent
+        // (adversarial review, GPT).
         Assert.Equal(
-            [(2, 1, 1, "\"\"\""), (3, 1, 1, "} raw { text"), (4, 1, 1, "        \"\"\"")],
-            literals.Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
+            [
+                (0, 0, 0, "P:{"), (1, 1, 0, "W:x"), (1, 1, 0, "P:="), (1, 1, 0, "P:["),
+                (2, 1, 1, "S:\"\"\""), (3, 1, 1, "S:} raw { text"), (4, 1, 1, "S:        \"\"\""),
+                (5, 1, 1, "P:]"), (5, 1, 0, "P:;"), (6, 1, 0, "P:}"),
+            ],
+            Placed(lines));
     }
 
     /// <summary>
@@ -146,13 +146,13 @@ public class ScanTokenTests
     {
         var lines = new[] { "{", "    x = [", "        $\"a{b}c\"", "    ];", "}" };
 
-        var literals = BodySlicer.ScanTokens(lines)
-            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-            .ToList();
-
         Assert.Equal(
-            [(2, 1, 1, "$\"a{"), (2, 1, 1, "}c\"")],
-            literals.Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
+            [
+                (0, 0, 0, "P:{"), (1, 1, 0, "W:x"), (1, 1, 0, "P:="), (1, 1, 0, "P:["),
+                (2, 1, 1, "S:$\"a{"), (2, 1, 1, "W:b"), (2, 1, 1, "S:}c\""),
+                (3, 1, 1, "P:]"), (3, 1, 0, "P:;"), (4, 1, 0, "P:}"),
+            ],
+            Placed(lines));
     }
 
     [Fact]
@@ -196,10 +196,8 @@ public class ScanTokenTests
         var lines = new[] { "{", "    x = [", "        \"\"", "    ];", "}" };
 
         Assert.Equal(
-            [(2, 1, 1, "\"\"")],
-            BodySlicer.ScanTokens(lines)
-                .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-                .Select(t => (t.Line, t.Depth, t.BracketDepth, Text(lines, t))));
+            [(0, 0, 0, "P:{"), (1, 1, 0, "W:x"), (1, 1, 0, "P:="), (1, 1, 0, "P:["), (2, 1, 1, "S:\"\""), (3, 1, 1, "P:]"), (3, 1, 0, "P:;"), (4, 1, 0, "P:}"),],
+            Placed(lines));
     }
 
     [Fact]
@@ -309,11 +307,19 @@ public class ScanTokenTests
         // Bracket depth says "inside square brackets", not "inside an attribute list". A predicate
         // moving onto these tokens must not read a non-zero bracket depth as an attribute.
         var lines = new[] { "var x = a[i] + b[j];" };
-        var tokens = BodySlicer.ScanTokens(lines);
 
-        Assert.Equal(1, Single(tokens, lines, "i", line: 0).BracketDepth);
-        Assert.Equal(1, Single(tokens, lines, "j", line: 0).BracketDepth);
-        Assert.Equal(0, Single(tokens, lines, "+", line: 0).BracketDepth);
+        // The whole stream is asserted, not three looked-up tokens: picking tokens out by text
+        // leaves the rest of the input free, so it can be replaced by one that still contains
+        // them and no longer exercises the shape the test is named for (adversarial review,
+        // Gemini).
+        Assert.Equal(
+            [
+                (0, 0, 0, "W:var"), (0, 0, 0, "W:x"), (0, 0, 0, "P:="), (0, 0, 0, "W:a"),
+                (0, 0, 0, "P:["), (0, 0, 1, "W:i"), (0, 0, 1, "P:]"), (0, 0, 0, "P:+"),
+                (0, 0, 0, "W:b"), (0, 0, 0, "P:["), (0, 0, 1, "W:j"), (0, 0, 1, "P:]"),
+                (0, 0, 0, "P:;"),
+            ],
+            Placed(lines));
     }
 
     [Fact]
@@ -361,10 +367,16 @@ public class ScanTokenTests
         // An attribute argument that reads like a declaration — "set" here — is what truncated an
         // accessor before brackets were carried across lines.
         var lines = new[] { "[Obsolete(", "    set)]", "public int P { get; set; }" };
-        var tokens = BodySlicer.ScanTokens(lines);
 
-        Assert.Equal(1, Single(tokens, lines, "set", line: 1).BracketDepth);
-        Assert.Equal(0, Single(tokens, lines, "get", line: 2).BracketDepth);
+        Assert.Equal(
+            [
+                (0, 0, 0, "P:["), (0, 0, 1, "W:Obsolete"), (0, 0, 1, "P:("),
+                (1, 0, 1, "W:set"), (1, 0, 1, "P:)"), (1, 0, 1, "P:]"),
+                (2, 0, 0, "W:public"), (2, 0, 0, "W:int"), (2, 0, 0, "W:P"), (2, 0, 0, "P:{"),
+                (2, 1, 0, "W:get"), (2, 1, 0, "P:;"), (2, 1, 0, "W:set"), (2, 1, 0, "P:;"),
+                (2, 1, 0, "P:}"),
+            ],
+            Placed(lines));
     }
 
     [Fact]
@@ -421,9 +433,19 @@ public class ScanTokenTests
     /// state a predicate reading raw text used to be in.
     /// </para>
     /// </summary>
-    /// <summary>The source text a token covers, so an assertion can read its input back.</summary>
-    private static string Text(IReadOnlyList<string> lines, ScanToken token) =>
-        lines[token.Line].Substring(token.Column, token.Length);
+    /// <summary>
+    /// Projects the whole token stream as line, both depths, and "kind:text", for the fixtures
+    /// whose claim is about where a token sits rather than about the stream's shape.
+    /// <para>
+    /// These assert every token rather than filtering to the kind under test. Filtering discards
+    /// exactly the evidence that the fixture reached the branch it was written for: a supplied
+    /// input can be steered off that branch while every surviving row keeps its position and its
+    /// text, leaving the suite green with a real defect live (adversarial review, GPT).
+    /// </para>
+    /// </summary>
+    private static (int Line, int Depth, int BracketDepth, string Text)[] Placed(params string[] lines) =>
+        [.. BodySlicer.ScanTokens(lines)
+            .Select(t => (t.Line, t.Depth, t.BracketDepth, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}"))];
 
     private static string? FindCoverageGap(IReadOnlyList<string> lines, IReadOnlyList<ScanToken> tokens)
     {
@@ -586,12 +608,16 @@ public class ScanTokenTests
     {
         var lines = new[] { "var s = $\"{  \"x\"}\";" };
 
-        var literals = BodySlicer.ScanTokens(lines)
-            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-            .Select(t => (t.Column, t.Length))
-            .ToList();
-
-        Assert.Equal([(8, 3), (13, 5)], literals);
+        // Asserted over the whole stream for the same reason as the cross-line sibling: the two
+        // literal columns alone are satisfied by an input with no interpolation hole in it at all
+        // (adversarial review, Gemini).
+        Assert.Equal(
+            [
+                (0, 0, 3, "W:var"), (0, 4, 1, "W:s"), (0, 6, 1, "P:="),
+                (0, 8, 3, "S:$\"{"), (0, 13, 5, "S:\"x\"}\""), (0, 18, 1, "P:;"),
+            ],
+            BodySlicer.ScanTokens(lines)
+                .Select(t => (t.Line, t.Column, t.Length, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}")));
     }
 
     /// <summary>
@@ -677,6 +703,55 @@ public class ScanTokenTests
     }
 
     /// <summary>
+    /// Every fragment of a literal carried in from an earlier line reports the depth and bracket
+    /// depth in effect where that literal opened.
+    /// <para>
+    /// This is the absolute counterpart the fragment-emitting branches had been missing. Those
+    /// branches pass a depth to <c>Emit</c>, but on the line that opens the literal their token
+    /// coalesces into the fragment before it, and coalescing keeps the earlier token's depth and
+    /// discards the argument entirely — so <c>Emit(depth + 1, ...)</c> at eight of them changed
+    /// no output at all. Coalescing requires <c>previous.Line == lineIndex</c>, so the first
+    /// token of a carried line is the one shape in which the argument survives to be read
+    /// (adversarial review, Gemini).
+    /// </para>
+    /// <para>
+    /// The tail is swept rather than hand-picked because which branch consumes it is exactly what
+    /// a defect would change: a fixed tail pins one branch and lets a wrong depth at any other
+    /// through. Only the line's first token is asserted, since a tail may close its literal and
+    /// continue as code at a legitimately different depth.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryFragmentOfACarriedLiteral_ReportsTheDepthWhereItsLiteralOpened()
+    {
+        const string Alphabet = "\"$\\{}a";
+        Assert.Equal("\"$\\{}a", Alphabet);
+
+        // The two unterminated openers are here because a plain literal carries too: the scanner
+        // loses its place rather than closing the frame, so the next line still arrives as literal
+        // content. They are the only shape that reaches the backslash-escape branch as a line's
+        // first token, that branch requiring a frame that is neither verbatim nor raw.
+        string[] openers = ["@\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "\"", "$\""];
+        Assert.Equal(["@\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "\"", "$\""], openers);
+
+        var tails = AllStringsOver(Alphabet, 3);
+        Assert.Equal(6 + 36 + 216, tails.Count);
+
+        foreach (string opener in openers)
+        {
+            foreach (string tail in tails)
+            {
+                var lines = new[] { "{", "    x = [", "        " + opener, tail };
+                var first = BodySlicer.ScanTokens(lines).First(t => t.Line == 3);
+
+                Assert.Equal(
+                    (ScanTokenKind.StringLiteral, 1, 1),
+                    (first.Kind, first.Depth, first.BracketDepth));
+            }
+        }
+    }
+
+    /// <summary>
     /// Pins how often the scanner reports the depth as unknowable, and how often it does not.
     /// <para>
     /// Every other assertion on this field is either a rule about one shape — a conditional
@@ -745,13 +820,14 @@ public class ScanTokenTests
         var lines = new[] { "\"xyzzyxyzzy\"", "            \"ab\"" };
         //                    column 12 ────┘  (== the first literal's end column)
 
-        var literals = BodySlicer.ScanTokens(lines)
-            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
-            .ToList();
-
+        // Every token is asserted, not only the literals. Inserting a punctuator before the
+        // second line's literal keeps both literals at their asserted positions but stops the
+        // stream ever reaching the coalescing guard, and the filtered assertion could not see
+        // that the guard had gone unexercised (adversarial review, GPT).
         Assert.Equal(
-            [(0, 0, 12), (1, 12, 4)],
-            literals.Select(t => (t.Line, t.Column, t.Length)));
+            [(0, 0, 12, "S:\"xyzzyxyzzy\""), (1, 12, 4, "S:\"ab\"")],
+            BodySlicer.ScanTokens(lines)
+                .Select(t => (t.Line, t.Column, t.Length, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}")));
     }
 
     [Theory]
