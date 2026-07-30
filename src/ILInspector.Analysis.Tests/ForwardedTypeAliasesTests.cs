@@ -1407,28 +1407,97 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// The negative control for the rule above: a twin declaring some <em>other</em> type is not a
-    /// contradiction, so it must not withdraw the alias. Without this, "any same-named neighbour
-    /// refuses" would pass the test above while dropping ordinary callers.
+    /// A twin declaring some <em>other</em> type still contradicts the facade, because it is silent
+    /// about <em>this</em> one. What matters is not what the twin declares but that a caller bound
+    /// to it does not reach the target.
+    ///
+    /// <para>This test previously asserted the opposite, as the negative control for the rule
+    /// above — the reasoning being that a twin must contradict on the type rather than on the name.
+    /// That reasoning was refuted by a runtime control in review of <c>e7c04f92</c>: one caller
+    /// binary and one deployment, with two files of identical identity swapped in turn, prints
+    /// <c>target</c> against the forwarder and throws
+    /// <c>TypeLoadException: Could not load type 'Contoso.Widget'</c> against a twin declaring only
+    /// <c>Contoso.Gadget</c> — this fixture's exact shape. Reporting the caller was a fabrication.
+    /// The guard against "any same-named neighbour refuses" is now the version limit, held by
+    /// <see cref="ASiblingAtAVersionTheSpellingDoesNotAnswerForLeavesTheAliasStanding"/> and
+    /// <see cref="TwoSiblingsThatBothForwardDoNotContradictEachOther"/>.</para>
     /// </summary>
     [Fact]
-    public void ATwinThatDefinesAnUnrelatedTypeLeavesTheAliasStanding()
+    public void ATwinThatDefinesAnUnrelatedTypeContradictsTheFacadeAnyway()
     {
         string directory = NewTempDirectory();
         WriteForwarder(
             directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget",
             publicKey: null, fileName: "ForwardingFacade");
-        WriteDefiner(directory, "Contoso.Facade", "Contoso", "Gadget", fileName: "RivalFacade");
 
         var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
-        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
-
-        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
-
         using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+        // The control: without the twin the facade answers, so the refusal below is the twin's
+        // doing and not a fixture that never resolved in the first place.
         Assert.Equal(
             CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(
+                caller.GetMetadataReader(),
+                target,
+                ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"))));
+
+        WriteDefiner(directory, "Contoso.Facade", "Contoso", "Gadget", fileName: "RivalFacade");
+
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
             CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+
+        // The raw spelling survives, as it does for every other contradiction here: it only widens
+        // which assemblies are opened, and the refusal above is what decides the answer.
+        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
+    }
+
+    /// <summary>
+    /// The real guard against "any same-named neighbour refuses": a silent sibling at a version the
+    /// spelling does not answer for takes nothing from the forwarder, because a caller naming the
+    /// forwarder's version was never going to be admitted for that file anyway.
+    ///
+    /// <para>Without this, the contradiction rule would undo the version ceiling from review of
+    /// <c>37a4444b</c>, whose point was that a v2 file dropped beside a v1 facade must refuse v2
+    /// callers <em>without</em> costing the v1 callers that the facade genuinely answers for.
+    /// <see cref="ANonForwardingSiblingDoesNotLendItsVersionToAFacade"/> holds the refusing half;
+    /// this holds the half that must keep working, which nothing asserted before.</para>
+    /// </summary>
+    [Fact]
+    public void ASiblingAtAVersionTheSpellingDoesNotAnswerForLeavesTheAliasStanding()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            WriteNonForwarder(
+                directory, "Contoso.Facade", publicKey, "Facade.v2", new Version(2, 0, 0, 0));
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     /// <summary>
@@ -1577,24 +1646,35 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// The negative control for the rule above: a module-exported type that is not the one under
-    /// inspection says nothing about it, so the alias must survive. Without this, a rule that
-    /// refused on the mere presence of any <c>AssemblyFile</c>-implemented export would pass.
+    /// A module-exported type that is not the one under inspection makes the twin no less of a
+    /// contradiction: it is still a file of the facade's identity that does not carry
+    /// <c>Contoso.Widget</c>, so a caller bound to it fails to load the type.
+    ///
+    /// <para>Like <see cref="ATwinThatDefinesAnUnrelatedTypeContradictsTheFacadeAnyway"/>, this
+    /// asserted the opposite until the runtime control in review of <c>e7c04f92</c> refuted the
+    /// premise. The concern it was written for — that a rule might refuse on the mere presence of
+    /// an <c>AssemblyFile</c>-implemented export — is still worth holding, and the control below
+    /// holds it: the same fixture answers before the twin is written.</para>
     /// </summary>
     [Fact]
-    public void ATwinThatExportsAnUnrelatedTypeFromItsModuleLeavesTheAliasStanding()
+    public void ATwinThatExportsAnUnrelatedTypeFromItsModuleContradictsTheFacadeAnyway()
     {
         string directory = NewTempDirectory();
         WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        string targetPath = Path.Combine(directory, "Contoso.Definer.dll");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            Classify(target, targetPath, directory));
+
         WriteModuleExporter(
             directory, "Contoso.Facade", "Contoso", "Gadget", fileName: "Rival.Facade");
 
         Assert.Equal(
-            CallerScopeTypeFilter.TypeReferenceState.Names,
-            Classify(
-                TypeRef.Definition("Contoso.Definer", "Contoso", "Widget"),
-                Path.Combine(directory, "Contoso.Definer.dll"),
-                directory));
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            Classify(target, targetPath, directory));
     }
 
     /// <summary>
@@ -1687,7 +1767,100 @@ public class ForwardedTypeAliasesTests
                 .IncludesRawSpelling("Contoso.Facade"));
     }
 
-    /// <summary>Runs the whole gate for a fixture directory, which is what the caller sees.</summary>
+    /// <summary>
+    /// A file that answers to a facade's exact identity — same name, version, culture and token —
+    /// but carries no forwarder for the type contradicts the facade. Nothing distinguishes the two
+    /// at bind time, so a caller naming that identity may load the one without the type and fail;
+    /// reporting it as a caller of the target invents a call it never makes.
+    ///
+    /// <para>Round 13 capped the <em>version</em> a non-forwarding sibling could lend. That left
+    /// the case where there is no version to disagree about, which is the strongest form of the
+    /// attack rather than the weakest (found by GPT-5.6 in round 15, with a runtime control showing
+    /// the caller throws <c>TypeLoadException</c> against the non-forwarding file).</para>
+    /// </summary>
+    [Fact]
+    public void ASameVersionSiblingThatForwardsNothingContradictsAFacade()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.a",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            CallerScopeTypeFilter.TypeReferenceState AskForAV1Caller()
+            {
+                var aliases = ForwardedTypeAliases.ForTarget(
+                    target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+                using var caller = BuildCallerNaming(
+                    "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                    flags: default, culture: null, version: new Version(1, 0, 0, 0));
+                return CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases);
+            }
+
+            // The control: one file answers to the identity and it does forward the type.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, AskForAV1Caller());
+
+            // The attack: a second file of the SAME version that forwards nothing. There is now no
+            // identity field on which the two disagree, so nothing can tell them apart.
+            WriteNonForwarder(
+                directory, "Contoso.Facade", publicKey, "Facade.b", new Version(1, 0, 0, 0));
+
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, AskForAV1Caller());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The negative control for <see cref="ASameVersionSiblingThatForwardsNothingContradictsAFacade"/>:
+    /// two files of one identity that BOTH forward the type are not a contradiction, because either
+    /// one a caller binds to reaches the target. Refusing here would drop a genuine caller whenever
+    /// a facade is duplicated across two directories of a scope, which is ordinary.
+    /// </summary>
+    [Fact]
+    public void TwoSiblingsThatBothForwardDoNotContradictEachOther()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            foreach (string fileName in new[] { "Facade.a", "Facade.b" })
+            {
+                WriteForwarder(
+                    directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                    publicKey, fileName,
+                    version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            }
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>
     /// A file that claims a spelling but forwards nothing does not lend its version to the file
     /// that does forward.

@@ -93,6 +93,17 @@ public sealed class ForwardedTypeAliases
                     Version = version > Version ? version : Version,
                     ObservedVersions = ObservedVersions.Add(version),
                 };
+
+        /// <summary>
+        /// Whether a reference naming <paramref name="version"/> is one this evidence answers for.
+        /// Signed evidence answers for everything up to its highest version, because binding policy
+        /// rolls a strong-named reference forward; unsigned evidence answers only for versions
+        /// actually observed. See <see cref="VerdictFor"/> for why the two differ.
+        /// </summary>
+        internal bool AnswersForVersion(Version version)
+            => Token.Length > 0
+                ? version <= Version
+                : !ObservedVersions.IsDefaultOrEmpty && ObservedVersions.Contains(version);
     }
 
     /// <summary>
@@ -391,13 +402,11 @@ public sealed class ForwardedTypeAliases
         // Unsigned evidence matches any version actually observed for the spelling, not just the
         // highest. Comparing against the highest alone meant a second, newer unsigned file
         // suppressed the older one's genuine callers (executed in review of a749cd4d).
-        bool evidenceIsSigned = evidence.Token.Length > 0;
-        bool versionAgrees = evidenceIsSigned
-            ? reference.Version <= evidence.Version
-            : !evidence.ObservedVersions.IsDefaultOrEmpty
-                && evidence.ObservedVersions.Contains(reference.Version);
-
-        if (!versionAgrees)
+        //
+        // The rule lives on EvidenceIdentity because the contradiction loop in ForTarget has to ask
+        // the same question of a silent same-named file — "is this a version the spelling answers
+        // for?" — and a restatement there would be free to drift from the one enforced here.
+        if (!evidence.AnswersForVersion(reference.Version))
             return ReferenceVerdict.Contradicted;
 
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
@@ -666,6 +675,11 @@ public sealed class ForwardedTypeAliases
         // review of 7572838c, with two indistinguishable `Contoso.Facade` files).
         var definingSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Paths that supplied a forwarder for THIS type. Every claimant of a spelling has to be
+        // in here for that spelling to be usable; see the contradiction loop after the fold.
+        // Ordinal for the same reason as `probed` — these are file paths, not assembly names.
+        var forwardingPaths = new HashSet<string>(StringComparer.Ordinal);
+
         for (int hop = 0; hop <= MaxHops && frontier.Count > 0; hop++)
         {
             // A set, because one file's rows and the files claiming what they point at multiply:
@@ -688,6 +702,7 @@ public sealed class ForwardedTypeAliases
                 foreach (var edge in probe.Edges)
                 {
                     edges.Add(edge);
+                    forwardingPaths.Add(path);
 
                     // Follow the chain: the assembly this one forwards to may itself be a facade
                     // that no caller names, and dropping it would break a multi-hop chain.
@@ -768,6 +783,61 @@ public sealed class ForwardedTypeAliases
             {
                 tokensBySpelling[spelling] =
                     new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+            }
+        }
+
+        // Every claimant of a usable spelling that the spelling answers for has to forward the
+        // type. A file that answers to the facade's identity — same name, culture and token, at a
+        // version the spelling vouches for — but carries no forwarder for the type contradicts it:
+        // nothing distinguishes the two at bind time, so a caller naming that identity may be bound
+        // to the file without the type, in which case it is not a caller of the target and its call
+        // does not even run. Executed in review of e7c04f92 with a runtime control — one caller
+        // binary, one deployment, two same-identity files swapped in turn:
+        //
+        //     forwarding facade -> RESULT: target
+        //     silent twin       -> TypeLoadException: Could not load type 'Contoso.Widget'
+        //                          from assembly 'Contoso.Facade, Version=1.0.0.0, ...'
+        //
+        // The three earlier contradiction mechanisms all miss this shape, because each needs the
+        // twin to SAY something. `definingSpellings` needs it to define the type, the definer-edge
+        // check below needs it to forward somewhere else, and `CensusIdentity` needs it to disagree
+        // on token or culture. A file that is silent about the type and identical in identity says
+        // nothing on any of the three, which makes it the strongest form of the attack rather than
+        // the weakest — it is exactly the case where nothing can tell the two files apart.
+        //
+        // Silence includes a file the walk could not read, or did not reach within the hop limit:
+        // an unconfirmed claimant is not a confirmed forwarder. Refusing costs an alias and never
+        // invents one, which is the standing polarity for everything on the definer side.
+        //
+        // Two limits keep this from refusing more than it should:
+        //
+        // Duplication is not contradiction. Two files of one identity that BOTH forward the type
+        // agree, and either one a caller binds to reaches the target — which is ordinary when a
+        // facade appears in two directories of one scope, so refusing there would drop real
+        // callers (pinned by TwoSiblingsThatBothForwardDoNotContradictEachOther).
+        //
+        // A version the spelling does not answer for is not a contradiction either. A caller
+        // naming v1 is already refused for a v2 file, so a silent v2 sibling takes nothing from
+        // the v1 forwarder — and poisoning on it would undo the version ceiling from review of
+        // 37a4444b, whose whole point was that v1 callers keep working. `AnswersForVersion` is the
+        // caller-side admission rule itself rather than a second copy of it, so the two cannot
+        // disagree about which versions are at stake.
+        foreach (string spelling in targetsByRaw.Keys)
+        {
+            if (!tokensBySpelling.TryGetValue(spelling, out var vouching))
+                continue;
+
+            foreach (var claimant in census.TryGetValue(spelling, out var claimants) ? claimants : [])
+            {
+                if (forwardingPaths.Contains(claimant.Path)
+                    || !vouching.AnswersForVersion(claimant.Identity.Version))
+                {
+                    continue;
+                }
+
+                tokensBySpelling[spelling] =
+                    new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+                break;
             }
         }
 

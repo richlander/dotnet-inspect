@@ -134,12 +134,52 @@ public class CallerScopeResolverTests
     }
 
     /// <summary>
+    /// The gate for the wildcard rule, staged so that exactly one candidate can be returned: the
+    /// decoy is on disk and the wildcard-named file is not, so the enumeration's unspecified
+    /// ordering cannot decide the outcome. Canonicalizing <c>ab&lt;.dll</c> onto <c>abc.dll</c>
+    /// here would collapse two distinct assemblies to one scope entry and lose the second's
+    /// callers.
+    ///
+    /// <para>This asks the product function directly because the end-to-end test below cannot gate
+    /// the rule: staging it needs the wildcard-named file to exist, and a wildcard character also
+    /// matches itself, so that file is always a second candidate and the pre-fix behavior depends
+    /// on which one <c>Directory.GetFiles</c> yields first (reported in review of
+    /// <c>e7c04f92</c>). Nothing here needs a permissive filesystem — the wildcard name is only
+    /// ever a string — so unlike that test, this one runs everywhere.</para>
+    /// </summary>
+    [Fact]
+    public void MatchedEntry_DoesNotResolveAWildcardNameOntoADifferentFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("caller-scope-wildcard-unit").FullName;
+        try
+        {
+            File.Copy(typeof(CallerScopeResolverTests).Assembly.Location, Path.Combine(directory, "abc.dll"));
+
+            // The positive control: case is the one difference canonicalization exists to absorb,
+            // so a rule that declined everything would pass the assertion below for free.
+            Assert.Equal("abc.dll", CallerScopeResolver.MatchedEntry(directory, "ABC.DLL", files: true));
+
+            Assert.Equal("ab<.dll", CallerScopeResolver.MatchedEntry(directory, "ab<.dll", files: true));
+            Assert.Equal("ab?.dll", CallerScopeResolver.MatchedEntry(directory, "ab?.dll", files: true));
+            Assert.Equal("ab*.dll", CallerScopeResolver.MatchedEntry(directory, "ab*.dll", files: true));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A file whose own name contains a character the enumeration API treats as a wildcard must
     /// not be canonicalized onto a *different* file that the wildcard happens to match. Doing so
     /// would collapse two distinct assemblies to one scope entry and lose the second's callers.
     ///
     /// <para>Windows forbids every Win32 wildcard character in a file name, so this can only be
     /// staged where the filesystem permits one — which is where CI runs.</para>
+    ///
+    /// <para>This is the wiring proof, not the gate: with both files present the outcome before the
+    /// fix depended on enumeration order, which is unspecified. The gate is
+    /// <see cref="MatchedEntry_DoesNotResolveAWildcardNameOntoADifferentFile"/>.</para>
     /// </summary>
     [Fact]
     public async Task ResolveAsync_DoesNotCanonicalizeAWildcardNamedFileOntoADifferentFile()

@@ -189,7 +189,15 @@ public static class CallerScopeResolver
     /// The name of the entry of <paramref name="parent"/> that the filesystem resolves
     /// <paramref name="name"/> onto, or <paramref name="name"/> unchanged when there is none.
     /// </summary>
-    static string MatchedEntry(string parent, string name, bool files)
+    /// <remarks>
+    /// Internal only so a test can stage the one directory shape that gates the wildcard rule
+    /// deterministically — a directory holding the decoy but NOT the wildcard-named file, so the
+    /// enumeration has exactly one candidate to return. Driving it end to end cannot do that: any
+    /// wildcard character also matches itself, so the wildcard-named file is always a second
+    /// candidate and `Directory.GetFiles` does not specify which comes first (reported in review of
+    /// <c>e7c04f92</c>, where the mutant survived on one of the two orders).
+    /// </remarks>
+    internal static string MatchedEntry(string parent, string name, bool files)
     {
         try
         {
