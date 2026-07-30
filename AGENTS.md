@@ -333,11 +333,14 @@ round:
 - **The PR is mergeable and green.** Use `gh pr view <n> --json
   mergeable,mergeStateStatus` for conflicts and `gh pr checks <n> --required`
   for the gating runs; when the repository marks no check required, `--required`
-  reports none and exits non-zero, so fall back to plain `gh pr checks <n>` and
-  require every reported run to be complete and passing. Pending is not green —
-  `gh pr checks` exits `8` while checks are still running — and a `skipping`
-  result from a path-filtered job is not a pass signal either. Wait for
-  completion (`--watch`) rather than reading either state as clear.
+  reports none and exits non-zero, so fall back to plain `gh pr checks <n>`.
+  Exit `0` means nothing failed and nothing is outstanding; exit `8` means
+  checks are still running, which is not green — wait with `--watch`. A
+  `skipping` result is terminal and does not block: a path-filtered job that
+  skipped will never become a pass, so waiting on it waits forever. It is also
+  not evidence of anything. Never cite a skipped job as proof your change was
+  validated, and if a change should have triggered a job that skipped, treat the
+  path filter as the bug.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
@@ -348,6 +351,18 @@ round:
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
 a confirmation rather than a second full pass.
+
+### A quick read is not a round
+
+The gate above forbids spending a *round* on an unsettled branch. It does not
+forbid getting early signal. When you want a fast read on a design or an
+in-progress implementation ahead of a later adversarial review, **use
+MAI-Code** — that is what it is for here: cheap enough to run on a branch that
+is still moving, and useful well before there is anything to gate.
+
+Keep the two distinct. A quick read gets no isolated worktree, no fixed head,
+and **satisfies no tier** — a PR that had one still owes its full review once
+the branch settles. When you cite its findings, say which it was.
 
 ### How many reviews, and from which models
 
@@ -441,7 +456,5 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   [Adversarial review](#adversarial-review).
 - **A moved head — including one moved by a restack — needs a clean review at
   the new head**, and a restack never retires an open finding.
-- **Stop stacking when a slice would exist only to continue the stack.** CI cost
-  is per PR; three coherent slices beat ten mechanical ones.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
