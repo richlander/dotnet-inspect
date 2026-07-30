@@ -188,7 +188,11 @@ public static class SourceLinkProvenance
     /// <returns>
     /// Null when the URL has no attributable GitHub origin. A URL that traverses out of the
     /// repository it appears to name must not be dressed up as a github.com link, and callers
-    /// fall back to showing the resolved URL itself.
+    /// fall back to showing the resolved URL itself. This is the origin reader's rule in the
+    /// form a user is most likely to trust and click, so it is the origin reader that decides
+    /// it — the link is built from the attributed origin, never from the URL's own text. Gated
+    /// by
+    /// <c>SourceLinkProvenanceTests.ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin</c>.
     /// </returns>
     public static string? BrowseUrl(string? resolvedUrl)
     {

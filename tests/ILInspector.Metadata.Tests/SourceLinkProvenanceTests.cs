@@ -591,19 +591,25 @@ public class SourceLinkProvenanceTests
     /// is present too.
     /// </remarks>
     [Theory]
-    [InlineData("versionType=commit&versionDescriptor.versionType=&version=$SHA")]
-    [InlineData("versionType=commit&versionDescriptor.versionType&version=$SHA")]
-    [InlineData("versionType=commit&version=$SHA&versionDescriptor.version=")]
-    [InlineData("versionType=commit&version=$SHA&versionOptions=")]
-    [InlineData("versionType=commit&version=&version=$SHA")]
-    [InlineData("versionType=&version=$SHA")]
-    public void AnAzureSelectorThatIsPresentButEmpty_IsNotTreatedAsAbsent(string query)
+    [InlineData("versionType=commit&versionDescriptor.versionType=&version=$SHA", "empty value")]
+    [InlineData("versionType=commit&versionDescriptor.versionType&version=$SHA", "no value at all")]
+    [InlineData("versionType=commit&version=$SHA&versionDescriptor.version=", "empty value")]
+    [InlineData("versionType=commit&version=$SHA&versionOptions=", "empty value")]
+    [InlineData("versionType=commit&version=&version=$SHA", "repeats")]
+    [InlineData("versionType=&version=$SHA", "empty value")]
+    public void AnAzureSelectorThatIsPresentButEmpty_IsNotTreatedAsAbsent(string query, string reason)
     {
         var result = Determine(
             $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query.Replace("$SHA", Sha, StringComparison.Ordinal)}}}&path=/*"}}""",
             "/_/A.cs");
 
         Assert.False(result.IsEstablished);
+
+        // Asserting only that the URL is refused would let this pass for the wrong reason: with
+        // the empty-value rule deleted, an empty selector reads as the value "", which every
+        // downstream rule refuses anyway. The reason is what distinguishes "refused because the
+        // parameter is present and says nothing" from "refused by a later rule".
+        Assert.Contains(reason, result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -635,6 +641,52 @@ public class SourceLinkProvenanceTests
         Assert.Equal(established, github.IsEstablished);
         Assert.Equal(established, azure.IsEstablished);
     }
+
+    /// <summary>
+    /// <c>BrowseUrl</c> dresses a resolved raw-content URL up as a <c>github.com</c> link, so it
+    /// makes the same claim the origin reader does — that the content came from the repository
+    /// the link names — in the one form a user is most likely to trust and click. It is therefore
+    /// held to the same rule: a URL with no attributable GitHub origin gets no browse link, and
+    /// the caller shows the resolved URL itself.
+    /// </summary>
+    /// <remarks>
+    /// The first row is the non-vacuity half. Without it, every rule below would be satisfied by a
+    /// method that returned <c>null</c> unconditionally.
+    /// </remarks>
+    [Theory]
+    // Attributable: the browse link names exactly the origin the content is fetched from.
+    [InlineData(
+        "https://raw.githubusercontent.com/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs",
+        "https://github.com/dotnet/runtime/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs")]
+    // Traverses out of the repository it appears to name: the fetch lands in attacker/evil.
+    [InlineData(
+        "https://raw.githubusercontent.com/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/../../../attacker/evil/main/A.cs",
+        null)]
+    // Encoded separators survive canonicalization, so our reading and the server's may differ.
+    [InlineData(
+        "https://raw.githubusercontent.com/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/..%2f..%2fattacker/evil/A.cs",
+        null)]
+    // A credential makes the response depend on the identity presented, not the path named.
+    [InlineData(
+        "https://token@raw.githubusercontent.com/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs",
+        null)]
+    // A different port is a different origin.
+    [InlineData(
+        "https://raw.githubusercontent.com:444/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs",
+        null)]
+    // A moving ref, not a commit, so the link would not name what was fetched.
+    [InlineData(
+        "https://raw.githubusercontent.com/dotnet/runtime/main/src/A.cs",
+        null)]
+    // Not GitHub raw content at all; there is no github.com URL for it.
+    [InlineData(
+        "https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/src/A.cs",
+        null)]
+    [InlineData("http://raw.githubusercontent.com/dotnet/runtime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/A.cs", null)]
+    [InlineData("not a url", null)]
+    [InlineData(null, null)]
+    public void ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin(string? resolvedUrl, string? expected)
+        => Assert.Equal(expected, SLF.SourceLinkProvenance.BrowseUrl(resolvedUrl));
 
     /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is

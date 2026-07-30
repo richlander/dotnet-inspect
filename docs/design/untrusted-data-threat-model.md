@@ -249,7 +249,14 @@ that changing them is visible:
 
 Gates. `SourceLinkProvenanceTests` covers all eighteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
-unestablished result carry a reason.
+unestablished result carry a reason. Where a refusal has more than one possible
+cause, the test asserts the *reason* and not merely that the URL was refused: an
+empty selector, for instance, is refused by every downstream rule as well, so a
+test asserting only "not established" would pass with the rule it names deleted.
+`SourceLinkProvenance.BrowseUrl` makes the same claim as the origin reader, in
+the form a user is most likely to click, so it is held to the same rule and
+gated by
+`SourceLinkProvenanceTests.ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin`.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`
 and `SourceLinkMapConformanceTests.OnlyTheSourceLinkOwner_ReadsTheDocumentsMap`
 pin the reader sets by set equality, so a second implementation of either rule
