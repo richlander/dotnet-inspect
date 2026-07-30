@@ -1,0 +1,24 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- eng/ holds build-time file-based apps: sweep preparation, gate checks,
+         and measurement. They are outside the CLI's reference closure for the
+         same reason the harnesses under tools/ are (#3319) — each is its own
+         entry point reporting to the operator who ran it, cannot reach
+         dotnet-inspect's CommandError, and would become a consumer of the
+         product surface it exists to check if it were routed through one.
+
+         Declared here rather than in each file because a file-based app has no
+         project file to carry the property. The extension guard in
+         Directory.Build.targets does not cover these: a file-based app builds
+         through a generated project whose MSBuildProjectExtension is .csproj,
+         so the analyzer applied to them and RS0030 broke the sweep script.
+
+         StderrOwnershipTests pins that nothing in the CLI's closure is covered
+         by this declaration. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
+  </PropertyGroup>
+
+</Project>
