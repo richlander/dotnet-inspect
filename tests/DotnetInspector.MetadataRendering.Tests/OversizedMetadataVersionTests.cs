@@ -813,6 +813,17 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// there is one region: all of it.
     /// </para>
     /// <para>
+    /// The three ranges — before the payload, the payload, and after it — are
+    /// asserted to tile the patched image exactly, and all three are checked.
+    /// An earlier version compared the two ranges either side and left the
+    /// payload itself exempt, on the reasoning that it is the thing being
+    /// inserted rather than something preserved; but nothing else in the image
+    /// describes its content, so exempting it here exempted it everywhere.
+    /// Review replaced its terminating NUL with `A` and all 149 tests passed.
+    /// A complement is only as good as the union of what it excludes being
+    /// asserted somewhere.
+    /// </para>
+    /// <para>
     /// Non-vacuity matters as much as the bound. Every documented repair is
     /// asserted to have happened *and* to have the value it should, so an
     /// expansion that quietly stopped repairing anything fails here rather than
@@ -836,8 +847,14 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         int oldVersionLength = ReadRva(baseline, metadataRoot + 12);
         int versionStart = metadataRoot + 16;
         int insertionPoint = versionStart + oldVersionLength;
+        int newVersionLength = checked(oldVersionLength + expansion);
 
         Assert.Equal(baseline.Length + expansion, patched.Length);
+
+        // The three ranges tile the patched image with no gap and no overlap:
+        // [0, versionStart), [versionStart, payloadEnd), [payloadEnd, patched.Length).
+        int payloadEnd = versionStart + newVersionLength;
+        Assert.Equal(payloadEnd, insertionPoint + expansion);
 
         // Everything the expansion rewrites in place, all of which happens to
         // precede the insertion point. Each grows by exactly the expansion.
@@ -881,6 +898,12 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         }
 
         Assert.Equal(string.Empty, string.Join(", ", undocumented));
+
+        // The payload: the range the two comparisons above skip, and which no
+        // other test describes. The declared length counts the terminator, so
+        // the readable stamp is one shorter than the field.
+        byte[] payload = [(byte)'v', .. Enumerable.Repeat((byte)'A', newVersionLength - 2), (byte)0];
+        Assert.Equal(payload, patched[versionStart..payloadEnd]);
 
         foreach ((string name, int offset) in repairs)
         {
