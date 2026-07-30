@@ -680,9 +680,12 @@ public class ScanTokenTests
         // review, GPT).
         var scanned = new HashSet<string>();
         var rebuilt = new StringBuilder();
+        int scans = 0;
 
         foreach (var input in swept)
         {
+            scans++;
+
             var tokens = BodySlicer.ScanTokens([input]);
             string? gap = FindCoverageGap([input], tokens);
 
@@ -705,6 +708,24 @@ public class ScanTokenTests
         // sides are trimmed so the comparison is exact; nothing else about the input is discarded.
         Assert.Equal(swept.Select(x => x.TrimEnd()).ToHashSet().Order(), scanned.Order());
         AssertScannedAlphabet(" \"$@\\a{}", scanned);
+
+        // Both sides of that comparison derive from `swept`, so narrowing the collection after
+        // its count was asserted moves them together and leaves the alphabet intact. The number
+        // of scans actually performed is therefore pinned against a literal, which no narrowing
+        // of the collection can satisfy (adversarial review, GPT, generalising the same attack
+        // on the carried-literal sweep).
+        Assert.Equal(299_592, scans);
+
+        // A count is still only a margin: the collection could be exchanged for another of the
+        // same size that keeps one backslash to satisfy the alphabet and drops the rest. So the
+        // scanned set is characterised exactly, from literals. Trailing spaces are the one
+        // ambiguity, so the characterisation is of the TRIMMED images: a trimmed string of
+        // length L in 1..6 is any string of that length not ending in a space, of which there
+        // are exactly 7 x 8^(L-1), and the all-space inputs collapse to the single empty string.
+        // Observing that many DISTINCT images at each length is observing all of them.
+        Assert.Equal(
+            new[] { (0, 1), (1, 7), (2, 56), (3, 448), (4, 3_584), (5, 28_672), (6, 229_376) },
+            scanned.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
     }
 
     /// <summary>
@@ -819,7 +840,28 @@ public class ScanTokenTests
         Assert.Equal(
             (from opener in openers from tail in tails select (opener, tail)).Order(),
             scannedPairs.Order());
-        AssertScannedAlphabet("\"$\\{}a", scannedPairs.Select(p => p.Tail));
+
+        // That comparison alone is not enough, because its expected side derives from `tails`
+        // and therefore moves with any narrowing applied to it: filtering the tails beginning
+        // with a single `{` out of the collection after its count was asserted left the count,
+        // the alphabet and the cross product all satisfied, while the short-brace branch was
+        // never reached and 1349 survived (adversarial review, GPT). So the scanned set is
+        // characterised below from LITERALS only.
+        //
+        // The characterisation is exact rather than marginal. Over an alphabet of exactly six
+        // characters there are only 6, 36 and 216 distinct strings of length 1, 2 and 3, so
+        // observing that many DISTINCT tails at each length is observing all of them, and no
+        // other length occurs. With seven openers observed and 7 x 258 distinct pairs, there is
+        // no room for a pair to be missing.
+        var scannedTails = scannedPairs.Select(p => p.Tail).ToHashSet();
+        AssertScannedAlphabet("\"$\\{}a", scannedTails);
+        Assert.Equal(
+            new[] { (1, 6), (2, 36), (3, 216) },
+            scannedTails.GroupBy(t => t.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
+        Assert.Equal(
+            new[] { "@\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "\"", "$\"" }.Order(),
+            scannedPairs.Select(p => p.Opener).ToHashSet().Order());
+        Assert.Equal(7 * 258, scannedPairs.Count);
     }
 
     /// <summary>
@@ -848,7 +890,9 @@ public class ScanTokenTests
         var swept = AllStringsOver(Alphabet, 4);
         Assert.Equal(9 + 81 + 729 + 6561, swept.Count);
 
-        int known = 0, unknown = 0, inputsWithUnknown = 0;
+        int known = 0, unknown = 0, inputsWithUnknown = 0, scans = 0;
+        var scanned = new HashSet<string>();
+        var rebuilt = new StringBuilder();
 
         foreach (var input in swept)
         {
@@ -857,10 +901,40 @@ public class ScanTokenTests
 
             unknown += lost;
             known += tokens.Count - lost;
+            scans++;
 
             if (lost > 0)
                 inputsWithUnknown++;
+
+            rebuilt.Clear();
+
+            foreach (var token in tokens)
+            {
+                rebuilt.Append(' ', token.Column - rebuilt.Length);
+                rebuilt.Append(token.TextIn(input));
+            }
+
+            scanned.Add(rebuilt.ToString());
         }
+
+        // Three integer totals are MARGINS. Nothing above stops the collection being exchanged
+        // for a different one of the same size whose totals happen to balance — a set that omits
+        // `\` entirely, say, padded back to the same totals by strings that lose track the same
+        // way, which would erase the escape paths from the sweep while every number held
+        // (adversarial review, Gemini). So the input is characterised here from LITERALS, read
+        // back out of the scanner's own output rather than from the collection.
+        //
+        // The characterisation is exact rather than marginal, by the same counting argument the
+        // carried-literal sweep uses: over an alphabet of exactly nine characters there are only
+        // 9, 81, 729 and 6561 distinct strings of length 1 to 4, so observing that many DISTINCT
+        // inputs at each length is observing all of them, and no other length occurs. This
+        // alphabet contains no whitespace, so laying each token down at its column reconstructs
+        // the input exactly and no trimming is needed on either side.
+        AssertScannedAlphabet("\"$*/@\\a{}", scanned);
+        Assert.Equal(
+            new[] { (1, 9), (2, 81), (3, 729), (4, 6561) },
+            scanned.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
+        Assert.Equal(9 + 81 + 729 + 6561, scans);
 
         // Both readings are pinned, so the field cannot be moved in either direction: pinning
         // only the unknown tokens would let every token become knowable, and pinning only the
