@@ -243,6 +243,38 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// Absence is refused in the direction a live run actually meets it: the run states
+    /// both digests and the baseline states neither. The opposite direction has its own
+    /// test above; this one exists because the two are separate branches of a symmetric
+    /// rule, and a rule that only holds one way round is the fallthrough that let a
+    /// drifted pool compare clean against an unidentified row.
+    ///
+    /// <para>This assertion was previously carried by the bootstrap test that pinned
+    /// "no tracked row records identity", which was deleted when the store crossed that
+    /// bootstrap (#3353). Only the premise expired; the rule it checked did not, and it
+    /// names <c>(none recorded)</c> because an operator reading a skipped gate has to be
+    /// told which side failed to identify itself.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_IdentifiedRunWillNotBorrowABaselineThatRecordsNoIdentity()
+    {
+        var unidentified = Row(sha: null, corpusSha: null);
+
+        Assert.False(
+            Key().IsComparableTo(
+                AuthoredCorpusRatchet.RunKey.From(unidentified), out string mismatch));
+        Assert.Contains("(none recorded)", mismatch, StringComparison.Ordinal);
+
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(), Metrics(valid: 1, correct: 1, invalid: 9999, productBodyDefect: 9999),
+            [unidentified]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+        Assert.Contains("(none recorded)", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Counts do not identify a corpus. Swapping in a different 12,000 rows — or editing
     /// one row's authored body — preserves <c>evaluated</c> and the pool, so without its
     /// own identity the substituted measurement compared clean.
