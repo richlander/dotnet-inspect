@@ -95,9 +95,12 @@ current product behavior and tests over design history. When current sources
 disagree, stop and resolve which owner is authoritative rather than silently
 choosing one.
 
-When adding a focused skill, register it in `SkillCommand.Skills`. Its YAML
-frontmatter `description:` is the single source of truth for the generated
-skill listing.
+When adding a focused skill, register it in `SkillCommand.Skills` **and** add an
+`EmbeddedResource` line for it in `src/dotnet-inspect/dotnet-inspect.csproj`;
+the embeds are enumerated per skill, and no test compares them against the
+`skills/` directory, so a skill missing from either list ships as nothing with a
+green suite. Its YAML frontmatter `description:` is the single source of truth
+for the generated skill listing.
 
 ## Repository-wide engineering constraints
 
@@ -201,6 +204,12 @@ Only `src/dotnet-inspect` and `src/runfaster` are packable, and internal
 libraries carry no versioning story or API-stability commitment: treat their
 public surface as an internal design constraint, not an external compatibility
 surface. `docs/release-workflow.md` owns the packaging mechanics.
+
+Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
+release, and `README.md` (packed as the package readme) and the shipped
+`SKILL.md` files (embedded in the binary) ship with it. Consult both before the
+version moves and update whatever the release changed; the checklist is in
+`docs/release-workflow.md`.
 
 ### File-based apps
 
