@@ -102,9 +102,10 @@ several possible readings.
 
 This is generic hardening, not a fix for a known divergence. It does **not** close the SourceLink
 provenance gap. The repository-URL reader in `AssemblyInspector` stops at the first `documents`
-entry, while `SourceDocumentPathResolver` orders mappings by descending pattern length and takes
-the first match. A duplicated key keeps document order under a stable sort, so both readers land on
-the same entry and duplication alone cannot make them disagree. They diverge on **distinct** keys,
+entry, while source resolution goes through `SourceLinkFetch.SourceLinkResolver`, which orders
+mappings from most specific to least specific as the specification requires and takes the first
+match. A duplicated key now fails the parse outright, so duplication cannot make the two readers
+disagree; it makes the map resolve nothing. They diverge on **distinct** keys,
 which are well-formed and still accepted: a map whose first entry names a trusted host and whose
 longer-matching entry names another origin reports the trusted repository while resolving source
 from the other. That gap is open work below.
@@ -235,7 +236,7 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
+| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted delimiters/control characters cannot escape the selected format |
@@ -244,9 +245,14 @@ only ordinary compiler output.
 
 1. Unify SourceLink provenance with source resolution. Today `AssemblyInspector`
    reports the repository from the first `documents` entry while
-   `SourceDocumentPathResolver` selects by longest matching pattern, so a
+   `SourceLinkFetch.SourceLinkResolver` — the single owner of the mapping rule,
+   which source resolution and `SourceDocumentPathResolver` both go through —
+   selects the most specific matching pattern, so a
    well-formed map can resolve source from one origin while provenance names
-   another.
+   another. `AssemblyInspector` is the one remaining product file that reads the
+   `documents` map without going through that owner, and
+   `SourceLinkMapConformanceTests.OnlyTheSourceLinkOwner_AndTheKnownSecondReader_ReadTheDocumentsMap`
+   pins that list by set equality, so closing this item must shrink it.
 
    State the fix as an invariant rather than a list of blocked tricks, because
    each enumerated mitigation has proven incomplete under review:
