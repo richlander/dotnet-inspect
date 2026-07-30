@@ -25,8 +25,12 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// </para>
 /// <para>
 /// Enumeration order promises exactly one thing: <em>every node follows all of
-/// its descendants</em>. Nothing else. Measured over 41,952 printed methods,
-/// that held on all 434,843 parent/descendant checks.
+/// its descendants</em>. Nothing else. That held with zero violations on every
+/// corpus it has been measured against; three independent sweeps agree on zero
+/// while disagreeing on the denominator, because "a check" is only defined once
+/// the pairing is. Counting one check per (recorded parent, direct child with a
+/// non-empty subtree extent) over <c>System.Private.CoreLib</c>, it is 0 of
+/// 434,843 across 41,952 printed methods.
 /// </para>
 /// <para>
 /// Sibling order is <em>unspecified</em> — not textual order, and not child
@@ -43,17 +47,19 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// <em>condition</em>, because the printer recurses into the block while
 /// composing the statement and only then records the condition expression. So
 /// an <c>IfStatement</c>'s then-block subtree enumerates before its condition
-/// subtree — textual order and child order at once. Comparing whole subtree
-/// extents rather than only directly-recorded children, 20,145 of 222,205
+/// subtree — textual order and child order at once. A <c>CatchClause</c> does
+/// the same to its filter, a filter being a condition. Under the pairing above
+/// — consecutive children with non-empty subtree extents — 20,145 of 222,205
 /// sibling checks invert, across <c>IfStatement</c> (17,480), <c>ForLoop</c>,
 /// <c>WhileLoop</c>, <c>Fixed</c>, <c>Lock</c>, <c>Switch</c>,
 /// <c>UsingStatement</c>, <c>ForeachStatement</c> and <c>CatchClause</c>.
+/// Pair siblings differently and the totals move; the inversions do not.
 /// </para>
 /// <para>
-/// That second effect is easy to miss and was missed twice here, because a
-/// <c>Block</c> records no range of its own: a sweep that compares only those
+/// That second effect is easy to miss and was missed three times here, because
+/// a <c>Block</c> records no range of its own: a sweep that compares only those
 /// children which are themselves recorded never compares the condition against
-/// the body at all, and reports zero violations. Any future check of this
+/// the body at all, and reports a confident zero. Any future check of this
 /// contract must compare subtree extents.
 /// </para>
 /// <para>
