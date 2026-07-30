@@ -56,10 +56,9 @@ of the ladder families contributes in one of three ways:
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
-exist to be selected. The IL coordinate is the family's one implemented
-currency; `--heap` (see
-[metadata-table-projection.md](metadata-table-projection.md)) is designed to be
-the second.
+exist to be selected. The family has two currencies: the IL coordinate, and the
+heap coordinate `--heap` carries (see
+[metadata-table-projection.md](metadata-table-projection.md)).
 
 The family is counted in currencies, not flags, because one currency can have
 more than one spelling. The IL coordinate has two: `--il-offset` takes a single
@@ -176,23 +175,72 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
-`-n N` / `--head N` and `--tail N` are rendered-line windows applied after
+A printed document is the document the package shipped. Markdown conventions --
+YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
+`blob` links to `raw` so the target is fetchable -- apply only to Markdown. A
+document's kind comes from its extension, except for the package README, whose
+kind comes from its role: the manifest declared it as the readme and NuGet
+renders it as Markdown, so an extensionless or unconventionally named README is
+still Markdown. That role follows the manifest declaration, not the file the
+README section displays. A package that ships `README.md` and also declares a
+different file has declared both readmes, and the declared one keeps its kind
+even though the section shows the conventional name. The role answers only where
+the extension is silent: a manifest can declare anything, and
+`<readme>logo.png</readme>` is malformed but shippable, so a declaration never
+overrides a name that says what the document is. Any dot in the file name counts
+as saying something: `logo.png` names a suffix, `logo.png.` names one with a
+stray dot after it, and `.png` spells one as a hidden basename. Telling a hidden
+suffix from a hidden word like `.README` would take a list of known suffixes that
+goes stale and still guesses wrong at the edges, so the tie goes to the
+conservative reading -- refusing a scope on `.README` is loud and leaves the
+document readable, while handing a declared PNG to the link rewriter returns a
+corrupted file and exit 0.
+Applied to anything else they are corruption rather than presentation: the link
+rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
+or an MSBuild comment is rewritten and the printed manifest silently stops
+matching the one the feed serves. Asking for a Markdown scope on a document that
+is not Markdown is refused, because both other answers -- the whole document, or
+an empty one -- report success for a question that was never answered. The
+refusal belongs to the request, not to one flag, so `--content` refuses it on
+the same terms as `--print`.
+
+The refusal covers the whole request rather than skipping the documents it does
+not apply to. A selection that matches Markdown and non-Markdown alike --
+`--path "*" --frontmatter` -- is one request, and answering part of it while
+dropping the rest reports success for files that were never scoped. The refusal
+names the first such document so the selection can be narrowed, for example with
+`--path "*.md"`.
+
+A document that receives no Markdown treatment is emitted verbatim, including
+any byte order mark it ships with. A caller printing a manifest in order to hash
+or diff it is asking for its bytes, and a document silently three bytes shorter
+than the one in the package is not that document.
+
+`-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
 
 ```text
---print --head 1
+--print -n 1
   multi-row selection -> error; does not choose the first row
 
---print --row 2 --head 20
+--print --row 2 -n 20
   select row 2 -> fetch one payload -> render its first 20 lines
 ```
 
-`--rows` changes head/tail from rendered-line windows into per-table data-row
-windows:
+`--rows <spec>` switches to per-table data-row windows and carries its own
+count, so three concerns stay on three flags: `--rows` sets the unit,
+its value sets the count or the rows, and `--head`/`--tail` set the direction.
 
-- `--rows --head N` keeps the first N data rows;
-- `--rows --tail N` keeps the last N data rows.
+- `--rows 6` keeps the first six data rows; `--rows 6 --tail` keeps the last six.
+- `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
+- `--rows 2+10` keeps ten rows starting at row 2.
+- `--rows 10..` keeps row 10 through the last row.
+
+A count and a range are different kinds, not two spellings of one: a count
+anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
+rather than silently resolved. Bare `--rows` is an error — it once meant
+"interpret `-n` as rows", which put the count on a different flag than the unit.
 
 Both row-window forms are incompatible with `--print`;
 `--row N|first|last` is the explicit row selector. The CLI implements
@@ -229,6 +277,13 @@ enforced structurally rather than per command — the request is recorded from t
 parse result and the projection writers report which projection they honored, so
 a route that drops one fails loudly instead of shipping the wrong payload.
 
+The whole-surface type listing (`type` with no type name — the Classes, Structs,
+Interfaces, Enums, and Delegates sections) is a name table that exposes no
+printable payload, so `--print`/`--value`/`--urls`/`--paths` there is rejected up
+front rather than dumping the full surface and then tripping this audit. Inspect
+a single type (for example `type <Name>`) to project a member payload. `--count`
+is the one payload projection the surface does honor.
+
 Writers report *which* flag they honored rather than merely acknowledging one.
 A writer can be reached for more than one reason — the print writer also serves
 `--bare` — so an untyped signal would let it satisfy an unrelated request and let
@@ -238,19 +293,70 @@ The projections are mutually exclusive. Two of them cannot both shape one
 payload, so a combination is rejected before the command runs rather than
 resolved by discarding one.
 
+### Lens modes project their own payload
+
+A few flags select a *lens* rather than a section of the normal document:
+`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+payload it computes itself and returns before the section pipeline, so the
+section-selection vocabulary does not describe what the caller is looking at.
+
+The lens payload is still a payload, so the two-outcome rule above applies
+unchanged. Because the lens owns the shape, its answers are fixed:
+
+- `--count` counts the lens payload — versions, target frameworks, package
+  files, IL offsets, discovered artifacts — not the lines used to render it. A
+  layout count is a count of files, even though the rendered tree also shows the
+  directories that contain them.
+- `--content` yields one structured row per matched file despite rendering
+  text, so its count is the number of files matched.
+- A `--content` path that matches nothing in a package still renders a
+  per-package placeholder — `(absent)` in the block render, a `found:false` row
+  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  many files did I get content for*, so counting placeholders would report
+  matches that did not happen. The placeholder is presentation, which is why
+  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  rendered rows and the count agree exactly. This is the one place the count is
+  deliberately smaller than the default render's row total.
+- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
+  not approximated. They address a cell or a column of a selected section, and a
+  lens payload has neither; answering anyway would require inferring structure
+  from rendered text.
+- `-S`/`--select` is refused when the caller typed it, rather than ignored. A
+  lens and a section selection are competing answers to *what am I looking at*,
+  and silently honoring the lens hides that the selection did nothing.
+
+There is deliberately no lens for printing a document. A flag that renders one
+document is a second answer to *which document*, competing with the section the
+caller selected, and the two can disagree — which is exactly how a lens that
+printed the package README came to print the XML manifest through the README's
+Markdown pipeline. Printable documents are therefore reached only by selecting
+the section that lists them, and `--print` projects that section's rows like
+every other payload projection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
+
+`-S` here means an explicit selection. Some options are sugar that synthesize a
+selection internally, and a synthesized one must not be mistaken for a request
+the caller made.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`) |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / `--head N` / numeric shorthand such as `-20` | keep the first N rendered output lines unless `--rows` is active |
-| `--tail N` | keep the last N rendered output lines unless `--rows` is active |
-| `--rows --head N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
-| `--rows --tail N` | keep the last N **data rows per table**, across Markdown, TSV, and JSONL |
+| `-n N` / numeric shorthand such as `-20` | keep the first N rendered output lines |
+| `-n N --tail` | keep the last N rendered output lines |
+| `--rows N` | keep the first N **data rows per table**, across Markdown, TSV, and JSONL |
+| `--rows N --tail` | keep the last N **data rows per table** |
+| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those numbers name**, inclusive; absolute, so no direction applies |
 | `--bare` | render the selected payload without document decoration; it changes presentation only, not the selected shape |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -450,10 +556,11 @@ The stable vocabulary is:
 - `--print` is an exactly-one row-payload projection: it never chooses the first
   of multiple rows implicitly, does not make rows without a payload printable,
   and does not evaluate new addresses.
-- `--head` / `--tail` are post-projection line windows: they do not select rows
+- `--head` / `--tail` name a direction, not a count. Outside `--rows` they
+  choose which end of the rendered lines `-n N` keeps; they do not select rows
   or constrain payload acquisition.
-- `--rows` promotes head/tail to first/last data-row windows, but those windows
-  remain presentation limits rather than row selectors.
+- `--rows` makes the window a first/last or absolute data-row window, but those
+  windows remain presentation limits rather than row selectors.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
@@ -464,10 +571,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
-  that has no other expression and gate the sections it makes meaningful. They
-  do not narrow a shape, and a flag qualifies for this family only if its input
-  is a new currency. Both spell the same currency, so they are one member;
-  `--heap` is the designed second.
+- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
+  an input that has no other expression and gate the sections it makes
+  meaningful. They do not narrow a shape, and a flag qualifies for this family
+  only if its input is a new currency. The first two spell the same currency, so
+  they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.

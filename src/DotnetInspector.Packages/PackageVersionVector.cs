@@ -188,6 +188,35 @@ public sealed class PackageVersionVector
     }
 
     /// <summary>
+    /// Resolves a range against a listing-aware version set (each version tagged listed/unlisted)
+    /// and projects the in-range versions in caller direction, carrying each version's listed
+    /// status. Building the vector from the full set — unlisted versions included — lets an
+    /// unlisted endpoint resolve rather than being reported as a missing endpoint. A resolved
+    /// version absent from <paramref name="listings"/> defaults to listed.
+    /// </summary>
+    public static IEnumerable<PackageVersionInfo> CreateListingAware(
+        PackageVersionRange range,
+        IReadOnlyCollection<PackageVersionInfo> listings,
+        bool includePrerelease = false)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        ArgumentNullException.ThrowIfNull(listings);
+
+        var listedByVersion = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var listing in listings)
+            if (NuGetVersion.TryParse(listing.Version, out var parsed))
+                listedByVersion[parsed.ToNormalizedString()] = listing.Listed;
+
+        var vector = Create(range, listings.Select(listing => listing.Version), includePrerelease);
+        return vector.Addresses.Select(address =>
+        {
+            var normalized = address.Version.ToNormalizedString();
+            bool listed = !listedByVersion.TryGetValue(normalized, out var flag) || flag;
+            return new PackageVersionInfo(normalized, listed);
+        });
+    }
+
+    /// <summary>
     /// Resolves an exact version, one-based <c>#N</c> index, or endpoint alias.
     /// </summary>
     public bool TrySelect(string selector, out PackageVersionAddress? address, out string? error)

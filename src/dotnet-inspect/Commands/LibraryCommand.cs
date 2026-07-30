@@ -1,4 +1,5 @@
 using DotnetInspector.Core;
+using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -13,7 +14,9 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -31,10 +34,24 @@ public class LibraryCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
+
+        // Hex table aliases are resolved before anything reads a selector — including the static
+        // discovery return below — so every consumer of Select/Discover sees canonical names. That
+        // placement is the invariant the alias rests on, not an optimization: adversarial review of
+        // #3510 found the normalizer sitting below this branch, where `-D "Metadata: 0x02"
+        // --schema` returned "not found" while the effective-discovery path resolved it.
+        var aliasNormalized = NormalizeMetadataTableAliases(options);
+        if (aliasNormalized.Error is not null)
+        {
+            Console.Error.WriteLine(aliasNormalized.Error);
+            return 1;
+        }
+        options = aliasNormalized.Options;
 
         // Static discovery mode: -D --schema lists schema without resolving/loading the library.
         if (options.Discover != null)
@@ -53,7 +70,8 @@ public class LibraryCommand
                     // --schema reveals the full catalog including the @Hidden pole; a static -D
                     // without --schema keeps the curated top-level view.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                    projection: options);
             }
         }
 
@@ -90,6 +108,14 @@ public class LibraryCommand
         }
         options = normalized.Options;
 
+        var heapNormalized = NormalizeHeapSelection(options);
+        if (heapNormalized.Error is not null)
+        {
+            Console.Error.WriteLine(heapNormalized.Error);
+            return 1;
+        }
+        options = heapNormalized.Options;
+
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
         // unbounded @Hidden members as a group.
@@ -116,7 +142,33 @@ public class LibraryCommand
                 }
             }
 
+            if (selectResult.Sections.Contains(MetadataSectionNames.Heap)
+                && string.IsNullOrWhiteSpace(options.HeapParameter))
+            {
+                // Same discipline as the IL coordinate sections above: reached through the
+                // @Metadata door the section is simply dropped, because a category selection is a
+                // request for whatever applies; named exactly it is an error, because the caller
+                // asked for a specific section that cannot exist without its coordinate.
+                if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
+                {
+                    selectResult.Sections.Remove(MetadataSectionNames.Heap);
+                }
+                else if (options.Discover == null)
+                {
+                    Console.Error.WriteLine($"Error: \"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    return 1;
+                }
+            }
+
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.HeapParameter)
+            && options.IncludeSections is { Count: > 0 }
+            && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
+        {
+            Console.Error.WriteLine($"Error: --heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            return 1;
         }
 
         if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
@@ -134,7 +186,14 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
+        // section filter to make --count meaningful.
+        var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        // Discovery renders its own rows, so a section requirement describes a filter it does
+        // not use. -S still narrows effective discovery, so it stays permitted.
+        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
+
+        if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
         if (options.Count && options.Print)
@@ -153,7 +212,9 @@ public class LibraryCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // The batch path refuses shape projections with an accurate reason; a section
+            // requirement reported first would not be the actual problem.
+            if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {
@@ -179,7 +240,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Print && !ValidateLibraryPrintSelection(options.IncludeSections))
+        if (options.Print && !rendersOwnPayload && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
         if (options.Print && options.Rows is not null)
@@ -216,6 +277,14 @@ public class LibraryCommand
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
             options.Verbosity, options.IncludeSections, options.FixedOverview);
+
+        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
+        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
+        // them, and their applicability is the scanned row count. The scan is deliberately the
+        // cheap half of the lens -- table row counts, never rows -- so listing the category
+        // accurately costs a header read rather than a projection.
+        if (effectiveDiscovery)
+            scanners.Add(LibrarySections.ScannerMetadata);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -268,10 +337,15 @@ public class LibraryCommand
                 bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
 
+                // Identity of the bytes about to be inspected. Computed once and reused for the
+                // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
+                // discovery run hashes the assembly at most twice.
+                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(resolvedPath!, sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(resolvedPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
@@ -294,8 +368,11 @@ public class LibraryCommand
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -331,10 +408,15 @@ public class LibraryCommand
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
                         packageName: packageName, packageVersion: packageVersion);
 
+                // Identity of the bytes about to be inspected; see the platform path above.
+                string? inspectedContentHash = effectiveDiscovery && assemblyPaths.Count > 0
+                    ? TryGetContentHash(assemblyPaths[0])
+                    : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPaths[0], sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
@@ -369,8 +451,11 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspections[0], options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print)
@@ -384,7 +469,11 @@ public class LibraryCommand
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
+                {
+                    if (RejectMultiAssemblyMetadataSelection(inspections, options))
+                        return 1;
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                }
 
                 return IntegrityExitCode([.. inspections]);
             }
@@ -404,10 +493,13 @@ public class LibraryCommand
                 bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
 
+                // Identity of the bytes about to be inspected; see the platform path above.
+                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPath!, sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(assemblyPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
@@ -429,8 +521,11 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -526,9 +621,23 @@ public class LibraryCommand
                 : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
+        var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
+
+        // --rows narrows what the table renders, so it has to narrow the count by
+        // the same window; counting the unwindowed batch answers a question the
+        // user did not ask, and the audit cannot see the difference. The exit code
+        // still reports every coordinate that failed to resolve, windowed out of
+        // view or not, because that is a resolution result rather than a display
+        // concern.
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
+
+        // A coordinate that failed to resolve is still a reported row, so it counts; the
+        // non-zero exit remains the signal that some coordinate did not resolve.
+        if (LensProjection.TryProject(options, "--il-offsets", visibleRows.Count, out var projectionExitCode))
+            return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
+
         WriteILCoordinateBatchRows(rows, options);
-        return rows.Any(row => row.Meaning == "error") ? 1 : 0;
-    }
+        return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
     [
@@ -737,6 +846,30 @@ public class LibraryCommand
         return false;
     }
 
+    /// <summary>
+    /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
+    /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
+    /// names carry no assembly, so several assemblies would emit repeated
+    /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
+    /// whose row numbering restarts without saying so. Failing here keeps that ambiguity visible
+    /// instead of rendering a confidently wrong document.
+    /// </summary>
+    private static bool RejectMultiAssemblyMetadataSelection(
+        IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
+    {
+        if (inspections.Count <= 1 || options.IncludeSections is not { Count: > 0 } selected)
+            return false;
+
+        if (!selected.Any(MetadataSectionNames.IsMetadataSection))
+            return false;
+
+        Console.Error.WriteLine(
+            $"Error: {SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
+            $"but this package resolved to {inspections.Count} assemblies.");
+        Console.Error.WriteLine("Select one assembly with --library <path> and retry.");
+        return true;
+    }
+
     private static readonly string[] ILCoordinateSections =
     [
         SectionNames.ILOffset,
@@ -764,6 +897,166 @@ public class LibraryCommand
 
     private static bool HasILOffsetCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
+
+    /// <summary>
+    /// True when a heap coordinate was supplied. Like an IL coordinate, it changes which sections
+    /// exist, so a discovery catalog computed with one must not be served to a run without one.
+    /// </summary>
+    private static bool HasHeapCoordinate(LibraryOptions options)
+        => !string.IsNullOrWhiteSpace(options.HeapParameter);
+
+    /// <summary>
+    /// True when <paramref name="select"/> names <paramref name="section"/> exactly, as opposed to
+    /// reaching it through an <c>@Category</c>. The distinction decides whether a coordinate
+    /// section with no coordinate is an error or is simply dropped.
+    /// </summary>
+    private static bool HasExactSelection(string[]? select, string section)
+    {
+        if (select is not { Length: > 0 })
+            return false;
+
+        foreach (var value in select)
+        {
+            if (value.StartsWith('@'))
+                continue;
+            if (value.Trim().Equals(section, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Rewrites hex table spellings in <c>-S</c> and <c>-D</c> to canonical section names, so
+    /// <c>-S "Metadata: 0x02"</c> and <c>-S "Metadata: TypeDef"</c> reach the same section.
+    ///
+    /// This runs before selection resolution, so everything downstream — the section orderer, the
+    /// rendered heading, <c>--count</c>, the schema, the effective-section cache key — sees only
+    /// canonical names and cannot treat the two spellings as two sections.
+    /// </summary>
+    private static (LibraryOptions Options, string? Error) NormalizeMetadataTableAliases(LibraryOptions options)
+    {
+        var (select, selectError) = ResolveTableAliases(options.Select);
+        if (selectError is not null)
+            return (options, $"Error: {selectError}");
+
+        var (discover, discoverError) = ResolveTableAliases(options.Discover);
+        if (discoverError is not null)
+            return (options, $"Error: {discoverError}");
+
+        if (select is null && discover is null)
+            return (options, null);
+
+        return (options with
+        {
+            Select = select ?? options.Select,
+            Discover = discover ?? options.Discover,
+        }, null);
+    }
+
+    /// <summary>
+    /// Resolves every hex table spelling in <paramref name="values"/>. Returns a null array when
+    /// nothing needed rewriting, so an untouched selection keeps its original instance.
+    /// </summary>
+    private static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
+    {
+        if (values is not { Length: > 0 })
+            return (null, null);
+
+        string[]? rewritten = null;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!MetadataSectionNames.TryResolveTableAlias(values[i], out string canonical, out string? error))
+                return (null, error);
+
+            if (!ReferenceEquals(canonical, values[i]))
+            {
+                rewritten ??= [.. values];
+                rewritten[i] = canonical;
+            }
+        }
+
+        return (rewritten, null);
+    }
+
+    /// <summary>
+    /// Validates the <c>--heap</c> coordinate and, when no selection was given, selects the
+    /// section it feeds.
+    ///
+    /// The coordinate is parsed here — before any assembly is opened — so a malformed one fails
+    /// immediately with a diagnostic naming the wrong half, rather than after the cost of an
+    /// inspection.
+    /// </summary>
+    private static (LibraryOptions Options, string? Error) NormalizeHeapSelection(LibraryOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.HeapParameter))
+            return (options, null);
+
+        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
+            return (options, $"Error: invalid --heap value '{options.HeapParameter}': {error}");
+
+        if (options.Discover != null || options.Select is { Length: > 0 })
+            return (options, null);
+
+        return (options with { Select = [MetadataSectionNames.Heap] }, null);
+    }
+
+    /// <summary>
+    /// Reads the heap value <c>--heap</c> named onto the model, which is what makes the
+    /// coordinate-scoped section applicable. Returns a process exit code, having written its own
+    /// diagnostic, exactly as the <c>--il-offset</c> resolution above it does.
+    ///
+    /// A coordinate that does not resolve is an <em>error</em>, not a malformed cell in an
+    /// otherwise successful render. The two cases look alike but are not: a bad heap reference
+    /// found inside a projected table row is a fact about the image, so it renders as
+    /// <c>!malformed</c> and the command succeeds; a coordinate is the caller's own input, and the
+    /// caller asked for exactly one thing that does not exist. Rendering that as a successful row
+    /// would exit 0 while answering nothing, and — worse — <c>-D</c> would go on advertising
+    /// <c>Metadata: Heap</c> as an available section. <c>--il-offset</c> already draws the line
+    /// here (<c>IL offset 0x… is not an instruction boundary</c>, exit 1) and this matches it.
+    /// </summary>
+    private static int PopulateMetadataHeapIfRequested(
+        LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(options.HeapParameter)
+            || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
+            return 0;
+
+        if (inspection.MetadataAssemblyPath is not { } path)
+            return 0;
+
+        if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out var heap, out int address, out _))
+            throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
+
+        string name = MetadataHeapCoordinate.StreamName(heap);
+        MetadataValue? value;
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(path);
+            value = session.MetadataHeapValue(heap, address);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error reading {name} heap at {address} in {path}: {ex.Message}");
+            Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {ex.Message}");
+            return 1;
+        }
+
+        switch (value)
+        {
+            case null:
+                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {path} carries no metadata.");
+                return 1;
+
+            case MetadataValue.Malformed malformed:
+                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {malformed.Detail}");
+                return 1;
+
+            default:
+                inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
+                return 0;
+        }
+    }
 
     private static bool HasExactILCoordinateSelection(string[]? select)
     {
@@ -1325,7 +1618,7 @@ public class LibraryCommand
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool sourceLinkAvailable = false, bool cache = true)
+        bool sourceLinkAvailable = false, bool cache = true, string? inspectedContentHash = null)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
@@ -1336,12 +1629,13 @@ public class LibraryCommand
         // including opt-in sections whose renderability depends on the section's
         // own work (for example SourceLink audit sections).
         var allEffective = pipeline.GetDiscoverableSections(inspection);
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
         if (cache)
-            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema);
+            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -1353,28 +1647,36 @@ public class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            projection: options);
     }
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v18";
+    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
+    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
+    private const string EffectiveCategory = "effective-v19";
 
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
 
-    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, bool hasSourceLink)
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, string contentHash, bool hasSourceLink)
     {
-        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
+        string key = BuildEffectiveCacheKey(assemblyPath, contentHash, hasSourceLink);
         var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
 
         var sections = new List<string>();
         var schema = new DocumentSchema();
-        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
+            // Entries are written with AppendLine, which is CRLF on Windows. Splitting on '\n'
+            // alone leaves the '\r' attached to the last field of every line, so a cached section
+            // name would not compare equal to the registered name and would silently escape
+            // name-keyed filters such as the catalog-hidden set.
+            var line = raw.TrimEnd('\r');
             var parts = line.Split('\t');
             var name = parts[0];
             sections.Add(name);
@@ -1386,28 +1688,95 @@ public class LibraryCommand
         return (sections, schema);
     }
 
-    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections, DocumentSchema filteredSchema)
+    /// <summary>
+    /// Stores a discovery catalog under the identity of the bytes it was derived from.
+    /// </summary>
+    /// <param name="inspectedContentHash">
+    /// Content hash captured immediately <em>before</em> the inspection that produced
+    /// <paramref name="sections"/>, or <see langword="null"/> when it was not captured.
+    /// </param>
+    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections,
+        DocumentSchema filteredSchema, string? inspectedContentHash)
     {
-        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
+        // The catalog describes the bytes the inspection parsed, but the key is derived from a
+        // separate read that happens after it. If the assembly is replaced in between — an
+        // ordinary rebuild racing a discovery run — the pre- and post-inspection hashes disagree,
+        // and writing the entry would file this catalog under the *replacement's* identity, where
+        // it would be served as a correct answer indefinitely. Declining to cache turns that
+        // silent, persistent mislabelling into a recomputation on the next run.
+        //
+        // This narrows the window rather than closing it: the hash and the parse remain two reads,
+        // so bytes that change and change back around the inspection still agree. Closing it needs
+        // the inspection to report the identity of the image it actually parsed, tracked in #3478.
+        var currentContentHash = TryGetContentHash(assemblyPath);
+        if (currentContentHash == null) return;
+        if (inspectedContentHash != null && !string.Equals(inspectedContentHash, currentContentHash, StringComparison.Ordinal))
+            return;
+
+        string key = BuildEffectiveCacheKey(assemblyPath, currentContentHash, hasSourceLink);
         var sb = new System.Text.StringBuilder();
         foreach (var name in sections)
         {
             var section = filteredSchema.GetSection(name);
             if (section != null && section.Items.Length > 0)
-                sb.AppendLine($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}");
+                sb.Append($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}").Append('\n');
             else
-                sb.AppendLine(name);
+                sb.Append(name).Append('\n');
         }
         CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
-    private static string GetEffectiveCacheKey(string assemblyPath, bool hasSourceLink)
+    /// <summary>
+    /// SHA-256 of an assembly's bytes, or <see langword="null"/> when they cannot be read.
+    /// </summary>
+    private static string? TryGetContentHash(string assemblyPath)
     {
-        // Include file size for invalidation when local files change, and a network-free
-        // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
-        // the SourceLink section family is effective) busts a stale -D catalog.
-        var size = new FileInfo(assemblyPath).Length;
-        return $"{assemblyPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
+        // A cached catalog is only valid for the bytes it was computed from, so the cache is keyed
+        // by content. Neither size nor write time identifies content: a rebuild in place, or
+        // copying a different assembly over the same path, routinely produces a same-sized file,
+        // and a write time can be preserved by a copy, restored from an archive (whose recorded
+        // stamps are coarse and often fixed for reproducibility), or shared by two writes that
+        // land inside one filesystem timestamp tick. Any of those served the previous file's
+        // catalog. Hashing removes the collision by construction rather than narrowing it:
+        // different bytes cannot share a key. It costs a read and a SHA-256 pass — measured at
+        // 9.8 ms for the largest assembly in this repository against a ~2.4 s warm discovery run,
+        // so well under 1% of the work the cache exists to avoid.
+        //
+        // Gate: MetadataLensTests.LibraryCommand_DiscoverEffective_SameSizeReplacement_
+        // InvalidatesCache and ..._PreservedWriteTimeReplacement_InvalidatesCache pin both
+        // collisions; both fail if the key stops being content-derived.
+        try
+        {
+            // Share the file as permissively as the inspector that is about to read it, so a
+            // concurrent reader or a pending delete does not turn a cache lookup into a failure.
+            using var stream = new FileStream(
+                Path.GetFullPath(assemblyPath),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The identity of the bytes is unknown, so no cache entry can be proven to describe
+            // them. Callers bypass the cache rather than key on a weaker identity: this costs a
+            // full discovery run, and the caller reads the same file immediately afterwards,
+            // which surfaces the underlying failure with its own diagnostics.
+            return null;
+        }
+    }
+
+    private static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
+    {
+        // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
+        // (which flips whether the SourceLink section family is effective) busts a stale -D
+        // catalog.
+        //
+        // The path is resolved because the key is built from whatever the caller typed. A
+        // relative path names different files from different working directories, so two
+        // same-sized assemblies at the same relative path — the normal case for one repository
+        // and its worktrees — otherwise share a key and serve each other's catalog.
+        return $"{Path.GetFullPath(assemblyPath)}#{contentHash}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)
@@ -1416,6 +1785,12 @@ public class LibraryCommand
             sections = sections.Where(s => options.IncludeSections.Contains(s)).ToList();
         if (!HasILOffsetCoordinate(options))
             sections = sections.Where(s => !ILCoordinateSections.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
+        // Belt and braces, matching the IL-coordinate line above: the cache is never written while
+        // a heap coordinate is present, so a cached listing should not carry this section — but a
+        // catalog that advertises a section the coordinate cannot produce is exactly the failure
+        // this family exists to avoid, so it is filtered rather than assumed absent.
+        if (!HasHeapCoordinate(options))
+            sections = sections.Where(s => !s.Equals(MetadataSectionNames.Heap, StringComparison.OrdinalIgnoreCase)).ToList();
         return sections;
     }
 
@@ -1428,7 +1803,8 @@ public class LibraryCommand
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
-            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors());
+            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors(),
+            projection: options);
     }
 
     /// <summary>

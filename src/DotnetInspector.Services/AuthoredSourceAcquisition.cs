@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
+using DotnetInspector.CSharpBodySlicer;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Text;
@@ -188,7 +189,7 @@ public static class AuthoredSourceAcquisition
             // by the source-mapping producer), NOT a "Finalize" name match, so an
             // ordinary parameterized method named "Finalize" is never truncated.
             bool isDestructor = mapping.IsFinalizer;
-            string? memberText = SourceLinkResolver.ExtractMethodBody(
+            string? memberText = BodySlicer.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,

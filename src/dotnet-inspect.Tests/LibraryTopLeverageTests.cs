@@ -16,7 +16,7 @@ public class LibraryTopLeverageTests
             AssemblyName = typeof(LibraryLeverageFixture).Assembly.Location,
             IncludeSections = ["Top Leverage"],
             Markdown = true,
-            Rows = new RowWindow(25, FromEnd: false),
+            Rows = RowWindow.Head(25),
         }));
 
         Assert.Equal(0, result.ExitCode);

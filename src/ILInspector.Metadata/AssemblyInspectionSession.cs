@@ -169,5 +169,17 @@ public sealed class AssemblyInspectionSession : IDisposable
         MetadataProjectionOptions? options = null)
         => MetadataTableProjector.ReadHeapValue(_image.PEReader, heap, address, options);
 
+    /// <summary>
+    /// The listable entries of one heap, with the limits of that listing attached — complete for
+    /// the GUID heap, the values projected rows reference for the string and blob heaps, and
+    /// nothing at all for the user-string heap, which no table column points into. The result
+    /// carries its own <see cref="MetadataHeapEntrySet.Coverage"/> so a bounded or partial listing
+    /// is never read as a whole heap. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataHeapEntrySet? MetadataHeapEntries(
+        HeapKind heap,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ReadHeapEntries(_image.PEReader, heap, options);
+
     public void Dispose() => _image.Dispose();
 }

@@ -66,6 +66,13 @@ public sealed record TypeLocation(
 public static class TypeForwardResolver
 {
     /// <summary>
+    /// Default bound on forwarder hops. Real chains are one or two hops
+    /// (facade to definer); the bound only stops pathological or hostile
+    /// metadata, and cycle detection stops the rest.
+    /// </summary>
+    public const int DefaultMaxHops = 8;
+
+    /// <summary>
     /// Resolves the assembly that defines <paramref name="fullTypeName"/>,
     /// starting at <paramref name="assemblyPath"/> and following type
     /// forwarders through assemblies supplied by <paramref name="resolver"/>.
@@ -74,7 +81,7 @@ public static class TypeForwardResolver
     /// </summary>
     public static TypeLocation? LocateType(
         string assemblyPath, string fullTypeName, IAssemblyReferenceResolver resolver,
-        int maxHops = 8, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
+        int maxHops = DefaultMaxHops, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
     {
         var start = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(assemblyPath), Version: null, Culture: null, PublicKeyToken: null),
@@ -92,7 +99,7 @@ public static class TypeForwardResolver
     /// </summary>
     public static TypeLocation? LocateType(
         ResolvedAssemblyReference assembly, string fullTypeName, IAssemblyReferenceResolver resolver,
-        int maxHops = 8, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
+        int maxHops = DefaultMaxHops, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
     {
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var current = assembly;

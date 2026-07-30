@@ -1,5 +1,9 @@
 # Finding Coordinates
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 Finding keeps correspondence, ordering, and provenance separate. They answer
 different questions and do not share one generic string slot.
 

@@ -20,7 +20,7 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonCompilesPastExplicitImplAndConstEnum()
     {
-        var sum = FidelityCheck.Evaluate(typeof(SkeletonEmitFixture).Assembly.Location)
+        var sum = FidelityCheck.Evaluate(typeof(SkeletonEmitFixture).Assembly.Location, type => type == FixtureType)
             .Single(r => r.Type == FixtureType && r.Method == "Sum");
 
         // The point is that the whole-module skeleton compiles: an unhandled
@@ -41,7 +41,9 @@ public class SkeletonEmitTests
     [InlineData("CachedStaticMethodGroup")]
     public void SkeletonImportsUsingsForShortNamedFrameworkTypes(string method)
     {
-        var result = FidelityCheck.Evaluate(typeof(CfgSampleClass).Assembly.Location)
+        var result = FidelityCheck.Evaluate(
+                typeof(CfgSampleClass).Assembly.Location,
+                type => type == "ILInspector.Decompiler.Tests.CfgSampleClass")
             .Single(r => r.Type == "ILInspector.Decompiler.Tests.CfgSampleClass" && r.Method == method);
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
@@ -53,7 +55,9 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonSkipsCompilerEmbeddedAttributeDefinitions()
     {
-        var result = FidelityCheck.Evaluate(typeof(EmbeddedAttributeSkeletonFixture).Assembly.Location)
+        var result = FidelityCheck.Evaluate(
+                typeof(EmbeddedAttributeSkeletonFixture).Assembly.Location,
+                type => type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture")
             .Single(r => r.Type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture" && r.Method == "Value");
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
@@ -64,7 +68,9 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonSkipsFixedBufferBackingFieldTypes()
     {
-        var result = FidelityCheck.Evaluate(typeof(FixedBufferSkeletonFixture).Assembly.Location)
+        var result = FidelityCheck.Evaluate(
+                typeof(FixedBufferSkeletonFixture).Assembly.Location,
+                type => type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture")
             .Single(r => r.Type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture" && r.Method == "Value");
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
@@ -79,7 +85,9 @@ public class SkeletonEmitTests
         // skeleton reconstructs the nested Nested struct; emitting its inherited T
         // (struct Nested<T>) makes the GenericNestedHolder<int>.Nested reference
         // CS0305. Only the own (zero) parameters may be restated.
-        var result = FidelityCheck.Evaluate(typeof(GenericNestedHolder<>).Assembly.Location)
+        var result = FidelityCheck.Evaluate(
+                typeof(GenericNestedHolder<>).Assembly.Location,
+                type => type == "ILInspector.Decompiler.Tests.GenericNestedUser")
             .Single(r => r.Type == "ILInspector.Decompiler.Tests.GenericNestedUser" && r.Method == "UseNested");
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
@@ -95,7 +103,9 @@ public class SkeletonEmitTests
     [InlineData("DescribeException")]
     public void SkeletonRestatesGenericConstraints(string method)
     {
-        var result = FidelityCheck.Evaluate(typeof(ConstraintFixture).Assembly.Location)
+        var result = FidelityCheck.Evaluate(
+                typeof(ConstraintFixture).Assembly.Location,
+                type => type == "ILInspector.Decompiler.Tests.ConstraintFixture")
             .Single(r => r.Type == "ILInspector.Decompiler.Tests.ConstraintFixture" && r.Method == method);
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
