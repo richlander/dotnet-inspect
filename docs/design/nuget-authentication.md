@@ -292,7 +292,7 @@ way out to the console — `FeedFailureCollector.Failures` is public, so an unre
 in it would already be an exposure.
 
 ```console
-$ dotnet-inspect package Markout --source 'https://user:hunter2@pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=hunter2'
+$ dotnet-inspect package Markout --source 'https://<user>:<access-token>@pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=<access-token>'
   https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
 ```
 
