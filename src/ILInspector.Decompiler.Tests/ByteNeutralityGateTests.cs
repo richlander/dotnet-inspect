@@ -79,8 +79,8 @@ public sealed class ByteNeutralityGateTests
     ///
     /// <para>
     /// Every byte-neutral value is held to the same proof: its knob-on and knob-off
-    /// renders must recompile to the same IL (established off-vs-on under compile-back
-    /// contract V1, below). Formatting, Spelling and Synthesis knobs all claim IL-identity
+    /// renders must recompile to the same IL (established off-vs-on under the
+    /// compile-back contract, below). Formatting, Spelling and Synthesis knobs all claim IL-identity
     /// — layout, a <c>this.</c> qualifier, a <c>var</c> inference, a local name — and
     /// compile-back proves that claim uniformly at the IL level, where a mis-tiered token
     /// change that actually altered the IL cannot pass.
@@ -267,7 +267,7 @@ public sealed class ByteNeutralityGateTests
         // e.g. two OperandDiff renders with different operands.
         //
         // The harness compiles each render back and diffs it against the shared original
-        // under compile-back contract V1 (a complete LCS operand/branch-target diff). If
+        // under the compile-back contract (a complete LCS operand/branch-target diff). If
         // the knob-off and knob-on renders produce the SAME contract-V1 diff against that
         // one original, they deviate from it identically and are therefore IL-identical to
         // each other — even when the shared baseline is itself a benign over-render (the
@@ -322,7 +322,7 @@ public sealed class ByteNeutralityGateTests
                 Assert.Equal(offResult.RecompiledOpcodes, onResult.RecompiledOpcodes);
 
                 // Operand/branch-target identity: both recompiled bodies deviate from the
-                // shared original identically under contract V1, hence equal each other.
+                // shared original identically under the fidelity contract, hence equal each other.
                 Assert.Equal(offDiff!.Outcome, onDiff!.Outcome);
                 Assert.True(offDiff.Rows.SequenceEqual(onDiff.Rows),
                     $"{label}: knob-on recompiled body diverges from knob-off at the operand or " +

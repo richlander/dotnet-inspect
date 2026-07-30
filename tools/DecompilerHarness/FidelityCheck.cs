@@ -26,7 +26,7 @@ namespace ILInspector.DecompilerHarness;
 /// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
-/// to a different contract V1 body changed the measured program shape
+/// to a different contract body changed the measured program shape
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
 /// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
@@ -40,11 +40,26 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class FidelityCheck
 {
-    internal const int CurrentContractVersion = 1;
-    internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
+    /// <summary>
+    /// The compile-back fidelity contract: which differences the comparison treats as
+    /// noise rather than defect. Persisted alongside corpus metrics, so a change to
+    /// <see cref="ContractBodyDiffNormalization"/> must bump this — otherwise a baseline
+    /// and a current run claim the same contract under different equality rules, and the
+    /// corpus sensor compares numbers that were never comparable.
+    /// </summary>
+    /// <remarks>
+    /// v2 (#3491) added generated-member ordinal correspondence. Roslyn's local-function
+    /// and state-machine names embed an ordinal over the containing type's members, which
+    /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
+    /// operand differences between identical bodies.
+    /// </remarks>
+    internal const int CurrentContractVersion = 2;
+
+    internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
@@ -242,7 +257,7 @@ static class FidelityCheck
     /// <summary>The fidelity check outcome for one method.</summary>
     public enum CompileBackStatus
     {
-        /// <summary>Recompiled to the same body under compile-back fidelity contract V1 — the goal.</summary>
+        /// <summary>Recompiled to the same body under the compile-back fidelity contract — the goal.</summary>
         Exact,
         /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
         OpcodeDiff,
@@ -4328,7 +4343,7 @@ static class FidelityCheck
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            normalization: ContractV1BodyDiffNormalization).Diff;
+            normalization: ContractBodyDiffNormalization).Diff;
     }
 
     static string CanonicalOpcode(string op)

@@ -7,7 +7,7 @@ namespace ILInspector.Decompiler.Tests;
 /// The fidelity gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
 /// it decompiles every method on <see cref="CfgSampleClass"/>, recompiles it inside a
 /// reconstructed shape of its type, and compares the body under compile-back fidelity
-/// contract V1 — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
+/// the current contract — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
 /// (the de-sugared SharpLab-style view) instead of the shipped sugared view. Each official
 /// C# view earns its own compiler→decompiler→compiler validation, so a regression that turns
 /// a lowered method's recompiled IL into a different stream fails CI.
@@ -20,7 +20,7 @@ public class LoweredFidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods whose lowered C# still differs under compile-back fidelity contract V1 — the open
+    /// Methods whose lowered C# still differs under the compile-back fidelity contract — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
     /// Beyond the shared sugared docket (BothPositive, GotoCommonExit,
     /// SelectBoolReturn), the lowered view adds ReverseCopy:
@@ -151,11 +151,9 @@ public class LoweredFidelityGateTests
         "NullCoalescingAssignStaticProperty",
         "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
-        // Contract V1 rebaseline: opcode names still match, but canonical
+        // Contract rebaseline: opcode names still match, but canonical
         // operands, symbolic targets, or branch targets differ.
         "DayNumber",
-        "DoubleViaLocalFunction",
-        "StaticLocalFunctionCalledTwice",
         // MakeConsumerWithTwoLeadingArgs (#3272): the trailing object initializer
         // with TWO preceding constructor arguments folds correctly (Valid + Correct)
         // to `new InitConsumer3(Identity(tag), Identity(a), new InitTarget { ... })`,
@@ -168,7 +166,7 @@ public class LoweredFidelityGateTests
     };
 
     /// <summary>
-    /// Methods the lowered view keeps exact under contract V1. This is the sugared pinned set minus the
+    /// Methods the lowered view keeps exact under the fidelity contract. This is the sugared pinned set minus the
     /// two methods the lowered view legitimately reshapes: ReverseCopy (now an expected diff,
     /// see <see cref="KnownDiffs"/>) and ClassicLock (lowering skips LockSugarPass, emitting an
     /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
@@ -184,6 +182,20 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3491: local functions whose only compile-back difference was Roslyn's
+        // synthesized member ordinal in `<Owner>g__Name|N_K`. The v2 contract
+        // compares those through a two-sided correspondence, so these are exact.
+        // The iterator siblings (SwitchYield, WhileTrueYieldBreak, Yield*) are NOT
+        // pinned here: the lowered view classifies them NotFull, which the diff set
+        // excludes, so this gate never observed them. They are pinned in the sugared
+        // gate, which does.
+        "DoubleViaLocalFunction",
+        "EnumArgInInlineLocalFunction",
+        "EnumArgInLocalFunctionWithLocal",
+        "RecursiveLocalFunction",
+        "StaticLocalFunctionCalledTwice",
+        "StaticLocalFunctionWithLocal",
+        "TwoLocalFunctionQuadrants",
         "AwaitAcrossVoidCall",
         "AwaitConfiguredTask",
         "AwaitConfiguredValueTask",
@@ -255,7 +267,7 @@ public class LoweredFidelityGateTests
         var unexpected = diffs.Where(m => !KnownDiffs.Contains(m)).ToList();
 
         Assert.True(unexpected.Count == 0,
-            $"New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL): " +
+            $"New lowered fidelity check contract v{FidelityCheck.CurrentContractVersion} diffs (lowered C# recompiles to different IL): " +
             $"{string.Join(", ", unexpected)}. Full current diff set: {string.Join(", ", diffs)}");
     }
 
@@ -269,7 +281,7 @@ public class LoweredFidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            "Lowered compile-back fidelity contract V1 was unavailable for: "
+            $"Lowered compile-back fidelity contract v{FidelityCheck.CurrentContractVersion} was unavailable for: "
             + string.Join(", ", unavailable));
     }
 

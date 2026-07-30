@@ -742,7 +742,8 @@ public class CorpusSensorComparisonTests
 
         Assert.Contains(
             regressions,
-            regression => regression == "fidelity contract differs (baseline v0, current v1)");
+            regression => regression
+                == $"fidelity contract differs (baseline v0, current v{FidelityCheck.CurrentContractVersion})");
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
         Assert.Contains("Fidelity exact (contract differs)", report);
     }
@@ -797,14 +798,22 @@ public class CorpusSensorComparisonTests
         Assert.Same(fidelityDiff, aligned.FidelityDiff);
     }
 
+    /// <summary>
+    /// The contract composition is a tripwire: changing which normalizations the fidelity
+    /// comparison applies changes what "exact" means for every persisted corpus baseline,
+    /// so the version must move with it. Both halves are restated here deliberately, so
+    /// that changing the set without bumping the version fails.
+    /// </summary>
     [Fact]
-    public void FidelityContractV1_ComposesAllIlBodyNormalizations()
+    public void FidelityContract_ComposesAllIlBodyNormalizations()
     {
         Assert.Equal(
             IlBodyDiffNormalization.NormalizeVariableLayout
             | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope,
-            FidelityCheck.ContractV1BodyDiffNormalization);
+            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+            | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals,
+            FidelityCheck.ContractBodyDiffNormalization);
+        Assert.Equal(2, FidelityCheck.CurrentContractVersion);
     }
 
     [Fact]
@@ -863,14 +872,17 @@ public class CorpusSensorComparisonTests
         };
 
         string json = JsonSerializer.Serialize(v4)
-            .Replace("\"ContractVersion\":1,", "", StringComparison.Ordinal);
+            .Replace(
+                $"\"ContractVersion\":{CorpusSensor.CurrentFidelityContractVersion},",
+                "",
+                StringComparison.Ordinal);
         var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
 
         Assert.NotNull(restored);
         Assert.Equal(4, restored.SchemaVersion);
         Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
         Assert.Equal(5, CorpusSensor.CurrentSchemaVersion);
-        Assert.Equal(1, CorpusSensor.CurrentFidelityContractVersion);
+        Assert.Equal(2, CorpusSensor.CurrentFidelityContractVersion);
     }
 
     [Fact]

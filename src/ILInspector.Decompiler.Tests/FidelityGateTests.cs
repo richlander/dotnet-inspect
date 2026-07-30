@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
 /// recompile it inside a reconstructed shape of its type, and compare the body under
-/// compile-back fidelity contract V1. A method that recompiles to a different body
+/// the compile-back fidelity contract. A method that recompiles to a different body
 /// changed the measured program shape — the worst decompiler failure class,
 /// invisible to parse/bind checks. This pins the green set so a regression that turns
 /// an exact method into a diff fails CI, while the documented baseline records the
@@ -19,7 +19,7 @@ public class FidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods that still differ under compile-back fidelity contract V1 — the open
+    /// Methods that still differ under the compile-back fidelity contract — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
@@ -178,10 +178,16 @@ public class FidelityGateTests
         "NullCoalescingAssignStaticProperty",
         "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
-        // Compile-back fidelity contract V1 reclassifies these previously
+        // MakeConsumerWithTwoLeadingArgs (#3272): trailing object initializer with TWO
+        // preceding constructor arguments. ExpressionInliningPass removes only one of
+        // the two single-use spill temps, leaving an extra stloc/ldloc pair on
+        // compile-back. Already docketed in the lowered gate for the same reason; it
+        // was missing here only because both gates are Speed=Slow and neither runs in
+        // PR CI, so this rail's failure went unobserved.
+        "MakeConsumerWithTwoLeadingArgs",
+        // The compile-back fidelity contract reclassifies these previously
         // opcode-exact rows because a value, symbolic target, or branch target
         // differs after recompilation.
-        "BreakWithSideEffect",
         "CachedDelegateArgument",
         "CachedDelegateChain",
         "CapturingLambda",
@@ -189,63 +195,29 @@ public class FidelityGateTests
         // #2945: outer-body reads of a hoisted capture field are substituted back
         // to the captured source and the display class elides, so this fully
         // raises; recompiling regenerates a fresh display class whose synthesized
-        // ordinals differ under contract V1.
+        // ordinals differ under the fidelity contract.
         "CapturedParamReadInOuterBody",
         "ClosureCapture",
         "CountPositive",
         "DayNumber",
-        "DoubleViaLocalFunction",
-        // #2983: the enum-argument-in-nested-local-function fixture. Its raised
-        // body prints through a freshly reconstructed nested scope and now spells
-        // the enum constant by member (the fix under test); the call opcodes stay
-        // identical (`ldarg call ret`), but recompiling reassigns the local
-        // function's synthesized ordinal (g__Classify|N_0), which contract V1
-        // observes — the same benign reconstruction-ordinal diff as its sibling
-        // StaticLocalFunctionWithLocal below.
-        "EnumArgInLocalFunctionWithLocal",
-        // #2983 (inline path): the enum-argument-in-inline-local-function fixture.
-        // Its raised body has no locals or stack slots, so it prints inline through
-        // the enclosing scope and now spells the enum constant by member (the fix
-        // under test); the call opcodes stay identical (`ldarg call ret`), but
-        // recompiling reassigns the local function's synthesized ordinal, the same
-        // benign reconstruction-ordinal diff as its sibling below.
-        "EnumArgInInlineLocalFunction",
         "InvokeLocalCapture",
-        "JustBreak",
         "LocalBodyLambda",
         "NonCapturingLambda",
-        "RecursiveLocalFunction",
         "StatementBodyLambda",
-        "StaticLocalFunctionCalledTwice",
-        "StaticLocalFunctionWithLocal",
-        // Tuple-switch fixture additions changed the reconstructed source ordinal
-        // of both local functions from |5_* to |31_*. The call opcodes remain
-        // identical, but contract V1 observes the changed symbolic targets.
-        "TwoLocalFunctionQuadrants",
-        // The iterator raises added by #2884 recover the source bodies and retain
-        // the same outer factory opcodes, but recompiling the reconstructed large
-        // fixture type assigns different synthesized state-machine ordinals
-        // (d__600/601 -> d__575/576). Those constructor and field targets remain
-        // observable symbolic identities under contract V1.
-        "SwitchYield",
-        "WhileTrueYieldBreak",
+        // #3491 follow-up: the ONLY remaining difference here is Roslyn's synthesized
+        // lambda ordinal — `<>c::<StatementBodyLambdaInsideIf>b__103_0` against
+        // `b__128_0`, plus the matching `<>9__103_0`/`<>9__128_0` cache fields. Same
+        // root cause as the local-function and iterator ordinals #3491 retired, and
+        // the opcode sequences are identical. It is docketed rather than fixed because
+        // the cache FIELD `<>9__N_K` carries no owner-method name, so it has no key as
+        // strong as `<Owner>g__Name|N_K`; folding it needs a separate design that ties
+        // the field to the `b__N_K` method sharing its ordinal. Retirable, not noise.
+        "StatementBodyLambdaInsideIf",
         "TwoCaptureLambda",
-        "ValidNestedIf",
-        "YieldCollectionExpressionSpread",
-        "YieldEach",
-        "YieldEnumerator",
-        "YieldGrid",
-        "YieldIf",
-        "YieldPairs",
-        "YieldRange",
-        "YieldSquares",
-        "YieldStrings",
-        "YieldThree",
-        "YieldTwo",
     };
 
     /// <summary>
-    /// Methods a prior fidelity check fix turned exact under contract V1. Pinning them guards the
+    /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -335,6 +307,38 @@ public class FidelityGateTests
         // internal System.Text.Json surface is not recompilable by the compile-back
         // oracle (tracked for a future cross-assembly compile-back capability).
         "SwitchWithTwoLoopingCaseSections",
+        // #3491: Roslyn names local functions `<Owner>g__Name|N_K` and iterator
+        // state machines `<Owner>d__N`, where N is an ordinal over the CONTAINING
+        // TYPE's members. Compile-back reconstructs a type skeleton with a different
+        // member population, so N necessarily differs and the v1 contract reported an
+        // operand difference between bodies that were otherwise identical. The v2
+        // contract compares these through a two-sided correspondence instead. These
+        // are pinned Exact rather than merely dropped from the docket below, because
+        // that docket asserts only `actual is a subset of KnownDiffs` — removing an
+        // entry from it proves nothing on its own.
+        "DoubleViaLocalFunction",
+        "EnumArgInInlineLocalFunction",
+        "EnumArgInLocalFunctionWithLocal",
+        "RecursiveLocalFunction",
+        "StaticLocalFunctionCalledTwice",
+        "StaticLocalFunctionWithLocal",
+        "TwoLocalFunctionQuadrants",
+        "BreakWithSideEffect",
+        "JustBreak",
+        "SwitchYield",
+        "ValidNestedIf",
+        "WhileTrueYieldBreak",
+        "YieldCollectionExpressionSpread",
+        "YieldEach",
+        "YieldEnumerator",
+        "YieldGrid",
+        "YieldIf",
+        "YieldPairs",
+        "YieldRange",
+        "YieldSquares",
+        "YieldStrings",
+        "YieldThree",
+        "YieldTwo",
         // #3166: the value-swap idiom. csc lowers the tuple swap `(a, b) = (b, a)`
         // (and the equivalent manual `temp = b; b = a; a = temp;`) to a single
         // dup-slot save plus the two cross-stores; SwapIdiomPass raises that
@@ -527,7 +531,7 @@ public class FidelityGateTests
         });
 
         Assert.True(unexpected.Count == 0,
-            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
+            $"New fidelity check contract v{FidelityCheck.CurrentContractVersion} diffs (decompiled C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
     }
@@ -542,7 +546,7 @@ public class FidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            "Compile-back fidelity contract V1 was unavailable for: "
+            $"Compile-back fidelity contract v{FidelityCheck.CurrentContractVersion} was unavailable for: "
             + string.Join(", ", unavailable));
     }
 
