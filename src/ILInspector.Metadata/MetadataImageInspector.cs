@@ -27,6 +27,15 @@ public static class MetadataImageInspector
     /// Returns <see langword="null"/> when the image carries no metadata, which
     /// is the same "not applicable" signal
     /// <see cref="MetadataTableProjector.ProjectRow"/> uses.
+    ///
+    /// The metadata root's version stamp is a counted string read straight out of
+    /// the image, so it is attacker-controlled in exactly the way heap strings
+    /// are — and unlike them it reaches presentation without passing through the
+    /// row projection, so it inherits none of that path's containment. It is
+    /// neutralized here, with the projector's own escaper rather than a parallel
+    /// one, so that every consumer inherits the containment instead of each
+    /// renderer having to remember. A value that skips the projection must still
+    /// not skip its containment.
     /// </summary>
     public static MetadataImageOverview? Describe(PEReader peReader)
     {
@@ -41,32 +50,35 @@ public static class MetadataImageInspector
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
+        string version = MetadataTableProjector.NeutralizeControls(
+            reader.MetadataVersion, MetadataVersionBudget, out bool versionTruncated);
+
         return new MetadataImageOverview(
-            NeutralizeVersion(reader.MetadataVersion),
+            version,
             reader.MetadataKind,
             reader.IsAssembly,
             headers.MetadataStartOffset,
             headers.MetadataSize,
             DescribeHeaps(reader),
             DescribeTables(reader),
-            DescribeHeaders(headers));
+            DescribeHeaders(headers),
+            versionTruncated);
     }
 
     /// <summary>
-    /// The metadata root's version stamp is a counted string read straight out of
-    /// the image, so it is attacker-controlled in exactly the way heap strings
-    /// are — and unlike them it reaches presentation without passing through the
-    /// row projection. Neutralizing it here keeps the containment with the layer
-    /// that owns the fact, so every consumer inherits it rather than each
-    /// renderer having to remember.
+    /// Bounds the neutralized version stamp. ECMA-335 II.24.2.1 bounds the field
+    /// at 255 bytes and neutralization expands a control character to six
+    /// characters, so 255 * 6 is the widest a conforming stamp can become and the
+    /// budget never binds on one. It exists for the non-conforming case, because
+    /// the stamp is a counted string read straight out of the image and this code
+    /// does not get to assume the image conforms.
     ///
-    /// The budget cannot truncate a conforming value: ECMA-335 bounds the field
-    /// at 255 bytes, and neutralization expands a control character to six
-    /// characters, so 255 * 6 is the widest a well-formed stamp can become.
+    /// When the budget does bind, the overview reports it via
+    /// <see cref="MetadataImageOverview.MetadataVersionTruncated"/> rather than
+    /// silently returning a prefix, so a clipped stamp is never mistaken for a
+    /// whole one — the same rule every other truncated value in this layer
+    /// follows.
     /// </summary>
-    static string NeutralizeVersion(string version)
-        => MetadataTableProjector.NeutralizeControls(version, MetadataVersionBudget, out _);
-
     const int MetadataVersionBudget = 255 * 6;
 
     static ImmutableArray<MetadataHeapSummary> DescribeHeaps(MetadataReader reader)

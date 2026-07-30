@@ -505,13 +505,15 @@ That is why the property needs its own gate rather than a comment.
 `MdiContainmentTests` splices a payload spanning all three control ranges the
 projector recognizes — a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1
 control — into a real `#Strings` entry *and* into the version stamp, then renders
-the patched assembly through every view and format. Each case asserts both that
-no raw control character survives and that the neutralized form of every control
-is present, so it cannot pass by rendering nothing, and the multi-range payload
-means narrowing containment to `ESC` alone fails rather than passes. Coverage is
-driven from `MetadataTableFormat` itself, so a new format is gated on arrival.
-One view — `--references` — renders only coordinates and counts, so it is held as
-a regression net rather than a payload-carrying case, and the file says so.
+the patched assembly through every view and format. The three views that carry
+artifact text — table, heap, and overview — each assert both that no raw control
+character survives and that the neutralized form of every control is present, so
+they cannot pass by rendering nothing, and the multi-range payload means
+narrowing containment to `ESC` alone fails rather than passes. Coverage is driven
+from `MetadataTableFormat` itself, so a new format is gated on arrival. The
+`--references` view renders only coordinates and counts, so it carries no
+artifact text and is asserted against raw controls alone, as a regression net
+rather than a payload-carrying case; the file says so.
 
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be

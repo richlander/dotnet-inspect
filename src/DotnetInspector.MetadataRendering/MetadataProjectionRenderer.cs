@@ -330,7 +330,15 @@ public static class MetadataProjectionRenderer
     static List<string[]> ImageFactRows(MetadataImageOverview overview)
     {
         var rows = new List<string[]>();
-        Add("Metadata version", overview.MetadataVersion);
+
+        // A truncated stamp must carry the ellipsis for the same reason a
+        // truncated handle display does: a prefix must never be mistaken for the
+        // whole value.
+        Add(
+            "Metadata version",
+            overview.MetadataVersionTruncated
+                ? overview.MetadataVersion + Ellipsis
+                : overview.MetadataVersion);
         Add("Metadata kind", overview.Kind.ToString());
         Add("Has assembly manifest", overview.IsAssembly ? "yes" : "no");
         Add("Metadata offset", overview.MetadataOffset.ToString());

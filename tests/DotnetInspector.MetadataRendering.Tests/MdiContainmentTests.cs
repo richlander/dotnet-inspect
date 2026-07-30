@@ -39,10 +39,12 @@ internal sealed class TerminalEscapeCanaryPlaceholder;
 /// the case that would have caught it.
 /// </para>
 /// <para>
-/// Each test asserts both halves of the containment claim: no raw control
-/// character survived, <em>and</em> the neutralized form of every control in the
-/// payload is present. Absence alone would also be satisfied by rendering
-/// nothing at all.
+/// Each <em>payload-carrying</em> case — table, heap, and overview — asserts
+/// both halves of the containment claim: no raw control character survived,
+/// <em>and</em> the neutralized form of every control in the payload is present.
+/// Absence alone would also be satisfied by rendering nothing at all. The
+/// `--references` view carries no artifact text, so it asserts only the first
+/// half; see <see cref="ReferenceRendering_EmitsNoRawControlCharacters"/>.
 /// </para>
 /// </summary>
 public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
