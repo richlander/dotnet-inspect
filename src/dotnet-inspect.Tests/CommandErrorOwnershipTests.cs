@@ -69,6 +69,21 @@ namespace DotnetInspector.Tests;
 /// <see cref="CompiledIl_ReachesStderrOnlyWhereAccountedFor"/> reads the
 /// Release assembly.
 /// </para>
+/// <para>
+/// The coverage checks have two of their own, both found by review and both
+/// left open deliberately. The closure is read three ways -- project XML
+/// unconditionally, MSBuild's evaluation in Release, and the Release deps file
+/// -- which between them see a reference an author wrote under any condition
+/// and a reference the Release build created by any means. A reference that is
+/// both created during a build and conditional on a shipping-only flavour is in
+/// none of the three. And the severity pin keys a local function by the name
+/// the compiler assigns it, ordinal included, so adding a lambda earlier in the
+/// enclosing method can renumber it and force a pin update the method itself
+/// did not earn. Stripping the ordinal would fix that by modelling Roslyn's
+/// naming of generated members -- which is the move this class was rewritten to
+/// stop making -- so it stays, and this paragraph is the warning that an
+/// unexplained churn there is expected rather than evidence of a change.
+/// </para>
 /// </remarks>
 public class CommandErrorOwnershipTests
 {
@@ -349,7 +364,7 @@ public class CommandErrorOwnershipTests
             // rather than writing to it; its Write/Flush go through
             // CommandError.WriteLine, which is why no other member of this type
             // appears here.
-            ["dotnet-inspect!ContainedWriter.get_Encoding()"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError+ContainedWriter.get_Encoding()"] = 1,
         };
 
         Assert.Equal(
@@ -586,15 +601,39 @@ public class CommandErrorOwnershipTests
     /// </remarks>
     private static string MethodName(MetadataReader reader, MethodDefinition method)
     {
-        TypeDefinition declaring = reader.GetTypeDefinition(method.GetDeclaringType());
-        string type = reader.GetString(declaring.Namespace) is { Length: > 0 } ns
-            ? $"{ns}.{reader.GetString(declaring.Name)}"
-            : reader.GetString(declaring.Name);
+        string type = TypeName(reader, reader.GetTypeDefinition(method.GetDeclaringType()));
 
         MethodSignature<string> signature = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
         string arity = signature.GenericParameterCount > 0 ? $"`{signature.GenericParameterCount}" : string.Empty;
 
         return $"{type}.{reader.GetString(method.Name)}{arity}({string.Join(", ", signature.ParameterTypes)})";
+    }
+
+    /// <summary>
+    /// A type's fully qualified name, including its enclosing types.
+    /// </summary>
+    /// <remarks>
+    /// A nested type's <see cref="TypeDefinition.Namespace"/> is nil in
+    /// metadata -- the namespace belongs to the outermost type -- and its
+    /// <see cref="TypeDefinition.Name"/> is the simple name alone. Keying on
+    /// those two directly gives every nested type a bare key: the compiler's
+    /// own display classes collide with each other across enclosing types,
+    /// <c>Program.&lt;&gt;c</c> and any other <c>&lt;&gt;c</c> among them, and a
+    /// nested type can be given the name of a global-namespace type that this
+    /// pin already accounts for. Walking to the outermost type makes the key
+    /// the identity metadata actually assigns.
+    /// </remarks>
+    private static string TypeName(MetadataReader reader, TypeDefinition type)
+    {
+        string name = reader.GetString(type.Name);
+
+        while (type.IsNested)
+        {
+            type = reader.GetTypeDefinition(type.GetDeclaringType());
+            name = $"{reader.GetString(type.Name)}+{name}";
+        }
+
+        return reader.GetString(type.Namespace) is { Length: > 0 } ns ? $"{ns}.{name}" : name;
     }
 
     /// <summary>
