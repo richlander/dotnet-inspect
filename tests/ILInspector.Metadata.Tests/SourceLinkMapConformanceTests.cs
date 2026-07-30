@@ -492,12 +492,21 @@ public class SourceLinkMapConformanceTests
     /// dev.azure.com/.../items?...&amp;path=/nope          404          &lt;- query selects
     /// </code>
     /// <para>
-    /// So the shape cannot be refused: it is exactly what <c>Microsoft.SourceLink.AzureRepos.Git</c>
-    /// generates, and refusing it would reintroduce the failure this matcher was collapsed to fix.
-    /// Telling the two apart needs a per-host content selector, which belongs with the host
-    /// grammars in <c>SourceLinkProvenance</c>, not here; issue #3599 tracks it. Provenance is not
-    /// at risk meanwhile, which the last assertion pins: the origin it reports is genuinely where
-    /// the bytes come from, so the invariant holds even while correspondence does not.
+    /// So <em>this matcher</em> cannot refuse the shape: it is exactly what
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> generates, and refusing it would reintroduce the
+    /// failure this matcher was collapsed to fix. Telling the two apart needs a per-host content
+    /// selector, which belongs with the host grammars in <c>SourceLinkProvenance</c>, not here.
+    /// </para>
+    /// <para>
+    /// That selector now exists for the host where the answer is decidable. A later review showed
+    /// the deferral was too generous: with the wildcard confined to the query, provenance
+    /// <em>established</em> an origin for a map where every document fetches one file, so the
+    /// correspondence gap was visible to the user as a clean attribution. Provenance therefore
+    /// refuses a <c>raw.githubusercontent.com</c> URL carrying a query at all, and the last
+    /// assertions here pin that split: the matcher still accepts the shape, and provenance
+    /// declines to attribute it. Issue #3599 stays open only for hosts whose query semantics this
+    /// reader does not know — which, by the host allow list, are hosts it does not attribute
+    /// anyway.
     /// </para>
     /// </remarks>
     [Fact]
@@ -522,12 +531,15 @@ public class SourceLinkMapConformanceTests
 
         Assert.Empty(azure.RejectedKeys);
 
-        // And the origin reported for the shadowing map is still the origin the bytes come from,
-        // so this is a correspondence gap and not a provenance one.
+        // The matcher accepts the shape; provenance is what refuses it, on the host whose query
+        // semantics this reader knows. Both halves are asserted, because the value here is the
+        // split: moving the refusal into the matcher would break the Azure map above.
         var provenance = SLF.SourceLinkProvenance.Determine(map, ["/_/src/One.cs", "/_/src/Two.cs"]);
-        Assert.Equal("o", provenance.Origin?.Organization);
-        Assert.Equal("r", provenance.Origin?.Repository);
-        Assert.Equal(Sha, provenance.Origin?.Revision);
+        Assert.False(provenance.IsEstablished);
+        Assert.Contains("ignores the query", provenance.Reason, StringComparison.Ordinal);
+
+        var azureProvenance = SLF.SourceLinkProvenance.Determine(azure, ["/_/src/One.cs"]);
+        Assert.True(azureProvenance.IsEstablished, azureProvenance.Reason);
     }
 
     /// <summary>

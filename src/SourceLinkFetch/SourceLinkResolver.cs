@@ -463,13 +463,22 @@ public partial class SourceLinkResolver
     /// selects the file (<c>path=/README.md</c> → 200, a different path → 404); the identical
     /// shape aimed at <c>raw.githubusercontent.com</c> serves one file for every document, because
     /// that host ignores the query entirely (<c>?document=A.cs</c>, <c>?document=B.cs</c> and no
-    /// query all return the same bytes). Refusing the shape would break every Azure Repos
-    /// assembly, which is the bug this matcher was collapsed to fix. Deciding it needs a
-    /// per-host content selector, which belongs with the host grammars in
+    /// query all return the same bytes). Refusing the shape <em>here</em> would break every
+    /// Azure Repos assembly, which is the bug this matcher was collapsed to fix. Deciding it
+    /// needs a per-host content selector, which belongs with the host grammars in
     /// <c>SourceLinkProvenance</c> rather than in this host-agnostic matcher, and is tracked by
-    /// issue #3599. Until then a map may still point every document at one file on a host that
-    /// ignores the varying component; provenance stays correct in that case, because the origin
-    /// it reports is genuinely where the content is served from.
+    /// issue #3599.
+    /// </para>
+    /// <para>
+    /// That selector now exists for <c>raw.githubusercontent.com</c>, whose grammar refuses a URL
+    /// carrying a query at all, so a map may still point every document at one file on that host
+    /// but can no longer report an origin while doing so. An earlier version of this note said
+    /// provenance stayed correct in that case, because the origin it reports is genuinely where
+    /// the content is served from. That is true of the origin and beside the point for the user,
+    /// who was shown one file as the source of every document under a clean attribution — review
+    /// found it exactly that way. What is left to #3599 is hosts whose query semantics this
+    /// reader does not know, and by the host allow list those are hosts it does not attribute
+    /// anyway.
     /// </para>
     /// <para>
     /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is

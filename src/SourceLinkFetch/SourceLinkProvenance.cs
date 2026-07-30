@@ -313,6 +313,29 @@ public static class SourceLinkProvenance
                 return false;
             }
 
+            // This host serves the path and ignores the query completely. Measured against
+            // raw.githubusercontent.com: no query, '?ignored=A.cs', '?ignored=B.cs' and
+            // '?path=/other.cs' all return the same 33400 bytes with the same hash. So a query
+            // here cannot select content -- it can only carry a substitution the server will
+            // never see, which is how '{"*": ".../fixed.cs?ignored=*"}' resolves every document
+            // to one file: each document produces a textually distinct URL, so the resolver's
+            // two-probe check is satisfied, while all of them fetch fixed.cs and agree on an
+            // origin that is genuinely where fixed.cs is served from.
+            //
+            // This is the per-host content selector the two-probe check defers to this layer
+            // (issue #3599). It is decidable here and not there: the same shape aimed at Azure
+            // Repos is the documented generated form, where 'path=' really does select the file,
+            // so a host-agnostic matcher cannot refuse it. Nothing generated carries a query
+            // either -- Microsoft.SourceLink.GitHub builds '{contentUrl}/{owner}/{repo}/{sha}/*'
+            // by pure path concatenation (UriUtilities.Combine) and never appends one.
+            if (uri.Query.Length > 0)
+            {
+                rejection =
+                    $"'{host}' ignores the query, so '{uri.Query}' cannot select content and a " +
+                    "substitution placed there would resolve every document to one file";
+                return false;
+            }
+
             origin = new SourceLinkOrigin(
                 host,
                 segments[0],

@@ -207,6 +207,34 @@ one that was here, and it had gone stale by two.
   label — which is exactly what `AzureDevOpsUrlParser` builds. `DefaultCollection`
   is dropped rather than made part of the identity, because the host serves
   byte-identical content with and without it.
+- A wildcard confined to the **query** changes the request text without changing
+  what the host serves, on a host that ignores the query. `{"*":
+  ".../{sha}/fixed.cs?ignored=*"}` gives every document its own URL — so the
+  two-probe check, which compares request text, is satisfied — while every one of
+  them fetches `fixed.cs`, and the reported origin is genuinely where `fixed.cs`
+  is served from, so the agreement check is satisfied too. One file is then shown
+  as the source of every document under a clean attribution. Measured against
+  `raw.githubusercontent.com`: no query, `?ignored=A.cs`, `?ignored=B.cs` and
+  `?path=/other.cs` all return the same 33400 bytes with the same SHA-256. This
+  cannot be refused by the host-agnostic matcher, because the identical shape is
+  the *generated* Azure Repos form where `path=` does select the file. It is
+  refused by the host grammar instead: `raw.githubusercontent.com` URLs may not
+  carry a query, which loses nothing, since that generator builds its URL by pure
+  path concatenation and never appends one.
+- A wildcard confined to the **query** changes the request text without changing
+  what the host serves, on a host that ignores the query. `{"*":
+  ".../{sha}/fixed.cs?ignored=*"}` gives every document its own URL — so the
+  two-probe check, which compares request text, is satisfied — while every one of
+  them fetches `fixed.cs`, and the reported origin is genuinely where `fixed.cs`
+  is served from, so the agreement check is satisfied too. One file is then shown
+  as the source of every document under a clean attribution. Measured against
+  `raw.githubusercontent.com`: no query, `?ignored=A.cs`, `?ignored=B.cs` and
+  `?path=/other.cs` all return the same 33400 bytes with the same SHA-256. This
+  cannot be refused by the host-agnostic matcher, because the identical shape is
+  the *generated* Azure Repos form where `path=` does select the file. It is
+  refused by the host grammar instead: `raw.githubusercontent.com` URLs may not
+  carry a query, which loses nothing, since that generator builds its URL by pure
+  path concatenation and never appends one.
 - The two content selectors are each allow-listed, and their *combination* was
   never considered. `path` names an item and `scopePath` a collection, and the
   host refuses to be asked for both rather than preferring one: measured,
@@ -297,7 +325,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all eighteen as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all nineteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason. Where a refusal has more than one possible
 cause, the test asserts the *reason* and not merely that the URL was refused: an

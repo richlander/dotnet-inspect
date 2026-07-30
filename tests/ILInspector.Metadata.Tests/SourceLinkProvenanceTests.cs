@@ -430,6 +430,79 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// A <c>raw.githubusercontent.com</c> URL carrying a query is not attributable, because that
+    /// host ignores the query: a substitution placed there resolves every document to one file
+    /// while every document still produces a textually distinct URL.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in review with <c>{"*": "https://raw.githubusercontent.com/owner/repo/{sha}/fixed.cs?ignored=*"}</c>,
+    /// which reported <c>owner/repo</c> at <c>{sha}</c> for both <c>A.cs</c> and <c>B.cs</c> while
+    /// both fetched <c>fixed.cs</c>. The resolver's two-probe check is satisfied because it
+    /// compares request text and the two texts differ; the agreement check is satisfied because
+    /// the origin really is where <c>fixed.cs</c> is served from. Measured: no query,
+    /// <c>?ignored=A.cs</c>, <c>?ignored=B.cs</c> and <c>?path=/other.cs</c> all return the same
+    /// 33400 bytes with the same SHA-256.
+    /// </para>
+    /// <para>
+    /// This is the per-host content selector that the two-probe check explicitly defers to this
+    /// layer (issue #3599), and it is decidable here precisely because it is host-specific: the
+    /// same shape aimed at Azure Repos is the documented generated form, where <c>path=</c> does
+    /// select the file, so a host-agnostic matcher cannot refuse it without breaking every Azure
+    /// Repos assembly. Nothing generated is lost — <c>Microsoft.SourceLink.GitHub</c> builds
+    /// <c>{contentUrl}/{owner}/{repo}/{revision}/*</c> by pure path concatenation
+    /// (<c>UriUtilities.Combine</c>) and never appends a query.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // The reported shape: the wildcard is in the query, so the path is constant.
+    [InlineData("/fixed.cs?ignored=*", false)]
+    // A query alongside a wildcard that does move the path is refused too. The query still
+    // cannot select content, and admitting it would leave the rule turning on where the '*'
+    // happens to sit rather than on what the host reads.
+    [InlineData("/*?ignored=x", false)]
+    [InlineData("/*?", false)]
+    // The twin, so the rows above are refused for the query and not for something incidental.
+    [InlineData("/*", true)]
+    public void AGitHubUrlCarryingAQuery_IsNotAttributable(string tail, bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}{{{tail}}}"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// The defect the rule above prevents, stated as the behaviour rather than the refusal: two
+    /// documents must not both resolve to one file while reporting an origin.
+    /// </summary>
+    [Fact]
+    public void AGitHubMapWhoseWildcardIsConfinedToTheQuery_DoesNotAttributeEveryDocumentToOneFile()
+    {
+        const string Map =
+            $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/fixed.cs?ignored=*"}}""";
+
+        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        Assert.True(resolver.TryResolve("A.cs", out var a));
+        Assert.True(resolver.TryResolve("B.cs", out var b));
+
+        // The two-probe check passes: the request texts really are different.
+        Assert.NotEqual(a.Url, b.Url);
+
+        // And yet both fetch the same file, because the host ignores what differs. So the map
+        // must not be attributable, or one file would be reported as the source of every
+        // document with a correct-looking origin.
+        Assert.Equal(
+            a.Url[..a.Url.IndexOf('?', StringComparison.Ordinal)],
+            b.Url[..b.Url.IndexOf('?', StringComparison.Ordinal)]);
+
+        var result = SLF.SourceLinkProvenance.Determine(resolver, ["A.cs", "B.cs"]);
+        Assert.False(result.IsEstablished);
+        Assert.Contains("ignores the query", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// An <c>api-version</c> this reader does not recognize is still attributable. The refusal
     /// rules are about a request having more than one reading, not about whether the host will
     /// answer it.
