@@ -422,11 +422,25 @@ public static class SourceLinkProvenance
     /// query string can disagree about which value wins.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Parameter names are matched case-insensitively but accepted only in the exact spelling
     /// <paramref name="name"/> gives. Whether a host treats <c>VERSION</c> as <c>version</c> is
     /// not stated by the URL, so <c>?VERSION=a&amp;version=b</c> has two readings and neither is
     /// established. Matching case-sensitively would silently pick <c>b</c> while a
     /// case-insensitive server may serve <c>a</c>.
+    /// </para>
+    /// <para>
+    /// A repeat is refused even when the values are equal. Equal values do not make one reading:
+    /// ASP.NET, which Azure DevOps is built on, <em>joins</em> repeats with a comma, so
+    /// <c>?version=aaaa&amp;version=aaaa</c> selects the ref named <c>aaaa,aaaa</c> — an
+    /// attacker-controlled ref distinct from <c>aaaa</c>.
+    /// </para>
+    /// <para>
+    /// A literal <c>+</c> in a value is refused. A form decoder reads it as a space and a percent
+    /// decoder reads it as a plus, so <c>version=a%2Bb&amp;versionDescriptor.version=a+b</c> is
+    /// two agreeing selectors to one reader and two disagreeing ones to another. <c>%2B</c> is
+    /// unambiguous and stays accepted; only the bare character is refused.
+    /// </para>
     /// </remarks>
     private static string? ReadSingleQueryValue(string query, string name, out string rejection)
     {
@@ -450,14 +464,24 @@ public static class SourceLinkProvenance
                 return null;
             }
 
-            string value = Uri.UnescapeDataString(pair[(equals + 1)..].ToString());
-            if (found is not null && !string.Equals(found, value, StringComparison.Ordinal))
+            if (found is not null)
             {
-                rejection = $"repeats the '{name}' parameter with different values";
+                rejection =
+                    $"repeats the '{name}' parameter, and readers of one query string disagree " +
+                    "about whether a repeat wins, loses, or joins";
                 return null;
             }
 
-            found = value;
+            ReadOnlySpan<char> rawValue = pair[(equals + 1)..];
+            if (rawValue.Contains('+'))
+            {
+                rejection =
+                    $"gives the '{name}' parameter a value containing a literal '+', which a " +
+                    "form decoder reads as a space and a percent decoder reads as a plus";
+                return null;
+            }
+
+            found = Uri.UnescapeDataString(rawValue.ToString());
         }
 
         if (found is null || found.Length == 0)

@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Nine ways a weaker formulation fails, all reproduced. They are a regression
+Eleven ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -175,8 +175,18 @@ previous formulation, so passing them is not evidence that the invariant holds.
   `branch@tip` collide. The identity is length-prefixed. This key selects a
   persistent source index, so a collision serves one repository's source for
   another's assembly.
+- A query parameter repeated with *equal* values still has two readings. ASP.NET,
+  which Azure DevOps is built on, joins repeats with a comma, so
+  `?version=aaaa&version=aaaa` selects the ref `aaaa,aaaa` — attacker-controlled
+  and distinct from the reported `aaaa`. Measured with
+  `HttpUtility.ParseQueryString`. A repeat is refused however its values compare.
+- A literal `+` in a value decodes to a space under a form decoder and to a plus
+  under a percent decoder, so `version=a%2Bb&versionDescriptor.version=a+b`
+  presents two agreeing selectors to one reader and two disagreeing ones to
+  another. The descriptor wins at the host, so we reported `a+b` while Azure
+  served `a b`. A literal `+` is refused; `%2B` is unambiguous and stays accepted.
 
-Gates. `SourceLinkProvenanceTests` covers all nine as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all eleven as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

@@ -344,6 +344,57 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// A repeated parameter is refused even when its values are equal. Equal values do not make
+    /// one reading: ASP.NET, which Azure DevOps is built on, <em>joins</em> repeats with a comma,
+    /// so <c>?version=aaaa&amp;version=aaaa</c> selects the ref <c>aaaa,aaaa</c> — a ref an
+    /// attacker controls and which is not the one that would be reported. Measured:
+    /// <c>HttpUtility.ParseQueryString</c> returns <c>aaaa,aaaa</c> for that query.
+    /// </summary>
+    [Theory]
+    [InlineData("version=aaaa&version=aaaa")]
+    [InlineData("versionDescriptor.version=aaaa&versionDescriptor.version=aaaa")]
+    public void ARepeatedVersionParameter_IsNotAttributableEvenWhenItsValuesAgree(string query)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("repeats the", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A literal <c>+</c> has two decodings — a space to a form decoder, a plus to a percent
+    /// decoder — so a value carrying one is not attributable. Without this, the two selectors in
+    /// <c>version=a%2Bb&amp;versionDescriptor.version=a+b</c> agree under percent decoding and
+    /// disagree under form decoding, and the descriptor is the one the host honours: we would
+    /// report <c>a+b</c> while Azure serves <c>a b</c>. <c>%2B</c> alone stays accepted, because
+    /// both decoders read it as a plus.
+    /// </summary>
+    [Theory]
+    [InlineData("version=a%2Bb&versionDescriptor.version=a+b", false)]
+    [InlineData("version=a+b", false)]
+    [InlineData("versionDescriptor.version=a+b", false)]
+    [InlineData("version=a%2Bb&versionDescriptor.version=a%2Bb", true)]
+    public void AVersionValueWhoseDecodingIsParserDependent_IsNotAttributable(
+        string query, bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+        if (established)
+        {
+            Assert.Equal("a+b", result.Origin!.Value.Revision);
+        }
+        else
+        {
+            Assert.Contains("literal '+'", result.Reason, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is
     /// shared by every fork containing that commit, so keying an index on it would serve one
     /// repository's index for another repository's assembly.
