@@ -52,6 +52,6 @@ Some commands or contexts should not get a default preset until there is a clear
 
 When adding or changing a default preset, first write the bullseye question. Then select the smallest section set that answers it. If the question needs more than three sections, the preset is probably not focused enough.
 
-Avoid adding a section just because it is cheap. `@Default` is not "all safe sections"; it is the smallest high-value bundle.
+Avoid adding a section just because it is cheap. The default preset is not "all safe sections"; it is the smallest high-value bundle.
 
 For library defaults, large local metadata lists such as `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, and `Type Forwarders` are intentionally represented as counts in `Library Info`. Select those sections explicitly when the list itself is the answer.

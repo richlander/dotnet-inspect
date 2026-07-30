@@ -229,8 +229,7 @@ public class ProjectCommand
     private static IReadOnlyDictionary<string, string[]> ProjectCategoryMap()
         => new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            [SelectResolver.AllSelector] = ProjectSectionNames,
-            [SelectResolver.InfoSelector] = []
+            [SelectResolver.AllSelector] = ProjectSectionNames
         };
 
     private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)

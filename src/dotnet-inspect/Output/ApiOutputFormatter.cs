@@ -182,7 +182,7 @@ public static class ApiOutputFormatter
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -205,7 +205,7 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -225,7 +225,7 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {

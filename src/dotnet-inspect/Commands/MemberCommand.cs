@@ -493,7 +493,6 @@ public static class MemberCommand
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if ((options.SelectDefault && options.Select is null)
-            || IsPureSelector(options.Select, SelectResolver.InfoSelector)
             || IsPureSelector(options.Select, SelectResolver.AllSelector))
             return false;
 

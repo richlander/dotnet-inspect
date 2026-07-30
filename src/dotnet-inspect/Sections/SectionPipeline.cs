@@ -48,7 +48,6 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
 
-    public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
 
@@ -67,12 +66,11 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Drops the computed <c>@All</c> and <c>@Default</c> poles from this pipeline's category map,
-    /// making them unresolvable as selectors rather than merely undiscoverable. They are artifacts
-    /// of the legacy catalog: <c>@All</c> renders a superset nobody asked for, and <c>@Default</c>
-    /// restates what bare <c>-S</c> already means. A command whose sections are reachable through
-    /// topical doors and verbosity does not need either, and keeping them resolvable-but-unlisted
-    /// leaves a surface no discovery output describes.
+    /// Drops the computed <c>@All</c> pole from this pipeline's category map, making it
+    /// unresolvable as a selector rather than merely undiscoverable. It is an artifact of the
+    /// legacy catalog: it renders a superset nobody asked for. A command whose sections are
+    /// reachable through topical doors and verbosity does not need it, and keeping it
+    /// resolvable-but-unlisted leaves a surface no discovery output describes.
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
@@ -237,7 +235,6 @@ public sealed class SectionPipeline<TModel>
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
         if (_computedPoles)
         {
-            categories[DefaultCategory] = InfoSectionNames;
             categories[AllCategory] = _curatedCatalog
                 ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
                 : SelectableSectionNames;

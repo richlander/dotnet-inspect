@@ -29,7 +29,6 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 public static class SelectResolver
 {
     public const string AllSelector = SectionPipeline<object>.AllCategory;
-    public const string InfoSelector = SectionPipeline<object>.DefaultCategory;
 
     /// <summary>
     /// Legacy section names that keep resolving after a rename, so existing selectors and
@@ -97,17 +96,12 @@ public static class SelectResolver
     public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
         => IsAllSelector(select) && includeSections is { Count: > 1 };
 
-    public static bool IsInfoSelector(string[]? select)
-        => select?.Any(value => value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase)) == true;
-
     /// <summary>
-    /// Whether the default preset is in effect and actually resolved to something, either because
-    /// the caller passed bare <c>-S</c> (<paramref name="selectDefault"/>) or because they spelled
-    /// the <c>@Default</c> pole. The two are separate inputs because only the pole is a selector
-    /// value; the pole disjunct goes away with the pole itself.
+    /// Whether the default preset is in effect and actually resolved to something. The preset is
+    /// reached only through bare <c>-S</c>; it has no selector spelling.
     /// </summary>
-    public static bool IsActiveInfoSelector(bool selectDefault, string[]? select, HashSet<string>? includeSections)
-        => (selectDefault || IsInfoSelector(select)) && includeSections is { Count: > 0 };
+    public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
+        => selectDefault && includeSections is { Count: > 0 };
 
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
@@ -182,7 +176,7 @@ public static class SelectResolver
         if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
 
-        categories ??= BuildFallbackCategories(knownSections, infoSections);
+        categories ??= BuildFallbackCategories(knownSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
@@ -229,11 +223,10 @@ public static class SelectResolver
         return new(matched.Count > 0 ? matched : null, unresolved);
     }
 
-    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections, string[]? infoSections)
+    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections)
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
         {
-            [InfoSelector] = infoSections ?? [],
             [AllSelector] = knownSections
         };
         return categories;
