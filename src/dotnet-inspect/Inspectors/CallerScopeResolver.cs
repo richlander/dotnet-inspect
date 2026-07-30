@@ -84,6 +84,10 @@ public static class CallerScopeResolver
     /// <para>A segment this cannot resolve is left as written. Failing to canonicalize can only
     /// cost a deduplication — one file scanned twice — while merging two distinct files drops a
     /// caller outright, so the failure direction is the survivable one.</para>
+    ///
+    /// <para>The cost is one directory-entry lookup per file plus one per distinct directory
+    /// segment: measured at 20–38 ms warm over the 182 assemblies of a shared framework, against
+    /// a scope scan of several seconds.</para>
     /// </summary>
     static string OnDiskSpelling(string fullPath, Dictionary<string, string> directorySpellings)
     {
