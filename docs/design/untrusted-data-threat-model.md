@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Sixteen ways a weaker formulation fails, all reproduced. They are a regression
+Seventeen ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -209,6 +209,14 @@ previous formulation, so passing them is not evidence that the invariant holds.
   reported — while a host that treats the descriptor as present-and-empty
   selects the default ref instead. Only a genuinely absent parameter counts as
   absent; a present one with nothing to say is refused on its own account.
+- Whether a hex string is an object name is a property of the host's object
+  format, not of the string. Accepting the 64-character SHA-256 length let
+  `raw.githubusercontent.com/owner/repo/<64 hex>/*` report a commit, but GitHub
+  stores SHA-1 repositories only and Git will create a branch of that name
+  (`git branch` accepts one), so the value could only be a moving ref whose head
+  moves under a fixed reported revision and a fixed cache identity. Both hosts
+  this reader knows are SHA-1-only; the SHA-256 length needs the same evidence
+  as a new host before it is admitted.
 
 Two consequences are deliberate scope, not gaps, and are gated as decisions so
 that changing them is visible:
@@ -231,7 +239,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all sixteen as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all seventeen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

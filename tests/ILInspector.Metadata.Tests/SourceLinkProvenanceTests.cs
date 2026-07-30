@@ -573,6 +573,36 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// Whether a hex string is an object name is a property of the host's object format, not of
+    /// the string. GitHub and Azure DevOps store SHA-1 repositories only, and Git will create a
+    /// branch named with 64 hex characters, so on those hosts a 64-character revision cannot be
+    /// a commit — it can only be a moving ref, whose head an attacker with push access moves
+    /// while the reported revision and the persistent cache identity stay put. Accepting the
+    /// SHA-256 length "for when it ships" would attribute that ref today.
+    /// </summary>
+    /// <remarks>
+    /// The 40-character rows are the non-vacuity half: the refusal has to come from the length
+    /// being wrong for the host, not from hex revisions having stopped resolving.
+    /// </remarks>
+    [Theory]
+    [InlineData(40, true)]
+    [InlineData(64, false)]
+    public void ASixtyFourHexRevisionOnASha1Host_IsNotACommit(int length, bool established)
+    {
+        string revision = new('a', length);
+
+        var github = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/dotnet/runtime/{{{revision}}}/*"}}""",
+            "/_/A.cs");
+        var azure = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{revision}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, github.IsEstablished);
+        Assert.Equal(established, azure.IsEstablished);
+    }
+
+    /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is
     /// shared by every fork containing that commit, so keying an index on it would serve one
     /// repository's index for another repository's assembly.

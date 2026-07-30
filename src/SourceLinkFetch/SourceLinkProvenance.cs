@@ -443,14 +443,24 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// A full Git object name: 40 hex characters for SHA-1, 64 for SHA-256. Abbreviations are
-    /// deliberately not accepted — an abbreviation is a prefix, so two of them can name one
-    /// revision while comparing unequal, and one of them can become ambiguous as a repository
-    /// grows.
+    /// A full SHA-1 Git object name. Abbreviations are deliberately not accepted — an
+    /// abbreviation is a prefix, so two of them can name one revision while comparing unequal,
+    /// and one of them can become ambiguous as a repository grows.
     /// </summary>
+    /// <remarks>
+    /// A 64-character SHA-256 object name is refused rather than accepted, because whether a
+    /// hex string is an object name at all is a property of the host's object format, not of
+    /// the string. Every host this reader knows — GitHub and Azure DevOps — stores SHA-1
+    /// repositories only, and Git permits a branch named with 64 hex characters
+    /// (<c>git branch</c> creates one), so on those hosts a 64-hex revision cannot be a commit
+    /// and can only be a moving ref. Admitting the SHA-256 length needs the same kind of
+    /// evidence as admitting a host: that the host serves SHA-256 repositories, and that it
+    /// excludes refs spelled like one. Gated by
+    /// <c>SourceLinkProvenanceTests.ASixtyFourHexRevisionOnASha1Host_IsNotACommit</c>.
+    /// </remarks>
     private static bool IsCommitHash(string value)
     {
-        if (value.Length is not (40 or 64))
+        if (value.Length is not 40)
         {
             return false;
         }
