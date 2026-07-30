@@ -1220,47 +1220,56 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     /// <summary>
-    /// Pins the precondition that <c>EscapeParameterLists</c> relies on, and the reason
-    /// it cannot simply be relaxed.
+    /// Pins how <c>EscapeParameterLists</c> resolves a <c>(</c> preceded by whitespace,
+    /// which is the one genuinely ambiguous position.
     ///
-    /// A parameter list is recognized by its <c>(</c> being adjacent to the member name
-    /// (or a generic <c>&gt;</c>, an operator token, or a close paren). Whitespace before
-    /// the <c>(</c> means "this is a tuple type", because a tuple return follows the
-    /// modifier run — <c>public static (int, int) Pair(int a)</c>. That whitespace is the
-    /// only thing distinguishing the two at the string level, so a signature written with
-    /// a space before its parameter list is read as a tuple and its parameters are left
-    /// unescaped.
+    /// A tuple return follows the modifier/return-type run, so the token before it is a
+    /// C# keyword (<c>public static (int, int) Pair(…)</c>). A parameter list follows the
+    /// member name (<c>void M (int a)</c>), which is never a bare keyword — a
+    /// keyword-named member is escaped to <c>@name</c> before this runs.
     ///
-    /// This is unreachable from the product: signatures are formatted as
-    /// <c>$"{returnType} {methodName}({parameters})"</c> (ApiSurfaceExtractor), so the
-    /// member name is always adjacent to the paren. Scanning all 38,507 members of
-    /// System.Private.CoreLib found no parameter list preceded by whitespace.
-    ///
-    /// Do not "fix" this by skipping backwards over the whitespace and accepting a
-    /// preceding identifier character: in <c>public static (int, int) Pair(int a)</c> the
-    /// preceding non-whitespace character is the <c>c</c> of <c>static</c>, so that rule
-    /// classifies the tuple as a parameter list and reintroduces #3489. Disambiguating
-    /// would require knowing whether the preceding token is a modifier keyword or a member
-    /// name — which is a signal the typed <c>ApiSignature.Parameters</c> model already
-    /// carries, and is the structural fix (see docs/design/type-member-api-representation.md).
+    /// Deciding from the previous character alone is not sufficient in either direction:
+    /// rejecting all whitespace drops the escape on <c>void M (int event)</c>, while
+    /// accepting any preceding identifier character mangles <c>static (int, int)</c>,
+    /// whose previous non-whitespace character is the <c>c</c> of <c>static</c> (#3489).
     /// </summary>
     [Fact]
-    public void MemberDeclaration_TreatsWhitespaceBeforeParenAsTupleTypeByDesign()
+    public void MemberDeclaration_ResolvesWhitespaceBeforeParenByPrecedingToken()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
 
-        // Adjacent paren: recognized as a parameter list, keyword parameter escaped.
+        // Preceded by the member name -> parameter list, so the keyword parameter escapes.
         Assert.Equal(
-            "public void M(int @event)",
+            "public void M (int @event)",
             CSharpDeclarationWriter.RenderMemberDeclaration(
-                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M(int event)" }));
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M (int event)" }));
 
-        // The same rule is what keeps a tuple return from being escaped. Were whitespace
-        // accepted, this would render "(@int, @int) Pair(...)" again — CS0246, i.e. #3489.
+        // Preceded by a modifier keyword -> tuple return, left alone, while the real
+        // parameter list is still escaped. Both halves must hold at once.
         Assert.Equal(
             "public static (int, int) Pair(int @event)",
             CSharpDeclarationWriter.RenderMemberDeclaration(
                 type, new ApiMember { Name = "Pair", Kind = "method", Signature = "static (int, int) Pair(int event)" }));
+    }
+
+    [Theory]
+    // A conversion operator returning a tuple: the tuple's paren comes first, so a
+    // first-paren scan bails out and leaves the raw op_Implicit spelling.
+    [InlineData("op_Implicit", "(int a, int b) op_Implicit(Samples.Tuples value)",
+        "public static implicit operator (int a, int b)(Samples.Tuples value)")]
+    [InlineData("op_Explicit", "(int, int) op_Explicit(Samples.Tuples value)",
+        "public static explicit operator (int, int)(Samples.Tuples value)")]
+    // Non-tuple returns must keep rendering exactly as before.
+    [InlineData("op_Implicit", "int op_Implicit(Samples.Tuples value)",
+        "public static implicit operator int(Samples.Tuples value)")]
+    [InlineData("op_Addition", "Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)",
+        "public static Samples.Tuples operator +(Samples.Tuples left, Samples.Tuples right)")]
+    public void MemberDeclaration_FormatsOperatorsWithTupleReturns(string name, string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = name, Kind = "method", Signature = signature, IsStatic = true };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
     [Fact]

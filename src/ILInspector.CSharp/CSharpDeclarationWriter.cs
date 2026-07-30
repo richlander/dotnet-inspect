@@ -1195,14 +1195,27 @@ internal static class CSharpDeclarationWriter
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Rewrites an <c>op_*</c> method signature into C# operator syntax.
+    /// </summary>
+    /// <remarks>
+    /// The parameter list is located from the method name outward, not by taking the
+    /// first <c>(</c>. A conversion operator may return a tuple, and that tuple's
+    /// parenthesis comes first — for <c>(int a, int b) op_Implicit(Foo f)</c> a
+    /// first-paren scan finds index 0 and bails out, leaving the raw <c>op_Implicit</c>
+    /// spelling in the rendered declaration. Same defect class as the tuple mangling in
+    /// <see cref="EscapeParameterLists"/>.
+    /// </remarks>
     static string FormatOperatorSignature(string signature, string methodName)
     {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
+        // The member name is the LAST occurrence: the return type is spelled first and
+        // may itself contain the token.
+        var nameIndex = signature.LastIndexOf(methodName, StringComparison.Ordinal);
+        if (nameIndex <= 0)
             return signature;
 
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
+        var parenStart = signature.IndexOf('(', nameIndex + methodName.Length);
+        if (parenStart < 0)
             return signature;
 
         var returnType = signature[..nameIndex].TrimEnd();
@@ -1339,8 +1352,16 @@ internal static class CSharpDeclarationWriter
     ///
     /// A parameter list's <c>(</c> directly follows the member name, a generic-argument
     /// <c>&gt;</c>, an operator token, or a preceding close paren. A tuple type's
-    /// <c>(</c> instead starts the string or follows whitespace or one of
-    /// <c>&lt; ( , [</c>, so those positions are skipped and only scanned past.
+    /// <c>(</c> instead starts the string or follows one of <c>&lt; ( , [</c>, so those
+    /// positions are skipped and only scanned past.
+    ///
+    /// Whitespace before the <c>(</c> is ambiguous and is resolved by the preceding
+    /// token: a tuple return follows the modifier/return-type run
+    /// (<c>public static (int, int) Pair(int a)</c>), so the token before it is a C#
+    /// keyword, whereas a parameter list follows the member name
+    /// (<c>void M (int a)</c>), which never is — a keyword-named member is escaped to
+    /// <c>@name</c> before this runs. Deciding on the previous character alone would
+    /// reintroduce the tuple mangling for every signature carrying modifiers.
     /// </remarks>
     static string EscapeParameterLists(string signature)
     {
@@ -1375,9 +1396,42 @@ internal static class CSharpDeclarationWriter
     }
 
     static bool OpensParameterList(string signature, int open)
-        => open > 0
-            && !char.IsWhiteSpace(signature[open - 1])
-            && signature[open - 1] is not ('<' or '(' or ',' or '[');
+    {
+        if (open == 0)
+            return false;
+
+        char previous = signature[open - 1];
+        if (previous is '<' or '(' or ',' or '[')
+            return false;
+        if (!char.IsWhiteSpace(previous))
+            return true;
+
+        return !PrecedingTokenIsKeyword(signature, open);
+    }
+
+    /// <summary>
+    /// True when the token immediately before <paramref name="open"/> (skipping
+    /// whitespace) is a C# keyword — i.e. part of the modifier/return-type run that
+    /// precedes a tuple return, rather than the member name that precedes a parameter
+    /// list.
+    /// </summary>
+    static bool PrecedingTokenIsKeyword(string signature, int open)
+    {
+        int end = open - 1;
+        while (end >= 0 && char.IsWhiteSpace(signature[end]))
+            end--;
+        if (end < 0)
+            return true;
+
+        int start = end;
+        while (start >= 0 && IsIdentifierPart(signature[start]))
+            start--;
+        start++;
+        if (start > end)
+            return true;
+
+        return CSharpKeywords.RequiresDeclarationEscape(signature[start..(end + 1)]);
+    }
 
     static string EscapeParameterName(string parameter)
     {
