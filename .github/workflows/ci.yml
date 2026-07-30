@@ -104,25 +104,28 @@ jobs:
             case "$file" in
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
-            # The decompiler docket/byte-neutrality gates cost ~15 minutes, so
-            # they run as their own job rather than in the hot `test` lane, and
-            # only when something that can move a fidelity result changes: the
-            # decompiler and its IL/CFG/C# substrate, the compile-back harness,
-            # the fixtures the gates decompile, the gate tests and their
-            # dockets, and the known-red pin itself. Docs, packaging, and
-            # unrelated tools must not trip this.
+            # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
+            # they run as their own job rather than in the hot `test` lane.
+            #
+            # This filter is deliberately broad. The first version enumerated
+            # the decompiler projects, and review found it already wrong: it
+            # missed ILInspector.Decompiler.Fixtures.* (the assemblies the
+            # gates decompile), tools/RoundTripCompilation (the compile-back
+            # harness), DiffFixtures.V*, and transitive substrate such as
+            # ILInspector.MetadataPrimitives, ILInspector.Findings, and
+            # ILInspector.Text. A fidelity result is a whole-pipeline
+            # observation, so its true input set is the test project's
+            # transitive closure, which an enumerated list cannot track without
+            # rotting. Under-triggering silently disables the gate on exactly
+            # the changes it exists to catch; over-triggering costs a parallel
+            # job that never blocks the hot lane. Prefer the cheap error.
             case "$file" in
-              src/ILInspector.Decompiler/*) DECOMPILER=true ;;
-              src/ILInspector.Decompiler.Tests/*) DECOMPILER=true ;;
-              src/ILInspector.Instructions/*) DECOMPILER=true ;;
-              src/ILInspector.ControlFlow/*) DECOMPILER=true ;;
-              src/ILInspector.CSharp/*) DECOMPILER=true ;;
-              src/ILInspector.Metadata/*) DECOMPILER=true ;;
-              tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
-              tools/DecompilerHarness/*) DECOMPILER=true ;;
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
-              Directory.Packages.props) DECOMPILER=true ;;
+              *.md|*.txt) ;;
+              src/*) DECOMPILER=true ;;
+              tests/*) DECOMPILER=true ;;
+              tools/*) DECOMPILER=true ;;
               *.props|*.targets|*.slnx) DECOMPILER=true ;;
               .github/workflows/ci.yml) DECOMPILER=true ;;
             esac
@@ -386,11 +389,17 @@ jobs:
   # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
   #
   # This job runs the three gates whose failures are attributable to a specific
-  # fixture and docket entry, path-gated so it stays off most PRs, and as its
-  # own job so it never serializes with the hot `test` lane. Currently-open
-  # failures are pinned in eng/decompiler-gate-known-red.txt; the checker fails
-  # on any unpinned failure AND on any pin that starts passing, so the pin list
-  # is a ratchet in both directions rather than a permanent exemption.
+  # fixture and docket entry, as its own job so it never serializes with the
+  # hot `test` lane. Currently-open failures are pinned in
+  # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
+  # failure, on any pin that starts passing, and on any gate test that neither
+  # passes nor fails, so the pin list is a ratchet in both directions rather
+  # than a permanent exemption.
+  #
+  # NOTE: this job is not merge-blocking today, because the `main` ruleset
+  # declares no required status checks at all — no job in this workflow blocks
+  # a merge. That is a repository-wide gap tracked separately; this job is
+  # exactly as enforcing as the existing `test` job until it is closed.
   #
   # The remaining Fidelity-area classes are excluded on cost, not principle:
   # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
@@ -428,11 +437,18 @@ jobs:
 
       # continue-on-error so the pinned known-red failures do not fail the job
       # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
-      # A crashed run produces no XML, which the checker treats as an error
-      # rather than an empty pass.
+      #
+      # The step timeout is the point, not a formality. This PR exists because
+      # a *job* timeout cancels the job, and a cancelled job runs no further
+      # steps and satisfies no `failure()` condition — it fails silently. A
+      # step timeout well under the job timeout converts a hang into a failed
+      # step that the job survives, so the checker still runs, finds a missing
+      # or truncated report, and fails the job loudly. Do not raise this to the
+      # job timeout.
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
+        timeout-minutes: 25
         run: |
           dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
             --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"

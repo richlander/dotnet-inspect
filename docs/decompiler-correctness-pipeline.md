@@ -256,12 +256,39 @@ and treats drift in **both** directions as an error:
 | a failure that is not pinned | new breakage — the gate did its job |
 | a pinned test that passed | the fix landed; retire the pin |
 | a pinned test that never ran | dead pin — the test was renamed or deleted |
+| a gate test that neither passed nor failed | coverage silently disappeared |
 | no report, or a report with zero tests | a crashed or empty run is not a pass |
+
+Only `Pass` counts as passing. A skipped gate test is neither passing nor
+failing, and treating it as either is how a gate becomes vacuous: an unpinned
+skip would report an exact match, and a pinned skip would look like a landed
+fix, prompting removal of the pin that was the last thing naming the test.
+Skipping is not an approved way to green this job.
 
 The stale-pin check is what keeps the list a ratchet rather than a growing
 exemption set: a pin that outlives its failure silently un-gates the test it
 names. Pass `--partial` to suppress only the dead-pin check when deliberately
 running a subset locally.
+
+The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
+build files, minus documentation. A fidelity result is a whole-pipeline
+observation, so its real input set is the test project's transitive closure,
+which an enumerated project list cannot track without rotting. Under-triggering
+silently disables the gate on exactly the changes it exists to catch;
+over-triggering costs a parallel job that never blocks the hot lane.
+
+A job-level timeout would cancel the job, and a cancelled job runs no further
+steps and satisfies no `failure()` condition — the same silent-cancellation
+failure mode this gate exists to fix. The gate step therefore carries its own
+`timeout-minutes` well under the job's, so a hang becomes a failed step that
+the job survives, letting the checker run and fail loudly on the missing or
+truncated report.
+
+> [!NOTE]
+> This job does not block merges today. The `main` ruleset declares no required
+> status checks at all, so no job in `ci.yml` blocks a merge; this one is
+> exactly as enforcing as the existing `test` job. Closing that gap is a
+> repository-wide change tracked separately.
 
 `pre-merge` deliberately selects three classes rather than the whole `Fidelity`
 area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
