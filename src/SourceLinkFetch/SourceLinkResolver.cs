@@ -304,10 +304,17 @@ public partial class SourceLinkResolver
             // comparisons exist so that the resulting order is total, and therefore independent
             // of how the map was enumerated, rather than merely usually right.
             //
-            // Of the two, only the URL comparison is observable through resolution, and
+            // Of the two, only the URL comparison is observable through resolution, and only on
+            // the separator shape: keys differing by separator normalize to one PathPrefix, so
+            // byPrefix ties and byUrlPrefix decides. Keys differing by case do not tie on
+            // PathPrefix, so that row never reaches byUrlPrefix --
             // AMapWhoseKeysTieOnLengthAndKind_ResolvesTheSameWhicheverOrderTheyAreWrittenIn gates
-            // it on both shapes named above. byPrefix orders entries that resolve identically, so
-            // no assertion on resolved output can reach it; it is here for a total order and is
+            // byUrlPrefix on the separator row alone, and its case row gates that byPrefix leaves
+            // the order total rather than gating byPrefix itself.
+            //
+            // byPrefix orders entries that resolve identically, so no assertion on resolved output
+            // can reach it: erasing it leaves the whole suite green, because byUrlPrefix then
+            // decides and both write orders still agree. It is here for a total order and is
             // deliberately recorded as ungated rather than credited to that test.
             int byPrefix = string.CompareOrdinal(left.PathPrefix, right.PathPrefix);
             if (byPrefix != 0)

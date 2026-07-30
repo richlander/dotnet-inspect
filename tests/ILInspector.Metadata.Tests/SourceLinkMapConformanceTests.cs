@@ -624,10 +624,18 @@ public class SourceLinkMapConformanceTests
     /// <para>
     /// Measured non-vacuity, since a tie test that does not tie is exactly the defect this exists
     /// for: with the ordinal fall-through erased, the winner follows JSON order — <c>a.test</c>
-    /// when written first, <c>b.test</c> when written second — and both rows fail. What resolution
-    /// can observe is the URL comparison; <c>byPrefix</c> orders entries that resolve identically,
-    /// so no assertion on resolved output can reach it, and the comparator says so rather than
-    /// claiming a gate it does not have.
+    /// when written first, <c>b.test</c> when written second — and both rows fail.
+    /// </para>
+    /// <para>
+    /// The two rows do not gate the same comparison, and saying they both gate the URL comparison
+    /// was wrong. Measured, one mutation at a time: erasing <c>byUrlPrefix</c> fails the separator
+    /// row only, because separators normalize to one <c>PathPrefix</c> so <c>byPrefix</c> ties
+    /// there and the URL decides; the case row never reaches the URL, since <c>SRC</c> and
+    /// <c>src</c> are ordinally distinct prefixes. Erasing <c>byPrefix</c> alone fails
+    /// <em>nothing</em> across the whole suite — the URL comparison then decides the case row and
+    /// both write orders still agree. So what these rows gate together is that <em>some</em>
+    /// deterministic comparison survives past exactness, plus <c>byUrlPrefix</c> specifically; the
+    /// comparator records <c>byPrefix</c> as ungated rather than claiming a gate it does not have.
     /// </para>
     /// </remarks>
     [Theory]

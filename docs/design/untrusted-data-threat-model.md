@@ -127,9 +127,11 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Eighteen ways a weaker formulation fails, all reproduced. They are a regression
-floor, not a specification of what to block: each was found only by attacking a
-previous formulation, so passing them is not evidence that the invariant holds.
+Every way a weaker formulation has been found to fail, all reproduced. They are
+a regression floor, not a specification of what to block: each was found only by
+attacking a previous formulation, so passing them is not evidence that the
+invariant holds. The list deliberately carries no count — nothing enforced the
+one that was here, and it had gone stale by two.
 
 - Agreement on `owner/repo` ignores the revision, so two entries on one
   repository at different commits "agree" while serving different code.
@@ -175,11 +177,36 @@ previous formulation, so passing them is not evidence that the invariant holds.
   `branch@tip` collide. The identity is length-prefixed. This key selects a
   persistent source index, so a collision serves one repository's source for
   another's assembly.
-- A query parameter repeated with *equal* values still has two readings. ASP.NET,
-  which Azure DevOps is built on, joins repeats with a comma, so
-  `?version=aaaa&version=aaaa` selects the ref `aaaa,aaaa` — attacker-controlled
-  and distinct from the reported `aaaa`. Measured with
-  `HttpUtility.ParseQueryString`. A repeat is refused however its values compare.
+- A query parameter repeated with *equal* values still has two readings, and the
+  host takes neither: measured against the live API,
+  `?version=aaaa&version=aaaa` returns 400 "Ambiguous values for version". An
+  earlier note here reasoned from `HttpUtility.ParseQueryString`, which joins
+  repeats with a comma, and concluded Azure would select the ref `aaaa,aaaa`.
+  That is a client decoder's behaviour, not the host's; the refusal was right
+  and the stated mechanism was wrong. A repeat is refused however its values
+  compare.
+- The repeat rule stopped at the revision selectors, and the **content**
+  selectors are where it mattered. Azure serves the *first* occurrence of
+  `path`, so `path=/fixed.cs&path=/*` substitutes every document into an
+  occurrence the host ignores: each document produces a distinct URL — enough
+  for the resolver's two-probe check, which sees only text — while every one of
+  them fetches `fixed.cs`. Measured: `path=/README.md&path=/nope.txt` returns
+  README, and `path=/.gitignore&path=/README.md` returns 404 for the *first*
+  path. Names are compared case-insensitively because the host binds them that
+  way, also measured. No parameter may be given twice.
+- The segments before `_apis` are the host's route, and joining however many
+  there were reported an organization that was assembled rather than read. A
+  project-less `dev.azure.com/{org}/_apis/...` was attributed to `{org}` at a
+  commit, and `dev.azure.com/a/b/c/_apis/...` to the organization `a/b/c` with
+  the repository page `https://dev.azure.com/a/b/c/_git/{repo}`, which is not a
+  page. Measured, the route is keyed on exactly organization and project: the
+  two-segment shape returns 200, while project-less, wrong-project and
+  wrong-organization shapes each redirect to a sign-in page on another host and
+  an extra segment returns 404. The count is now fixed per host — two on
+  `dev.azure.com`, one on `*.visualstudio.com`, where the account is the host
+  label — which is exactly what `AzureDevOpsUrlParser` builds. `DefaultCollection`
+  is dropped rather than made part of the identity, because the host serves
+  byte-identical content with and without it.
 - A literal `+` in a value decodes to a space under a form decoder and to a plus
   under a percent decoder, so `version=a%2Bb&versionDescriptor.version=a+b`
   presents two agreeing selectors to one reader and two disagreeing ones to

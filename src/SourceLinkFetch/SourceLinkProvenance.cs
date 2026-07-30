@@ -346,8 +346,35 @@ public static class SourceLinkProvenance
     /// <summary>
     /// Reads an Azure DevOps Git items URL:
     /// <c>https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/items?version={rev}</c>,
-    /// or the older <c>https://{account}.visualstudio.com/{project}/_apis/...</c> spelling.
+    /// or the older <c>https://{account}.visualstudio.com/{project}/_apis/...</c> spelling, where
+    /// the account is the host label and an optional <c>DefaultCollection</c> may precede the
+    /// project.
     /// </summary>
+    /// <remarks>
+    /// The segments before <c>_apis</c> are read by position rather than joined, because their
+    /// count is what says which host route the URL names. Joining an arbitrary count reported an
+    /// organization that was assembled rather than read: a project-less
+    /// <c>dev.azure.com/{org}/_apis/...</c> was attributed to <c>{org}</c>, and
+    /// <c>dev.azure.com/a/b/c/_apis/...</c> to the organization <c>a/b/c</c> and the repository
+    /// page <c>https://dev.azure.com/a/b/c/_git/{repo}</c>, which is not a page.
+    /// <para>
+    /// Reading positionally refuses no shape a supported generator produces.
+    /// <c>AzureDevOpsUrlParser.TryParseHostedHttp</c> builds the project path as
+    /// <c>{account}/{project}</c> off <c>dev.azure.com</c> and as <c>{project}</c> off a
+    /// <c>*.visualstudio.com</c> host — it drops the team and trims <c>DefaultCollection</c> — and
+    /// <c>GetSourceLinkUrl</c> appends <c>_apis/git/repositories/{repo}/items</c> to exactly that.
+    /// </para>
+    /// <para>
+    /// It also refuses nothing the host serves. Measured against
+    /// <c>dev.azure.com/dnceng-public/public</c>: the generator shape returns 200, while a
+    /// project-less path, a wrong project, and a wrong organization each redirect to a sign-in
+    /// page on another host, and an extra segment returns 404. The
+    /// <c>*.visualstudio.com</c> spelling returns byte-identical content with and without
+    /// <c>DefaultCollection</c>, which is why the collection is dropped from the identity rather
+    /// than made part of it. Gated by
+    /// <c>SourceLinkProvenanceTests.AnAzureUrlWhoseSegmentsBeforeApisAreNotTheHostsRoute_IsNotAttributable</c>.
+    /// </para>
+    /// </remarks>
     private static bool TryReadAzureDevOpsOrigin(
         Uri uri,
         string host,
@@ -357,9 +384,21 @@ public static class SourceLinkProvenance
     {
         origin = default;
 
-        int apis = Array.IndexOf(segments, "_apis");
-        if (apis < 0 ||
-            segments.Length != apis + 5 ||
+        // The account lives in the host label on the legacy spelling and in the path on
+        // dev.azure.com, so the route names one fewer path segment there.
+        bool accountInHost = host.EndsWith(VisualStudioHostSuffix, StringComparison.Ordinal);
+        int route = accountInHost ? 1 : 2;
+
+        if (accountInHost &&
+            segments.Length > 0 &&
+            string.Equals(segments[0], "DefaultCollection", StringComparison.OrdinalIgnoreCase))
+        {
+            segments = segments[1..];
+        }
+
+        int apis = route;
+        if (segments.Length != apis + 5 ||
+            !string.Equals(segments[apis], "_apis", StringComparison.Ordinal) ||
             !string.Equals(segments[apis + 1], "git", StringComparison.Ordinal) ||
             !string.Equals(segments[apis + 2], "repositories", StringComparison.Ordinal) ||
             !string.Equals(segments[apis + 4], "items", StringComparison.Ordinal))
@@ -369,7 +408,7 @@ public static class SourceLinkProvenance
         }
 
         string organization = string.Join('/', segments[..apis]);
-        if (organization.Length == 0)
+        if (Array.Exists(segments[..apis], static segment => segment.Length == 0))
         {
             rejection = $"'{host}' path '{uri.AbsolutePath}' names no organization";
             return false;
@@ -381,11 +420,8 @@ public static class SourceLinkProvenance
         // several that change which content is returned, and an unrecognized one cannot be assumed
         // inert: the reported origin would then describe less than the URL selects. This is an
         // allow list rather than a deny list because the API grows and we do not.
-        if (!TryCheckKnownQueryParameters(uri.Query, out string unknown))
+        if (!TryCheckQueryParameters(uri.Query, host, out rejection))
         {
-            rejection =
-                $"'{host}' URL carries the unrecognized query parameter '{unknown}', which may " +
-                "select content the reported origin does not describe";
             return false;
         }
 
@@ -555,8 +591,7 @@ public static class SourceLinkProvenance
     /// unrecognized parameter is refused rather than ignored: the API grows and we do not, so an
     /// unknown name may select content the reported origin does not describe.
     /// </summary>
-    private static readonly string[] KnownAzureQueryParameters =
-    [
+    private static readonly string[] KnownAzureQueryParameters =    [
         "api-version",
         "path",
         "scopePath",
@@ -568,9 +603,47 @@ public static class SourceLinkProvenance
         "versionDescriptor.versionOptions",
     ];
 
-    private static bool TryCheckKnownQueryParameters(string query, out string unknown)
+    /// <summary>
+    /// Checks that every query parameter is one this reader has reasoned about, and that no
+    /// parameter is given twice.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A repeat is refused because Azure serves the <em>first</em> occurrence, so a later one
+    /// selects nothing while looking like it selects. Measured against
+    /// <c>dev.azure.com/dnceng-public/public</c>: <c>path=/README.md&amp;path=/nope.txt</c>
+    /// returns README, and <c>path=/.gitignore&amp;path=/README.md</c> returns 404 for the
+    /// first path. A map may therefore write <c>path=/fixed.cs&amp;path=/*</c> — every document
+    /// substitutes into an occurrence the host ignores, and every one of them fetches
+    /// <c>fixed.cs</c>. The revision selectors were already read one at a time; the content
+    /// selectors are the ones that were not, and this covers every name uniformly.
+    /// </para>
+    /// <para>
+    /// Names are compared case-insensitively because the host binds them that way: measured,
+    /// <c>PATH=/README.md</c> alone returns README, and
+    /// <c>PATH=/README.md&amp;path=/nope.txt</c> returns README while
+    /// <c>path=/nope.txt&amp;PATH=/README.md</c> returns 404 — one parameter, first occurrence
+    /// wins, whatever the spelling. A repeat in two spellings keeps the more specific reason
+    /// that <c>ReadSingleQueryValue</c> gives for a single mis-spelled name.
+    /// </para>
+    /// <para>
+    /// A repeat is refused even when the two values are equal. Equal values do not make one
+    /// reading, and the host is the evidence: measured, <c>version=aaaa&amp;version=aaaa</c>
+    /// returns 400 "Ambiguous values for version", so a repeated selector fetches nothing at all.
+    /// An earlier note reasoned instead from <c>HttpUtility.ParseQueryString</c>, which joins
+    /// repeats with a comma, and concluded the host would select the ref <c>aaaa,aaaa</c>; that
+    /// is a client decoder's behaviour, not the host's, and the live API neither joins nor
+    /// serves.
+    /// </para>
+    /// <para>
+    /// Gated by
+    /// <c>SourceLinkProvenanceTests.ARepeatedContentSelector_IsNotAttributable</c>.
+    /// </para>
+    /// </remarks>
+    private static bool TryCheckQueryParameters(string query, string host, out string rejection)
     {
         ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        var seen = new List<string>();
 
         foreach (Range range in pairs.Split('&'))
         {
@@ -598,19 +671,38 @@ public static class SourceLinkProvenance
 
             if (!known)
             {
-                unknown = name.ToString();
+                rejection =
+                    $"'{host}' URL carries the unrecognized query parameter '{name}', which may " +
+                    "select content the reported origin does not describe";
                 return false;
             }
+
+            foreach (string earlier in seen)
+            {
+                if (!name.Equals(earlier, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                rejection = name.SequenceEqual(earlier)
+                    ? $"'{host}' URL repeats the '{earlier}' parameter, and the host serves the " +
+                      "first occurrence, so a later one selects nothing while appearing to"
+                    : $"'{host}' URL spells the '{earlier}' parameter also as '{name}', and " +
+                      "whether the host matches parameter names case-insensitively is not " +
+                      "stated by the URL";
+                return false;
+            }
+
+            seen.Add(name.ToString());
         }
 
-        unknown = "";
+        rejection = "";
         return true;
     }
 
     /// <summary>
-    /// Reads exactly one value for <paramref name="name"/>. A repeated parameter is rejected
-    /// rather than resolved, for the same reason a duplicated JSON key is: two readers of one
-    /// query string can disagree about which value wins.
+    /// Reads exactly one value for <paramref name="name"/>, which the caller has already
+    /// established is present at most once.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -618,13 +710,14 @@ public static class SourceLinkProvenance
     /// <paramref name="name"/> gives. Whether a host treats <c>VERSION</c> as <c>version</c> is
     /// not stated by the URL, so <c>?VERSION=a&amp;version=b</c> has two readings and neither is
     /// established. Matching case-sensitively would silently pick <c>b</c> while a
-    /// case-insensitive server may serve <c>a</c>.
+    /// case-insensitive server may serve <c>a</c>. A repeat in two spellings is caught earlier;
+    /// this branch is what refuses a single occurrence spelled <c>Version=a</c>.
     /// </para>
     /// <para>
-    /// A repeat is refused even when the values are equal. Equal values do not make one reading:
-    /// ASP.NET, which Azure DevOps is built on, <em>joins</em> repeats with a comma, so
-    /// <c>?version=aaaa&amp;version=aaaa</c> selects the ref named <c>aaaa,aaaa</c> — an
-    /// attacker-controlled ref distinct from <c>aaaa</c>.
+    /// The repeat rule itself has one owner, <c>TryCheckQueryParameters</c>, which runs before
+    /// any call to this and applies it to every parameter rather than to the selectors alone.
+    /// This once carried a second copy of it; the copy became unreachable, and a second copy of a
+    /// rule that can no longer fire is a gate that reports coverage it does not have.
     /// </para>
     /// <para>
     /// A literal <c>+</c> in a value is refused. A form decoder reads it as a space and a percent
@@ -654,14 +747,6 @@ public static class SourceLinkProvenance
                 rejection =
                     $"spells the '{name}' parameter as '{spelling}', and whether the host " +
                     "matches parameter names case-insensitively is not stated by the URL";
-                return null;
-            }
-
-            if (present)
-            {
-                rejection =
-                    $"repeats the '{name}' parameter, and readers of one query string disagree " +
-                    "about whether a repeat wins, loses, or joins";
                 return null;
             }
 

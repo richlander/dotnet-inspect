@@ -344,12 +344,18 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
-    /// A repeated parameter is refused even when its values are equal. Equal values do not make
-    /// one reading: ASP.NET, which Azure DevOps is built on, <em>joins</em> repeats with a comma,
-    /// so <c>?version=aaaa&amp;version=aaaa</c> selects the ref <c>aaaa,aaaa</c> — a ref an
-    /// attacker controls and which is not the one that would be reported. Measured:
-    /// <c>HttpUtility.ParseQueryString</c> returns <c>aaaa,aaaa</c> for that query.
+    /// A repeated parameter is refused even when its values are equal, and for every parameter
+    /// rather than the revision selectors alone. Equal values do not make one reading, and the
+    /// host is the evidence: measured against <c>dev.azure.com/dnceng-public/public</c>,
+    /// <c>version=aaaa&amp;version=aaaa</c> returns 400 "Ambiguous values for version", so a
+    /// repeated selector fetches nothing at all.
     /// </summary>
+    /// <remarks>
+    /// An earlier version of this comment reasoned from <c>HttpUtility.ParseQueryString</c>,
+    /// which joins repeats with a comma, and claimed the host would therefore select the ref
+    /// <c>aaaa,aaaa</c>. That is a client decoder's behaviour, not the host's; measurement shows
+    /// Azure rejects the request instead. The refusal is right, the stated mechanism was not.
+    /// </remarks>
     [Theory]
     [InlineData("version=aaaa&version=aaaa")]
     [InlineData("versionDescriptor.version=aaaa&versionDescriptor.version=aaaa")]
@@ -361,6 +367,64 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains("repeats the", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A repeated content selector resolves every document to one file while the origin still
+    /// reads cleanly, which is why the repeat rule cannot stop at the revision selectors.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Azure serves the <em>first</em> occurrence of <c>path</c>, so
+    /// <c>path=/fixed.cs&amp;path=/*</c> puts the substitution where the host will not look:
+    /// every document produces a distinct URL — enough for the resolver's two-probe check, which
+    /// only sees text — and every one of them fetches <c>fixed.cs</c>. Measured against
+    /// <c>dev.azure.com/dnceng-public/public</c> at commit
+    /// <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// <c>path=/README.md&amp;path=/nope.txt</c> returns README with 200, and
+    /// <c>path=/.gitignore&amp;path=/README.md</c> returns 404 for the first path rather than
+    /// README for the second.
+    /// </para>
+    /// <para>
+    /// The spelling rows are the same defect with the second occurrence cased differently, which
+    /// the host binds to the same parameter: measured, <c>PATH=/README.md&amp;path=/nope.txt</c>
+    /// returns README and <c>path=/nope.txt&amp;PATH=/README.md</c> returns 404. They carry the
+    /// case reason rather than the repeat reason, so a fix that only compared spellings
+    /// ordinally would fail the rows below rather than pass them for the wrong reason.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("path=/fixed.cs&path=/*", "repeats the")]
+    [InlineData("path=/*&path=/fixed.cs", "repeats the")]
+    [InlineData("scopePath=/src&scopePath=/other&path=/*", "repeats the")]
+    [InlineData("api-version=1.0&api-version=7.1&path=/*", "repeats the")]
+    [InlineData("PATH=/fixed.cs&path=/*", "case-insensitively is not stated")]
+    [InlineData("path=/*&PATH=/fixed.cs", "case-insensitively is not stated")]
+    public void ARepeatedContentSelector_IsNotAttributable(string query, string reason)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains(reason, result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same URL without the repeat is attributable, so the rows above are refused for the
+    /// repeat and not for something incidental to how they are written.
+    /// </summary>
+    [Theory]
+    [InlineData("path=/*")]
+    [InlineData("scopePath=/src&path=/*")]
+    [InlineData("api-version=7.1&path=/*")]
+    public void ASingleContentSelector_IsAttributable(string query)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
     }
 
     /// <summary>
@@ -465,6 +529,85 @@ public class SourceLinkProvenanceTests
             "/_/A.cs");
 
         Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// The segments before <c>_apis</c> are the host's route, so their count is part of the
+    /// grammar rather than free text to join into an organization name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Joining whatever preceded <c>_apis</c> reported an organization that was assembled rather
+    /// than read. A project-less <c>dev.azure.com/{org}/_apis/...</c> was attributed to
+    /// <c>{org}</c> at a commit, and <c>dev.azure.com/a/b/c/_apis/...</c> to the organization
+    /// <c>a/b/c</c> with the repository page <c>https://dev.azure.com/a/b/c/_git/{repo}</c>,
+    /// which is not a page. Raised in review with a live request.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c> at commit
+    /// <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, so the rows refuse nothing the host
+    /// serves: the two-segment shape returns 200, the project-less shape redirects to a sign-in
+    /// page on <c>spsprodcus4.vssps.visualstudio.com</c>, a wrong project and a wrong
+    /// organization each redirect the same way — the route really is keyed on both — and an extra
+    /// segment returns 404.
+    /// </para>
+    /// <para>
+    /// They also refuse nothing a generator emits. <c>AzureDevOpsUrlParser.TryParseHostedHttp</c>
+    /// builds the project path as <c>{account}/{project}</c> off <c>dev.azure.com</c> and as
+    /// <c>{project}</c> off a <c>*.visualstudio.com</c> host, dropping the team and trimming
+    /// <c>DefaultCollection</c>, and <c>GetSourceLinkUrl</c> appends
+    /// <c>_apis/git/repositories/{repo}/items</c> to exactly that.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // The shape both hosted generators emit.
+    [InlineData("https://dev.azure.com/contoso/widgets", true)]
+    // Project-less: a real Items route, but one the host answers with a sign-in page.
+    [InlineData("https://dev.azure.com/contoso", false)]
+    // More than the route names; the surplus was being folded into the organization.
+    [InlineData("https://dev.azure.com/contoso/widgets/extra", false)]
+    [InlineData("https://dev.azure.com", false)]
+    // The account is the host label on the legacy spelling, so the route is one segment shorter.
+    [InlineData("https://contoso.visualstudio.com/widgets", true)]
+    [InlineData("https://contoso.visualstudio.com/widgets/extra", false)]
+    [InlineData("https://contoso.visualstudio.com", false)]
+    // DefaultCollection is an alias the host resolves to the same content, and which the
+    // generator trims, so it is dropped rather than made part of the identity.
+    [InlineData("https://contoso.visualstudio.com/DefaultCollection/widgets", true)]
+    [InlineData("https://contoso.visualstudio.com/DefaultCollection", false)]
+    public void AnAzureUrlWhoseSegmentsBeforeApisAreNotTheHostsRoute_IsNotAttributable(
+        string prefix,
+        bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"{{{prefix}}}/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// <c>DefaultCollection</c> is an alias for the same content, measured byte-identical against
+    /// <c>dnceng-public.visualstudio.com/public</c> with and without it, so the two spellings name
+    /// one origin and must not produce two cache identities.
+    /// </summary>
+    [Fact]
+    public void TheLegacyCollectionSpelling_NamesTheSameOriginAsTheProjectAlone()
+    {
+        const string Url =
+            "/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=" +
+            Sha + "&path=/*";
+
+        var with = Determine(
+            $$$"""{"documents":{"/_/*":"https://contoso.visualstudio.com/DefaultCollection/widgets{{{Url}}}"}}""",
+            "/_/A.cs");
+        var without = Determine(
+            $$$"""{"documents":{"/_/*":"https://contoso.visualstudio.com/widgets{{{Url}}}"}}""",
+            "/_/A.cs");
+
+        Assert.True(with.IsEstablished, with.Reason);
+        Assert.True(without.IsEstablished, without.Reason);
+        Assert.Equal(without.Origin!.Value.Identity, with.Origin!.Value.Identity);
     }
 
     /// <summary>
