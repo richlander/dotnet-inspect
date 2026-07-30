@@ -1845,6 +1845,85 @@ public class ForwardedTypeAliasesTests
         File.WriteAllBytes(Path.Combine(directory, name + ".dll"), SerializePE(metadata));
     }
 
+    /// <summary>
+    /// Assembly names are compared case-insensitively because ECMA-335 says so; file paths are
+    /// not, and the two must not share a comparer. On a case-sensitive volume `Hop.dll` and
+    /// `hop.dll` are different files, and folding them together discards whichever the walk saw
+    /// second — so a file that <em>contradicts</em> a facade disappears and the alias stands on
+    /// evidence that was refuted.
+    ///
+    /// <para>Merging is the fabricating direction and splitting is the safe one: two spellings of
+    /// one file counted twice only make a name look contested, which withdraws an alias. So paths
+    /// are compared exactly, and normalization — not case folding — is what makes one file compare
+    /// equal to itself.</para>
+    /// </summary>
+    [Fact]
+    public void TwoFilesDifferingOnlyInPathCaseAreNotOneClaimant()
+    {
+        string directory = NewTempDirectory();
+        Assert.SkipUnless(
+            IsCaseSensitive(directory),
+            "Needs a case-sensitive volume to hold two files whose paths differ only in case.");
+
+        // The chain the alias would rest on: facade -> Contoso.Hop -> the target.
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Hop", "Contoso", "Widget");
+        WriteForwarder(
+            directory, "Contoso.Hop", "Contoso.Definer", "Contoso", "Widget",
+            publicKey: null, fileName: "Hop");
+
+        // A different file, also claiming `Contoso.Hop`, that DECLARES the type instead. It
+        // contradicts the forwarder, so the spelling cannot answer for the type.
+        WriteDefiner(directory, "Contoso.Hop", "Contoso", "Widget", fileName: "hop");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        string targetPath = Path.Combine(directory, "Contoso.Definer.dll");
+        string[] files =
+        [
+            Path.Combine(directory, "Contoso.Facade.dll"),
+            Path.Combine(directory, "Hop.dll"),
+            Path.Combine(directory, "hop.dll"),
+            targetPath,
+        ];
+
+        // Asserted in both orders, because folding the two files together keeps whichever arrived
+        // first — so the defect this pins is visible in one order only.
+        //
+        // And in both walks, because they reach the second file by different routes: the unseeded
+        // walk probes every supplied path, so only its `probed` set can drop one, while the seeded
+        // walk reaches files through the census and then through the chain frontier. A fixture that
+        // exercised one route left the other's comparer free to fold.
+        var seeded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Contoso.Facade" };
+
+        foreach (var order in new[] { files, (string[])[files[0], files[2], files[1], files[3]] })
+        {
+            foreach (var seeds in new[] { null, seeded })
+            {
+                using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+                Assert.Equal(
+                    CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                    CallerScopeTypeFilter.Classify(
+                        caller.GetMetadataReader(),
+                        target,
+                        ForwardedTypeAliases.ForTarget(target, targetPath, order, seeds)));
+            }
+        }
+    }
+
+    /// <summary>Whether a directory's volume distinguishes file names by case.</summary>
+    static bool IsCaseSensitive(string directory)
+    {
+        string probe = Path.Combine(directory, "case-probe.tmp");
+        File.WriteAllText(probe, "");
+        try
+        {
+            return !File.Exists(Path.Combine(directory, "CASE-PROBE.TMP"));
+        }
+        finally
+        {
+            File.Delete(probe);
+        }
+    }
+
     /// <summary>Writes an assembly that declares the named type rather than forwarding it.</summary>
     static void WriteDefiner(string directory, string name, string ns, string typeName, string fileName)
     {

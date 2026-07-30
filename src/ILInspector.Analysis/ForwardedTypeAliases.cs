@@ -586,11 +586,14 @@ public sealed class ForwardedTypeAliases
             if (!census.TryGetValue(claimed.Name, out var claimants))
                 census[claimed.Name] = claimants = [];
 
-            // Deduplicated, because the same file listed twice is one claimant. Counting it twice
-            // made a single-claimant name look contested and dropped a genuine alias (executed in
-            // review of 7572838c). Paths are normalized above, so two spellings of one file compare
-            // equal here.
-            if (!claimants.Any(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase)))
+            // Compared exactly, not case-insensitively. Assembly names fold case because ECMA-335
+            // says identity does; file paths are a different question, and on a case-sensitive
+            // volume `Hop.dll` and `hop.dll` are two files. Folding them keeps whichever arrived
+            // first, so a file that CONTRADICTS a facade disappears and the alias stands on refuted
+            // evidence (executed in review of 224d26b7). Merging is the fabricating direction;
+            // splitting only makes a name look contested, which withdraws an alias. Normalization
+            // above — not case folding — is what makes one file compare equal to itself.
+            if (!claimants.Any(c => string.Equals(c.Path, path, StringComparison.Ordinal)))
                 claimants.Add((path, claimed.Identity));
         }
 
@@ -644,7 +647,10 @@ public sealed class ForwardedTypeAliases
         // reachability depend on enumeration order.
         var targetsByRaw = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var tokensBySpelling = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
-        var probed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Ordinal, because these are file paths rather than assembly names: on a case-sensitive
+        // volume `Hop.dll` and `hop.dll` are two files, and treating them as one would silently
+        // skip the second — losing whatever it had to say, including a contradiction.
+        var probed = new HashSet<string>(StringComparer.Ordinal);
 
         // Every edge read, kept so the definer side can be verified once the identity of every
         // evidence file is known. It cannot be verified while reading: the file an edge points at
@@ -667,7 +673,7 @@ public sealed class ForwardedTypeAliases
             // type queued rows × claimants entries before the next hop deduplicated them. Row
             // counts and scope size are both attacker-controlled, so that product is unbounded work
             // on hostile input (executed in review of 57187942).
-            var next = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var next = new HashSet<string>(StringComparer.Ordinal);
             foreach (string path in frontier)
             {
                 if (!probed.Add(path))
