@@ -238,6 +238,37 @@ public class EvilPoolSweepGateTests
         world.AssertNoTemporaryLeftBehind();
     }
 
+    /// <summary>
+    /// A write that fails after its temporary exists leaves no temporary.
+    ///
+    /// <para>The other failing case here cannot prove this. An unwritable directory fails
+    /// at the moment the temporary is created, so there is nothing to clean up and the
+    /// cleanup is never reached -- a case that asserted the absence of a temporary there
+    /// would be asserting that a file which was never created does not exist. A directory
+    /// standing at the destination is the failure that happens <em>after</em>: the
+    /// temporary is created beside it and written, and only the rename onto the name
+    /// fails.</para>
+    ///
+    /// <para>What is left behind matters because the temporary is a sibling of the
+    /// destination, inside the pool. A partial assembly left in <c>packages/</c> is a file
+    /// a later run finds and hashes, and the pin disagreeing with it would be reported as
+    /// the pin failing rather than as the run that abandoned it.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
+    {
+        using var world = SweepWorld.Create();
+
+        string destination = Path.Combine(
+            world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
+        Directory.CreateDirectory(destination);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a directory standing at the destination"));
+        world.AssertNoTemporaryLeftBehind();
+    }
+
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
         Directory.Exists(Path.Combine(outputDirectory, "packages"))
             ? Directory.GetFiles(Path.Combine(outputDirectory, "packages"), "*.dll", SearchOption.AllDirectories)

@@ -19,9 +19,10 @@ namespace ILInspector.Decompiler.Tests;
 /// <see cref="TheSweepRefusesEveryPinFileShapeThisSuiteRefuses"/>, which runs the sweep's
 /// own validator over tampered pin files so that the rules about a pin's shape live in
 /// one place instead of two that drift. That the sweep <em>honors</em> the pin -- acquires
-/// the pinned bytes and refuses anything else -- is still a property of
-/// <c>eng/prepare-decompiler-package-sweep.cs</c> evidenced by real runs recorded on the
-/// PR, because gating it would mean acquiring packages from this suite.</para>
+/// the pinned bytes and refuses anything else -- is a different question, and one this
+/// class cannot answer, because answering it means running a sweep that acquires a
+/// package. <see cref="EvilPoolSweepGateTests"/> answers it: it runs real sweeps offline
+/// against a scratch cache holding one synthetic package (#3560).</para>
 /// </summary>
 [Trait("Area", "Corpus")]
 public class EvilPoolPinTests
@@ -644,8 +645,9 @@ public class EvilPoolPinTests
     /// change. <c>no-library</c> entries have no assembly, so they must carry no hash --
     /// a hash there would describe a file that does not exist.</para>
     ///
-    /// <para>This test gates the file. That the sweep <em>verifies</em> the hash is
-    /// evidenced by real runs on the PR, for the reason given in the class summary.</para>
+    /// <para>This test gates the file. That the sweep <em>verifies</em> the hash against
+    /// the assembly it pooled is gated by
+    /// <see cref="EvilPoolSweepGateTests.ASweepRefusesBytesThePinDoesNotName"/>.</para>
     /// </summary>
     [Fact]
     public void EveryPinnedPackageNamesTheBytesOfItsAssembly()

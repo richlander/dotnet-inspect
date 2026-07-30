@@ -390,8 +390,9 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
 // why its two central properties -- that the pin binds, and that the copies land where
-// told -- could only ever be evidenced by hand-run probes (#3560). This is not a test
-// backdoor: it is one program catching up to a convention the rest of the tool follows,
+// told -- could only ever be evidenced by hand-run probes (#3560). Those properties are
+// now gated by EvilPoolSweepGateTests, which runs this file offline against a scratch
+// cache. This is not a test backdoor: it is one program catching up to a convention the rest of the tool follows,
 // with the CLI's meanings unchanged. An isolated session skips the shared NuGet cache
 // and, absent an explicit directory, gets its own. Reading them costs nothing when they
 // are unset, which is the case for every real sweep.
