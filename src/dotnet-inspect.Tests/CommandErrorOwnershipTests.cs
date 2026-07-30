@@ -110,11 +110,20 @@ public class CommandErrorOwnershipTests
         string root = RepositoryRoot();
         List<string> uncovered = [];
 
+        foreach (string file in BuildFilesContributingProjectReferences())
+        {
+            uncovered.Add(
+                $"{Path.GetRelativePath(root, file)}: an imported build file adds a ProjectReference. "
+                + "The closure below reads project XML unconditionally and MSBuild's evaluation in Release only, "
+                + "so a reference imported under a condition that is false in Release would run in the CLI "
+                + "process without appearing in either reading.");
+        }
+
         foreach (string project in ProjectClosure(CliProject).OrderBy(p => p, StringComparer.Ordinal))
         {
             string relative = Path.GetRelativePath(root, project);
 
-            if (EvaluatedProperty(project, "OwnsItsOwnStderr", "Release") is "true")
+            if (EvaluatedProperty(project, "OwnsItsOwnStderr") is "true")
             {
                 uncovered.Add(
                     $"{relative}: sets OwnsItsOwnStderr, but its code runs in the CLI process. "
@@ -132,6 +141,15 @@ public class CommandErrorOwnershipTests
             if (!additional.Any(a => Path.GetFileName(a.GetValueOrDefault("Identity") ?? string.Empty) == BannedSymbolsFile))
             {
                 uncovered.Add($"{relative}: does not pass {BannedSymbolsFile} to the analyzer, which makes it silent.");
+            }
+
+            if (!EvaluatedProperty(project, "WarningsAsErrors")
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+            {
+                uncovered.Add(
+                    $"{relative}: does not escalate {StderrRule} to an error, so a violation would be a warning "
+                    + "that scrolls past a green build.");
             }
         }
 
@@ -339,6 +357,11 @@ public class CommandErrorOwnershipTests
     private const string BannedSymbolsFile = "BannedSymbols.txt";
 
     /// <summary>
+    /// The analyzer diagnostic that carries the rule.
+    /// </summary>
+    private const string StderrRule = "RS0030";
+
+    /// <summary>
     /// The Release assembly of every project in the CLI's closure.
     /// </summary>
     /// <remarks>
@@ -353,7 +376,7 @@ public class CommandErrorOwnershipTests
 
         foreach (string project in ProjectClosure(CliProject).OrderBy(p => p, StringComparer.Ordinal))
         {
-            string target = EvaluatedProperty(project, "TargetPath", "Release");
+            string target = EvaluatedProperty(project, "TargetPath");
 
             Assert.True(
                 File.Exists(target),
@@ -614,11 +637,76 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
+    /// Imported build files that contribute a <c>ProjectReference</c>.
+    /// </summary>
+    /// <remarks>
+    /// The closure is the union of two readings, and each covers the other's
+    /// blind spot only up to a point. The XML reading ignores
+    /// <c>Condition</c>, so it is complete for a reference written in a project
+    /// file whatever the configuration -- but it reads project files only. The
+    /// MSBuild reading sees a reference contributed by an imported build file
+    /// -- but it evaluates one configuration, so a reference imported under a
+    /// condition that is false in Release is invisible to it.
+    ///
+    /// Exactly one case falls between them: a conditional
+    /// <c>ProjectReference</c> in an imported build file whose condition is
+    /// false in Release and true in the shipping build. Its code would run in
+    /// the CLI process unanalyzed, and both readings would report the closure
+    /// complete.
+    ///
+    /// The class this replaces answered that by evaluating five build flavors
+    /// on every project. That is the expensive way to learn something the
+    /// repository can instead simply not do: no imported build file contributes
+    /// a project reference at all, which makes the XML reading complete on its
+    /// own and the evaluation corroboration. This keeps that true, for the cost
+    /// of reading five files. A build file that needs to add a reference is not
+    /// forbidden by this -- it is required to come back here and restore the
+    /// completeness argument by some other means, which is the conversation the
+    /// silent version of this gap would not have had.
+    /// </remarks>
+    private static IEnumerable<string> BuildFilesContributingProjectReferences()
+    {
+        string root = RepositoryRoot();
+        EnumerationOptions options = new() { RecurseSubdirectories = true, IgnoreInaccessible = true };
+
+        IEnumerable<string> files = new[] { "*.props", "*.targets" }
+            .SelectMany(pattern => Directory.EnumerateFiles(root, pattern, options))
+            .Where(file => !Path.GetRelativePath(root, file)
+                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(segment => Generated.Contains(segment)))
+            .OrderBy(file => file, StringComparer.Ordinal);
+
+        foreach (string file in files)
+        {
+            XDocument document;
+            try
+            {
+                document = XDocument.Load(file);
+            }
+            catch (XmlException)
+            {
+                continue;
+            }
+
+            if (document.Descendants().Any(
+                element => element.Name.LocalName.Equals("ProjectReference", StringComparison.OrdinalIgnoreCase)))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Directory names holding build output rather than repository sources.
+    /// </summary>
+    private static readonly HashSet<string> Generated =
+        new(StringComparer.OrdinalIgnoreCase) { ".git", "artifacts", "bin", "obj" };
+
+    /// <summary>
     /// The item types this class asks for. Requested together because the cost
     /// is the process, not the question.
     /// </summary>
     private static readonly string[] Items = ["ProjectReference", "PackageReference", "AdditionalFiles"];
-
     private static IReadOnlyList<Dictionary<string, string>> EvaluatedItems(string projectPath, string item) =>
         Evaluations.GetOrAdd(projectPath, static project => Evaluate(project)).GetValueOrDefault(item, []);
 
@@ -674,25 +762,58 @@ public class CommandErrorOwnershipTests
     /// The value MSBuild evaluates <paramref name="property"/> to for
     /// <paramref name="projectPath"/>.
     /// </summary>
-    private static string EvaluatedProperty(string projectPath, string property, string configuration)
+    /// <remarks>
+    /// Every property this class asks about is fetched in one process and
+    /// cached, for the same reason the items are: the cost is the process, not
+    /// the question.
+    /// </remarks>
+    private static string EvaluatedProperty(string projectPath, string property) =>
+        PropertyEvaluations.GetOrAdd(projectPath, EvaluateProperties).GetValueOrDefault(property, string.Empty);
+
+    /// <summary>
+    /// The properties this class asks for.
+    /// </summary>
+    private static readonly string[] Properties = ["OwnsItsOwnStderr", "WarningsAsErrors", "TargetPath"];
+
+    private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
+        new(StringComparer.Ordinal);
+
+    private static Dictionary<string, string> EvaluateProperties(string projectPath)
     {
         using Process process = new()
         {
             StartInfo = new ProcessStartInfo("dotnet")
             {
-                ArgumentList = { "msbuild", projectPath, $"-getProperty:{property}", $"-p:Configuration={configuration}" },
+                ArgumentList = { "msbuild", projectPath, "-p:Configuration=Release" },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             },
         };
 
+        foreach (string property in Properties)
+        {
+            process.StartInfo.ArgumentList.Add($"-getProperty:{property}");
+        }
+
         process.Start();
         string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        return process.ExitCode == 0
-            ? output.Trim()
-            : throw new InvalidOperationException($"Could not evaluate {property} for {projectPath}.{Environment.NewLine}{output}");
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not evaluate {string.Join(',', Properties)} for {projectPath}."
+                + $"{Environment.NewLine}{output}{Environment.NewLine}{error}");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement properties = document.RootElement.GetProperty("Properties");
+
+        return Properties.ToDictionary(
+            name => name,
+            name => properties.TryGetProperty(name, out JsonElement value) ? value.GetString() ?? string.Empty : string.Empty,
+            StringComparer.Ordinal);
     }
 
     private static string RepositoryRoot()

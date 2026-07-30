@@ -470,6 +470,12 @@ public class MetadataImageOverviewRendererTests
     {
         var root = MdiCommand.CreateRootCommand();
         var error = new StringWriter();
+
+        // Capturing the stream is the point of the test, so the stderr-ownership
+        // rule (#3319) is suppressed here rather than switched off for the
+        // project: mdi is a separate entry point outside the CLI's reference
+        // closure, but the rest of this project should stay covered.
+#pragma warning disable RS0030
         var original = Console.Error;
         try
         {
@@ -483,5 +489,6 @@ public class MetadataImageOverviewRendererTests
         {
             Console.SetError(original);
         }
+#pragma warning restore RS0030
     }
 }

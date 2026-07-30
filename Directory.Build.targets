@@ -44,4 +44,14 @@
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.txt" />
   </ItemGroup>
 
+  <!-- Escalated here rather than left to TreatWarningsAsErrors, which is set in
+       src/Directory.Build.props and so covers only src/. The analyzer is added
+       to every project, and a rule that stops the build under src/ but merely
+       warns under tests/ and tools/ is two different rules wearing one name.
+       Warnings scroll past; this makes the rule mean the same thing everywhere
+       it is on, which is the only form in which "on by default" is honest. -->
+  <PropertyGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  </PropertyGroup>
+
 </Project>

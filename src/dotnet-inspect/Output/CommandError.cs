@@ -95,10 +95,12 @@ namespace DotnetInspector.Output;
 /// stderr, and cannot reach this writer. They are out of scope by construction,
 /// tracked as issue #3444.
 ///
-/// And the ownership scan reads the program's tokens, so it sees the names a
-/// program spells, not the descriptor it ends up writing to. Identifier escapes
-/// and verbatim <c>@</c> are seen through because those are still spellings of
-/// the name. Two routes are not spellings of it at all:
+/// And the rule is stated over <see cref="Console"/>'s members, so it binds the
+/// names a program uses, not the descriptor it ends up writing to. Every
+/// spelling of those members is covered, because the compiler resolves a
+/// spelling to a symbol before the rule is asked about it -- an alias, a
+/// <c>using static</c>, an identifier escape, and a verbatim <c>@</c> are not
+/// separate cases to it. Two routes are not uses of those members at all:
 /// <c>((TextWriter)typeof(Console).GetProperty("Error")!.GetValue(null)!).WriteLine(untrusted)</c>
 /// reaches the stream by reflection, and
 /// <c>new StreamWriter(File.OpenWrite("/proc/self/fd/2"))</c> reaches the same
@@ -113,10 +115,13 @@ namespace DotnetInspector.Output;
 /// <c>UntrustedArgumentDiagnosticContainmentTests</c> read the bytes actually
 /// on the stream, so they do not care how a write was spelled: introducing that
 /// exact reflective write inside <see cref="Write(string, string[])"/> leaves
-/// all five ownership tests green and fails those tests across every channel and
+/// every ownership rule green and fails those tests across every channel and
 /// hazard, and so does the file-descriptor write above -- measured, not assumed:
-/// with it in the startup path the ownership tests report 5 passed and
-/// <c>UntrustedArgumentDiagnosticContainmentTests</c> reports 4 failed. The
+/// with it in the startup path the ownership rules all pass and
+/// <c>UntrustedArgumentDiagnosticContainmentTests</c> reports 4 failed. A
+/// reviewer reached descriptor 2 through a <c>DllImport</c> of <c>write(2)</c>
+/// on this exact head, with the build clean and all four ownership rules green,
+/// which is this residual behaving as described rather than a new one. The
 /// residual is therefore narrower than "the static rule is Console-centric" --
 /// it is an unspellable write on a path no hostile test exercises -- and it is a
 /// reach limitation of the behavioral suite rather than a hole in the rule.
