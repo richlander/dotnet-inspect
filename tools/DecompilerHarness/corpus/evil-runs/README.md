@@ -337,6 +337,18 @@ When you append a row by hand, this is the rule most likely to reject it: take
 `invalidBreakdown` from the run JSON verbatim rather than filling in the reason
 you care about and zeroing the rest.
 
+A recorded identity must also be **well formed**: `poolSha256` and
+`corpusSha256` are either absent or exactly 64 lowercase hex characters, the
+shape a real run records. Every other hand-copied field here is checked rather
+than trusted, and the digests were the exception — yet they are the fields that
+decide whether any comparison happens at all. Comparability compares them as
+opaque strings, so `""` is not read as "no identity recorded", it is read as an
+identity that happens to equal every other `""`: two such rows compare clean over
+a pool neither one identifies. Case is part of the rule, because an uppercase
+copy of a real digest is a *different* string for the same pool, which reads as
+drift that never happened. Absence stays honest and stays allowed — it is
+refused later, by comparability, rather than here.
+
 A baseline must also be able to **state every metric the run states**. A metric
 is only emitted when both sides have a number for it, so a row missing one
 yields a comparison that ratchets fewer metrics than the run has while still
@@ -423,9 +435,37 @@ baseline that records no identity compare against anything — is unsound, becau
 baseline opt out of identity and then compare clean against a run over a wholly
 different corpus.
 
-Nothing re-opens the bootstrap. A future row that dropped its identity would be
-comparable to nothing in exactly the same way, and
+Nothing re-opens the bootstrap *silently*. A future row that dropped its
+identity would be comparable to nothing in exactly the same way, and
 `TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline` fails on a skip.
+
+### Re-crossing it: what to do when the pool or the corpus changes
+
+The bootstrap is not a one-time event. It re-opens **whenever run identity
+changes**, because a new identity is comparable to no row already in the store:
+
+- The vendored corpus moves. `eng/restore-authored-source-corpus.sh` materializes
+  the tip of `vendor/authored-source-corpus`, so a commit on that branch changes
+  `corpusSha256` for every subsequent run.
+- The pool changes — a package added to or bumped in
+  `docs/data/nuget-top-packages.lock.json`, a `SELF_VERSION` bump in
+  `eng/prepare-evil-corpus.sh`, or any change to which assemblies are selected.
+
+When that happens the scheduled lane goes **red**, and the skip reason names the
+mismatch (`corpusSha256 <old> vs <new>`). That is the gate working, not a defect:
+the store's numbers describe code and inputs that no longer exist, and comparing
+across the change would report a corpus swap as a quality movement. Refusing is
+the whole reason the digests are recorded.
+
+The remedy is the same as the original crossing: **land two runs over the new
+inputs together**, following the Append procedure above. One row is not enough —
+it would be comparable to nothing and the lane would stay red.
+
+Deliberately *not* done: pinning the corpus branch to a fixed commit in the
+workflow. That would trade a loud, correct failure for a silent wrong answer —
+the lane would keep measuring an old corpus after the corpus was improved, and
+the eventual pin bump would change what is measured without forcing anyone to
+re-baseline. A red lane that names its cause is the cheaper failure.
 
 ### Who runs it
 

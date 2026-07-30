@@ -182,16 +182,51 @@ static class AuthoredCorpusRatchet
     /// means the run did not report the field, so its soundness cannot be confirmed —
     /// and an unconfirmable row is not a baseline. Partition closure is pinned
     /// separately, as set equality, by <c>AuthoredCorpusHistoryCardTests</c>.</para>
+    ///
+    /// <para>A recorded identity must also be <em>well formed</em>. Rows are appended by
+    /// hand, and every other field a human copies is already checked rather than
+    /// trusted — the buckets must close, the breakdown must pair with its methodology.
+    /// The digests were the exception, and they are the fields that decide whether any
+    /// comparison happens at all: <see cref="RunKey.IsComparableTo"/> compares them as
+    /// opaque strings, so a row recording <c>""</c> or a typo does not read as absent,
+    /// it reads as an identity — and two rows carrying the same malformed identity
+    /// compare clean, which is a fabricated pool identity wearing the shape of a real
+    /// one. Absence is honest and stays allowed; a malformed identity is not.</para>
     /// </summary>
     internal static bool IsTrustworthy(HistoryRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
-        return AuthoredCorpusExitContract.MeasurementIsSound(
-            run.InputsComplete,
-            PartitionCloses(run),
-            run.Drift,
-            run.Unsupported,
-            run.UnknownOutcome ?? -1);
+        return IdentityIsWellFormed(run.PoolSha256)
+            && IdentityIsWellFormed(run.CorpusSha256)
+            && AuthoredCorpusExitContract.MeasurementIsSound(
+                run.InputsComplete,
+                PartitionCloses(run),
+                run.Drift,
+                run.Unsupported,
+                run.UnknownOutcome ?? -1);
+    }
+
+    /// <summary>
+    /// Whether a recorded identity is absent, or is a digest <see cref="Digest"/> could
+    /// actually have produced: 64 lowercase hex characters. Case matters, because the
+    /// comparison is ordinal — an uppercase copy of a real digest would be a distinct
+    /// identity for the same pool, which reads as drift that never happened.
+    /// </summary>
+    internal static bool IdentityIsWellFormed(string? sha256)
+    {
+        if (sha256 is null)
+            return true;
+
+        if (sha256.Length != 64)
+            return false;
+
+        foreach (char c in sha256)
+        {
+            if (c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
