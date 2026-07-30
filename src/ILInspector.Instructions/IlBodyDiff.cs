@@ -43,6 +43,19 @@ public enum IlBodyDiffNormalization
     /// Replace known platform assembly reference scopes with a shared scope.
     /// </summary>
     NormalizePlatformAssemblyScope = 1 << 2,
+
+    /// <summary>
+    /// Compare Roslyn compiler-generated local functions and state machines under an
+    /// ordinal-free name when the two sides correspond one-to-one.
+    /// </summary>
+    /// <remarks>
+    /// The ordinal Roslyn embeds in these names indexes the containing type's members,
+    /// so it shifts whenever that type's member population differs — which it always
+    /// does when one side is a reconstructed skeleton. Requires both readers; see
+    /// <see cref="CompilerGeneratedOrdinalCorrespondence"/> for why the decision is
+    /// two-sided.
+    /// </remarks>
+    NormalizeCompilerGeneratedOrdinals = 1 << 3,
 }
 
 public enum IlBodyDiffOutcome
@@ -127,7 +140,8 @@ public static class IlBodyDiff
     const IlBodyDiffNormalization SupportedNormalizations =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
@@ -157,11 +171,16 @@ public static class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(newBody);
 
+        var (oldCorrespondence, newCorrespondence) =
+            (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader)
+                : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
+
         return Compare(
             MethodInstructions.Decode(oldBody),
             MethodInstructions.Decode(newBody),
-            new MetadataOperandResolver(oldReader, normalization),
-            new MetadataOperandResolver(newReader, normalization),
+            new MetadataOperandResolver(oldReader, normalization, oldCorrespondence),
+            new MetadataOperandResolver(newReader, normalization, newCorrespondence),
             normalization);
     }
 
@@ -184,7 +203,7 @@ public static class IlBodyDiff
             return false;
         }
 
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None);
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None, CompilerGeneratedOrdinalCorrespondence.Empty);
         return TryBuildOperations(
             body.Instructions,
             resolver,
@@ -605,7 +624,8 @@ public static class IlBodyDiff
 
     sealed class MetadataOperandResolver(
         MetadataReader reader,
-        IlBodyDiffNormalization normalization)
+        IlBodyDiffNormalization normalization,
+        CompilerGeneratedOrdinalCorrespondence correspondence)
     {
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
         // so the type-name climbs below would recurse until an uncatchable
@@ -717,7 +737,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs: null);
         }
 
         string FormatMemberReference(MemberReferenceHandle handle)
@@ -771,7 +791,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
@@ -863,7 +883,9 @@ public static class IlBodyDiff
         string FormatTypeDefinition(TypeDefinitionHandle handle)
         {
             var type = reader.GetTypeDefinition(handle);
-            string name = reader.GetString(type.Name);
+            string name = correspondence.TryGetTypeName(handle, out var elided)
+                ? elided
+                : reader.GetString(type.Name);
             var declaring = type.GetDeclaringType();
             string fullName;
             if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
@@ -894,6 +916,11 @@ public static class IlBodyDiff
             }
             return $"[{CurrentAssemblyName()}]{fullName}";
         }
+
+        string MethodName(MethodDefinitionHandle handle, MethodDefinition method)
+            => correspondence.TryGetMethodName(handle, out var elided)
+                ? elided
+                : reader.GetString(method.Name);
 
         string CurrentAssemblyName()
             => (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
