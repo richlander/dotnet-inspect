@@ -224,6 +224,50 @@ public class CallerScopeResolverTests
         }
     }
 
+    /// <summary>
+    /// A scope naming one assembly both directly and through a linked *directory* must scan it
+    /// once. A directory symbolic link or junction is a reparse point on the directory, so
+    /// resolving the file inside it reports "not a link" — the link has to be followed at the
+    /// segment that carries it, which is the common shape (a symlinked framework or SDK directory).
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_CountsOnePhysicalFileOnceWhenAlsoReachedThroughALinkedDirectory()
+    {
+        var root = Directory.CreateTempSubdirectory("caller-scope-dirlink-test").FullName;
+        try
+        {
+            var real = Path.Combine(root, "real");
+            Directory.CreateDirectory(real);
+            File.Copy(typeof(CallerScopeResolverTests).Assembly.Location, Path.Combine(real, "Caller.dll"));
+
+            var link = Path.Combine(root, "link");
+            try
+            {
+                Directory.CreateSymbolicLink(link, real);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Assert.Skip("Needs permission to create a directory symbolic link.");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await CallerScopeResolver.ResolveAsync(
+                directories: [real, link],
+                projects: [],
+                packages: [],
+                tfm: null,
+                ownAssemblyPath: null,
+                httpClient,
+                new VerboseLogger(enabled: false));
+
+            Assert.Single(assemblySet.Assemblies);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>The same path with the case of its last segment inverted.</summary>
     static string SwapLeafCase(string path)
     {

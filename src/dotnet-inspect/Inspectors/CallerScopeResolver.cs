@@ -85,8 +85,10 @@ public static class CallerScopeResolver
     /// cost a deduplication — one file scanned twice — while merging two distinct files drops a
     /// caller outright, so the failure direction is the survivable one.</para>
     ///
-    /// <para>Symbolic links and directory junctions are followed to their final target first, so a
-    /// scope naming one assembly both directly and through a link counts it once.</para>
+    /// <para>Symbolic links and junctions are followed to their final target, at both the file and
+    /// every directory segment, so a scope naming one assembly both directly and through a link
+    /// counts it once. Resolving only the file would miss the common shape, because a directory
+    /// link is a reparse point on the *directory* and the file inside it reports "not a link".</para>
     ///
     /// <para><b>This settles spelling and linkage, not file identity, and the remainder is
     /// unverified.</b> A hard link is not a link — it is a second directory entry for one inode, so
@@ -98,10 +100,10 @@ public static class CallerScopeResolver
     /// long-standing rather than new — no path comparer, case-folding or exact, ever merged two
     /// different names for one file.</para>
     ///
-    /// <para>The cost is one link probe and one directory-entry lookup per file, plus one lookup
-    /// per distinct directory segment: measured at 48–66 ms warm over the 182 assemblies of a
-    /// shared framework (up from 20–38 ms before the link probe), against a scope scan of several
-    /// seconds.</para>
+    /// <para>The cost is one link probe and one directory-entry lookup per file, plus one of each
+    /// per distinct directory segment: measured at 31–39 ms warm over the 182 assemblies of a
+    /// shared framework, against a scope scan of several seconds. The directory half is memoized,
+    /// so it is paid per directory rather than per file.</para>
     /// </summary>
     static string OnDiskSpelling(string fullPath, Dictionary<string, string> directorySpellings)
     {
@@ -117,16 +119,18 @@ public static class CallerScopeResolver
     }
 
     /// <summary>
-    /// The file a symbolic link or junction chain ultimately denotes, or <paramref name="fullPath"/>
-    /// itself when it is not a link. A broken or cyclic chain resolves to nothing, in which case the
-    /// path is returned unchanged rather than dropped — the caller has already established that it
-    /// exists.
+    /// The file or directory a symbolic-link or junction chain ultimately denotes, or
+    /// <paramref name="path"/> itself when it is not a link. A broken or cyclic chain resolves to
+    /// nothing, in which case the path is returned unchanged rather than dropped.
     /// </summary>
-    static string FinalLinkTarget(string fullPath)
+    static string FinalLinkTarget(string path, bool directory = false)
     {
         try
         {
-            return File.ResolveLinkTarget(fullPath, returnFinalTarget: true)?.FullName ?? fullPath;
+            var target = directory
+                ? Directory.ResolveLinkTarget(path, returnFinalTarget: true)
+                : File.ResolveLinkTarget(path, returnFinalTarget: true);
+            return target?.FullName ?? path;
         }
         catch (Exception ex) when (ex is IOException
                                       or UnauthorizedAccessException
@@ -134,18 +138,24 @@ public static class CallerScopeResolver
                                       or NotSupportedException
                                       or System.Security.SecurityException)
         {
-            return fullPath;
+            return path;
         }
     }
 
     /// <summary>
-    /// <paramref name="directory"/> with every segment given the spelling it holds on disk,
-    /// memoized in <paramref name="memo"/> because a scope's files share few directories.
+    /// <paramref name="directory"/> with every segment given the spelling it holds on disk and
+    /// every directory link followed to its target, memoized in <paramref name="memo"/> because a
+    /// scope's files share few directories.
     /// </summary>
     static string CanonicalDirectory(string directory, Dictionary<string, string> memo)
     {
         if (memo.TryGetValue(directory, out var cached))
             return cached;
+
+        // Provisional, so that a link chain leading back here terminates on the memo rather than
+        // recursing. `returnFinalTarget` already rejects cycles, but it is not the only way a
+        // segment can be reached twice.
+        memo[directory] = directory;
 
         var parent = Path.GetDirectoryName(directory);
         var leaf = Path.GetFileName(directory);
@@ -160,6 +170,15 @@ public static class CallerScopeResolver
         {
             var canonicalParent = CanonicalDirectory(parent, memo);
             canonical = Path.Combine(canonicalParent, MatchedEntry(canonicalParent, leaf, files: false));
+
+            // A directory symbolic link or junction is a reparse point on the *directory*, so
+            // resolving the file inside it reports "not a link" and leaves the two paths distinct.
+            // Resolving here is what actually collapses `\junction\x.dll` onto `\real\x.dll`, and
+            // it is the common shape — a symlinked framework or SDK directory — where resolving
+            // only the leaf file is the rare one.
+            var target = FinalLinkTarget(canonical, directory: true);
+            if (!string.Equals(target, canonical, StringComparison.Ordinal))
+                canonical = CanonicalDirectory(target, memo);
         }
 
         memo[directory] = canonical;
