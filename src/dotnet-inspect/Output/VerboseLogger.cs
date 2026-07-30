@@ -24,15 +24,16 @@ public class VerboseLogger(bool enabled)
     }
 
     /// <summary>
-    /// Writes a warning to stderr regardless of verbosity.
+    /// Writes unconditionally. For a refusal that changes what the tool reports -- rejecting an
+    /// untrusted name that would otherwise have been resolved, for example.
     /// </summary>
     /// <remarks>
-    /// <see cref="Log(string)"/> is progress reporting and is correctly silent by default. A
-    /// refusal is not progress: when the tool declines to resolve something because the input was
-    /// unsafe, the result is a node that looks exactly like an ordinary unresolved reference, so
-    /// routing that message through <see cref="Log(string)"/> hides the reason at every verbosity
-    /// a user actually runs. Refusals are rare enough to be free -- a sweep of 26,584 assemblies
-    /// under the shared framework produced none -- so this cannot become noise on real input.
+    /// <see cref="Log(string)"/> is verbose-gated, so reporting a refusal through it leaves the
+    /// default run with a quietly thinner result and exit 0, which is the success-shaped failure
+    /// <c>AGENTS.md</c> forbids: the user cannot tell a refused input from an absent one. Two
+    /// reviewers independently flagged the same pattern at two different guards. Refusals are
+    /// rare enough that this cannot become noise -- a sweep of 26,584 real assemblies produced
+    /// none -- and <c>CoreCache</c> already writes its cache-escape refusal unconditionally.
     /// </remarks>
-    public void Warn(string message) => Console.Error.WriteLine(message);
+    public void Warn(string message) => Console.Error.WriteLine($"Warning: {message}");
 }

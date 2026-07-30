@@ -3620,7 +3620,7 @@ public class SectionPipelineTests
     // where the traversal would land; on unguarded code the walk resolves and reads it, populating
     // Path/ResolvedFrom/Company from a file outside the assembly's own directory.
     [Fact]
-    public void BuildTransitiveReferences_TraversingName_RefusesToResolveOutsideSourceDir()
+    public async Task BuildTransitiveReferences_TraversingName_RefusesToResolveOutsideSourceDir()
     {
         var root = Directory.CreateTempSubdirectory("di-traversal-");
         try
@@ -3647,11 +3647,21 @@ public class SectionPipelineTests
                 new("Valid..Dependency", "1.0.0.0", null, null)
             };
 
-            var nodes = LibraryMetadataService.BuildTransitiveReferences(
-                references,
-                sourceDir,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                new VerboseLogger(false));
+            // The refusal writes to Console.Error unconditionally, so this has to run under
+            // ConsoleCapture even though it asserts nothing about the text. Console.Error is
+            // process-global: an uncaptured write here lands in whichever OTHER test happens to
+            // hold the redirect, and that test then fails on output it never produced. That is
+            // exactly the order-dependent flake ConsoleCapture was introduced to end, and leaving
+            // this call outside it made four unrelated tests fail intermittently.
+            List<AssemblyReferenceNode> nodes = [];
+            await ConsoleCapture.RunAsync(() =>
+            {
+                nodes = LibraryMetadataService.BuildTransitiveReferences(
+                    references,
+                    sourceDir,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    new VerboseLogger(false));
+            });
 
             var traversing = Assert.Single(nodes, n => n.Name == "../payload");
             Assert.Null(traversing.Path);
