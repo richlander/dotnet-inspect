@@ -612,17 +612,17 @@ public sealed partial class CSharpPrinter
 
         // Remaining locals and slots declare up front, current-style.
         foreach (var declaration in CollectDeclarations(function))
-            sb.AppendLine(declaration);
+            sb.AppendLf(declaration);
         if (sb.Length > 0)
         {
             _emittedDeclarations = true;
-            sb.AppendLine();
+            sb.AppendLf();
         }
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
         if (NeedsUnsupportedFallbackReturn(function))
-            sb.AppendLine("return default;");
-        return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + Environment.NewLine : "";
+            sb.AppendLf("return default;");
+        return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + "\n" : "";
     }
 
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
@@ -695,7 +695,7 @@ public sealed partial class CSharpPrinter
             AppendStatements(sb, emit, indent);
         }
         if (labelPendingStatement)
-            sb.Append(pad).AppendLine(";");
+            sb.Append(pad).AppendLf(";");
     }
 
     void AppendLabel(StringBuilder sb, string pad, int offset)
@@ -703,7 +703,7 @@ public sealed partial class CSharpPrinter
         // First printed occurrence owns the label; structured replacements stamp
         // the enclosing statement so it must render before any same-offset child.
         if (_emittedLabels.Add(offset))
-            sb.Append(pad).AppendLine($"IL_{offset:X4}:");
+            sb.Append(pad).AppendLf($"IL_{offset:X4}:");
     }
 
     /// <summary>
@@ -1696,8 +1696,8 @@ public sealed partial class CSharpPrinter
         };
 
         string pad = new(' ', indent * 4);
-        foreach (var line in new CSharpPrinter(function, _options, CurrentScopeNames(), _stackSlotTelemetry).PrintBody(function).TrimEnd().Split(Environment.NewLine))
-            sb.Append(pad).AppendLine(line);
+        foreach (var line in new CSharpPrinter(function, _options, CurrentScopeNames(), _stackSlotTelemetry).PrintBody(function).TrimEnd().Split("\n"))
+            sb.Append(pad).AppendLf(line);
     }
 
     /// <summary>
@@ -1857,21 +1857,21 @@ public sealed partial class CSharpPrinter
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.EscapeIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
-                sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLine(";");
+                sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
             }
             else
             {
-                sb.Append(pad).AppendLine(header);
-                sb.Append(pad).AppendLine("{");
+                sb.Append(pad).AppendLf(header);
+                sb.Append(pad).AppendLf("{");
                 if (NeedsNestedLocalFunctionScope(localFunction))
                     AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
                 else
                 {
                     AppendContainer(sb, localFunction.Body, indent + 1);
                     if (NeedsUnsupportedFallbackReturn(localFunction.ReturnType, requiresAsyncBodyModifier: false, localFunction.Body))
-                        sb.Append(new string(' ', (indent + 1) * 4)).AppendLine("return default;");
+                        sb.Append(new string(' ', (indent + 1) * 4)).AppendLf("return default;");
                 }
-                sb.Append(pad).AppendLine("}");
+                sb.Append(pad).AppendLf("}");
             }
             return;
         }
@@ -1882,25 +1882,25 @@ public sealed partial class CSharpPrinter
             // indent the inline Expression() form cannot.
             string inner = pad + "    ";
             var labelEnum = SwitchLabelEnumType(returnedSwitch.Value);
-            sb.Append(pad).Append("return ").Append(Operand(returnedSwitch.Value)).AppendLine(" switch");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("return ").Append(Operand(returnedSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).AppendLf("{");
             foreach (var arm in returnedSwitch.Arms)
-                sb.Append(inner).Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum)).AppendLine(",");
-            sb.Append(pad).AppendLine("};");
+                sb.Append(inner).Append(SwitchArmText(arm, _function.Signature.ReturnType, labelEnum)).AppendLf(",");
+            sb.Append(pad).AppendLf("};");
             return;
         }
         if (node is Return { Value: UnionSwitchExpression unionSwitch })
         {
             string inner = pad + "    ";
-            sb.Append(pad).Append("return ").Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLine(" switch");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("return ").Append(UnionSwitchReceiverText(unionSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).AppendLf("{");
             if (unionSwitch.NullValue is { } nullValue)
-                sb.Append(inner).Append("null => ").Append(SwitchArmValueText(nullValue, _function.Signature.ReturnType)).AppendLine(",");
+                sb.Append(inner).Append("null => ").Append(SwitchArmValueText(nullValue, _function.Signature.ReturnType)).AppendLf(",");
             foreach (var arm in unionSwitch.Arms)
-                sb.Append(inner).Append(UnionSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+                sb.Append(inner).Append(UnionSwitchArmText(arm, _function.Signature.ReturnType)).AppendLf(",");
             if (unionSwitch.DefaultValue is { } defaultValue)
-                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(defaultValue, _function.Signature.ReturnType)).AppendLine(",");
-            sb.Append(pad).AppendLine("};");
+                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(defaultValue, _function.Signature.ReturnType)).AppendLf(",");
+            sb.Append(pad).AppendLf("};");
             return;
         }
         if (node is Return { Value: PatternSwitchExpression patternSwitch })
@@ -1909,13 +1909,13 @@ public sealed partial class CSharpPrinter
             // arm per line, indented under the governing receiver, with an
             // optional trailing `_ => default` arm.
             string inner = pad + "    ";
-            sb.Append(pad).Append("return ").Append(Operand(patternSwitch.Value)).AppendLine(" switch");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("return ").Append(Operand(patternSwitch.Value)).AppendLf(" switch");
+            sb.Append(pad).AppendLf("{");
             foreach (var arm in patternSwitch.Arms)
-                sb.Append(inner).Append(PatternSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+                sb.Append(inner).Append(PatternSwitchArmText(arm, _function.Signature.ReturnType)).AppendLf(",");
             if (patternSwitch.DefaultValue is { } patternDefault)
-                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(patternDefault, _function.Signature.ReturnType)).AppendLine(",");
-            sb.Append(pad).AppendLine("};");
+                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(patternDefault, _function.Signature.ReturnType)).AppendLf(",");
+            sb.Append(pad).AppendLf("};");
             return;
         }
         if (node is Return { Value: TupleSwitchExpression tupleSwitch })
@@ -1924,11 +1924,11 @@ public sealed partial class CSharpPrinter
             // forms above: one arm per line, indented under the governing tuple.
             string inner = pad + "    ";
             var componentTypes = TupleSwitchComponentTypes(tupleSwitch);
-            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLine(" switch");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("return ").Append(TupleSwitchGoverningValueText(tupleSwitch)).AppendLf(" switch");
+            sb.Append(pad).AppendLf("{");
             foreach (var arm in tupleSwitch.Arms)
-                sb.Append(inner).Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType)).AppendLine(",");
-            sb.Append(pad).AppendLine("};");
+                sb.Append(inner).Append(TupleSwitchArmText(arm, componentTypes, _function.Signature.ReturnType)).AppendLf(",");
+            sb.Append(pad).AppendLf("};");
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
@@ -1941,11 +1941,11 @@ public sealed partial class CSharpPrinter
                 .Append(localName)
                 .Append(" = ")
                 .Append(Expression(stackAllocate))
-                .AppendLine(";");
+                .AppendLf(";");
             string value = returnPointer.Equals(stackAllocate.ResultType)
                 ? localName
                 : $"({TypeText(returnPointer)}){localName}";
-            sb.Append(pad).Append("return ").Append(value).AppendLine(";");
+            sb.Append(pad).Append("return ").Append(value).AppendLf(";");
             return;
         }
         if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store
@@ -1959,7 +1959,7 @@ public sealed partial class CSharpPrinter
                 .Append(localName)
                 .Append(" = ")
                 .Append(Expression(storeStackAllocate))
-                .AppendLine(";");
+                .AppendLf(";");
             sb.Append(pad);
             if (_declaringStores.Contains(store))
                 sb.Append(TypeText(storeType)).Append(' ');
@@ -1970,7 +1970,7 @@ public sealed partial class CSharpPrinter
                 .Append(" = ")
                 .Append(cast)
                 .Append(localName)
-                .AppendLine(";");
+                .AppendLf(";");
             return;
         }
         if (node is StoreStackSlot { Value: StackAllocate slotStackAllocate } slotStore
@@ -1984,7 +1984,7 @@ public sealed partial class CSharpPrinter
                 .Append(localName)
                 .Append(" = ")
                 .Append(Expression(slotStackAllocate))
-                .AppendLine(";");
+                .AppendLf(";");
             sb.Append(pad);
             if (_declaringStores.Contains(slotStore))
                 sb.Append(TypeText(slotType)).Append(' ');
@@ -1995,7 +1995,7 @@ public sealed partial class CSharpPrinter
                 .Append(" = ")
                 .Append(cast)
                 .Append(localName)
-                .AppendLine(";");
+                .AppendLf(";");
             return;
         }
         if (node is ForLoop forLoop)
@@ -2003,40 +2003,40 @@ public sealed partial class CSharpPrinter
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad).Append("for (").Append(initializer).Append("; ")
-                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendStatements(sb, forLoop.Body.Children, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is WhileLoop whileLoop)
         {
-            sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendStatements(sb, whileLoop.Body.Children, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is DoWhileLoop doWhile)
         {
-            sb.Append(pad).AppendLine("do");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).AppendLf("do");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, doWhile.Body, indent + 1);
             // The body's own AppendStatement calls left _statementIndent at the
             // deepest nested statement's level; restore it to this statement's
             // own indent before the condition (itself part of this statement,
             // not the body) renders, so a lambda inside it aligns correctly.
             _statementIndent = indent;
-            sb.Append(pad).Append("}").Append(Environment.NewLine).Append(pad)
-                .Append("while (").Append(Condition(doWhile.Condition)).AppendLine(");");
+            sb.Append(pad).Append("}").Append("\n").Append(pad)
+                .Append("while (").Append(Condition(doWhile.Condition)).AppendLf(");");
             return;
         }
         if (node is TryCatch tryCatch)
         {
-            sb.Append(pad).AppendLine("try");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).AppendLf("try");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, tryCatch.TryBody, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             foreach (var clause in tryCatch.Clauses)
             {
                 // As in the do/while condition above, a preceding body (the try
@@ -2044,19 +2044,19 @@ public sealed partial class CSharpPrinter
                 // deeper than this statement's own indent; restore it before
                 // CatchHeader (which may render a filter's `when (...)` lambda).
                 _statementIndent = indent;
-                sb.Append(pad).AppendLine(CatchHeader(clause));
-                sb.Append(pad).AppendLine("{");
+                sb.Append(pad).AppendLf(CatchHeader(clause));
+                sb.Append(pad).AppendLf("{");
                 AppendContainer(sb, clause.Body, indent + 1);
-                sb.Append(pad).AppendLine("}");
+                sb.Append(pad).AppendLf("}");
             }
             return;
         }
         if (node is Lock lockStatement)
         {
-            sb.Append(pad).Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, lockStatement.Body, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is Fixed fixedStatement)
@@ -2067,10 +2067,10 @@ public sealed partial class CSharpPrinter
                 .Append(fixedStatement.SourceIsAddress
                     ? "&" + Deref(fixedStatement.PinSource)
                     : Expression(fixedStatement.PinSource))
-                .AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+                .AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, fixedStatement.Body, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is UsingStatement usingStatement)
@@ -2078,10 +2078,10 @@ public sealed partial class CSharpPrinter
             sb.Append(pad)
                 .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
-                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+                .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, usingStatement.Body, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is ForeachStatement foreachStatement)
@@ -2090,43 +2090,43 @@ public sealed partial class CSharpPrinter
                 .Append(foreachStatement.IsAwait ? "await foreach (" : "foreach (")
                 .Append(TypeText(foreachStatement.LocalType)).Append(' ')
                 .Append(LocalName(foreachStatement.LocalIndex)).Append(" in ")
-                .Append(Expression(foreachStatement.Collection)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+                .Append(Expression(foreachStatement.Collection)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendStatements(sb, foreachStatement.Body.Children, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is TryFinally tryFinally)
         {
-            sb.Append(pad).AppendLine("try");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).AppendLf("try");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, tryFinally.TryBody, indent + 1);
-            sb.Append(pad).AppendLine("}");
-            sb.Append(pad).AppendLine("finally");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).AppendLf("}");
+            sb.Append(pad).AppendLf("finally");
+            sb.Append(pad).AppendLf("{");
             AppendContainer(sb, tryFinally.FinallyBody, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is IfStatement ifStatement)
         {
-            sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             AppendStatements(sb, ifStatement.Then.Children, indent + 1);
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             if (ifStatement.Else is { } elseArm)
             {
-                sb.Append(pad).AppendLine("else");
-                sb.Append(pad).AppendLine("{");
+                sb.Append(pad).AppendLf("else");
+                sb.Append(pad).AppendLf("{");
                 AppendStatements(sb, elseArm.Children, indent + 1);
-                sb.Append(pad).AppendLine("}");
+                sb.Append(pad).AppendLf("}");
             }
             return;
         }
         if (node is Switch switchNode)
         {
-            sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLine(")");
-            sb.Append(pad).AppendLine("{");
+            sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLf(")");
+            sb.Append(pad).AppendLf("{");
             string labelPad = pad + "    ";
             var labelEnum = SwitchLabelEnumType(switchNode.Value);
             foreach (var section in switchNode.Sections)
@@ -2137,12 +2137,12 @@ public sealed partial class CSharpPrinter
                 // pattern guard could, in principle, contain a lambda).
                 _statementIndent = indent;
                 foreach (var label in section.Labels)
-                    sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLine(":");
+                    sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLf(":");
                 if (section.IsDefault)
-                    sb.Append(labelPad).AppendLine("default:");
+                    sb.Append(labelPad).AppendLf("default:");
                 AppendContainer(sb, section.Body, indent + 2);
             }
-            sb.Append(pad).AppendLine("}");
+            sb.Append(pad).AppendLf("}");
             return;
         }
         if (node is SwitchBranch switchBranch)
@@ -2155,10 +2155,10 @@ public sealed partial class CSharpPrinter
             // behavior.
             string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__switchValue";
             sb.Append(pad).Append(temp).Append(" = ")
-                .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLine(");");
+                .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLf(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
                 sb.Append(pad).Append("if (").Append(temp).Append(" == ").Append(t)
-                    .AppendLine($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
+                    .AppendLf($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
             return;
         }
         if (Statement(node) is { } line)
@@ -2167,7 +2167,7 @@ public sealed partial class CSharpPrinter
                 && !TryAppendSplittableExpression(sb, node, line, indent)
                 && !TryAppendBitwiseChain(sb, node, line, indent)
                 && !TryAppendBraceBody(sb, node, line, indent))
-                sb.Append(pad).AppendLine(line);
+                sb.Append(pad).AppendLf(line);
         }
     }
 
@@ -2197,8 +2197,8 @@ public sealed partial class CSharpPrinter
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
-                sb.Append(pad).AppendLine("unsafe");
-                sb.Append(pad).AppendLine("{");
+                sb.Append(pad).AppendLf("unsafe");
+                sb.Append(pad).AppendLf("{");
                 _unsafeDepth++;
                 for (int k = i; k < j; k++)
                 {
@@ -2208,7 +2208,7 @@ public sealed partial class CSharpPrinter
                     AppendStatement(sb, statements[k], indent + 1);
                 }
                 _unsafeDepth--;
-                sb.Append(pad).AppendLine("}");
+                sb.Append(pad).AppendLf("}");
                 i = j;
             }
             else
@@ -2461,7 +2461,7 @@ public sealed partial class CSharpPrinter
             return false;
         if (FluentChainLines(root, prefix, ";", indent) is not { } broken)
             return false;
-        sb.AppendLine(broken);
+        sb.AppendLf(broken);
         return true;
     }
 
@@ -2541,7 +2541,7 @@ public sealed partial class CSharpPrinter
         };
         if (broken is null)
             return false;
-        sb.AppendLine(broken);
+        sb.AppendLf(broken);
         return true;
     }
 
@@ -2607,7 +2607,7 @@ public sealed partial class CSharpPrinter
             "taste",
             _function.Name,
             $"Wrapped a long short-circuit {(root.Kind == LogicalKind.And ? "&&" : "||")} chain across continuation lines.");
-        sb.AppendLine(broken);
+        sb.AppendLf(broken);
         return true;
     }
 
@@ -2637,7 +2637,7 @@ public sealed partial class CSharpPrinter
             "taste",
             _function.Name,
             $"Wrapped a long bitwise {BinaryOperator(root)} chain across continuation lines.");
-        sb.AppendLine(broken);
+        sb.AppendLf(broken);
         return true;
     }
 

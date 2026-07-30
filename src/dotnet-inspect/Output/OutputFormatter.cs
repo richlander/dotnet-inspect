@@ -23,7 +23,7 @@ public static class OutputFormatter
 {
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         serialize(sw, new TableFormatter(showHeader));
         return sw.ToString();
     }

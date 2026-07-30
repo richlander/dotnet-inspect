@@ -933,7 +933,7 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var sw = new StringWriter();
+            var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -994,7 +994,7 @@ public class ApiCommand
             }
             else
             {
-                var sw = new StringWriter();
+                var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -1391,7 +1391,7 @@ public class ApiCommand
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
         var documents = BuildTypeRenderDocuments(type, options, discoverySections);
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         for (int i = 0; i < documents.Count; i++)
         {
             if (i > 0)

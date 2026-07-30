@@ -2777,14 +2777,14 @@ public static class IrPrinter
         var sb = new System.Text.StringBuilder();
         Append(sb, function, 0);
         foreach (var diagnostic in function.Diagnostics)
-            sb.AppendLine($"// {diagnostic}");
-        sb.AppendLine($"// fidelity: {function.Fidelity}");
+            sb.AppendLf($"// {diagnostic}");
+        sb.AppendLf($"// fidelity: {function.Fidelity}");
         return sb.ToString();
     }
 
     static void Append(System.Text.StringBuilder sb, IrNode node, int indent)
     {
-        sb.Append(' ', indent * 2).AppendLine(node.Describe());
+        sb.Append(' ', indent * 2).AppendLf(node.Describe());
         foreach (var child in node.Children)
             Append(sb, child, indent + 1);
     }

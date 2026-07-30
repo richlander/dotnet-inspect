@@ -41,10 +41,10 @@ public static class CfgMermaid
             throw new ArgumentException("Block offsets and edges must have the same count.");
 
         var sb = new StringBuilder();
-        sb.AppendLine("flowchart TD");
+        sb.AppendLf("flowchart TD");
 
         for (int i = 0; i < blockOffsets.Count; i++)
-            sb.AppendLine($"  {NodeId(blockOffsets[i])}[\"IL_{blockOffsets[i]:X4}\"]");
+            sb.AppendLf($"  {NodeId(blockOffsets[i])}[\"IL_{blockOffsets[i]:X4}\"]");
 
         bool exits = false, leaves = false;
         var externals = new SortedSet<int>();
@@ -53,30 +53,30 @@ public static class CfgMermaid
         {
             var e = edges[i];
             foreach (int s in e.Successors)
-                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> {NodeId(blockOffsets[s])}");
+                sb.AppendLf($"  {NodeId(blockOffsets[i])} --> {NodeId(blockOffsets[s])}");
             foreach (int t in e.ExternalTargets)
             {
                 externals.Add(t);
-                sb.AppendLine($"  {NodeId(blockOffsets[i])} -.->|external| ext_{t:X4}");
+                sb.AppendLf($"  {NodeId(blockOffsets[i])} -.->|external| ext_{t:X4}");
             }
             if (e.ExitsMethod)
             {
                 exits = true;
-                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> _ret");
+                sb.AppendLf($"  {NodeId(blockOffsets[i])} --> _ret");
             }
             if (e.LeavesRegion)
             {
                 leaves = true;
-                sb.AppendLine($"  {NodeId(blockOffsets[i])} --> _leave");
+                sb.AppendLf($"  {NodeId(blockOffsets[i])} --> _leave");
             }
         }
 
         foreach (int t in externals)
-            sb.AppendLine($"  ext_{t:X4}[\"IL_{t:X4} (external)\"]");
+            sb.AppendLf($"  ext_{t:X4}[\"IL_{t:X4} (external)\"]");
         if (exits)
-            sb.AppendLine("  _ret([\"return\"])");
+            sb.AppendLf("  _ret([\"return\"])");
         if (leaves)
-            sb.AppendLine("  _leave([\"leave region\"])");
+            sb.AppendLf("  _leave([\"leave region\"])");
 
         return sb.ToString();
     }
