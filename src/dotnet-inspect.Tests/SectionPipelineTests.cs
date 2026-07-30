@@ -1620,32 +1620,85 @@ public class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        // Each entry must complete without throwing. Failure mapping per scanner is asserted below.
-        var model = new LibraryInspection();
-        var scans = new (string Name, Action Run)[]
+        // Each scanner runs against its OWN model and is asserted on the exact field it alone must
+        // populate. Found by review: a single shared model let a typed failure written by an
+        // earlier scanner satisfy an assertion nominally about a later one -- deleting
+        // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
+        // green, because ScanIntegrations had already set the same two fields and the mapping uses
+        // ??=.
+        var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
-            ("ExtensionMethods", () => model.Apply(LibraryMetadataService.ScanExtensionMembers(session, Path, logger))),
-            ("ClassifiedMethods", () => model.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger))),
-            ("Resources", () => model.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger)),
-            ("CustomAttributes", () => model.Apply(LibraryMetadataService.ScanCustomAttributes(session, Path, logger))),
-            ("TypeForwarders", () => model.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger)),
-            ("Integrations", () => LibraryMetadataService.ScanIntegrations(session, Path, model, logger)),
-            ("IntegrationOpportunities", () => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, model, logger)),
-            ("AuditSignals", () => AuditSignalBuilder.PopulateLibraryAudit(session, Path, model, logger)),
+            ("ExtensionMethods",
+                m => m.Apply(LibraryMetadataService.ScanExtensionMembers(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
+                    m.ExtensionMemberInspection!.Value)),
+
+            ("ClassifiedMethods",
+                m => m.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
+                    m.ClassifiedMethodInspection!.Value)),
+
+            ("Resources",
+                m => m.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger),
+                m => Xunit.Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
+                    m.ResourceInspection!.Value)),
+
+            ("CustomAttributes",
+                m => m.Apply(LibraryMetadataService.ScanCustomAttributes(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<AssemblyAttributeInfo>.Failed>(
+                    m.AssemblyAttributeInspection!.Value)),
+
+            ("TypeForwarders",
+                m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
+                m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
+                    m.TypeForwarderInspection!.Value)),
+
+            ("Integrations",
+                m => LibraryMetadataService.ScanIntegrations(session, Path, m, logger),
+                m =>
+                {
+                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
+                        m.OpenTelemetryInspection!.Value);
+                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
+                        m.EcosystemIntegrationInspection!.Value);
+                }),
+
+            ("IntegrationOpportunities",
+                m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
+                m =>
+                {
+                    // Nothing else ran against this model, so these can only come from the
+                    // opportunity scanner's own catch.
+                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
+                        m.OpenTelemetryInspection!.Value);
+                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
+                        m.EcosystemIntegrationInspection!.Value);
+                }),
+
+            ("AuditSignals",
+                m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
+                m =>
+                {
+                    // A failed audit scan must not cache metadata, or RefreshLibraryAudit would
+                    // reuse a value the scan never produced instead of falling back.
+                    Xunit.Assert.Null(m.AuditMetadata);
+                    Xunit.Assert.NotNull(m.AuditSignals);
+                }),
         };
 
-        foreach (var (name, run) in scans)
+        foreach (var (name, run, assert) in scans)
         {
-            var ex = Record.Exception(run);
-            Assert.True(ex is null, $"{name} let {ex?.GetType().Name} escape its session overload.");
-        }
+            var model = new LibraryInspection();
 
-        // Not just "did not throw": the fault has to be visible as a typed failure, otherwise a
-        // scanner could satisfy this test by swallowing the error into success-shaped empty output.
-        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
-        Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(model.TypeForwarderInspection!.Value);
-        Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(model.OpenTelemetryInspection!.Value);
-        Assert.NotEmpty(model.InspectionFailures!);
+            var ex = Record.Exception(() => run(model));
+            Assert.True(ex is null, $"{name} let {ex?.GetType().Name} escape its session overload.");
+
+            // Not just "did not throw": the fault has to be visible as a typed failure, otherwise a
+            // scanner could satisfy this test by swallowing the error into success-shaped empty
+            // output.
+            var mapping = Record.Exception(() => assert(model));
+            Assert.True(mapping is null, $"{name} did not map its own failure: {mapping?.Message}");
+        }
     }
 
     [Fact]
@@ -1694,7 +1747,14 @@ public class SectionPipelineTests
 
             // Non-vacuity: if the two fixtures censused the same, the retarget could not be seen
             // and this test would pass no matter what the product did.
-            Assert.NotEqual(expectedA, expectedB);
+            Assert.NotEqual(expectedA.Full, expectedB.Full);
+
+            // The action-based scanners must distinguish the fixtures on their own. Found by
+            // review: asserting only the combined signature let the five value-returning census
+            // scanners carry the whole assertion, so a tamper confined to the void Scan overload
+            // -- which is how Audit Signals, Integrations and Integration Opportunities run --
+            // left this gate green while three scanners reopened the path.
+            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
 
             var registry = LibrarySections.CreateScannerRegistry();
             var model = new LibraryInspection();
@@ -1712,15 +1772,11 @@ public class SectionPipelineTests
 
             registry.RunScanners(
                 registry.ExpandRequired(
-                [
-                    LibrarySections.ScannerClassifiedMethods,
-                    LibrarySections.ScannerResources,
-                    LibrarySections.ScannerCustomAttributes,
-                    LibrarySections.ScannerTypeForwarders,
-                ]),
+                    SharedSessionScannerKeys
+                        .Where(key => key != LibrarySections.ScannerExtensionMethods)),
                 context);
 
-            Assert.Equal(expectedA, SignatureOf(model));
+            Assert.Equal(expectedA.Full, SignatureOf(model));
         }
         finally
         {
@@ -1769,7 +1825,11 @@ public class SectionPipelineTests
 
             var expectedA = CensusSignature(pathA);
             var expectedB = CensusSignature(pathB);
-            Assert.NotEqual(expectedA, expectedB);
+            Assert.NotEqual(expectedA.Full, expectedB.Full);
+
+            // The action-based scanners must distinguish the fixtures on their own, or a tamper
+            // confined to the void Scan overload would be invisible here.
+            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
 
             // Stand in for the command's own open: identity is read here, scanners run later.
             using var metadataContext = PdbContext.Open(linkedAssembly);
@@ -1788,22 +1848,13 @@ public class SectionPipelineTests
             };
 
             var registry = LibrarySections.CreateScannerRegistry();
-            registry.RunScanners(
-                registry.ExpandRequired(
-                [
-                    LibrarySections.ScannerExtensionMethods,
-                    LibrarySections.ScannerClassifiedMethods,
-                    LibrarySections.ScannerResources,
-                    LibrarySections.ScannerCustomAttributes,
-                    LibrarySections.ScannerTypeForwarders,
-                ]),
-                context);
+            registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
 
             // Identity and counts have to describe the same assembly, not merely each be valid.
             Assert.Equal(
                 Path.GetFileNameWithoutExtension(pathA),
                 identity.AssemblyName);
-            Assert.Equal(expectedA, SignatureOf(model));
+            Assert.Equal(expectedA.Full, SignatureOf(model));
         }
         finally
         {
@@ -1814,38 +1865,76 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void BorrowedSession_DoesNotDisposeTheOwningContext()
+    public void BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed()
     {
-        // A borrow that disposed the shared reader would break the command that lent it, and a
-        // borrow that outlived it would read through a released handle. Both directions are
-        // checked here because the borrow is what removes the second open.
+        // A borrow that outlives its lender must fail with an exception a caller can map, not by
+        // reading unmapped memory. The dangerous shape is a MethodBodySource obtained WHILE the
+        // lender was alive: it captures the reader and its liveness check, so it survives the
+        // borrow's own disposal flag being false and reads through a released handle. That is an
+        // AccessViolationException, which is uncatchable and kills the process -- so if the
+        // liveness check on AssemblyImage stops consulting the lender, this test does not merely
+        // fail, it takes the test host down. Either way it stops the build.
+        //
+        // Found by review: an earlier version of this gate touched MethodBodies only AFTER
+        // disposal, so the cold property threw from the disposed PEReader and the missing lender
+        // check went unnoticed. Warming it first is the whole point.
         var path = typeof(SectionPipelineTests).Assembly.Location;
-        var metadataContext = PdbContext.Open(path);
-        try
+
+        foreach (var prefetched in new[] { false, true })
         {
-            var borrowed = AssemblyInspectionSession.Borrow(metadataContext);
-            var attributeCount = borrowed.CustomAttributes().Count;
+            // SourceLinkService is how commands open an assembly, and it owns the PdbContext the
+            // scanners borrow. Both open modes are covered because they map the image differently.
+            var service = prefetched
+                ? SourceLinkService.OpenPrefetched(path)
+                : SourceLinkService.Open(path);
+            var lender = service.Context;
+
+            var borrowed = AssemblyInspectionSession.Borrow(lender);
+
+            // Warm the body source while the lender is still alive.
+            var bodies = borrowed.MethodBodies;
+            Assert.NotEmpty(bodies.EnumerateMethods());
+
+            service.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => bodies.EnumerateMethods());
+            Assert.Throws<ObjectDisposedException>(() => borrowed.MethodBodies);
+
+            // Borrowing from an already-disposed lender is refused rather than deferred.
+            Assert.Throws<ObjectDisposedException>(() => AssemblyInspectionSession.Borrow(lender));
+
             borrowed.Dispose();
-
-            // The lender is unaffected by the borrow ending.
-            Assert.NotNull(metadataContext.ExtractAssemblyInfo().AssemblyName);
-            using var second = AssemblyInspectionSession.Borrow(metadataContext);
-            Assert.Equal(attributeCount, second.CustomAttributes().Count);
-
-            // And a borrow cannot outlive its lender: the shared reader is gone, so the borrow
-            // throws rather than reading freed state. This is the underlying reader's own contract,
-            // not extra bookkeeping here -- an owned session behaves identically after disposal.
-            metadataContext.Dispose();
-            Assert.Throws<ObjectDisposedException>(() => second.MethodBodies);
-        }
-        finally
-        {
-            metadataContext.Dispose();
         }
     }
 
-    /// <summary>Runs the census scanners over an untouched path and returns their signature.</summary>
-    private static string CensusSignature(string assemblyPath)
+    [Fact]
+    public void BorrowedSession_DoesNotDisposeTheOwningContext()
+    {
+        // A borrow that disposed the shared reader would break the command that lent it. The
+        // opposite direction -- a borrow outliving its lender -- is
+        // BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed.
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var metadataContext = PdbContext.Open(path);
+
+        var borrowed = AssemblyInspectionSession.Borrow(metadataContext);
+        var attributeCount = borrowed.CustomAttributes().Count;
+        borrowed.Dispose();
+
+        // The lender is unaffected by the borrow ending.
+        Assert.NotNull(metadataContext.ExtractAssemblyInfo().AssemblyName);
+
+        using var second = AssemblyInspectionSession.Borrow(metadataContext);
+        Assert.Equal(attributeCount, second.CustomAttributes().Count);
+        Assert.NotEmpty(second.MethodBodies.EnumerateMethods());
+    }
+
+    /// <summary>
+    /// Runs the shared-session scanners over an untouched path and returns their signature, split
+    /// so a caller can assert that the action-based scanners on their own distinguish the two
+    /// fixtures. Without that split, the five value-returning census scanners could carry the whole
+    /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
+    /// </summary>
+    private static (string Full, string Actions) CensusSignature(string assemblyPath)
     {
         var model = new LibraryInspection();
         using var context = new ScannerContext
@@ -1855,18 +1944,27 @@ public class SectionPipelineTests
             Logger = new Output.VerboseLogger(false),
         };
 
-        LibrarySections.CreateScannerRegistry().RunScanners(
-            [
-                LibrarySections.ScannerExtensionMethods,
-                LibrarySections.ScannerClassifiedMethods,
-                LibrarySections.ScannerResources,
-                LibrarySections.ScannerCustomAttributes,
-                LibrarySections.ScannerTypeForwarders,
-            ],
-            context);
+        var registry = LibrarySections.CreateScannerRegistry();
+        registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
 
-        return SignatureOf(model);
+        return (SignatureOf(model), ActionSignatureOf(model));
     }
+
+    /// <summary>
+    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
+    /// so the three action-based scanners are covered, not just the five that return a value.
+    /// </summary>
+    private static readonly string[] SharedSessionScannerKeys =
+    [
+        LibrarySections.ScannerExtensionMethods,
+        LibrarySections.ScannerClassifiedMethods,
+        LibrarySections.ScannerResources,
+        LibrarySections.ScannerCustomAttributes,
+        LibrarySections.ScannerTypeForwarders,
+        LibrarySections.ScannerIntegrations,
+        LibrarySections.ScannerIntegrationOpportunities,
+        LibrarySections.ScannerAuditSignals,
+    ];
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
@@ -1874,7 +1972,21 @@ public class SectionPipelineTests
         $"attrs={model.CustomAttributes?.Count}",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"resources={PayloadCount(model.ResourceInspection)}",
-        $"forwarders={PayloadCount(model.TypeForwarderInspection)}");
+        $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        ActionSignatureOf(model));
+
+    /// <summary>
+    /// Output of the scanners that run through the void <c>Scan</c> overload. Audit signals are
+    /// compared by VALUE, not by count: the signal rows are a fixed catalog, so two different
+    /// assemblies produce the same number of them and a count would make this signature identical
+    /// for every input — which is exactly how the first version of this gate lost its coverage.
+    /// </summary>
+    private static string ActionSignatureOf(LibraryInspection model) => string.Join(
+        "|",
+        $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
+        $"otel={PayloadCount(model.OpenTelemetryInspection)}",
+        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}",
+        $"opportunities=[{string.Join(",", model.IntegrationOpportunities?.Select(o => $"{o.Integration}:{o.Api}") ?? [])}]");
 
     private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
         => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;

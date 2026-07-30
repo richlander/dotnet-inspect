@@ -32,15 +32,18 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// report facts from two different assemblies with a zero exit code. Borrowing removes the
     /// assumption rather than narrowing the window.
     ///
-    /// The session does not own the image: disposing it leaves <paramref name="context"/> open, and
-    /// using it after <paramref name="context"/> is disposed throws rather than reading freed
-    /// state — the same contract an owned session has.
+    /// The session does not own the image: disposing it leaves <paramref name="context"/> open.
+    /// Using it after <paramref name="context"/> is disposed throws
+    /// <see cref="ObjectDisposedException"/> — including from a <see cref="MethodBodySource"/>
+    /// obtained while the context was still alive, which would otherwise read unmapped memory and
+    /// take the process down with an <see cref="AccessViolationException"/>.
     ///
-    /// Gated by <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c> and
-    /// <c>BorrowedSession_DoesNotDisposeTheOwningContext</c>.
+    /// Gated by <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>,
+    /// <c>BorrowedSession_DoesNotDisposeTheOwningContext</c>, and
+    /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader));
+        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
