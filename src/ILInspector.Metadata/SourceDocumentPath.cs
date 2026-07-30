@@ -1,7 +1,18 @@
-using System.Text.Json;
+using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata;
 
+/// <summary>
+/// Canonicalizes portable-PDB document paths and resolves them to source URLs.
+/// </summary>
+/// <remarks>
+/// The SourceLink document-map rule — key conformance, specificity ordering, case-insensitive
+/// comparison, wildcard substitution and percent-encoding — has one owner,
+/// <see cref="SLF.SourceLinkResolver"/>. This type adds only the path canonicalization the
+/// metadata layer needs on top of that match, and must not re-derive the matching rule: a second
+/// implementation of a shared rule is a defect (docs/design/inspection-layers.md, seam rule 6),
+/// and the two implementations this replaced disagreed on six of nine measured cases.
+/// </remarks>
 internal static class SourceDocumentPath
 {
     public static string Canonicalize(string filePath, string? sourceLinkJson)
@@ -22,103 +33,44 @@ internal static class SourceDocumentPath
 
 internal sealed class SourceDocumentPathResolver
 {
-    public static SourceDocumentPathResolver Empty { get; } = new([]);
+    public static SourceDocumentPathResolver Empty { get; } = new(SLF.SourceLinkResolver.Empty);
 
-    private readonly SourceDocumentPathMapping[] _mappings;
+    private readonly SLF.SourceLinkResolver _map;
 
-    private SourceDocumentPathResolver(SourceDocumentPathMapping[] mappings)
+    private SourceDocumentPathResolver(SLF.SourceLinkResolver map)
     {
-        _mappings = mappings;
+        _map = map;
     }
 
     public static SourceDocumentPathResolver Create(string? sourceLinkJson)
-    {
-        if (string.IsNullOrWhiteSpace(sourceLinkJson))
-            return Empty;
-
-        try
-        {
-            using var document = SourceLinkJson.Parse(sourceLinkJson);
-            if (document.RootElement.ValueKind != JsonValueKind.Object
-                || !document.RootElement.TryGetProperty("documents", out var mappings)
-                || mappings.ValueKind != JsonValueKind.Object)
-            {
-                return Empty;
-            }
-
-            return new SourceDocumentPathResolver(mappings
-                .EnumerateObject()
-                .Select(static mapping => new SourceDocumentPathMapping(
-                    SourceDocumentPath.NormalizeSeparators(mapping.Name),
-                    SourceLinkUrlPattern(mapping.Value)))
-                .OrderByDescending(static mapping => mapping.Pattern.Length)
-                .ToArray());
-        }
-        catch (JsonException)
-        {
-            // The SourceLink resolver owns malformed-map reporting. Keep the PDB path usable.
-            return Empty;
-        }
-    }
+        => new(SLF.SourceLinkResolver.Parse(sourceLinkJson));
 
     public SourceDocumentPathResolution Resolve(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new BadImageFormatException("A portable-PDB source document has an empty path.");
 
-        string normalizedPath = SourceDocumentPath.NormalizeSeparators(filePath);
-        foreach (var mapping in _mappings)
+        if (_map.TryResolve(filePath, out var resolution))
         {
-            string pattern = mapping.Pattern;
-            if (pattern.EndsWith('*'))
-            {
-                string prefix = pattern[..^1];
-                if (normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    string suffix = normalizedPath[prefix.Length..].TrimStart('/');
-                    return new SourceDocumentPathResolution(
-                        suffix,
-                        ResolveUrl(mapping.UrlPattern, suffix),
-                        IsMapped: true);
-                }
-            }
-            else if (string.Equals(normalizedPath, pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                return new SourceDocumentPathResolution(
-                    SourceDocumentPath.TrimSyntheticRoot(normalizedPath),
-                    mapping.UrlPattern,
-                    IsMapped: true);
-            }
+            // For a wildcard key the canonical path is whatever the key did not cover, which is
+            // the repository-relative path for a conventional "/_/*" map; its leading separator is
+            // cosmetic, so it is trimmed for display. A wildcard-free key covers the whole path,
+            // leaving no remainder, so the document keeps its own name.
+            string canonical = resolution.IsPrefixMatch
+                ? resolution.Remainder.TrimStart('/')
+                : SourceDocumentPath.TrimSyntheticRoot(SourceDocumentPath.NormalizeSeparators(filePath));
+
+            // The URL is built by the owner from the untrimmed remainder, so trimming for display
+            // cannot alter what gets fetched.
+            return new SourceDocumentPathResolution(canonical, resolution.Url, IsMapped: true);
         }
 
         return new SourceDocumentPathResolution(
-            SourceDocumentPath.TrimSyntheticRoot(normalizedPath),
+            SourceDocumentPath.TrimSyntheticRoot(SourceDocumentPath.NormalizeSeparators(filePath)),
             ResolvedUrl: null,
             IsMapped: false);
     }
-
-    private static string? ResolveUrl(string? urlPattern, string suffix)
-    {
-        if (string.IsNullOrWhiteSpace(urlPattern))
-            return null;
-
-        return urlPattern.EndsWith('*')
-            ? urlPattern[..^1] + EscapeSourceLinkPath(suffix)
-            : urlPattern;
-    }
-
-    private static string? SourceLinkUrlPattern(JsonElement value)
-        => value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-
-    private static string EscapeSourceLinkPath(string path)
-        => string.Join(
-            '/',
-            path.Split('/').Select(static segment => Uri.EscapeDataString(segment)));
 }
-
-internal sealed record SourceDocumentPathMapping(
-    string Pattern,
-    string? UrlPattern);
 
 internal sealed record SourceDocumentPathResolution(
     string CanonicalPath,

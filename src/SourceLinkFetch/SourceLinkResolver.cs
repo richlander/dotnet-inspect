@@ -1,72 +1,370 @@
 using System.Reflection.Metadata;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace SourceLinkFetch;
 
 /// <summary>
-/// Parses SourceLink JSON and maps file paths to source URLs using glob patterns.
+/// The result of matching a PDB document path against a SourceLink map.
 /// </summary>
+/// <param name="Remainder">
+/// The portion of the document path the matched key did not cover, separator-normalized and
+/// unescaped. For an exact (wildcard-free) key this is empty. Callers that want a display path
+/// use this; callers that want to fetch use <paramref name="Url"/>.
+/// </param>
+/// <param name="Url">
+/// The source URL, with the key's wildcard substitution applied and each remainder segment
+/// percent-encoded. Null only when the matched entry carried no usable URL.
+/// </param>
+/// <param name="IsPrefixMatch">
+/// True when a wildcard key matched a prefix of the path, false when a wildcard-free key matched
+/// it exactly. Both can produce an empty <paramref name="Remainder"/>, so a caller deriving a
+/// display path cannot tell them apart without this.
+/// </param>
+public readonly record struct SourceLinkResolution(string Remainder, string? Url, bool IsPrefixMatch);
+
+/// <summary>
+/// Parses a SourceLink map and maps PDB document paths to source URLs.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is the single owner of the SourceLink document-map rule. It implements the mapping
+/// behavior specified by the <c>documents</c> schema in the Source Link design document
+/// (<c>dotnet/designs</c>, <c>accepted/2020/diagnostics/source-link.md</c>), whose stated rules
+/// are:
+/// </para>
+/// <list type="number">
+///   <item>a key carries at most one <c>*</c>, which is replaced by a relative path;</item>
+///   <item>a key without <c>*</c> pairs with a URL without <c>*</c>;</item>
+///   <item>a key's <c>*</c>, when present, must be its final character;</item>
+///   <item>a URL's <c>*</c> may appear <em>anywhere</em> in the URL.</item>
+/// </list>
+/// <para>
+/// Two further behaviors are specified in prose rather than in those four rules, and both are
+/// load-bearing: entries resolve "in order from most specific to least specific" (implemented as
+/// a descending sort on key-prefix length, so an exact key and a longer prefix both beat a
+/// shorter prefix regardless of document order), and "original source file paths are compared
+/// case-insensitively to documents".
+/// </para>
+/// <para>
+/// Rule 4 is the one most easily missed, because the common GitHub map puts the URL's <c>*</c>
+/// last. Azure DevOps maps do not: their documented shape is
+/// <c>.../items?scopePath=/*&amp;versionDescriptor.version=&lt;commit&gt;</c>. A matcher that only
+/// substitutes a trailing <c>*</c> emits that URL with a literal asterisk still in it.
+/// </para>
+/// <para>
+/// Deviations from the reference consumer, both deliberate:
+/// </para>
+/// <list type="bullet">
+///   <item>
+///     Separators are normalized to <c>/</c> on both the key and the document path before
+///     comparison, so a map authored with one separator still matches document names recorded
+///     with the other.
+///   </item>
+///   <item>
+///     A non-conformant entry is rejected individually and recorded in
+///     <see cref="RejectedKeys"/>, rather than invalidating the whole map. Rejecting the map
+///     would let one bad key deny source for every other document. The rejection stays visible
+///     rather than silent.
+///   </item>
+/// </list>
+/// </remarks>
 public class SourceLinkResolver
 {
     // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
 
-    private readonly Dictionary<string, string> _documentMappings;
+    /// <summary>
+    /// A single validated map entry, pre-split so that matching does no parsing.
+    /// <paramref name="PathPrefix"/> is the key with its trailing <c>*</c> removed when
+    /// <paramref name="IsPrefix"/>; otherwise it is the whole key and matching is equality.
+    /// <paramref name="UrlSuffix"/> is null when the URL carries no wildcard, which is what
+    /// distinguishes "substitute into this URL" from "this URL is the whole answer".
+    /// </summary>
+    private readonly record struct Entry(
+        string PathPrefix,
+        bool IsPrefix,
+        string? UrlPrefix,
+        string? UrlSuffix);
+
+    private readonly Entry[] _entries;
+
+    /// <summary>
+    /// The URL templates in document order, retained for the provenance readers below. Matching
+    /// deliberately does not use this: it uses <see cref="_entries"/>, which is ordered by
+    /// specificity. Keeping the two separate is what lets the mapping rule and the provenance
+    /// rule be fixed independently.
+    /// </summary>
+    private readonly string[] _urlTemplates;
+
+    /// <summary>
+    /// Keys that were dropped because they do not conform to the SourceLink rules. Recorded so a
+    /// rejected key is reportable rather than silently absent.
+    /// </summary>
+    public IReadOnlyList<string> RejectedKeys { get; }
+
+    /// <summary>
+    /// Why the map as a whole could not be read, or null when it was read. A map that fails here
+    /// resolves nothing at all: a map with more than one valid reading (for example a duplicated
+    /// <c>documents</c> key) must not bind one of them.
+    /// </summary>
+    public string? ParseError { get; }
+
+    /// <summary>True when no entry is available to match against.</summary>
+    public bool IsEmpty => _entries.Length == 0;
+
+    /// <summary>An empty map, which resolves nothing.</summary>
+    public static SourceLinkResolver Empty { get; } = new([], [], [], parseError: null);
+
+    private SourceLinkResolver(
+        Entry[] entries,
+        string[] urlTemplates,
+        IReadOnlyList<string> rejectedKeys,
+        string? parseError)
+    {
+        _entries = entries;
+        _urlTemplates = urlTemplates;
+        RejectedKeys = rejectedKeys;
+        ParseError = parseError;
+    }
 
     internal SourceLinkResolver(Dictionary<string, string> documentMappings)
     {
-        _documentMappings = documentMappings;
+        // Widened to a nullable value type because a map read from JSON may carry a non-string
+        // value, which is a key with no usable URL rather than an absent key.
+        Dictionary<string, string?> mappings = new(documentMappings.Count);
+        foreach (var (key, url) in documentMappings)
+            mappings[key] = url;
+
+        _entries = Build(mappings, out var rejected);
+        _urlTemplates = [.. mappings.Values.OfType<string>()];
+        RejectedKeys = rejected;
+        ParseError = null;
     }
 
     /// <summary>
-    /// Creates a SourceLinkResolver from a PDB metadata reader.
-    /// Returns null if no SourceLink information is available.
+    /// Creates a resolver from a PDB metadata reader. Returns null when the PDB carries no
+    /// SourceLink map at all; a map that is present but unusable yields a resolver whose
+    /// <see cref="ParseError"/> or <see cref="RejectedKeys"/> says so.
     /// </summary>
     public static SourceLinkResolver? Create(MetadataReader pdbReader)
     {
         string? sourceLinkJson = ExtractSourceLinkJson(pdbReader);
-        if (sourceLinkJson == null)
-            return null;
-
-        var mappings = ParseMappings(sourceLinkJson);
-        if (mappings.Count == 0)
-            return null;
-
-        return new SourceLinkResolver(mappings);
+        return sourceLinkJson is null ? null : Parse(sourceLinkJson);
     }
 
     /// <summary>
-    /// Applies SourceLink URL pattern to convert a file path to a source URL.
+    /// Parses a SourceLink map. Never throws: an unreadable map yields a resolver that resolves
+    /// nothing and reports why through <see cref="ParseError"/>.
+    /// </summary>
+    public static SourceLinkResolver Parse(string? sourceLinkJson)
+    {
+        if (string.IsNullOrWhiteSpace(sourceLinkJson))
+            return Empty;
+
+        Dictionary<string, string?> mappings;
+        try
+        {
+            mappings = ReadDocuments(sourceLinkJson);
+        }
+        catch (JsonException e)
+        {
+            // A map with more than one valid reading, or no valid reading, resolves nothing.
+            return new SourceLinkResolver([], [], [], e.Message);
+        }
+
+        var entries = Build(mappings, out var rejected);
+        return new SourceLinkResolver(
+            entries, [.. mappings.Values.OfType<string>()], rejected, parseError: null);
+    }
+
+    /// <summary>
+    /// Applies the SourceLink map to a document path, returning the source URL or null when no
+    /// entry matches.
     /// </summary>
     public string? ResolveUrl(string filePath)
-    {
-        filePath = filePath.Replace('\\', '/');
+        => TryResolve(filePath, out var resolution) ? resolution.Url : null;
 
-        foreach (var (pattern, urlTemplate) in _documentMappings)
+    /// <summary>
+    /// Matches a document path against the map. Returns false when no entry matches, which is
+    /// the ordinary case for a document the map does not cover.
+    /// </summary>
+    public bool TryResolve(string filePath, out SourceLinkResolution resolution)
+    {
+        resolution = default;
+
+        if (string.IsNullOrEmpty(filePath))
+            return false;
+
+        // A wildcard in the document path itself is not a path; it would let one document claim
+        // a mapping meant for a whole subtree. The reference consumer refuses it, and so does this.
+        if (filePath.Contains('*', StringComparison.Ordinal))
+            return false;
+
+        string path = NormalizeSeparators(filePath);
+
+        foreach (var entry in _entries)
         {
-            int star = pattern.IndexOf('*');
-            if (star >= 0)
+            if (entry.IsPrefix)
             {
-                // SourceLink allows a key at most one '*', and requires it to be the final
-                // character, so a conformant key is a prefix and the match is a prefix test.
-                // Testing the first '*' for finality rejects both violations at once: a second
-                // '*' leaves the first one non-final. A key we reject is one no conformant
-                // producer emits and one we could not honor unambiguously anyway.
-                if (star != pattern.Length - 1)
+                if (!path.StartsWith(entry.PathPrefix, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                string prefix = pattern[..^1];
-                if (filePath.StartsWith(prefix, StringComparison.Ordinal))
-                    return urlTemplate.Replace("*", filePath[prefix.Length..]);
+                string remainder = path[entry.PathPrefix.Length..];
+                resolution = new SourceLinkResolution(
+                    remainder, SubstituteUrl(entry, remainder), IsPrefixMatch: true);
+                return true;
             }
-            else if (filePath == pattern)
+
+            if (string.Equals(path, entry.PathPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                return urlTemplate;
+                resolution = new SourceLinkResolution(
+                    string.Empty, entry.UrlPrefix, IsPrefixMatch: false);
+                return true;
             }
         }
 
-        return null;
+        return false;
+    }
+
+    private static string? SubstituteUrl(Entry entry, string remainder)
+    {
+        if (entry.UrlPrefix is null)
+            return null;
+
+        // Rule 4: the wildcard may sit anywhere in the URL, so the substitution is
+        // prefix + path + suffix rather than an append to the end.
+        return entry.UrlSuffix is null
+            ? entry.UrlPrefix
+            : entry.UrlPrefix + EscapePathSegments(remainder) + entry.UrlSuffix;
+    }
+
+    /// <summary>
+    /// Percent-encodes each segment of the substituted path while leaving separators intact, so
+    /// that a document name containing a space, a <c>#</c>, or a <c>?</c> cannot change the shape
+    /// of the URL it is spliced into.
+    /// </summary>
+    private static string EscapePathSegments(string path)
+        => string.Join('/', path.Split('/', '\\').Select(Uri.EscapeDataString));
+
+    private static string NormalizeSeparators(string path) => path.Replace('\\', '/');
+
+    private static Entry[] Build(Dictionary<string, string?> mappings, out IReadOnlyList<string> rejectedKeys)
+    {
+        List<Entry> entries = new(mappings.Count);
+        List<string> rejected = [];
+
+        foreach (var (key, url) in mappings)
+        {
+            if (TryParseEntry(key, url, out var entry))
+                entries.Add(entry);
+            else
+                rejected.Add(key);
+        }
+
+        // "Resolved in order from most specific to least specific." A longer prefix is more
+        // specific, and an exact key sorts by its whole length, so it beats every prefix of it.
+        entries.Sort(static (left, right) => right.PathPrefix.Length.CompareTo(left.PathPrefix.Length));
+
+        rejectedKeys = rejected;
+        return [.. entries];
+    }
+
+    private static bool TryParseEntry(string key, string? url, out Entry entry)
+    {
+        entry = default;
+
+        if (string.IsNullOrEmpty(key))
+            return false;
+
+        string normalizedKey = NormalizeSeparators(key);
+
+        int keyStar = normalizedKey.IndexOf('*', StringComparison.Ordinal);
+        bool isPrefix;
+        if (keyStar < 0)
+        {
+            isPrefix = false;
+        }
+        else if (keyStar == normalizedKey.Length - 1)
+        {
+            // Rule 3: the wildcard is the final character, so the key is a prefix and matching is
+            // a prefix test. A prefix test cannot backtrack, which is what keeps a hostile key
+            // carrying many wildcards from costing exponential time.
+            isPrefix = true;
+            normalizedKey = normalizedKey[..keyStar];
+        }
+        else
+        {
+            // A non-final wildcard breaks rule 3, and a second wildcard leaves the first one
+            // non-final, so this single test rejects both violations.
+            return false;
+        }
+
+        if (url is null)
+        {
+            entry = new Entry(normalizedKey, isPrefix, UrlPrefix: null, UrlSuffix: null);
+            return true;
+        }
+
+        int urlStar = url.IndexOf('*', StringComparison.Ordinal);
+        if (urlStar < 0)
+        {
+            // A URL without a wildcard is a constant target. Rule 2 pairs a wildcard key with a
+            // wildcard URL, but the reference consumer accepts this shape rather than dropping
+            // the entry, and dropping it would lose source for maps that are otherwise usable.
+            entry = new Entry(normalizedKey, isPrefix, url, UrlSuffix: null);
+            return true;
+        }
+
+        // Rule 2: a wildcard URL requires a wildcard key, or there is nothing to substitute.
+        if (!isPrefix)
+            return false;
+
+        string urlSuffix = url[(urlStar + 1)..];
+
+        // Rule 1: "one and only one".
+        if (urlSuffix.Contains('*', StringComparison.Ordinal))
+            return false;
+
+        entry = new Entry(normalizedKey, isPrefix, url[..urlStar], urlSuffix);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads the <c>documents</c> object, rejecting duplicate property names. A duplicated key
+    /// has more than one valid reading, and binding either one silently picks an origin the
+    /// assembly did not unambiguously declare.
+    /// </summary>
+    /// <exception cref="JsonException">
+    /// The map is malformed or contains a duplicate property name.
+    /// </exception>
+    private static Dictionary<string, string?> ReadDocuments(string sourceLinkJson)
+    {
+        Dictionary<string, string?> mappings = [];
+
+        using var document = JsonDocument.Parse(
+            sourceLinkJson,
+            new JsonDocumentOptions { AllowDuplicateProperties = false });
+
+        if (document.RootElement.ValueKind != JsonValueKind.Object
+            || !document.RootElement.TryGetProperty("documents", out var documents)
+            || documents.ValueKind != JsonValueKind.Object)
+        {
+            return mappings;
+        }
+
+        foreach (var property in documents.EnumerateObject())
+        {
+            // A non-string value is a malformed URL, not an absent key. The key still takes part
+            // in matching so that the document keeps its canonical path; it simply resolves to no
+            // URL, which is visibly different from resolving to a wrong one.
+            mappings[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                ? property.Value.GetString()
+                : null;
+        }
+
+        return mappings;
     }
 
     /// <summary>
@@ -74,7 +372,7 @@ public class SourceLinkResolver
     /// </summary>
     public string? ExtractRepositoryUrl()
     {
-        foreach (var (_, urlTemplate) in _documentMappings)
+        foreach (string urlTemplate in _urlTemplates)
         {
             var match = Regex.Match(urlTemplate,
                 @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
@@ -89,7 +387,7 @@ public class SourceLinkResolver
     /// </summary>
     public string? ExtractCommitHash()
     {
-        foreach (var (_, urlTemplate) in _documentMappings)
+        foreach (string urlTemplate in _urlTemplates)
         {
             var match = Regex.Match(urlTemplate, @"/([0-9a-f]{40})(?:/|$)", RegexOptions.IgnoreCase);
             if (match.Success)
@@ -126,35 +424,10 @@ public class SourceLinkResolver
             if (kind == SourceLinkGuid)
             {
                 byte[] bytes = reader.GetBlobBytes(info.Value);
-                return System.Text.Encoding.UTF8.GetString(bytes);
+                return Encoding.UTF8.GetString(bytes);
             }
         }
 
         return null;
-    }
-
-    private static Dictionary<string, string> ParseMappings(string sourceLinkJson)
-    {
-        Dictionary<string, string> mappings = [];
-
-        try
-        {
-            using var doc = JsonDocument.Parse(sourceLinkJson);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
-            {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    string? url = prop.Value.GetString();
-                    if (url != null)
-                        mappings[prop.Name] = url;
-                }
-            }
-        }
-        catch
-        {
-            // Return empty mappings on parse error
-        }
-
-        return mappings;
     }
 }
