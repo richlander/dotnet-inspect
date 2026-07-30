@@ -499,10 +499,14 @@ public class SourceLinkProvenanceTests
     /// directory ends, which the URL does not state. "No repository" is what the invariant
     /// prescribes when an origin cannot be established, so refusing is conservative rather than
     /// wrong. This test exists so that widening the list is a visible choice.
+    ///
+    /// The on-prem row deliberately carries no port. An on-prem server usually does, but a port
+    /// is refused earlier by the origin rule below, so a row carrying one would pass without
+    /// ever reaching the host allow list this test is about.
     /// </remarks>
     [Theory]
     [InlineData("account.vsts.me/project")]
-    [InlineData("contoso.com:8080/tfs/collection/project")]
+    [InlineData("contoso.com/tfs/collection/project")]
     public void AHostWhoseUrlGrammarIsNotKnown_ReportsNoRepositoryRatherThanAGuess(string prefix)
     {
         var result = Determine(
@@ -511,6 +515,36 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains("not a recognized source host", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An origin is (scheme, host, port); the reader identifies a host by name alone. A port
+    /// other than the scheme's default names a different service on the same machine, so
+    /// attributing it reports a repository whose content it does not serve, and — because the
+    /// identity is built from the host name — hands it the persistent cache identity of the real
+    /// one. Both allow-listed hosts are affected, so both are covered.
+    /// </summary>
+    /// <remarks>
+    /// The default-port rows are the non-vacuity half. An explicit <c>:443</c> is the same origin
+    /// as no port at all and stays accepted, so the refusal has to come from the port differing
+    /// rather than from any port being written down.
+    /// </remarks>
+    [Theory]
+    [InlineData("", true)]
+    [InlineData(":443", true)]
+    [InlineData(":444", false)]
+    [InlineData(":8443", false)]
+    public void APortOtherThanTheSchemeDefault_IsADifferentOrigin(string port, bool established)
+    {
+        var github = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com{{{port}}}/dotnet/runtime/{{{Sha}}}/*"}}""",
+            "/_/A.cs");
+        var azure = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com{{{port}}}/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, github.IsEstablished);
+        Assert.Equal(established, azure.IsEstablished);
     }
 
     /// <summary>

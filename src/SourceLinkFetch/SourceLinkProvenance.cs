@@ -227,6 +227,18 @@ public static class SourceLinkProvenance
             return false;
         }
 
+        if (!uri.IsDefaultPort)
+        {
+            // The origin is (scheme, host, port), but the reader identifies a host by name alone,
+            // so 'raw.githubusercontent.com:444' would be attributed to GitHub and would share the
+            // persistent cache identity of port 443 while a different service answers. The two
+            // hosts this reader knows are named by the SourceLink generators without a port, so
+            // nothing that is generated is refused here. An on-prem host that does carry a port
+            // has to arrive with its own URL grammar, exactly as the host allow list requires.
+            rejection = $"it names port {uri.Port}, which is a different origin from '{uri.Host}'";
+            return false;
+        }
+
         if (uri.UserInfo.Length != 0)
         {
             // Two separate reasons, and only the second is load-bearing.

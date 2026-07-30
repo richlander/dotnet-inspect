@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Seventeen ways a weaker formulation fails, all reproduced. They are a regression
+Eighteen ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -217,6 +217,13 @@ previous formulation, so passing them is not evidence that the invariant holds.
   moves under a fixed reported revision and a fixed cache identity. Both hosts
   this reader knows are SHA-1-only; the SHA-256 length needs the same evidence
   as a new host before it is admitted.
+- An origin is `(scheme, host, port)`, but the reader identifies a host by name.
+  `https://raw.githubusercontent.com:444/owner/repo/<sha>/*` was attributed to
+  GitHub and given the same persistent cache identity as port 443, so a
+  different service on that machine served content under GitHub's name and into
+  GitHub's index. A port other than the scheme's default is refused; an explicit
+  `:443` is the same origin and stays accepted. Neither generator emits a port
+  for these hosts, so nothing generated is refused.
 
 Two consequences are deliberate scope, not gaps, and are gated as decisions so
 that changing them is visible:
@@ -224,8 +231,9 @@ that changing them is visible:
 - The host allow list is the set of hosts whose URL grammar this reader knows,
   not a trust boundary. SourceLink's generators also emit `*.vsts.me` and Azure
   DevOps Server URLs on arbitrary hosts and ports; both report no repository.
-  Admitting a host needs its own evidence — who operates the domain, and for an
-  on-prem server where the virtual directory ends, which the URL does not state.
+  Admitting such a host needs its own evidence — who operates the domain, where
+  the virtual directory ends, and which port it answers on, none of which the
+  URL states.
   Gated by
   `SourceLinkProvenanceTests.AHostWhoseUrlGrammarIsNotKnown_ReportsNoRepositoryRatherThanAGuess`.
 - The encoded-separator refusal applies inside Azure's repository segment too.
@@ -239,7 +247,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all seventeen as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all eighteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`
