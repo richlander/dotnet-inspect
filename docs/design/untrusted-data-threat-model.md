@@ -204,6 +204,27 @@ previous formulation, so passing them is not evidence that the invariant holds.
   while this reader does not, so an unrecognized name may select content the
   reported origin does not describe.
 
+Two consequences are deliberate scope, not gaps, and are gated as decisions so
+that changing them is visible:
+
+- The host allow list is the set of hosts whose URL grammar this reader knows,
+  not a trust boundary. SourceLink's generators also emit `*.vsts.me` and Azure
+  DevOps Server URLs on arbitrary hosts and ports; both report no repository.
+  Admitting a host needs its own evidence — who operates the domain, and for an
+  on-prem server where the virtual directory ends, which the URL does not state.
+  Gated by
+  `SourceLinkProvenanceTests.AHostWhoseUrlGrammarIsNotKnown_ReportsNoRepositoryRatherThanAGuess`.
+- The encoded-separator refusal applies inside Azure's repository segment too.
+  Two reviewers read this as over-refusal of a "repository folder", but Azure
+  DevOps has no repository folders and forbids `/` in a repository name, so no
+  such repository exists. The generator does pass the sequence through when the
+  git remote contains it, so the map shape is real even though the repository it
+  names cannot be. Accepting it would also undercut the rule that the path must
+  end at `items`: that rule is decided by splitting the path, and `%2F` survives
+  canonicalization, so our split and the server's need not agree on where the
+  repository segment ends. Gated by
+  `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
+
 Gates. `SourceLinkProvenanceTests` covers all fifteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.

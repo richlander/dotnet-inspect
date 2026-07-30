@@ -489,6 +489,61 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// The host allow list is the set of hosts whose URL grammar this reader knows, not a trust
+    /// boundary, and it is deliberately narrower than what SourceLink's generators emit. Both
+    /// rows here are produced by official generators and both report no repository.
+    /// </summary>
+    /// <remarks>
+    /// This is a scope boundary recorded as a decision, not an oversight. Admitting a host needs
+    /// its own evidence — who operates the domain, and for an on-prem server where the virtual
+    /// directory ends, which the URL does not state. "No repository" is what the invariant
+    /// prescribes when an origin cannot be established, so refusing is conservative rather than
+    /// wrong. This test exists so that widening the list is a visible choice.
+    /// </remarks>
+    [Theory]
+    [InlineData("account.vsts.me/project")]
+    [InlineData("contoso.com:8080/tfs/collection/project")]
+    public void AHostWhoseUrlGrammarIsNotKnown_ReportsNoRepositoryRatherThanAGuess(string prefix)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://{{{prefix}}}/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("not a recognized source host", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An encoded separator is refused even inside Azure's repository segment, where a reviewer
+    /// read it as a legitimate "repository folder". Azure DevOps has no repository folders and
+    /// forbids <c>/</c> in a repository name, so no such repository exists to be refused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The generator does pass the sequence through — pointing a build at a remote of
+    /// <c>.../_git/parent%2Frepo</c> emits
+    /// <c>.../repositories/parent%2Frepo/items?...</c> verbatim — so the map shape is real even
+    /// though the repository it names cannot be.
+    /// </para>
+    /// <para>
+    /// Accepting it would also undercut the rule that the path must end at <c>items</c>. That
+    /// rule is decided by splitting the path, and <c>%2F</c> survives canonicalization unchanged,
+    /// so our split and the server's need not agree on where the repository segment ends or on
+    /// which endpoint is addressed. The two rules have to hold together.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable()
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/org/project/_apis/git/repositories/parent%2Frepo/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("%2F", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is
     /// shared by every fork containing that commit, so keying an index on it would serve one
     /// repository's index for another repository's assembly.

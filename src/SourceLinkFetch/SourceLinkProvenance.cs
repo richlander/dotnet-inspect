@@ -305,6 +305,16 @@ public static class SourceLinkProvenance
             return TryReadAzureDevOpsOrigin(uri, host, segments, out origin, out rejection);
         }
 
+        // The allow list is the set of hosts whose URL grammar this reader knows, not a
+        // trust boundary. SourceLink's generators also emit '*.vsts.me' and Azure DevOps Server
+        // URLs on arbitrary hosts and ports; both are deliberately outside it, and both report no
+        // repository rather than a guessed one.
+        //
+        // Admitting a host is a security decision needing its own evidence: who operates the
+        // domain, and — for an on-prem server — where the virtual directory ends, which the URL
+        // does not state. "No repository" is the invariant's defined answer when an origin cannot
+        // be established, so refusing here is conservative rather than wrong. Widening this is a
+        // separate change.
         rejection = $"host '{host}' is not a recognized source host";
         return false;
     }
