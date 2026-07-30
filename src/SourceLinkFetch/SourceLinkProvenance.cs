@@ -654,14 +654,27 @@ public static class SourceLinkProvenance
     /// serves.
     /// </para>
     /// <para>
-    /// <c>path</c> and <c>scopePath</c> are refused together because the host refuses them
-    /// together. Measured against <c>dev.azure.com/dnceng-public/public</c>: <c>path=/README.md</c>
-    /// alone returns the file, <c>scopePath=/README.md</c> alone returns the <em>same bytes</em>,
-    /// <c>scopePath=/</c> returns a JSON collection, and the two together return 400 "Cannot
-    /// specify an item \"path\" as well as \"scopePath\"". Each is a content selector on its own,
-    /// so the pair is neither inert nor resolved to one reading — it selects nothing, and an
-    /// origin reported for a URL that fetches nothing describes nothing. This is the same rule
-    /// the route check applies: a URL the host will not serve is not attributable.
+    /// <c>path</c> and <c>scopePath</c> are refused together because a request carrying both has
+    /// no single reading. Measured against <c>dev.azure.com/dnceng-public/public</c>:
+    /// <c>path=/README.md</c> alone returns the file, <c>scopePath=/README.md</c> alone returns
+    /// the <em>same bytes</em>, <c>scopePath=/</c> returns a JSON collection, and the two together
+    /// return 400 "Cannot specify an item \"path\" as well as \"scopePath\"". Each selects content
+    /// on its own and nothing states which governs, so this is the repeated-parameter rule
+    /// applied to two spellings of one role: were the host ever to start preferring one, every
+    /// document would resolve through the selector that does <em>not</em> carry the wildcard and
+    /// they would all fetch the same content while attributing cleanly — the defect a repeated
+    /// <c>path</c> already produced.
+    /// </para>
+    /// <para>
+    /// The rule is ambiguity, not fetchability. "A URL the host will not serve is not
+    /// attributable" would be a stronger claim and is not made, because it cannot be enforced:
+    /// <c>api-version</c> is allow-listed and unvalidated, and measured, <c>api-version=bogus</c>
+    /// and <c>api-version=99.0</c> each return 400 while <c>1.0</c>, <c>7.1</c>,
+    /// <c>1.0-preview</c>, an empty value and no value at all return the same 985 bytes. Pinning
+    /// that parameter to a list of versions would refuse whatever version ships next, and it
+    /// would buy nothing: a request that fails serves no content, so nothing is misattributed and
+    /// the failure stays visible. Raised in review, where the over-broad wording above was read —
+    /// correctly — as promising a check this does not perform.
     /// </para>
     /// <para>
     /// Gated by

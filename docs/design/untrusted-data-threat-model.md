@@ -213,10 +213,16 @@ one that was here, and it had gone stale by two.
   `scopePath=/&path=/*` and `path=/*&scopePath=/` both return 400, `Cannot
   specify an item "path" as well as "scopePath"`. The pair passes every other
   rule — both names are known, neither is repeated, and each carries its own
-  wildcard, so the two-probe check sees two distinct request texts — while the
-  URL selects nothing at all. An origin reported for a request the host will not
-  answer describes no content. An allow list states that each entry is
-  understood, not that any two of them compose.
+  wildcard, so the two-probe check sees two distinct request texts — while
+  nothing states which selector governs. This is the repeated-parameter rule
+  applied to two spellings of one role: were the host to start preferring one,
+  every document would resolve through the selector that does *not* carry the
+  wildcard and they would all fetch the same content while attributing cleanly.
+  An allow list states that each entry is understood, not that any two of them
+  compose. The rule is **ambiguity, not fetchability** — `api-version` is
+  allow-listed and unvalidated, and `api-version=bogus` returns 400, which is
+  fine: a request that fails serves no content, so nothing is misattributed and
+  the failure stays visible.
 - Reading the route positionally is not enough on `dev.azure.com`, where a
   leading `e` is the enterprise discovery prefix rather than an account.
   `/e/{org}/_apis/git/repositories/{repo}/items` satisfies the segment count

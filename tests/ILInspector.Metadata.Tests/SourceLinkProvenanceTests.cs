@@ -430,6 +430,44 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// An <c>api-version</c> this reader does not recognize is still attributable. The refusal
+    /// rules are about a request having more than one reading, not about whether the host will
+    /// answer it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Recorded as a decision because review read the neighbouring rules as promising that a URL
+    /// the host refuses is never attributed, and this is where that stops. Measured against
+    /// <c>dev.azure.com/dnceng-public/public</c>: <c>api-version=bogus</c> returns 400 "Invalid
+    /// api version string" and <c>api-version=99.0</c> returns 400, while <c>1.0</c>,
+    /// <c>7.1</c>, <c>1.0-preview</c>, an empty value and no value at all each return the same
+    /// 985 bytes.
+    /// </para>
+    /// <para>
+    /// Validating the value would refuse whatever version ships next — <c>99.0</c> is a version
+    /// that does not exist yet, not an invalid one — and would buy nothing. A request that fails
+    /// serves no content, so there is nothing to misattribute, and the failure stays visible
+    /// rather than becoming success-shaped empty output. What matters is that every version that
+    /// <em>does</em> serve returns the same bytes from the same place, so the reported origin is
+    /// correct for every request that succeeds.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("bogus")]
+    [InlineData("99.0")]
+    [InlineData("1.0-preview")]
+    public void AnUnrecognizedApiVersion_IsStillAttributable(string apiVersion)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version={{{apiVersion}}}&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal("contoso/widgets", result.Origin!.Value.Organization);
+        Assert.Equal(Sha, result.Origin!.Value.Revision);
+    }
+
+    /// <summary>
     /// <c>path</c> asks for one item and <c>scopePath</c> for a collection, and the host refuses
     /// to be asked for both, so a URL carrying both selects no content for the reported origin to
     /// describe.
@@ -716,21 +754,48 @@ public class SourceLinkProvenanceTests
     /// anyone on the path.
     /// </summary>
     /// <remarks>
-    /// A deliberate divergence, recorded here rather than left as a silent gap. It costs nothing
-    /// on the two hosts this reader admits — both serve https, and neither is reachable over
-    /// cleartext — and <c>DotnetInspector.Core.HttpClientFactory.IsAllowedFetchScheme</c> would
-    /// refuse to fetch such a URL regardless, so attributing it would report an origin no content
-    /// can come from.
+    /// <para>
+    /// A deliberate divergence, and this test asserts the whole split rather than the refusal
+    /// alone, because an earlier version of this comment got the reason backwards. It claimed
+    /// <c>HttpClientFactory.IsAllowedFetchScheme</c> would refuse such a URL anyway, so that
+    /// attributing it would name an origin no content could come from. That is false:
+    /// <c>IsAllowedFetchScheme</c> admits <c>http</c> as well as <c>https</c>, and so does the
+    /// resolver's own <c>TryReadFetchable</c>. The map resolves, the URL passes the fetch guard,
+    /// and the content is fetched over cleartext.
+    /// </para>
+    /// <para>
+    /// So the refusal is not redundant with a fetch-side guard — it is the only thing that keeps
+    /// a spoofable origin out of the report. Anyone on the path can answer the <c>http</c>
+    /// request with their own bytes, and reporting <c>(host, organization, repository,
+    /// revision)</c> for those bytes is exactly the misattribution this invariant exists to
+    /// prevent. That the host would redirect an honest client to <c>https</c> does not help: an
+    /// attacker simply answers instead of redirecting. "No repository" is what the invariant
+    /// prescribes when an origin cannot be established, so the source is still shown, just
+    /// unattributed.
+    /// </para>
+    /// <para>
+    /// Raised in review. The lesson generalizes: a refusal justified by "something else would
+    /// have caught it" is only as good as that claim, and this one was never checked.
+    /// </para>
     /// </remarks>
     [Fact]
     public void AnHttpUrlTheGeneratorCouldEmit_IsNotAttributable()
     {
-        var result = Determine(
-            $$$"""{"documents":{"/_/*":"http://dev.azure.com/account/project/_apis/git/repositories/repo/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
-            "/_/A.cs");
+        const string Map =
+            $$$"""{"documents":{"/_/*":"http://dev.azure.com/account/project/_apis/git/repositories/repo/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""";
+
+        var result = Determine(Map, "/_/A.cs");
 
         Assert.False(result.IsEstablished);
         Assert.Contains("not https", result.Reason, StringComparison.Ordinal);
+
+        // The other half of the split, asserted so the reason above cannot silently become the
+        // redundant one the comment used to claim: the map still resolves, so the URL is still
+        // handed to a fetch path that admits http. If a later change makes the resolver refuse
+        // http, this fails and the remarks have to be rewritten rather than quietly going stale.
+        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        Assert.True(resolver.TryResolve("/_/A.cs", out var resolution));
+        Assert.StartsWith("http://", resolution.Url, StringComparison.Ordinal);
     }
 
     /// <summary>
