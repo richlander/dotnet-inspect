@@ -75,10 +75,20 @@ bad-input-tolerance is diffuse and every new consumer re-litigates it.
 
 Push the decision **down**. The best shape is a type whose construction *is*
 the check, so choosing the type grants the capability and auditing is a search
-rather than an argument — `HardenedJson` is the reference: use it and duplicate
-properties are rejected; the rest of the stack does not need to know the rule
-exists. A rule enforced by *calling a function* is a rule a new path can forget,
-and `string` is the type of both a checked and an unchecked value.
+rather than an argument. A rule enforced by *calling a function* is a rule a
+new path can forget, and `string` is the type of both a checked and an
+unchecked value.
+
+`HardenedJson` is the repository's closest existing move in this direction, and
+it is worth being precise about how far it actually goes: it is a `static
+class` whose `Parse` returns an ordinary `JsonDocument`, so it is a single
+named entry point that centralizes the policy — not a type whose construction
+enforces it. Choosing it grants the capability; nothing stops a new call site
+from reaching for `JsonDocument.Parse` instead, and some already do (see open
+work). A centralized entry point is a real improvement over per-call-site
+options and is cheap to audit by grep, but it is the weaker of the two shapes,
+and new hardening should prefer the stronger one where the value crosses a
+layer boundary.
 
 One thing this rule does **not** forbid is escaping and encoding. Escaping a
 value on the way into a sink — JSON string escapes, `vis(3)`-style visual
@@ -218,11 +228,16 @@ longer-matching entry names another origin reports the trusted repository while 
 from the other. That gap is open work below.
 
 Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
-parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
-duplicate-bearing JSON the same way; that is fail-closed, but it does not by itself convert those
-callers to explicit failure reporting, which remains open work below.
+are *intended* to parse through the same guard, and most do. Callers that already treated malformed
+JSON as "no data" now treat duplicate-bearing JSON the same way; that is fail-closed, but it does
+not by itself convert those callers to explicit failure reporting, which remains open work below.
 
-`runfaster` still parses its trace inputs directly and is not yet covered.
+The coverage is not yet complete, and the gaps are on the feed path specifically:
+`PackageExtractor` uses `HardenedJson.Parse` at four call sites but plain
+`System.Text.Json.JsonDocument.Parse` at two more when reading registration pages, and
+`NuGetFetch.NuGetApi` deserializes the service index, version index, and search responses through a
+source-generated context that does not reject duplicates. `runfaster` also still parses its trace
+inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
 
 ### Artifact-derived source URLs use an SSRF-hardened client
 
@@ -350,7 +365,7 @@ is a design error.
 | Flag | Behavior |
 | --- | --- |
 | *(default)* | abort at the first one |
-| survey mode | keep going; report location and pattern kind, never content |
+| survey mode | keep going; report location and pattern kind, never content, bounded by the traversal budget |
 | a `dangerously`-named skip | keep going and render the values anyway |
 
 **Rendering** — how artifact text is spelled once something is printed:
@@ -358,7 +373,7 @@ is a design error.
 | Flag | Behavior |
 | --- | --- |
 | *(default)* | visually encoded into an inert form |
-| a `dangerously`-named raw mode | the artifact's bytes, unmodified |
+| a `dangerously`-named raw mode | no visual encoding; the output format's own structural escaping still applies |
 
 The axes are independent, and that is the design. Visual encoding is the
 default on **every** artifact-text path, including underneath the trust-axis
@@ -372,7 +387,7 @@ replaced. The vocabulary is borrowed rather than coined — see below — and th
 three properties together are what let the encoding be the default: it costs
 the reader nothing, so there is no case for making it opt-in, and a default
 cannot be forgotten by a new path. Nothing passes a flag to make a JSON
-serializer escape `\u001b`.
+serializer escape `\u001B`.
 
 This is established practice for tools that read hostile bytes:
 
@@ -391,11 +406,13 @@ This is established practice for tools that read hostile bytes:
   reserves raw output for `-r`.
 - **`rustc`** made bidirectional control characters a deny-by-default hard
   error after Trojan Source (CVE-2021-42574) rather than stripping them. Its
-  denied set — `U+202A`–`U+202E`, `U+2066`–`U+2069`, `U+200E`, `U+200F`,
-  `U+061C` — is why the encoded set is defined by Unicode general category
-  (`Cc`, `Cf`, `Cs`, `Zl`, `Zp`) rather than by a list. Every one of those is
-  `Cf`, and none is anywhere near C1, so a rule written as "control
-  characters" excludes all of them.
+  denied set is nine code points — the embeddings and overrides
+  `U+202A`–`U+202E` and the isolates `U+2066`–`U+2069`. Unicode's
+  `Bidi_Control` property adds the three marks `U+200E`, `U+200F`, and `U+061C`
+  for twelve; do not attribute those three to `rustc`. Every one of the twelve
+  is `Cf`, and none is anywhere near C1, so a rule written as "control
+  characters" excludes all of them — which is why the encoded set is defined by
+  Unicode property rather than by a hand-written list.
 - **`binutils`** is the cautionary case rather than a model: its parsers are
   continuously fuzzed, and fuzzing has repeatedly found parser defects that
   received CVEs.
@@ -425,7 +442,7 @@ only ordinary compiler output.
 | SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
-| Structured output | Untrusted delimiters/control characters cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw control character survives and every neutralized form is present. The `--references` view carries no artifact text, so it is asserted only against raw controls, as a regression net. Mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone |
+| Structured output | Control characters the projector recognizes cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw control character survives and every neutralized form is present. The `--references` view carries no artifact text, so it is asserted only against raw controls, as a regression net. Mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone. Two limits worth naming: the payload is `Cc` only, so a bidi override would not be noticed, and the assertion deliberately permits raw `CR`/`LF`/`TAB`. Format *delimiters* are not covered by this gate at all |
 
 ## Open work
 
@@ -477,7 +494,12 @@ only ordinary compiler output.
    `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
    not contain, so GitHub-hosted assemblies report no repository at all. Match
    the URI host instead of a substring.
-3. Extend duplicate-property rejection to `runfaster` trace parsing.
+3. Extend duplicate-property rejection to the readers that still bypass
+   `HardenedJson`: the two `JsonDocument.Parse` call sites in
+   `PackageExtractor` registration-page reading, `NuGetFetch.NuGetApi`'s
+   source-generated feed contexts, and `runfaster` trace parsing. Add a gate
+   asserting no product JSON entry point parses outside the guard, so the set
+   cannot silently regrow.
 4. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
 5. Audit every product write against the derived-path rules, including symbol
@@ -504,8 +526,8 @@ only ordinary compiler output.
     caret-introduced spelling is not invertible and must not be used. Note the
     existing escaper has the same defect from the other direction: `EscapeCore`
     renders controls as `\uXXXX` but only escapes `\` when `escapeStructural`
-    is set, and `NeutralizeControls` passes `false`, so a literal `\u001b` in
-    artifact text and a real `ESC` produce identical output.11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
+    is set, and `NeutralizeControls` passes `false`, so a literal `\u001B` in
+    artifact text and a real `ESC` produce identical output.
 
     Adopt the general-category rule at the same time. `IsControl` is
     `c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f')` — `Cc` only — so
@@ -514,11 +536,13 @@ only ordinary compiler output.
     gates `\u202E`, `\u061C`, and `\u2066`, and the IL string-literal printer
     gates `\u2028`/`\u2029`. One product with two containment sets is the same
     inheritance failure as the version stamp, one layer up, and the narrower
-    set is the one a reader of this design would have copied.11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
+    set is the one a reader of this design would have copied.
+11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
+    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
     Printability here is a function of **provenance, not content**: the same
     helper receives user-typed coordinates and artifact-derived ones, so it
-    cannot be decided by inspecting the value. Two graph-resolved paths reach
-    it, both verified:
+    cannot be decided by inspecting the value. Three graph-resolved paths reach
+    it, all verified:
 
     - `ProjectCommand` → `ProjectAssetsParser` package references →
       `PackageExtractor.ExtractPackageAsync`.

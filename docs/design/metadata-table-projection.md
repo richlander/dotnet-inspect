@@ -378,14 +378,20 @@ points at.
   that contract describes. Gated by
   `MetadataTableProjectionTests.RowBudget_TruncatesExplicitly_NeverSilently`,
   `StringBudget_ProjectsBoundedPreviewWithExplicitTruncation`, and
-  `BlobBudget_ProjectsBoundedHexPreviewWithExplicitTruncation`.
+  `BlobBudget_ProjectsBoundedHexPreviewWithExplicitTruncation`. Those three
+  gate that truncation is *explicit*; the one that gates the bound itself is
+  `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
+  `StringBudget_…` asserts only that the full length is reported and the
+  preview is non-empty.
 - **Parse, never load.** SRM-only, NativeAOT-friendly, Roslyn-free. A malformed
   coded index resolves to a visible failure marker, not a fabricated target.
   This is an architectural constraint with no single gate naming it; treat the
   property as unverified here.
 - **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so they are never dumped by default. Gated by
-  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing`.
+  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing`, which
+  covers `-v:q` and `-v:d` — the ends of the ladder, not `-v:m` or `-v:n`. The
+  middle of the ladder is unverified.
 
 ### Two orthogonal axes
 
@@ -398,7 +404,7 @@ decides how artifact text is *spelled*.
 | Flag | Behavior |
 | --- | --- |
 | *(default)* | abort at the first one |
-| `--survey` | keep going and report every site — offset and pattern kind, never content |
+| `--survey` | keep going and report each site — offset and pattern kind, never content — up to the traversal budget, which truncates explicitly like any other budget |
 | `--dangerously-skip-checks` | keep going and render the values anyway |
 
 **Rendering** — how artifact text is spelled once something is printed:
@@ -406,7 +412,7 @@ decides how artifact text is *spelled*.
 | Flag | Behavior |
 | --- | --- |
 | *(default)* | visually encoded: control characters re-spelled into an inert form |
-| `--dangerously-print-raw-text` | the artifact's bytes, unmodified |
+| `--dangerously-print-raw-text` | artifact text passed through without visual encoding; the output format's own structural escaping still applies, so JSON stays parseable |
 
 The axes are independent, and that is the whole design. Visual encoding is the
 default on **every** artifact-text path, including under
@@ -435,18 +441,57 @@ escapes will not contain the character that attacks a *different* sink.
 | Category | Contains | Sink it attacks |
 | --- | --- | --- |
 | `Cc` | C0, `DEL`, C1 | terminal control sequences |
-| `Cf` | bidi overrides/isolates/marks, `U+FEFF`, zero-width joiners | visual reordering — Trojan Source |
-| `Cs` | unpaired surrogates | UTF-8 conversion |
+| `Cf` ⊇ `Bidi_Control` | bidi overrides, isolates, marks | visual reordering — Trojan Source |
+| `Cs` | *unpaired* surrogates only | UTF-8 conversion |
 | `Zl`, `Zp` | `U+2028`, `U+2029` | line-oriented and JS-adjacent consumers |
 
-`Cf` is the category that matters most here and is the one a hand-written list
-always misses. It contains every code point `rustc` made a deny-by-default
-error after Trojan Source (CVE-2021-42574) — `U+202A`–`U+202E`,
-`U+2066`–`U+2069`, `U+200E`, `U+200F`, `U+061C` — none of which is anywhere
-near C1. A rule stated as "C0, `DEL`, and C1" silently excludes all of them.
+The bidi characters are the ones a hand-written list always misses, and not one
+of them is anywhere near C1, so a rule stated as "C0, `DEL`, and C1" excludes
+every one. Two sets get conflated here, so name them separately:
 
-The rule pulls in 2,158 BMP code points and leaves ordinary text — including
-CJK, diacritics, and ligatures — untouched.
+- `rustc` made **nine** code points a deny-by-default error after Trojan Source
+  (CVE-2021-42574): the embeddings and overrides `U+202A`–`U+202E` and the
+  isolates `U+2066`–`U+2069`. That is the whole of its `TEXT_FLOW_CONTROL_CHARS`.
+- Unicode's **`Bidi_Control`** property is those nine plus the three marks
+  `U+200E` LRM, `U+200F` RLM, and `U+061C` ALM — twelve. This is the set
+  `ApiOutputFormatter.IsBidiControl` already implements.
+
+**How far past bidi to go is an open decision, and not one this document
+settles.** `Cf` is `Bidi_Control` plus the invisible formatting characters:
+`U+200C` ZWNJ, `U+200D` ZWJ, `U+2060` WORD JOINER, `U+00AD` SOFT HYPHEN,
+`U+FEFF`. This repository has already decided against the wider set once,
+deliberately, with the reason recorded in `ApiOutputFormatter.cs`:
+
+> Deliberately narrower than the Cf category — a zero-width joiner or a BOM
+> does not reorder its neighbors, and legitimate identifiers may contain format
+> characters, so escaping all of Cf would corrupt ordinary names.
+
+That holds on its own terms, and C# backs it: the language admits `Cf` in
+`identifier_part_character`, so a format character inside a type name can be
+entirely legitimate. The counter-argument is that these are two different
+attacks. `Bidi_Control` *reorders*; ZWJ and its neighbours are *invisible*, and
+an invisible character is exactly how two distinct package or type identities
+come to render identically. For a tool whose product is "what is actually in
+this field", showing that difference is arguably the job.
+
+Both readings are defensible, they disagree, and one of them is already
+shipped. Resolve it before implementing — do not let this document silently
+overrule `ApiOutputFormatter`. The measured cost of choosing the wider set:
+Persian `می‌خواهم`, Devanagari `क्‍ष`, and emoji ZWJ sequences all render with
+visible escapes.
+
+Counts, for whichever set is chosen: `Cc` 65, `Bidi_Control` 12, all of `Cf`
+43, `Cs` 2,048, `Zl` and `Zp` one each — 2,158 BMP code points for the widest
+reading. CJK, combining diacritics, and precomposed ligatures such as `U+FB01`
+are untouched under either.
+
+**Encode by scalar, not by UTF-16 code unit.** Every non-BMP character — every
+emoji, every rare CJK ideograph — is stored in a .NET `string` as *two* `Cs`
+code units. A loop over `char` calling `GetUnicodeCategory` per unit therefore
+encodes all of them, turning 😀 into `\uD83D\uDE00`. Only an **unpaired**
+surrogate is a hazard. Enumerate `Rune`s and encode a surrogate only when it
+has no partner; the gate below must include a paired-surrogate case, or this
+bug ships looking correct.
 
 **How it is spelled** is `vis(3)`'s: introduce with a backslash, and put
 standard **caret notation** — `cat -v`'s and `less`'s convention, dating to the
@@ -477,25 +522,37 @@ survives casual inspection.
 name has no business containing `CR`, `LF`, or `TAB`, so a field sink encodes
 them. Prose — a package description — is legitimately multi-line, so a prose
 sink exempts those three and nothing else. `vis(3)` parameterizes exactly this
-(`VIS_NL`, `VIS_TAB`, `VIS_SAFE`). No sink may exempt `Cf`: there is no
-rendering context in which an artifact needs to reorder the reader's screen.
+(`VIS_NL`, `VIS_TAB`, `VIS_SAFE`). No sink may exempt `Bidi_Control`: there is
+no rendering context in which an artifact needs to reorder the reader's screen.
 
-The properties that matter are `vis(3)`'s: the output is **inert** (no sink
-interprets it), **lossless** (nothing is dropped, so the view still answers
-"what is actually in this field"), and **invertible** (a decoder recovers the
-original exactly). Neutralization has none of the three.
+The properties that matter are `vis(3)`'s: the output is **inert**, **lossless**
+(nothing is dropped, so the view still answers "what is actually in this
+field"), and **invertible** (a decoder recovers the original exactly).
+Neutralization has none of the three.
+
+"Inert" is scoped, and the scope matters: it means no *terminal* interprets the
+text as control, and no *bidi algorithm* reorders it. It does **not** mean the
+text is safe to drop into a structured format. A `|` still breaks a Markdown
+table cell, a backtick still opens a span, and a `"` still terminates a JSON
+string — none of those is in any encoded category, and none should be, because
+they are ordinary characters that the *serializer* is responsible for escaping
+for its own grammar. Visual encoding and structural escaping are separate
+obligations that compose; neither substitutes for the other, and structural
+escaping stays mandatory in every mode, including raw.
 
 Those three are an asserted property, so the encoding ships with the gate that
 proves them: a decoder, plus a round-trip over every single code unit in
 `U+0000`–`U+FFFF`, plus a round-trip-and-injectivity sweep over strings built
 from the characters that can collide — `\`, `^`, `u`, `?`, `@`, `[`, hex
-digits, and a representative of each encoded category. The category rule needs
-its own gate, asserting membership for the full `rustc` set by name rather than
-by category lookup, so that a future narrowing of the rule fails rather than
-silently stops covering them. Encode-without-a-decoder is not this pattern, and
-an invertibility claim with no decoder in the test is not evidence: a
-caret-introduced spelling passes every casual inspection and fails this sweep
-on `U+001E`.
+digits, and a representative of each encoded category — plus a paired-surrogate
+case, so that the scalar-versus-code-unit bug above fails the gate instead of
+shipping. The category rule needs its own gate, asserting membership for the
+nine `rustc` code points and the twelve `Bidi_Control` code points by name
+rather than by category lookup, so that a future narrowing of the rule fails
+rather than silently stops covering them. Encode-without-a-decoder is not this
+pattern, and an invertibility claim with no decoder in the test is not
+evidence: a caret-introduced spelling passes every casual inspection and fails
+this sweep on `U+001E`.
 
 Because the encoding is inert, it needs no opt-in. It is the default on every
 artifact-text path, with exactly one named opt-out
