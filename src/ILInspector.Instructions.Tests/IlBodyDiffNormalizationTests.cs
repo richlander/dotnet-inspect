@@ -299,6 +299,11 @@ public class IlBodyDiffNormalizationTests
             "<>9__0103_0",
             "<>9__0128_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+
+        Assert.False(CompareFieldNames(
+            "<>9__2147483648_0",
+            "<>9__2147483649_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
     }
 
     /// <summary>
@@ -341,7 +346,9 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<Run>b__103_00", "<Run>b__128_00")]              // leading zero in the per-method index
     [InlineData(
         "<Run>b__000000000000000000000000000103_0",
-        "<Run>b__000000000000000000000000000128_0")]              // ordinal wider than `int`
+        "<Run>b__000000000000000000000000000128_0")]              // padded ordinal
+    [InlineData("<Run>b__2147483648_0", "<Run>b__2147483649_0")]  // ordinal past int.MaxValue, no leading zero
+    [InlineData("<Run>b__103_2147483648", "<Run>b__128_2147483648")] // per-method index past int.MaxValue
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)

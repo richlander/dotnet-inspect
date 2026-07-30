@@ -96,14 +96,19 @@ public enum IlBodyDiffNormalization
     /// </para>
     /// <para>
     /// Every property claimed above is enforced by a gate in
-    /// <c>IlBodyDiffNormalizationTests</c>, each of which asserts the two
-    /// names differ <em>without</em> the option as well as agreeing (or still
-    /// differing) with it, so none can pass vacuously:
+    /// <c>IlBodyDiffNormalizationTests</c>:
     /// <c>ToleratesContainingMethodRenumbering</c> and
-    /// <c>ToleratesRenumberingOfALambdaCacheField</c> for what is related,
-    /// <c>PreservesEveryOtherNameComponent</c> for the components that stay
-    /// significant and the anchoring, <c>RejectsAFieldFormOnAMethod</c> and
+    /// <c>ToleratesRenumberingOfALambdaCacheField</c> for what is related —
+    /// each asserts the two names differ <em>without</em> the option as well
+    /// as agreeing with it, so neither can pass vacuously in either
+    /// direction. The remaining gates assert only that the names still differ
+    /// <em>with</em> the option, which is the whole claim for a name this
+    /// option must not relate: <c>PreservesEveryOtherNameComponent</c> for the
+    /// components that stay significant, the anchoring, and non-canonical
+    /// ordinals, <c>RejectsAFieldFormOnAMethod</c> and
     /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence,
+    /// <c>RejectsAMethodFormBehindAMethodSpecificationOnAField</c> for the
+    /// generic-instantiation path,
     /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
     /// ordinal spelling, <c>LeavesTypeOperandsAlone</c> and
     /// <c>PreservesSynthesizedLikeStringLiterals</c> for the scope, and
@@ -1262,18 +1267,22 @@ public static class IlBodyDiff
         /// </summary>
         /// <remarks>
         /// Roslyn formats these indices with an invariant <see cref="int"/>
-        /// conversion, so <c>0103</c> and a 30-digit run are not forms it can
-        /// emit. Accepting them would let <c>&lt;Run&gt;b__0103_0</c> and
-        /// <c>&lt;Run&gt;b__0128_0</c> collapse — a masked difference between
-        /// two names that no compiler produced and that nothing else relates.
-        /// Requiring the canonical encoding costs at most a false positive on
-        /// such a name, which is the safe direction.
+        /// conversion, so <c>0103</c> and a value past <see cref="int.MaxValue"/>
+        /// are not forms it can emit. Accepting them would let
+        /// <c>&lt;Run&gt;b__0103_0</c> and <c>&lt;Run&gt;b__0128_0</c>
+        /// collapse — a masked difference between two names that no compiler
+        /// produced and that nothing else relates. Requiring the canonical
+        /// encoding costs at most a false positive on such a name, which is
+        /// the safe direction.
         /// <para>
-        /// Gated by
+        /// The two rules are gated separately, because a padded ordinal is
+        /// rejected by the leading-zero rule before the parse is reached and
+        /// would leave the range rule untested.
         /// <c>IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent</c>
-        /// (leading zeros in either index, and an ordinal wider than
-        /// <see cref="int"/>) and
-        /// <c>..._RejectsANonCanonicalCacheFieldOrdinal</c> for the field form.
+        /// covers both rules against both indices — a leading zero and a
+        /// value past <see cref="int.MaxValue"/> with no leading zero — and
+        /// <c>..._RejectsANonCanonicalCacheFieldOrdinal</c> covers both
+        /// against the field form.
         /// </para>
         /// </remarks>
         static bool IsCanonicalOrdinal(string value, int start, int end)
