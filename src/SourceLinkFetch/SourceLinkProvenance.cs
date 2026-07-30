@@ -603,29 +603,41 @@ public static class SourceLinkProvenance
     {
         ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
         string? found = null;
+        bool present = false;
 
         foreach (Range range in pairs.Split('&'))
         {
             ReadOnlySpan<char> pair = pairs[range];
             int equals = pair.IndexOf('=');
-            if (equals < 0 || !pair[..equals].Equals(name, StringComparison.OrdinalIgnoreCase))
+            ReadOnlySpan<char> spelling = equals < 0 ? pair : pair[..equals];
+            if (!spelling.Equals(name, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (!pair[..equals].SequenceEqual(name))
+            if (!spelling.SequenceEqual(name))
             {
                 rejection =
-                    $"spells the '{name}' parameter as '{pair[..equals]}', and whether the host " +
+                    $"spells the '{name}' parameter as '{spelling}', and whether the host " +
                     "matches parameter names case-insensitively is not stated by the URL";
                 return null;
             }
 
-            if (found is not null)
+            if (present)
             {
                 rejection =
                     $"repeats the '{name}' parameter, and readers of one query string disagree " +
                     "about whether a repeat wins, loses, or joins";
+                return null;
+            }
+
+            present = true;
+
+            if (equals < 0)
+            {
+                rejection =
+                    $"names the '{name}' parameter with no value at all, which selects nothing " +
+                    "and which a host may read as the parameter's default";
                 return null;
             }
 
@@ -641,12 +653,25 @@ public static class SourceLinkProvenance
             found = Uri.UnescapeDataString(rawValue.ToString());
         }
 
-        if (found is null || found.Length == 0)
+        if (!present)
         {
             // Absent, so nothing is rejected. An empty rejection means "not present"; a non-empty
             // one means "present and unusable", and callers reading more than one selector need
             // to tell those apart.
             rejection = "";
+            return null;
+        }
+
+        if (found!.Length == 0)
+        {
+            // Present and empty is not absent. Reporting it as absent skipped the agreement check
+            // between a selector's flat and descriptor spellings entirely, so
+            // 'versionType=commit&versionDescriptor.versionType=' was read as an unopposed
+            // 'commit' while the host, which honours the descriptor, reads an empty selector as
+            // its default of 'branch'.
+            rejection =
+                $"gives the '{name}' parameter an empty value, which selects nothing and which " +
+                "a host may read as the parameter's default";
             return null;
         }
 

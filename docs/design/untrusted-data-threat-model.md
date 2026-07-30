@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Fifteen ways a weaker formulation fails, all reproduced. They are a regression
+Sixteen ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -203,6 +203,12 @@ previous formulation, so passing them is not evidence that the invariant holds.
   takes several parameters that change which content is returned, and it grows
   while this reader does not, so an unrecognized name may select content the
   reported origin does not describe.
+- Absence and emptiness are different readings. A parameter present with an
+  empty value (`versionDescriptor.version=`) or present with no `=` at all was
+  treated as absent, so the flat `version` was read as unopposed and its value
+  reported — while a host that treats the descriptor as present-and-empty
+  selects the default ref instead. Only a genuinely absent parameter counts as
+  absent; a present one with nothing to say is refused on its own account.
 
 Two consequences are deliberate scope, not gaps, and are gated as decisions so
 that changing them is visible:
@@ -225,7 +231,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all fifteen as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all sixteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

@@ -544,6 +544,35 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// A parameter that is present but empty is not absent. Reporting it as absent skipped the
+    /// agreement check between a selector's flat and descriptor spellings entirely, so
+    /// <c>versionType=commit&amp;versionDescriptor.versionType=</c> read as an unopposed
+    /// <c>commit</c> while the host, which honours the descriptor, reads an empty selector as its
+    /// default of <c>branch</c> — serving a <em>branch</em> named after the reported commit hash,
+    /// which an attacker can point anywhere.
+    /// </summary>
+    /// <remarks>
+    /// This is the same mistake the blank-map rule exists to prevent, one level down: only
+    /// genuine absence may be treated as absence. A valueless parameter with no <c>=</c> at all
+    /// is present too.
+    /// </remarks>
+    [Theory]
+    [InlineData("versionType=commit&versionDescriptor.versionType=&version=$SHA")]
+    [InlineData("versionType=commit&versionDescriptor.versionType&version=$SHA")]
+    [InlineData("versionType=commit&version=$SHA&versionDescriptor.version=")]
+    [InlineData("versionType=commit&version=$SHA&versionOptions=")]
+    [InlineData("versionType=commit&version=&version=$SHA")]
+    [InlineData("versionType=&version=$SHA")]
+    public void AnAzureSelectorThatIsPresentButEmpty_IsNotTreatedAsAbsent(string query)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query.Replace("$SHA", Sha, StringComparison.Ordinal)}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+    }
+
+    /// <summary>
     /// The cache identity names the repository as well as the revision. A commit hash alone is
     /// shared by every fork containing that commit, so keying an index on it would serve one
     /// repository's index for another repository's assembly.
