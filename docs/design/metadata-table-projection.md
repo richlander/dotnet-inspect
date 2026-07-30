@@ -360,12 +360,9 @@ library concern, served by `ProjectRow` and the row window.
 ## Safety
 
 Raw table projection reads untrusted metadata and can amplify a tiny artifact
-into unbounded work or output. The governing model — including how this
-repository ranks untrusted-input work against ordinary correctness, and why
-rejection is preferred to neutralization — is
-[untrusted-data-threat-model.md](untrusted-data-threat-model.md). This section
-is that model applied to one surface, and is the worked example that document
-points at.
+into unbounded work or output. This section aligns with and is an application
+of [untrusted-data-threat-model.md](untrusted-data-threat-model.md), and is the
+worked example that document points at.
 
 ### Inherited contracts
 
