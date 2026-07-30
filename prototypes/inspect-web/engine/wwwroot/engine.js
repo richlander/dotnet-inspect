@@ -4,6 +4,7 @@ let queryPackage;
 let getPackageDocument;
 let queryMemberSource;
 let queryMemberAnnotatedSource;
+let queryMemberBodyMap;
 let queryTypeProjection;
 let queryPackageDependencies;
 let queryPackageIntegrations;
@@ -39,6 +40,7 @@ export async function initializeEngine(onStatus = () => {}) {
   getPackageDocument = exports.BrowserInspectionEngine.GetPackageDocument;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
+  queryMemberBodyMap = exports.BrowserInspectionEngine.QueryMemberBodyMap;
   queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
   queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
   queryPackageIntegrations = exports.BrowserInspectionEngine.QueryPackageIntegrations;
@@ -97,6 +99,22 @@ export async function inspectMemberSource(request) {
 export async function inspectMemberAnnotatedSource(request) {
   if (!queryMemberAnnotatedSource) throw new Error("The browser inspection engine is not initialized.");
   const json = await queryMemberAnnotatedSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member,
+    request.signature,
+    request.styleOptionsJson ?? "[]");
+  return JSON.parse(json);
+}
+
+// Positions rather than pre-drawn annotations: the caller renders side comments,
+// carets, or a category focus from one fetch, without another trip to the engine.
+export async function inspectMemberBodyMap(request) {
+  if (!queryMemberBodyMap) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryMemberBodyMap(
     request.packageId,
     request.version,
     request.framework,

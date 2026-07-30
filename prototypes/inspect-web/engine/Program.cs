@@ -103,6 +103,22 @@ public sealed record BrowserMemberSource(
     string? Url,
     string Provenance);
 
+/// <summary>
+/// The printed body and the positions of everything known about it, so the
+/// browser can draw the annotations rather than receive them pre-drawn.
+/// </summary>
+/// <remarks>
+/// <see cref="BrowserMemberSource"/> carries text a renderer has already
+/// finished with: the gesture was chosen in C#, baked into the string, and the
+/// client can only display that one choice. This carries <see cref="PrintedBodyMap"/>
+/// instead, so side comments, carets, and category focus are all reachable from
+/// one fetch, and switching between them is a re-render rather than a round trip.
+/// </remarks>
+public sealed record BrowserMemberBodyMap(
+    string Provider,
+    PrintedBodyMap Map,
+    string Provenance);
+
 public sealed record BrowserCallGraph(
     string Mermaid,
     BrowserCallGraphNode Callers,
@@ -447,6 +463,7 @@ public sealed record BrowserMetadataHeaders(
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberSource))]
+[JsonSerializable(typeof(BrowserMemberBodyMap))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
@@ -1006,6 +1023,88 @@ public static partial class BrowserInspectionEngine
                     null,
                     $"Annotated by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
                 BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // The same projection QueryMemberAnnotatedSource renders, handed over as data.
+    // That view bakes one gesture into a string in C#; this returns the printed body
+    // plus the character positions of every node and fact, so the browser can draw
+    // side comments, carets, or a category focus from a single fetch. Positions are
+    // text coordinates only -- no IR reference survives serialization -- which is what
+    // makes the payload meaningful on the far side of the interop boundary.
+    [JSExport]
+    public static async Task<string> QueryMemberBodyMap(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature,
+        string styleOptionsJson)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected member has no method body identity.");
+
+            var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
+            using var source = Pipeline.MetadataSource.Open(
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null,
+                resolver);
+
+            var projection = Research.ResearchViews.ProjectMember(new Research.ResearchViews.MemberProjectionRequest(
+                source,
+                type.FullName,
+                member.Name,
+                PublicOnly: false,
+                BodyMap: true,
+                MethodToken: token,
+                // The map's positions have to describe the text this reader is
+                // shown, so it travels under the same taste as the Source view.
+                PrinterOptions: BuildPrinterOptions(styleOptionsJson)));
+
+            if (projection.BodyMap is not { Lines.Count: > 0 } map)
+                throw new InvalidOperationException("The body map projection produced no printed body.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberBodyMap(
+                    "bodymap",
+                    map,
+                    $"Mapped by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberBodyMap);
         }
         finally
         {
