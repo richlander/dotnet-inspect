@@ -1219,6 +1219,50 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
+    /// <summary>
+    /// Pins the precondition that <c>EscapeParameterLists</c> relies on, and the reason
+    /// it cannot simply be relaxed.
+    ///
+    /// A parameter list is recognized by its <c>(</c> being adjacent to the member name
+    /// (or a generic <c>&gt;</c>, an operator token, or a close paren). Whitespace before
+    /// the <c>(</c> means "this is a tuple type", because a tuple return follows the
+    /// modifier run — <c>public static (int, int) Pair(int a)</c>. That whitespace is the
+    /// only thing distinguishing the two at the string level, so a signature written with
+    /// a space before its parameter list is read as a tuple and its parameters are left
+    /// unescaped.
+    ///
+    /// This is unreachable from the product: signatures are formatted as
+    /// <c>$"{returnType} {methodName}({parameters})"</c> (ApiSurfaceExtractor), so the
+    /// member name is always adjacent to the paren. Scanning all 38,507 members of
+    /// System.Private.CoreLib found no parameter list preceded by whitespace.
+    ///
+    /// Do not "fix" this by skipping backwards over the whitespace and accepting a
+    /// preceding identifier character: in <c>public static (int, int) Pair(int a)</c> the
+    /// preceding non-whitespace character is the <c>c</c> of <c>static</c>, so that rule
+    /// classifies the tuple as a parameter list and reintroduces #3489. Disambiguating
+    /// would require knowing whether the preceding token is a modifier keyword or a member
+    /// name — which is a signal the typed <c>ApiSignature.Parameters</c> model already
+    /// carries, and is the structural fix (see docs/design/type-member-api-representation.md).
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_TreatsWhitespaceBeforeParenAsTupleTypeByDesign()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+
+        // Adjacent paren: recognized as a parameter list, keyword parameter escaped.
+        Assert.Equal(
+            "public void M(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M(int event)" }));
+
+        // The same rule is what keeps a tuple return from being escaped. Were whitespace
+        // accepted, this would render "(@int, @int) Pair(...)" again — CS0246, i.e. #3489.
+        Assert.Equal(
+            "public static (int, int) Pair(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "Pair", Kind = "method", Signature = "static (int, int) Pair(int event)" }));
+    }
+
     [Fact]
     public void TypeDeclaration_EscapesKeywordTypeParametersInInterfaces()
     {
