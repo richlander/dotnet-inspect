@@ -48,6 +48,8 @@ public static class PackageCommandDefinitions
         };
         var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
         versionsOption.DefaultValueFactory = _ => null;
+        var versionsWithFeedOption = new Option<int?>("--versions-with-feed") { Description = "List available versions with the feed each came from (optionally limit version count)", Arity = ArgumentArity.ZeroOrOne };
+        versionsWithFeedOption.DefaultValueFactory = _ => null;
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
@@ -73,6 +75,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
+        packageCommand.Options.Add(versionsWithFeedOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(includeUnlistedOption);
         packageCommand.Options.Add(contentOption);
@@ -103,7 +106,7 @@ public static class PackageCommandDefinitions
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
 
@@ -175,6 +178,8 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(compactOption);
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
+        searchCommand.Options.Add(opts.Count);
+        opts.AddNuGetOptionsTo(searchCommand);
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
@@ -188,6 +193,7 @@ public static class PackageCommandDefinitions
                 Console.Error.WriteLine("  package search Azure.AI");
                 Console.Error.WriteLine("  package search AWSSDK --take 50");
                 Console.Error.WriteLine("  package search \"json serializer\" --json");
+                Console.Error.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
                 return 0;
             }
 
@@ -198,7 +204,9 @@ public static class PackageCommandDefinitions
                 Prerelease = parseResult.GetValue(prereleaseOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(opts.Verbose)
+                Verbose = parseResult.GetValue(opts.Verbose),
+                Count = parseResult.GetValue(opts.Count),
+                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
             return await PackageSearchCommand.ExecuteAsync(options);

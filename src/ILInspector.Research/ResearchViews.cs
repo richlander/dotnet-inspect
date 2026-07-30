@@ -32,6 +32,7 @@ public static partial class ResearchViews
         bool CostOverlay = false,
         bool SemanticsOverlay = false,
         bool FactRows = false,
+        bool BodyMap = false,
         AnnotationStage AnnotatedStage = AnnotationStage.Raised,
         ResearchFactRegistry? Registry = null,
         int? MethodToken = null,
@@ -52,7 +53,22 @@ public static partial class ResearchViews
         /// renders — so without this a mistyped focus is indistinguishable from
         /// a correct one.
         /// </summary>
-        IReadOnlyList<string>? UnmatchedFocusAlternatives = null);
+        IReadOnlyList<string>? UnmatchedFocusAlternatives = null,
+
+        /// <summary>
+        /// The printed body and the positions of everything known about it, in
+        /// text coordinates only. Set when <see cref="MemberProjectionRequest.BodyMap"/>
+        /// was asked for.
+        /// </summary>
+        /// <remarks>
+        /// This is the same information the annotated render draws, before it is
+        /// drawn: <see cref="AnnotatedSource"/> has already chosen a gesture and
+        /// baked the result into text, so a consumer receiving it can only display
+        /// that one choice. The map carries the positions instead, so the choice
+        /// of side comment, caret, or category focus belongs to whoever renders —
+        /// which is what lets a client outside this process make it.
+        /// </remarks>
+        PrintedBodyMap? BodyMap = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -81,6 +97,19 @@ public static partial class ResearchViews
             var headerFacts = request.CostOverlay || request.FactRows
                 ? effectiveRegistry.CollectHeaderFacts(context)
                 : [];
+
+            // Produced before the projections that read `imported`, not after.
+            // Printing raises and rewrites in place, so this takes its own import
+            // -- and doing it first is what makes that isolation load-bearing
+            // rather than incidental: were it to share the graph, every
+            // projection below would read the rewritten one.
+            PrintedBodyMap? bodyMap = null;
+            if (request.BodyMap)
+            {
+                var bodyMapFunction = ImportFunction()
+                    ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                bodyMap = BuildBodyMap(bodyMapFunction, facts, request.Source, request.PrinterOptions);
+            }
 
             DecompilerResult? annotatedSource = null;
             if (request.AnnotatedSource)
@@ -147,7 +176,8 @@ public static partial class ResearchViews
                 semanticsOverlay,
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
-                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts));
+                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
+                bodyMap);
         }
         catch (Exception ex)
         {
@@ -443,6 +473,31 @@ public static partial class ResearchViews
             ? output
             : AddTrailingComments(imported, output, printedRanges, annotations, gestures ?? AnnotationGestureSelector.SideOnly);
         return result with { Output = projected };
+    }
+
+    // The same print the overlay does, stopping one step earlier. RenderRaisedOverlay
+    // goes on to bake a chosen gesture into the text; this keeps the printer's ranges
+    // and the fact/node binding as data, which is the only form a consumer outside
+    // this process can re-render from.
+    //
+    // Printer options are honoured because the positions have to describe the text
+    // the same request would render -- a map of the shipped spelling handed to a
+    // client showing a style lens would underline the wrong characters. That is also
+    // why this needs its own import: a byte-divergent lens rewrites the graph in
+    // place.
+    static PrintedBodyMap BuildBodyMap(
+        IrFunction fn,
+        IReadOnlyList<IAnnotation> facts,
+        MetadataSource source,
+        PrinterOptions? options)
+    {
+        var result = CSharpPrinter.PrintRaised(fn, out var printedRanges, importMethodBody: null, options: options, typesProvablyDisjoint: source.AreProvablyDisjoint);
+        if (result.Output is not { Length: > 0 })
+            return PrintedBodyMap.Empty;
+
+        // Anchor after printing, not before: PrintRaised raises `fn` in place, and
+        // the statements the printer recorded ranges for are the raised ones.
+        return PrintedBodyMap.Create(printedRanges, AnnotationAnchor.Anchor(fn, facts));
     }
 
     static IReadOnlyList<FactRow> BuildFactRows(

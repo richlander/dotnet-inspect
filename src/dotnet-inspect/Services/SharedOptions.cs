@@ -148,6 +148,16 @@ public class SharedOptions
             if (token is not null && !RowSelector.TryParse(token, out _))
                 result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
         });
+
+        // A config the user names explicitly must be usable. Reporting it here gives every
+        // command that takes --nugetconfig the same clean parse-time error, instead of an
+        // unhandled exception from whichever service happens to resolve sources first.
+        NuGetConfig.Validators.Add(result =>
+        {
+            var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
+            if (token is not null && NuGetSourceResolver.DescribeConfigProblem(token) is string problem)
+                result.AddError(problem);
+        });
     }
 
     /// <summary>

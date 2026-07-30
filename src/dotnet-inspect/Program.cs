@@ -56,6 +56,20 @@ if (isolated && cacheBasePath == null)
 
 // Initialize library configuration
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
+
+// Credential plugins are how a private feed is read without a password stored in nuget.config,
+// and NuGet ranks them as the most secure of the credential mechanisms. Discovery is only a
+// PATH and directory scan; no plugin process starts unless a source actually answers 401.
+if (!offline)
+{
+    var credentialProvider = new NuGetFetch.Plugins.PluginCredentialProvider();
+
+    if (credentialProvider.HasPlugins)
+    {
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner => new NuGetFetch.Plugins.PluginAuthenticationHandler(credentialProvider, inner));
+    }
+}
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
 // The IR invariant check is armed by default so any host that runs the
 // decompiler pipeline validates it (#3267). The shipped tool is the one
@@ -161,6 +175,10 @@ try
 {
     exitCode = await CommandLineBuilder.InvokeAsync(result);
 }
+// Each handler below sets exitCode rather than returning, so a failed run still reaches the
+// shared post-invocation work (tail flush, --info metrics, request trace, cache maintenance).
+// Returning early skipped all of it, which the framework's own handler had never done: it
+// converted an exception to an exit code and let execution continue.
 catch (RowWindowValidationException ex)
 {
     // Defensive: the --rows head/tail window is rejected at parse time by the
@@ -168,11 +186,27 @@ catch (RowWindowValidationException ex)
     // primary path. It converts any escaped validation throw into the clean CLI
     // error contract instead of an unhandled-exception stack trace.
     Console.Error.WriteLine($"Error: {ex.Message}");
-    return 1;
+    exitCode = 1;
+}
+catch (DotnetInspector.CommandLine.PrefixResolutionException ex)
+{
+    // --package-prefix expansion needs the network, so unlike the row window it cannot be
+    // settled at parse time. This is its primary path, not a defensive one.
+    Console.Error.WriteLine($"Error: {ex.Message}");
+    exitCode = 1;
 }
 catch (OperationCanceledException)
 {
-    return 1;
+    exitCode = 1;
+}
+catch (Exception ex)
+{
+    // Replaces System.CommandLine's default exception handler, which CommandLineBuilder
+    // disables so deliberate, user-facing failures above can be reported as `Error:` lines
+    // instead of stack traces. An exception reaching here is a bug, not a reportable
+    // condition, so it keeps the full trace.
+    Console.Error.WriteLine($"Unhandled exception: {ex}");
+    exitCode = 1;
 }
 
 // Flush tail writer to emit only the last N lines
