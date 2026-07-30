@@ -139,6 +139,12 @@ public class LoweredFidelityGateTests
         "ManualNestedConstantSubtreeFactory",
         "ManualConstantOnlyDivideByZeroFactory",
         "ManualConstantOnlyRemainderOverflowFactory",
+        // See the sibling sugared docket: the comparison sibling of the
+        // constant-only family, added by #3053 and never docketed because both
+        // fidelity gates are Speed=Slow. Measured OpcodeDiff adds stloc@0x44,
+        // stloc@0x4f, ldloc@0x50, ldloc@0x51 in both views — the same
+        // expression-tree temporary reshaping, not an ordinal artifact.
+        "ManualConstantOnlyComparisonFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",

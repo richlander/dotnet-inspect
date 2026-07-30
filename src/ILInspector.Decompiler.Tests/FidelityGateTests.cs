@@ -163,6 +163,15 @@ public class FidelityGateTests
         "ManualNestedConstantSubtreeFactory",
         "ManualConstantOnlyDivideByZeroFactory",
         "ManualConstantOnlyRemainderOverflowFactory",
+        // ManualConstantOnlyComparisonFactory is the comparison sibling of the
+        // constant-only family above, added with the #2864 comparison-predicate
+        // recovery (#3053) but never docketed — both fidelity gates are
+        // Speed=Slow, so PR CI never observed it. Same family cause: the
+        // declined constant-fold keeps honest Expression.* factory calls, whose
+        // compile-back reshapes stack-slot temporaries. Measured OpcodeDiff adds
+        // exactly stloc@0x44, stloc@0x4f, ldloc@0x50, ldloc@0x51 — a temporary
+        // pair, no operand or control-flow change.
+        "ManualConstantOnlyComparisonFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
