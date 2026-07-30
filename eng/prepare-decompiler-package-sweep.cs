@@ -789,7 +789,14 @@ Console.WriteLine(
 // deliberately unpinned run, but under a pin it is the pin that says how many
 // assemblies a window owes -- and a window of nothing but "no-library" entries owes
 // none, so failing it would refuse a window the pin describes perfectly.
-if (resolveLatest && assemblies.Count == 0)
+// "None" is only wrong when the window owed some. A refresh over a window holding
+// nothing but packages that reproducibly ship no library selected nothing and was
+// right to -- failing it refused a perfect window. Counting what was owed keeps the
+// signal that matters: a window whose packages do have libraries, yielding no
+// assemblies, is still a failure, so a refresh in which every acquisition fell over
+// cannot pass itself off as a window of meta-packages.
+int owed = results.Count(result => result.Status != "library-unavailable");
+if (resolveLatest && assemblies.Count == 0 && owed > 0)
 {
     Console.Error.WriteLine("No assemblies were selected.");
     Environment.ExitCode = 1;
