@@ -102,6 +102,18 @@ namespace ILInspector.Instructions;
 /// empty prefix in place of the null one would be a soundness loss, not a completeness
 /// one: two types whose chains could not be walked would key alike.
 /// </para>
+/// <para>
+/// <b>Three further branches are unverified because another branch masks them, not
+/// because no fixture reaches them.</b> Type eligibility is computed once when indexing a
+/// type and again when that type appears in a key prefix, and the second call keeps an
+/// unattributed name raw on its own; the cached enclosing-type elision is duplicated by
+/// the fallback beside it; and the constructor-kind default arm needs an attribute
+/// constructor that is neither a member reference nor a method definition. Each is
+/// redundant with a covered branch <em>today</em>, so deleting one changes nothing
+/// observable — which is exactly why a later edit could remove the survivor without any
+/// control noticing. Distinguishing the first two needs the same nested-type fixture as
+/// the branches above; all three are tracked by issue #3588.
+/// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence
 {
@@ -522,17 +534,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         {
             switch (attribute.Constructor.Kind)
             {
-                    case HandleKind.MemberReference:
-                        var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
-                        if (member.Parent.Kind != HandleKind.TypeReference)
-                            return false;
-                        var typeRef = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
-                        return Matches(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
-                    case HandleKind.MethodDefinition:
-                        var ctor = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
-                        var typeDef = reader.GetTypeDefinition(ctor.GetDeclaringType());
-                        return Matches(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
-                    default:
+                case HandleKind.MemberReference:
+                    var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                    if (member.Parent.Kind != HandleKind.TypeReference)
+                        return false;
+                    var typeRef = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+                    return Matches(reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
+                case HandleKind.MethodDefinition:
+                    var ctor = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                    var typeDef = reader.GetTypeDefinition(ctor.GetDeclaringType());
+                    return Matches(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
+                default:
                     return false;
             }
 

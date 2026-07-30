@@ -162,14 +162,21 @@ public class CompilerGeneratedOrdinalTests
 
     /// <summary>
     /// Malformed generated names must be declined, not crash the comparison. Each of these
-    /// reaches the parser and is rejected by a different guard; without that guard the
-    /// parser indexes outside the name and the whole diff fails with an exception, which
-    /// is a comparison the caller would otherwise have completed.
+    /// reaches the parser and is refused before it indexes outside the name; without those
+    /// guards the whole diff fails with an exception, which is a comparison the caller
+    /// would otherwise have completed.
     /// </summary>
     /// <remarks>
     /// The two sides are identical, so the assertion is that a body compares equal to
     /// itself. That is the weakest claim that still fails on a throw, and it cannot pass
     /// for the wrong reason the way an inequality assertion could.
+    /// <para>
+    /// The rows cover two guards, not three: <c>""</c> and <c>&lt;M&gt;</c> are both short
+    /// enough to be refused on length, and <c>&lt;M&gt;g__</c> reaches the separator guard.
+    /// The <c>g__</c> prefix test itself is <em>not</em> pinned here — deleting it leaves
+    /// all three rows green — and is gated by
+    /// <see cref="NonLocalFunctionShape_IsNotRewrittenIntoOne"/> instead.
+    /// </para>
     /// </remarks>
     [Theory]
     [InlineData("<M>g__")]
@@ -190,7 +197,9 @@ public class CompilerGeneratedOrdinalTests
     /// <remarks>
     /// This is a completeness control, not a soundness one: losing the definition path
     /// costs retirements rather than producing a false <c>Exact</c>. It is here because
-    /// nothing else in the suite reaches that branch, so the loss would be silent.
+    /// nothing else in the suite reaches that branch, so the loss would be silent. The
+    /// matching soundness claim — that the branch still checks <em>which</em> attribute it
+    /// found — is <see cref="UnrelatedLocallyDefinedAttribute_DoesNotFold"/>.
     /// </remarks>
     [Fact]
     public void LocallyDefinedCompilerGeneratedAttribute_IsRecognized()
@@ -199,7 +208,59 @@ public class CompilerGeneratedOrdinalTests
             [Generated("<M>g__L|3_0")],
             [Generated("<M>g__L|7_0")],
             Ordinals,
-            localAttributeDefinition: true).IsExact);
+            ctorSpelling: AttributeCtorSpelling.MethodDefinition).IsExact);
+    }
+
+    /// <summary>
+    /// Identity decides eligibility on the definition path as well as the reference path.
+    /// Without that comparison an assembly that defines any attribute at all folds every
+    /// member carrying one, which is the same false-<c>Exact</c> class as
+    /// <see cref="UnrelatedAttribute_DoesNotFold"/> reached through the other spelling.
+    /// </summary>
+    /// <remarks>
+    /// Deleting the whole branch is <em>not</em> a faithful tamper for this control: the
+    /// walk to the declaring type is itself observed by
+    /// <c>IlAssemblyDiffMetadataGraphSafetyTests.MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk</c>,
+    /// so removing the walk fails that census test for a reason unrelated to identity. A
+    /// tamper that keeps the walk and drops only the comparison passed the whole suite
+    /// before this control existed.
+    /// </remarks>
+    [Theory]
+    [InlineData("System.Runtime.CompilerServices", "IsReadOnlyAttribute")]
+    [InlineData("Evil", "CompilerGeneratedAttribute")]
+    public void UnrelatedLocallyDefinedAttribute_DoesNotFold(
+        string attributeNamespace,
+        string attributeName)
+    {
+        Assert.False(Compare(
+            [Generated("<M>g__L|3_0")],
+            [Generated("<M>g__L|7_0")],
+            Ordinals,
+            ctorSpelling: AttributeCtorSpelling.MethodDefinition,
+            localAttributeNamespace: attributeNamespace,
+            localAttributeName: attributeName).IsExact);
+    }
+
+    /// <summary>
+    /// A constructor named through a <c>MemberReference</c> whose parent is a
+    /// <c>TypeDefinition</c> is legal metadata that no C# compiler emits. The reference
+    /// path accepts only a <c>TypeReference</c> parent and so declines it, which is the
+    /// fail-closed choice: it costs a retirement on a shape the corpus never contains.
+    /// </summary>
+    /// <remarks>
+    /// The decline is load-bearing in two directions, and this control holds both. Dropping
+    /// the restriction while keeping the cast that depends on it turns the decline into an
+    /// <c>InvalidCastException</c> that fails the entire comparison; dropping the branch
+    /// altogether turns it into a fold, and the attribute's own name is never consulted.
+    /// </remarks>
+    [Fact]
+    public void AttributeConstructorReferencedOnALocalTypeDefinition_DoesNotFold()
+    {
+        Assert.False(Compare(
+            [Generated("<M>g__L|3_0")],
+            [Generated("<M>g__L|7_0")],
+            Ordinals,
+            ctorSpelling: AttributeCtorSpelling.MemberReferenceOnTypeDefinition).IsExact);
     }
 
 
@@ -446,16 +507,30 @@ public class CompilerGeneratedOrdinalTests
     /// check deleted; a decoder that folds under the default rules is what makes this
     /// non-vacuous.
     /// </para>
+    /// <para>
+    /// The rows are asymmetric on purpose. Passing one reader as both sides — which an
+    /// earlier version of this test did — leaves each half of the check redundant with the
+    /// other, so either could be deleted with the suite green while the surviving half hid
+    /// it. Only a row whose <em>other</em> side is default can observe one half alone.
+    /// </para>
     /// </remarks>
-    [Fact]
-    public void NonDefaultStringDecoder_FoldsNothing()
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void NonDefaultStringDecoder_FoldsNothing(bool oldIsCustom, bool newIsCustom)
     {
         using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
-        var reader = pe.GetMetadataReader(
+        // An ordinary UTF-8 decoder: it decodes exactly as the default one does, so the
+        // image still folds under the default rules and only decoder identity differs.
+        var custom = pe.GetMetadataReader(
             MetadataReaderOptions.Default,
             new MetadataStringDecoder(Encoding.UTF8));
+        var standard = pe.GetMetadataReader();
 
-        var (oldSide, newSide) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+        var (oldSide, newSide) = CompilerGeneratedOrdinalCorrespondence.Build(
+            oldIsCustom ? custom : standard,
+            newIsCustom ? custom : standard);
 
         Assert.False(oldSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
         Assert.False(newSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
@@ -591,6 +666,13 @@ public class CompilerGeneratedOrdinalTests
     /// The method-side rule was gated from the start and the type-side rule was not, which
     /// is the same asymmetry the ambiguity checks had: a rule mirrored in the product but
     /// not in its controls.
+    /// <para>
+    /// This pins the type-side <em>outcome</em>, not the specific call site that produces
+    /// it. Eligibility is computed twice — once when indexing the type and again when
+    /// building an enclosing key prefix — and the second keeps an unattributed name raw on
+    /// its own, so deleting the first leaves this control green. Distinguishing them needs
+    /// a nested-type fixture; that branch is tracked as unverified in the class remarks.
+    /// </para>
     /// </remarks>
     [Fact]
     public void TypeNameShapeAlone_DoesNotFold()
@@ -643,8 +725,25 @@ public class CompilerGeneratedOrdinalTests
         Assert.True(CompareTypes(["<M>d__3"], ["<M>d__5"], Ordinals).IsExact);
     }
 
-    static Member Generated(string name) => new(name, CompilerGenerated: true);
+    /// <summary>
+    /// An eligible type on the old side whose key has no counterpart on the new side must
+    /// be skipped, not resolved against a default handle. Both sides fold here — so the
+    /// early empty-index return does not hide the lookup — but the keys disagree, which is
+    /// the only arrangement that reaches the miss.
+    /// </summary>
+    /// <remarks>
+    /// The failure this prevents is a <c>KeyNotFoundException</c> raised while naming the
+    /// counterpart, so the assertion is that the comparison completes at all. Like
+    /// <see cref="MalformedGeneratedName_DoesNotCrashTheComparison"/> this pins that a
+    /// declined fold stays a declined fold rather than becoming a failed comparison.
+    /// </remarks>
+    [Fact]
+    public void TypeWithoutACounterpart_DoesNotCrashTheComparison()
+    {
+        Assert.False(CompareTypes(["<A>d__3"], ["<B>d__3"], Ordinals).IsExact);
+    }
 
+    static Member Generated(string name) => new(name, CompilerGenerated: true);
     /// <summary>
     /// A member carrying a real custom attribute that is not
     /// <c>CompilerGeneratedAttribute</c>, so the attribute inspection runs and has to
@@ -665,6 +764,25 @@ public class CompilerGeneratedOrdinalTests
         bool CompilerGenerated,
         string? AttributeNamespace = null,
         string? AttributeName = null);
+
+    /// <summary>
+    /// How a fixture spells the constructor of the attribute it applies to its generated
+    /// members. Roslyn emits the first spelling and a corelib build emits the second; the
+    /// third is legal metadata that no C# compiler emits, and exists so the restriction to
+    /// a <c>TypeReference</c> parent is a decision the suite holds rather than an
+    /// assumption nothing tests.
+    /// </summary>
+    enum AttributeCtorSpelling
+    {
+        /// <summary>A <c>MemberReference</c> whose parent is a <c>TypeReference</c> into another assembly.</summary>
+        TypeReference,
+
+        /// <summary>A <c>MethodDefinition</c> on a type this assembly defines.</summary>
+        MethodDefinition,
+
+        /// <summary>A <c>MemberReference</c> whose parent is a <c>TypeDefinition</c> in this assembly.</summary>
+        MemberReferenceOnTypeDefinition,
+    }
 
     /// <summary>
     /// Compares two assemblies whose caller invokes a method on the first
@@ -689,12 +807,25 @@ public class CompilerGeneratedOrdinalTests
         Member[] newMembers,
         IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None,
         string? newCallsReferenceNamed = null,
-        bool localAttributeDefinition = false)
+        AttributeCtorSpelling ctorSpelling = AttributeCtorSpelling.TypeReference,
+        string localAttributeNamespace = "System.Runtime.CompilerServices",
+        string localAttributeName = "CompilerGeneratedAttribute")
     {
         using var oldPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", oldMembers, localAttributeDefinition: localAttributeDefinition)));
+            BuildImage(
+                "Probe",
+                oldMembers,
+                ctorSpelling: ctorSpelling,
+                localAttributeNamespace: localAttributeNamespace,
+                localAttributeName: localAttributeName)));
         using var newPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", newMembers, newCallsReferenceNamed, localAttributeDefinition: localAttributeDefinition)));
+            BuildImage(
+                "Probe",
+                newMembers,
+                newCallsReferenceNamed,
+                ctorSpelling: ctorSpelling,
+                localAttributeNamespace: localAttributeNamespace,
+                localAttributeName: localAttributeName)));
         return IlAssemblyDiff.CompareMembers(
             oldPe,
             oldPe.GetMetadataReader(),
@@ -717,7 +848,9 @@ public class CompilerGeneratedOrdinalTests
         string typeName = "C",
         string[]? generatedTypes = null,
         bool typesAttributed = true,
-        bool localAttributeDefinition = false)
+        AttributeCtorSpelling ctorSpelling = AttributeCtorSpelling.TypeReference,
+        string localAttributeNamespace = "System.Runtime.CompilerServices",
+        string localAttributeName = "CompilerGeneratedAttribute")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -761,7 +894,8 @@ public class CompilerGeneratedOrdinalTests
             return ctor;
         }
 
-        EntityHandle compilerGeneratedCtor = localAttributeDefinition
+        bool definesAttributeLocally = ctorSpelling != AttributeCtorSpelling.TypeReference;
+        EntityHandle compilerGeneratedCtor = definesAttributeLocally
             ? default
             : AttributeCtor("System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
 
@@ -799,12 +933,12 @@ public class CompilerGeneratedOrdinalTests
         // does — in which case its own generated members reference the constructor as a
         // MethodDefinition rather than through a MemberReference to another assembly.
         TypeDefinitionHandle localAttributeType = default;
-        if (localAttributeDefinition)
+        if (definesAttributeLocally)
         {
             localAttributeType = metadata.AddTypeDefinition(
                 TypeAttributes.Public,
-                metadata.GetOrAddString("System.Runtime.CompilerServices"),
-                metadata.GetOrAddString("CompilerGeneratedAttribute"),
+                metadata.GetOrAddString(localAttributeNamespace),
+                metadata.GetOrAddString(localAttributeName),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(members.Length + 2 + extraTypes.Length));
@@ -858,7 +992,7 @@ public class CompilerGeneratedOrdinalTests
         }
 
         int localCtorOffset = -1;
-        if (localAttributeDefinition)
+        if (definesAttributeLocally)
         {
             var il = new BlobBuilder();
             var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
@@ -910,16 +1044,24 @@ public class CompilerGeneratedOrdinalTests
                 MetadataTokens.ParameterHandle(1));
         }
 
-        if (localAttributeDefinition)
+        if (definesAttributeLocally)
         {
-            compilerGeneratedCtor = metadata.AddMethodDefinition(
+            var localCtor = metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }),
                 localCtorOffset,
                 MetadataTokens.ParameterHandle(1));
-            _ = localAttributeType;
+            // Naming that same constructor through a MemberReference on its own
+            // TypeDefinition is legal metadata; only the first spelling is what a C#
+            // compiler emits.
+            compilerGeneratedCtor = ctorSpelling == AttributeCtorSpelling.MemberReferenceOnTypeDefinition
+                ? metadata.AddMemberReference(
+                    localAttributeType,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x01 }))
+                : localCtor;
         }
 
         var attributeTargets = new List<(int Coded, EntityHandle Parent, EntityHandle Ctor)>();
