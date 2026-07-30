@@ -227,7 +227,7 @@ public sealed class SectionPipeline<TModel>
         .Select(e => e.Name)
         .ToArray();
 
-    /// <summary>Sections in the curated @Default preset, in registration order.</summary>
+    /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
@@ -284,7 +284,7 @@ public sealed class SectionPipeline<TModel>
     /// Maps each section name to a short annotation for discovery output:
     /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
     /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
-    /// sections that render only outside the compact <c>@Default</c> preset.
+    /// sections that render only outside the compact default preset.
     /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
