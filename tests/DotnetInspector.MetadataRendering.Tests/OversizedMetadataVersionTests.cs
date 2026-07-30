@@ -485,6 +485,12 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// premise that the flag is never set. It is read as an RVA exactly when the
     /// flag says it is one.
     /// </para>
+    /// <para>
+    /// These are the header's own fields. Several of them point at structures
+    /// with RVAs of their own, and this walk does not descend into any of them;
+    /// <see cref="HostileImage_HasOnlyTheRvaBearingStructuresTheWalkersKnow"/> is
+    /// what keeps that honest, by failing if the fixture ever contains one.
+    /// </para>
     /// </summary>
     static (string Name, int Rva)[] CliHeaderTargets(byte[] image)
     {
@@ -544,6 +550,20 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// directory, a TLS block, or a delay-import table fails until someone
     /// teaches the walker about it.
     /// </para>
+    /// <para>
+    /// The same argument applies one level further down, and asserting it only at
+    /// the directory level is how review defeated this gate: the CLI header's
+    /// sub-directories are themselves pointers to structures, and two of them —
+    /// `VTableFixups` (an array of `COR_VTABLEFIXUP`, whose first field is an
+    /// RVA) and `ManagedNativeHeader` — carry addresses inside. Review built a
+    /// reachable `VTableFixups`, repaired the CLI pointer to it so the pointer
+    /// itself classified as correct, and left the nested RVA stale; every test
+    /// passed. So the present CLI sub-directories are pinned too. This
+    /// deliberately also fails on the harmless additions — managed resources,
+    /// say, whose blobs hold no addresses — because the point is that someone
+    /// classifies the new structure, not that the gate guesses correctly on their
+    /// behalf.
+    /// </para>
     /// </summary>
     [Fact]
     public void HostileImage_HasOnlyTheRvaBearingStructuresTheWalkersKnow()
@@ -555,6 +575,10 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         Assert.Equal(
             new[] { "ImportTable", "BaseRelocationTable", "ImportAddressTable", "CorHeaderTable" },
             present);
+
+        Assert.Equal(
+            new[] { "Cli.MetaData", "Cli.StrongNameSignature" },
+            CliHeaderTargets(fixture.Bytes).Select(f => f.Name));
 
         // Metadata stores RVAs too, in the MethodDef bodies and the FieldRva
         // table. This fixture has neither, which is why the walkers stop at the
