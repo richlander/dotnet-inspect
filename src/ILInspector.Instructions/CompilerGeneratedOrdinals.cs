@@ -31,6 +31,18 @@ namespace ILInspector.Instructions;
 /// precisely the un-normalized behavior.
 /// </para>
 /// <para>
+/// That symmetry property is enforced by four controls, each tamper-verified against the
+/// deletion of the individual check it covers:
+/// <c>UniqueAgainstAmbiguous_DoesNotFoldOntoAnArbitraryCounterpart</c> and its mirror
+/// <c>AmbiguousAgainstUnique_DoesNotFoldOntoAnArbitraryCounterpart</c> discriminate the
+/// two sides — they use a candidate whose sides share <em>no</em> ordinal, so consulting
+/// the wrong side's index yields a visibly wrong counterpart rather than the same answer.
+/// <c>UniqueAgainstAmbiguous_DoesNotManufactureADifference</c> and its mirror pin the
+/// user-visible outcome. Deleting <em>either</em> ambiguity check alone fails one of the
+/// first two; the earlier controls did not discriminate, because a first-seen-wins index
+/// returns the same handle from either side when the sides share their first ordinal.
+/// </para>
+/// <para>
 /// Eligibility is gated on <c>CompilerGeneratedAttribute</c> rather than on name shape.
 /// The mangled forms are unspellable in C# but not in IL, so an untrusted assembly can
 /// declare a type literally named <c>&lt;Foo&gt;d__5</c>; without the attribute check such
@@ -38,9 +50,32 @@ namespace ILInspector.Instructions;
 /// state-machine and display-class types all carry the attribute.
 /// </para>
 /// <para>
+/// Enforced by <c>NameShapeAlone_DoesNotFold</c>, which declares a type with a
+/// hand-written mangled name and no attribute and asserts it keeps its ordinal.
+/// </para>
+/// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
 /// they carry no containing-method name, so <c>N</c> is their only discriminator and
 /// folding it would merge unrelated closures.
+/// Enforced by <c>AnonymousShapes_NeverFold</c> and <c>LambdaShape_IsOutOfScope</c>.
+/// </para>
+/// <para>
+/// <b>Known gap — generic declaring types do not fold.</b> The correspondence is keyed on
+/// <see cref="MethodDefinitionHandle"/> and <see cref="TypeDefinitionHandle"/>, so it is
+/// consulted only where an operand resolves to a definition in this assembly. A member of
+/// a <em>generic</em> type is referenced through a <c>MemberReference</c> whose parent is a
+/// <c>TypeSpecification</c>, and the instantiated type name is produced by the signature
+/// decoder rather than by definition formatting. Both paths bypass this correspondence, so
+/// <c>C&lt;T&gt;</c>'s local functions and state machines still compare with their ordinals
+/// intact. Measured, not inferred: a local function in a generic type still reports
+/// <c>call ... C`1&lt;!0&gt;::&lt;M&gt;g__L|0_0</c> against <c>|3_0</c>, and a generic
+/// iterator still reports <c>newobj ... C`1+&lt;Iter&gt;d__1&lt;!0&gt;</c> against
+/// <c>d__4</c>, with this normalization enabled. This is an incompleteness, not an
+/// unsoundness — such a pair simply does not fold, which is the un-normalized behavior.
+/// <b>It is deliberately not covered by a test here</b>, because the synthetic images this
+/// assembly's controls build are non-generic; treating the absence of a failing control as
+/// evidence of coverage would be wrong. Tracked by issue #3583, whose acceptance
+/// criteria include the generic fixture this assembly cannot currently build.
 /// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence

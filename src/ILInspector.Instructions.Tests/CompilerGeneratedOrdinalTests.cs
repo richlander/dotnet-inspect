@@ -59,6 +59,36 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// The gate for the NEW-side half of the two-sided rule, which the two
+    /// manufactured-difference controls below do not reach: they only exercise a member
+    /// that folds identically whichever side is consulted, so they pass even when the
+    /// new-side ambiguity test is deleted. Here the sides share no ordinal, so consulting
+    /// only the old side would fold the unique old member onto an arbitrary first-seen
+    /// ambiguous counterpart and report two unrelated methods as equal. Dropping
+    /// <c>newIndex.AmbiguousMethods</c> from the eligibility test makes this exact.
+    /// </summary>
+    [Fact]
+    public void UniqueAgainstAmbiguous_DoesNotFoldOntoAnArbitraryCounterpart()
+    {
+        var oldSide = new[] { Generated("<M>g__L|3_0") };
+        var newSide = new[] { Generated("<M>g__L|7_0"), Generated("<M>g__L|9_0") };
+
+        Assert.False(Compare(oldSide, newSide).IsExact);
+        Assert.False(Compare(oldSide, newSide, Ordinals).IsExact);
+    }
+
+    /// <summary>The mirror, with the ambiguity on the old side.</summary>
+    [Fact]
+    public void AmbiguousAgainstUnique_DoesNotFoldOntoAnArbitraryCounterpart()
+    {
+        var oldSide = new[] { Generated("<M>g__L|7_0"), Generated("<M>g__L|9_0") };
+        var newSide = new[] { Generated("<M>g__L|3_0") };
+
+        Assert.False(Compare(oldSide, newSide).IsExact);
+        Assert.False(Compare(oldSide, newSide, Ordinals).IsExact);
+    }
+
+    /// <summary>
     /// Ambiguous on both sides: two local functions that share a key must never be folded
     /// together, because the fold would equate calls to genuinely different methods.
     /// </summary>
