@@ -371,8 +371,12 @@ public static class SourceLinkProvenance
     /// page on another host, and an extra segment returns 404. The
     /// <c>*.visualstudio.com</c> spelling returns byte-identical content with and without
     /// <c>DefaultCollection</c>, which is why the collection is dropped from the identity rather
-    /// than made part of it. Gated by
-    /// <c>SourceLinkProvenanceTests.AnAzureUrlWhoseSegmentsBeforeApisAreNotTheHostsRoute_IsNotAttributable</c>.
+    /// than made part of it. The route shapes are gated by
+    /// <c>SourceLinkProvenanceTests.AnAzureUrlWhoseSegmentsBeforeApisAreNotTheHostsRoute_IsNotAttributable</c>,
+    /// which asserts establishment only; that dropping <c>DefaultCollection</c> yields the
+    /// <em>same</em> origin as the project alone — the identity claim, which an establishment
+    /// gate cannot see — is gated by
+    /// <c>SourceLinkProvenanceTests.TheLegacyCollectionSpelling_NamesTheSameOriginAsTheProjectAlone</c>.
     /// </para>
     /// </remarks>
     private static bool TryReadAzureDevOpsOrigin(
@@ -411,6 +415,20 @@ public static class SourceLinkProvenance
         if (Array.Exists(segments[..apis], static segment => segment.Length == 0))
         {
             rejection = $"'{host}' path '{uri.AbsolutePath}' names no organization";
+            return false;
+        }
+
+        // On dev.azure.com, a leading 'e' is the enterprise discovery prefix rather than an
+        // organization, so reading the route positionally would report the organization 'e' for a
+        // URL that names none. Measured: '/e/dnceng-public/_apis/git/repositories/{guid}/items'
+        // returns 404 where the same request without the prefix returns 200, so the shape serves
+        // nothing to describe. The reference generator refuses it for the same reason
+        // (AzureDevOpsUrlParser rejects parts[0] == "e"), so no generator shape is lost.
+        if (!accountInHost && string.Equals(segments[0], "e", StringComparison.OrdinalIgnoreCase))
+        {
+            rejection =
+                $"'{host}' path '{uri.AbsolutePath}' begins with the enterprise discovery prefix " +
+                "'e', which names no organization";
             return false;
         }
 
@@ -604,8 +622,8 @@ public static class SourceLinkProvenance
     ];
 
     /// <summary>
-    /// Checks that every query parameter is one this reader has reasoned about, and that no
-    /// parameter is given twice.
+    /// Checks that every query parameter is one this reader has reasoned about, that no parameter
+    /// is given twice, and that the two content selectors are not given together.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -636,8 +654,19 @@ public static class SourceLinkProvenance
     /// serves.
     /// </para>
     /// <para>
+    /// <c>path</c> and <c>scopePath</c> are refused together because the host refuses them
+    /// together. Measured against <c>dev.azure.com/dnceng-public/public</c>: <c>path=/README.md</c>
+    /// alone returns the file, <c>scopePath=/README.md</c> alone returns the <em>same bytes</em>,
+    /// <c>scopePath=/</c> returns a JSON collection, and the two together return 400 "Cannot
+    /// specify an item \"path\" as well as \"scopePath\"". Each is a content selector on its own,
+    /// so the pair is neither inert nor resolved to one reading — it selects nothing, and an
+    /// origin reported for a URL that fetches nothing describes nothing. This is the same rule
+    /// the route check applies: a URL the host will not serve is not attributable.
+    /// </para>
+    /// <para>
     /// Gated by
-    /// <c>SourceLinkProvenanceTests.ARepeatedContentSelector_IsNotAttributable</c>.
+    /// <c>SourceLinkProvenanceTests.ARepeatedContentSelector_IsNotAttributable</c> and
+    /// <c>SourceLinkProvenanceTests.AnAzureUrlGivingBothContentSelectors_IsNotAttributable</c>.
     /// </para>
     /// </remarks>
     private static bool TryCheckQueryParameters(string query, string host, out string rejection)
@@ -694,6 +723,22 @@ public static class SourceLinkProvenance
             }
 
             seen.Add(name.ToString());
+        }
+
+        // 'path' and 'scopePath' are each a content selector on their own, and the host refuses
+        // the pair outright rather than preferring one. A URL carrying both selects nothing, so
+        // there is no content for the reported origin to describe.
+        bool hasPath = seen.Exists(static name =>
+            string.Equals(name, "path", StringComparison.OrdinalIgnoreCase));
+        bool hasScopePath = seen.Exists(static name =>
+            string.Equals(name, "scopePath", StringComparison.OrdinalIgnoreCase));
+
+        if (hasPath && hasScopePath)
+        {
+            rejection =
+                $"'{host}' URL gives both 'path' and 'scopePath', which the host refuses rather " +
+                "than resolving, so the URL selects no content the reported origin could describe";
+            return false;
         }
 
         rejection = "";

@@ -396,7 +396,9 @@ public class SourceLinkProvenanceTests
     [Theory]
     [InlineData("path=/fixed.cs&path=/*", "repeats the")]
     [InlineData("path=/*&path=/fixed.cs", "repeats the")]
-    [InlineData("scopePath=/src&scopePath=/other&path=/*", "repeats the")]
+    // The wildcard has to sit in one of the repeats: with none, the entry is refused a layer
+    // earlier for pairing a wildcard key with a constant URL, which is not this rule.
+    [InlineData("scopePath=/*&scopePath=/other", "repeats the")]
     [InlineData("api-version=1.0&api-version=7.1&path=/*", "repeats the")]
     [InlineData("PATH=/fixed.cs&path=/*", "case-insensitively is not stated")]
     [InlineData("path=/*&PATH=/fixed.cs", "case-insensitively is not stated")]
@@ -416,7 +418,7 @@ public class SourceLinkProvenanceTests
     /// </summary>
     [Theory]
     [InlineData("path=/*")]
-    [InlineData("scopePath=/src&path=/*")]
+    [InlineData("scopePath=/*")]
     [InlineData("api-version=7.1&path=/*")]
     public void ASingleContentSelector_IsAttributable(string query)
     {
@@ -425,6 +427,43 @@ public class SourceLinkProvenanceTests
             "/_/A.cs");
 
         Assert.True(result.IsEstablished, result.Reason);
+    }
+
+    /// <summary>
+    /// <c>path</c> asks for one item and <c>scopePath</c> for a collection, and the host refuses
+    /// to be asked for both, so a URL carrying both selects no content for the reported origin to
+    /// describe.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c> at commit
+    /// <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>: together they return 400, <c>Cannot
+    /// specify an item "path" as well as "scopePath"</c>. Each alone serves — <c>path=/README.md</c>
+    /// and <c>scopePath=/README.md</c> return the same bytes, and <c>scopePath=/</c> returns a
+    /// collection — which is why the rows in
+    /// <c>ASingleContentSelector_IsAttributable</c> keep each of them on its own rather than
+    /// refusing <c>scopePath</c> outright.
+    /// </para>
+    /// <para>
+    /// Raised in review against a row this suite had just added asserting the opposite. Both
+    /// parameters were individually allow-listed and their combination was never considered, so
+    /// the allow list said "each of these is inert" where the host says the pair is an error.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("scopePath=/src&path=/*")]
+    [InlineData("path=/*&scopePath=/src")]
+    // The exclusion is on the parameter, not on its spelling: the host binds names
+    // case-insensitively, so a cased spelling is the same pair.
+    [InlineData("SCOPEPATH=/src&path=/*")]
+    public void AnAzureUrlGivingBothContentSelectors_IsNotAttributable(string query)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("both 'path' and 'scopePath'", result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -552,8 +591,10 @@ public class SourceLinkProvenanceTests
     /// segment returns 404.
     /// </para>
     /// <para>
-    /// They also refuse nothing a generator emits. <c>AzureDevOpsUrlParser.TryParseHostedHttp</c>
-    /// builds the project path as <c>{account}/{project}</c> off <c>dev.azure.com</c> and as
+    /// They also refuse nothing a generator emits, which
+    /// <c>EveryUrlTheReferenceGeneratorEmits_IsAttributable</c> checks directly against the
+    /// reference's own asserted output. <c>AzureDevOpsUrlParser.TryParseHostedHttp</c> builds the
+    /// project path as <c>{account}/{project}</c> off <c>dev.azure.com</c> and as
     /// <c>{project}</c> off a <c>*.visualstudio.com</c> host, dropping the team and trimming
     /// <c>DefaultCollection</c>, and <c>GetSourceLinkUrl</c> appends
     /// <c>_apis/git/repositories/{repo}/items</c> to exactly that.
@@ -571,10 +612,16 @@ public class SourceLinkProvenanceTests
     [InlineData("https://contoso.visualstudio.com/widgets", true)]
     [InlineData("https://contoso.visualstudio.com/widgets/extra", false)]
     [InlineData("https://contoso.visualstudio.com", false)]
-    // DefaultCollection is an alias the host resolves to the same content, and which the
-    // generator trims, so it is dropped rather than made part of the identity.
+    // DefaultCollection is an alias the host resolves to the same content — measured
+    // byte-identical — so it is trimmed rather than counted as the extra segment it looks like.
+    // The generator trims it too (VisualStudioHost_DefaultCollection), so nothing generated
+    // carries it; this accepts a spelling an older generator could have emitted.
     [InlineData("https://contoso.visualstudio.com/DefaultCollection/widgets", true)]
     [InlineData("https://contoso.visualstudio.com/DefaultCollection", false)]
+    // '/e/' is Azure's enterprise discovery page, which the generator refuses to emit at all.
+    // Without the check it satisfies the segment count and reports the organization 'e'.
+    [InlineData("https://dev.azure.com/e/contoso", false)]
+    [InlineData("https://dev.azure.com/E/contoso", false)]
     public void AnAzureUrlWhoseSegmentsBeforeApisAreNotTheHostsRoute_IsNotAttributable(
         string prefix,
         bool established)
@@ -586,7 +633,7 @@ public class SourceLinkProvenanceTests
         Assert.Equal(established, result.IsEstablished);
     }
 
-    /// <summary>
+        /// <summary>
     /// <c>DefaultCollection</c> is an alias for the same content, measured byte-identical against
     /// <c>dnceng-public.visualstudio.com/public</c> with and without it, so the two spellings name
     /// one origin and must not produce two cache identities.
@@ -611,6 +658,100 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// Every content URL the reference generator emits, on a host this reader admits, is
+    /// attributable. This is the direction the negative rows cannot check: they say a wrong shape
+    /// is refused, not that the right one still passes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rows are the exact URLs asserted by <c>dotnet/sourcelink</c> at <c>b989174</c>, with
+    /// its placeholder account, project, repository and revision kept:
+    /// <c>src/SourceLink.AzureRepos.Git.UnitTests/GetSourceLinkUrlTests.cs</c>
+    /// (<c>RepoOnly</c>, <c>Project</c>, <c>Project_Team</c>,
+    /// <c>VisualStudioHost_DefaultCollection</c>,
+    /// <c>DevAzureCom_RepositoryName_WithDotGit_IsPreservedInOutput</c>) and
+    /// <c>src/SourceLink.GitHub/GetSourceLinkUrl.cs</c>, whose <c>BuildSourceLinkUrl</c> composes
+    /// <c>{contentUrl}/{owner}/{repo}/{revision}/*</c>.
+    /// </para>
+    /// <para>
+    /// Taking them from the generator's own assertions rather than restating the grammar is the
+    /// point: a shape this reader refuses that the generator emits is a false negative on a real
+    /// assembly, and no amount of reasoning about the grammar detects one. Two of these rows are
+    /// what say the team and the collection never reach a content URL, so refusing both spellings
+    /// costs nothing.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // Project supplied; the account is a path segment.
+    [InlineData("https://dev.azure.com/account/project/_apis/git/repositories/repo/items", "account/project", "repo")]
+    // No project in the repository URL: the generator uses the repository name as the project.
+    [InlineData("https://dev.azure.com/account/repo/_apis/git/repositories/repo/items", "account/repo", "repo")]
+    // A team in the repository URL is dropped rather than emitted.
+    [InlineData("https://dev.azure.com/account/project/_apis/git/repositories/repo/items", "account/project", "repo")]
+    // A '.git' suffix is part of the repository name and is preserved.
+    [InlineData("https://dev.azure.com/org/project/_apis/git/repositories/repo.git/items", "org/project", "repo.git")]
+    // The legacy spelling: the account is the host label, so only the project precedes '_apis'.
+    [InlineData("https://account.visualstudio.com/project/_apis/git/repositories/repo/items", "project", "repo")]
+    // 'DefaultCollection' is trimmed by the generator, leaving the repository name as the project.
+    [InlineData("https://account.visualstudio.com/repo/_apis/git/repositories/repo/items", "repo", "repo")]
+    public void EveryUrlTheReferenceGeneratorEmits_IsAttributable(
+        string url,
+        string organization,
+        string repository)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"{{{url}}}?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal(organization, result.Origin!.Value.Organization);
+        Assert.Equal(repository, result.Origin!.Value.Repository);
+        Assert.Equal(Sha, result.Origin!.Value.Revision);
+    }
+
+    /// <summary>
+    /// The one shape the reference generator can emit that this reader refuses: it preserves the
+    /// scheme of the repository URL, so an <c>http</c> remote yields an <c>http</c> content URL
+    /// (<c>RepoOnly</c> asserts one), and provenance read off cleartext is attributable to
+    /// anyone on the path.
+    /// </summary>
+    /// <remarks>
+    /// A deliberate divergence, recorded here rather than left as a silent gap. It costs nothing
+    /// on the two hosts this reader admits — both serve https, and neither is reachable over
+    /// cleartext — and <c>DotnetInspector.Core.HttpClientFactory.IsAllowedFetchScheme</c> would
+    /// refuse to fetch such a URL regardless, so attributing it would report an origin no content
+    /// can come from.
+    /// </remarks>
+    [Fact]
+    public void AnHttpUrlTheGeneratorCouldEmit_IsNotAttributable()
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"http://dev.azure.com/account/project/_apis/git/repositories/repo/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("not https", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The GitHub generator composes <c>{contentUrl}/{owner}/{repo}/{revision}/*</c>
+    /// (<c>src/SourceLink.GitHub/GetSourceLinkUrl.cs</c> in <c>dotnet/sourcelink</c> at
+    /// <c>b989174</c>), which is the shape this reader reads three segments off.
+    /// </summary>
+    [Fact]
+    public void TheUrlTheGitHubGeneratorEmits_IsAttributable()
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""",
+            "/_/A.cs");
+
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal("owner", result.Origin!.Value.Organization);
+        Assert.Equal("repo", result.Origin!.Value.Repository);
+        Assert.Equal(Sha, result.Origin!.Value.Revision);
+    }
+
+    /// <summary>
     /// Query parameters are allow-listed. Azure's Items API takes several that change which
     /// content is returned, and it grows while this reader does not, so a name nobody has reasoned
     /// about cannot be assumed inert — it may select content the reported origin does not
@@ -619,8 +760,11 @@ public class SourceLinkProvenanceTests
     [Theory]
     [InlineData("futureSelector=evil", false)]
     [InlineData("resolveLfs=true", false)]
-    [InlineData("scopePath=/src", true)]
+    // 'scopePath' is deliberately absent: this theory's URL already carries 'path', and the two
+    // together are refused as a pair by AnAzureUrlGivingBothContentSelectors_IsNotAttributable.
+    // That it is a known parameter is proved by ASingleContentSelector_IsAttributable.
     [InlineData("api-version=7.1", true)]
+    [InlineData("versionOptions=none", true)]
     public void AnAzureQueryParameterNobodyHasReasonedAbout_IsNotAttributable(
         string extra, bool established)
     {
