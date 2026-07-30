@@ -227,7 +227,10 @@ public static class TypeCommand
 
                     if (effectiveOptions.EffectiveDiscovery)
                     {
-                        return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
+                        return ApiCommand.ExecuteEffectiveDiscovery(
+                            apiType, memberPipeline, effectiveOptions,
+                            new ApiCommand.TypeAcquisitionContext(
+                                foundIn, packageName, packageVersion, apiSource, selectedTfm));
                     }
 
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath

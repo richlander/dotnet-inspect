@@ -3082,9 +3082,73 @@ public partial class CommandExecutionTests
             .ToList();
     }
 
+    /// <summary>
+    /// Effective <c>-D</c> must list the fields <c>Type Info</c> actually renders. Two things can
+    /// break this and both did: the section is a <c>Field</c>/<c>Value</c> fact table, so matching
+    /// the schema against rendered *table columns* intersects nothing and reports the section as
+    /// having no queryable fields at all; and the discovery render manifest is built without
+    /// acquisition context, so the provenance rows are invisible to it unless that context is
+    /// threaded in. Either failure is silent — exit 0 with fields missing.
+    /// </summary>
     [Fact]
-    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()    {        var options = new TypeOptions
-        {
+    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders()
+    {
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "type", "System.String", "-D", SectionNames.TypeInfo);
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "type", "System.String", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Equal(0, renderExit);
+
+        var advertised = ParseFirstColumn(discoverOutput, "Name");
+        var rendered = ParseFirstColumn(renderOutput, "Field");
+
+        Assert.NotEmpty(advertised);
+        Assert.NotEmpty(rendered);
+
+        // Structural facts the manifest can see from the type itself.
+        Assert.Contains("Kind", advertised);
+        Assert.Contains("Methods", advertised);
+        // Provenance facts that only exist if acquisition context reached the manifest.
+        Assert.Contains("Library", advertised);
+        Assert.Contains("Source", advertised);
+
+        var missing = rendered.Except(advertised).ToList();
+        Assert.True(
+            missing.Count == 0,
+            $"-D under-reports fields that -S renders: {string.Join(", ", missing)}");
+    }
+
+    /// <summary>
+    /// Type parameters are an identity fact, so an open generic must report them. The summary used
+    /// to be computed only at quiet verbosity for the inline header, which left the section's
+    /// declared field permanently empty and made <c>--fields "Type Parameters"</c> report no data.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_ReportsTypeParametersForOpenGenerics()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Type Parameters | T |", output);
+    }
+
+    private static List<string> ParseFirstColumn(string output, string headerLabel)
+    {
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|'))
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } cells
+                ? cells[0].Trim()
+                : string.Empty)
+            .Where(cell => cell.Length > 0 && cell != headerLabel && !cell.StartsWith('-'))
+            .ToList();
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()    {        var options = new TypeOptions        {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Properties"],
