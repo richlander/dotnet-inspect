@@ -73,6 +73,33 @@ to handling bad input. Those are different engineering problems and only one of
 them is defensible: error paths are few, shared, and testable, while
 bad-input-tolerance is diffuse and every new consumer re-litigates it.
 
+### Prefer an allow list wherever the grammar is known
+
+A rejecter still has to decide what to reject, and there are two ways to write
+that down. A **deny list** enumerates the bad forms; an **allow list**
+enumerates the permitted ones and refuses everything else. Where a field's
+grammar is externally defined and small — a package id, a version — use the
+allow list.
+
+The difference is not stylistic. A deny list is only ever as current as the
+last hazard someone thought of, and it cannot express the attacks that use
+*ordinary* characters. Cyrillic `а` (`U+0430`) and Latin `a` (`U+0061`) are the
+same glyph, different code points, and both are general category `Ll` — no
+hazard classification will ever separate them, because neither is a hazard.
+Homoglyph typosquatting is defeated by constraining the grammar and by nothing
+else.
+
+An allow list is also the cheapest thing here to audit — one small set checked
+against one field — and the fastest to run, needing no Unicode tables. It is
+the same reject-over-sanitize rule applied one step earlier: at the point the
+value is admitted rather than the point it is printed.
+
+Free-form fields cannot be treated this way. Assembly-derived type and member
+names are legitimately non-ASCII, and prose is legitimately international, so
+those fall back to visual encoding. See
+[metadata-table-projection.md](metadata-table-projection.md#constrain-the-grammar-first-encode-only-what-cannot-be)
+for the sink classes and the encoding rules that follow from them.
+
 Push the decision **down**. The best shape is a type whose construction *is*
 the check, so choosing the type grants the capability and auditing is a search
 rather than an argument. A rule enforced by *calling a function* is a rule a

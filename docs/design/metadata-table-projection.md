@@ -436,6 +436,63 @@ over its bytes: it reports *where* and *what kind*, never *what*. This is the
 shape `grep` has had for decades — `Binary file X matches` by default, content
 only under `-a`/`--text`.
 
+### Constrain the grammar first, encode only what cannot be
+
+The scenarios this hardening is scoped to are narrow on purpose, because a
+universal answer is not available at this size:
+
+- A business user inspecting packages they already chose to trust.
+- **Package hijack** — stolen credentials used to publish a malicious version
+  of a real package.
+- **Typosquatting** — a package whose identity is meant to be mistaken for
+  another's.
+
+All three are **identity** attacks, and that observation orders everything
+below.
+
+**Encoding is a deny list, and a deny list cannot solve identity.** The
+category rule in the next section is a better deny list than an enumerated one
+— categories do not drift the way lists do — but it is still an enumeration of
+what is bad, and the central typosquatting vector defeats it outright. Cyrillic
+`а` (`U+0430`) and Latin `a` (`U+0061`) are the same glyph and different code
+points, and both are general category `Ll`. Neither is in any hazard category,
+and neither should be: they are ordinary letters. A rule built from hazard
+categories will never catch the attack this work was scoped to stop.
+
+**So where a field's grammar is known, validate against an allow list and
+reject.** An allow list inverts the burden: anything not positively permitted
+is refused, including the next hazard nobody has named yet. It is also the
+cheapest thing in this document to audit — a reader checks one small set
+against one field — and the fastest to run, since it needs no Unicode tables at
+all. This is the same "reject, do not sanitize" rule the threat model states,
+applied one level earlier: at the point the value is admitted, not at the point
+it is printed.
+
+That gives three sink classes, and the rendering rules differ by class:
+
+| Sink class | Examples | Rule |
+| --- | --- | --- |
+| **Constrained identifier** | package id, package version | Allow list matching the field's published grammar; reject on violation |
+| **Assembly-derived name** | type, member, namespace, file name | Visual encoding, widest category set |
+| **Prose** | package description, release notes | Visual encoding, minus the `CR`/`LF`/`TAB` exemption |
+
+A constrained identifier gets the strongest treatment because it is the only
+class whose grammar is externally defined and small. A NuGet package id is not
+free text, so nothing is lost by refusing everything outside its grammar, and
+homoglyphs, emoji, bidi controls, and invisible joiners all fall out of scope
+in a single rule rather than four.
+
+Assembly-derived names cannot be treated the same way. Real assemblies
+legitimately carry non-ASCII type and member names, so an ASCII allow list
+would reject valid input; that class keeps visual encoding. Prose is genuinely
+multi-line and genuinely international, so it keeps encoding with the narrower
+exempt set described below.
+
+Nothing here validates identifiers today. `NuGetCache.ValidatePathComponent` is
+a six-pattern deny list — `..`, `/`, `\`, `:`, `NUL`, rooted — which admits
+`ESC`, Cyrillic, and zero-width joiners without comment. Replacing it with the
+allow list for its class is the first concrete application of this section.
+
 ### Visual encoding, not neutralization
 
 The rendering axis does not remove or replace dangerous characters; it
@@ -466,34 +523,38 @@ every one. Two sets get conflated here, so name them separately:
   `U+200E` LRM, `U+200F` RLM, and `U+061C` ALM — twelve. This is the set
   `ApiOutputFormatter.IsBidiControl` already implements.
 
-**How far past bidi to go is an open decision, and not one this document
-settles.** `Cf` is `Bidi_Control` plus the invisible formatting characters:
-`U+200C` ZWNJ, `U+200D` ZWJ, `U+2060` WORD JOINER, `U+00AD` SOFT HYPHEN,
-`U+FEFF`. This repository has already decided against the wider set once,
-deliberately, with the reason recorded in `ApiOutputFormatter.cs`:
+**Past bidi, the encoded set is all of `Cf`.** `Cf` is `Bidi_Control` plus the
+invisible formatting characters: `U+200C` ZWNJ, `U+200D` ZWJ, `U+2060` WORD
+JOINER, `U+00AD` SOFT HYPHEN, `U+FEFF`. This repository chose the narrower set
+once, deliberately, with the reason recorded in `ApiOutputFormatter.cs`:
 
 > Deliberately narrower than the Cf category — a zero-width joiner or a BOM
 > does not reorder its neighbors, and legitimate identifiers may contain format
 > characters, so escaping all of Cf would corrupt ordinary names.
 
-That holds on its own terms, and C# backs it: the language admits `Cf` in
-`identifier_part_character`, so a format character inside a type name can be
-entirely legitimate. The counter-argument is that these are two different
-attacks. `Bidi_Control` *reorders*; ZWJ and its neighbours are *invisible*, and
-an invisible character is exactly how two distinct package or type identities
-come to render identically. For a tool whose product is "what is actually in
-this field", showing that difference is arguably the job.
+That is correct about the C# grammar — the language admits `Cf` in
+`identifier_part_character` — and it is the right answer to the question it was
+asked, which was about rendering an API surface faithfully. It is the wrong
+answer to the question this section asks, which is about identity. The two
+groups are different attacks: `Bidi_Control` *reorders*, while ZWJ and its
+neighbours are *invisible*, and an invisible character is precisely how two
+distinct identities come to render identically. Against hijack and
+typosquatting, an invisible character in a name is evidence, not a name.
 
-Both readings are defensible, they disagree, and one of them is already
-shipped. Resolve it before implementing — do not let this document silently
-overrule `ApiOutputFormatter`. The measured cost of choosing the wider set:
-Persian `می‌خواهم`, Devanagari `क्‍ष`, and emoji ZWJ sequences all render with
-visible escapes.
+The cost is real and worth stating plainly: Persian `می‌خواهم`, Devanagari
+`क्‍ष`, and emoji ZWJ sequences render with visible escapes. That cost lands on
+prose, where those sequences belong, and not on the identifier classes above,
+where they do not. It is accepted here because the encoding is lossless and
+invertible — the reader can still recover exactly what was in the field — which
+is a different bargain from `ApiOutputFormatter`'s, where escaping is terminal.
 
-Counts, for whichever set is chosen: `Cc` 65, `Bidi_Control` 12, all of `Cf`
-43, `Cs` 2,048, `Zl` and `Zp` one each — 2,158 BMP code points for the widest
-reading. CJK, combining diacritics, and precomposed ligatures such as `U+FB01`
-are untouched under either.
+Where the two sections disagree, they disagree because they serve different
+questions. Unify them upward if that divergence ever becomes confusing;
+do not narrow this one to match.
+
+Counts: `Cc` 65, `Cf` 43, `Cs` 2,048, `Zl` and `Zp` one each — 2,158 BMP code
+points. CJK, combining diacritics, and precomposed ligatures such as `U+FB01`
+are untouched.
 
 **Encode by scalar, not by UTF-16 code unit.** Every non-BMP character — every
 emoji, every rare CJK ideograph — is stored in a .NET `string` as *two* `Cs`
@@ -581,12 +642,13 @@ channel the check just closed.
 
 ### Status
 
-The bounded-traversal budgets, parse-never-load architecture, and opt-in heaps
-are implemented, with the gates and the one unverified property named above.
-The trust and rendering axes, `--survey`, the visual-encoding spelling and its
+The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
+implemented, with their gates named above. The identifier allow lists, the
+trust and rendering axes, `--survey`, the visual-encoding spelling and its
 decoder, and the failure-message rule are the **target model** and are not yet
 implemented; today the projector neutralizes control characters unconditionally
-and continues. See the threat model's open work.
+and continues, and nothing validates an identifier's grammar at all. See the
+threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 
