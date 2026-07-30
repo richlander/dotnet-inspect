@@ -1534,6 +1534,28 @@ public partial class CommandExecutionTests
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]
+    public async Task ApiShim_BareSelect_ForwardsThePresetToTypeOptions()
+    {
+        // ApiCommand.ExecuteAsync's `_ =>` arm rebuilds a TypeOptions field by field for direct
+        // callers (the CLI always constructs TypeOptions/MemberOptions itself, so it never lands
+        // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
+        // for free; a dedicated flag has to be copied deliberately, and omitting it silently
+        // downgrades the shim from the bare-select preset to the default tree view.
+        var options = new ApiOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            SelectDefault = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Method Groups", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Api_PlatformLibrary_ListsTypes()
     {
         var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
