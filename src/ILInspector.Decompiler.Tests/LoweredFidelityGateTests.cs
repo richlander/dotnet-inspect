@@ -46,19 +46,12 @@ public class LoweredFidelityGateTests
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
-        // CollectionListLiteral is raised by InlineArrayCollectionPass, which the
-        // lowered view keeps for collection-expression validity. Compile-back
-        // Roslyn emits a hidden index temp instead of the SDK csc's constant
-        // Span<T> indices for the same source idiom.
-        "CollectionListLiteral",
         "GotoCommonExit",
         "ManualAwaitEnumeratorLoop",
-        "ReverseCopy",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: the lowered view is representable, but recompiles
         // through an extra span conversion before the element-ref helper.
         "RuntimeInlineArrayForeach",
-        "SelectBoolReturn",
         // Clustered-case switch with bool arms raised to nested if/else via
         // SlotDiamondPass (#912) — honest comparison-tree over-render, not exact.
         "SlotDiamondDispatch",
@@ -71,14 +64,6 @@ public class LoweredFidelityGateTests
         "NullConditionalPropertyAssignment",
         "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
-        // OrBoolIntMix / OrBoolUintMix are the #1452 bool-operand materialization:
-        // a bitwise `bool | int` is CS0019, so BitwiseBoolOperandPass rewrites the
-        // bool operand to `(cond ? 1 : 0)`; in the slot-form shapes that ternary
-        // recompiles to a branch-select differing from the original branchless 0/1
-        // — valid C#, not opcode-exact. OrBoolUintMix additionally takes the
-        // `(uint)` mixed-sign reinterpret. The And* siblings stay opcode-exact.
-        "OrBoolIntMix",
-        "OrBoolUintMix",
         // SwitchStoreThenUse (#1743) is a known opcode-diff in the sibling sugared
         // FidelityGateTests docket — the ConditionalStoreChainPass ternary
         // (sel == 0 ? 11 : ...) re-lowers differently than the per-arm stores. It
@@ -89,19 +74,13 @@ public class LoweredFidelityGateTests
         // Lowered output omits ForLoopPass, so protected increment targets retain
         // #2857's valid while-loop fallback. The explicit default declaration
         // before initialization adds an opcode pair on compile-back.
-        "Issue2830_ForLoopEhCleanupContinue",
-        "Issue2830_ForLoopLeave",
-        "Issue2830_ForLoopNestedContinue",
-        "Issue2861_ForLoopTryAndCatchContinues",
         "Issue2861_NestedProtectedLeaveToOuterIncrement",
-        // CharConditionalElementStore (#1784) and WhileNestedContinueKeepsArmExclusive:
-        // pre-existing slow-docket gaps from recent main merges (a char ternary
-        // element store that spills to temps; a nested-continue loop structuring),
-        // both honest valid re-lowerings. Surfaced by running the Speed=Slow gate
-        // locally; verified independent of MixedShortCircuitChainPass (it folds
-        // neither). See the sibling FidelityGateTests docket.
+        // CharConditionalElementStore (#1784): a pre-existing slow-docket gap from
+        // recent main merges (a char ternary element store that spills to temps),
+        // an honest valid re-lowering. Surfaced by running the Speed=Slow gate
+        // locally; verified independent of MixedShortCircuitChainPass (it does not
+        // fold it). See the sibling FidelityGateTests docket.
         "CharConditionalElementStore",
-        "WhileNestedContinueKeepsArmExclusive",
         // PointerStoreUsesOriginalAddress (#2644): same intentional residual as
         // the sugared view. The lowered body keeps the original pointer address
         // in the store target, but compile-back introduces locals around the
@@ -113,20 +92,15 @@ public class LoweredFidelityGateTests
         // (the reconstructed CfgSampleClass failed to compile on InOperatorVec's
         // in-parameter operators rendered as illegal `ref`). Now compile-checked,
         // showing honest pre-existing over-renders. Same set as the sugared docket.
-        "CallOutTarget",
         "FloatPositionalPattern",
-        "GenericRefKindCallSites",
         // Expression-tree factory fixtures are valid and Full, but SDK preview6
         // compile-back reshapes the manually emitted Expression.* calls around
         // stack-slot/local temporaries. Same preview drift as the sugared gate.
         "ManualSimpleExpressionTreeFactory",
-        "SimpleExpressionTreeLambda",
-        // Same expression-tree docket as the sugared gate: the parameter-dependent
-        // graph recovers to a lambda, while the manual factory fixtures below decline
-        // to honest Expression.* factory-call C# whose emitted calls recompile through
-        // the same preview compile-back temporary reshaping. Verified by running the
-        // Speed=Slow lowered fidelity gate locally.
-        "ManualParameterPlusConstantFactory",
+        // Same expression-tree docket as the sugared gate: the manual factory
+        // fixtures below decline to honest Expression.* factory-call C# whose
+        // emitted calls recompile through the same preview compile-back temporary
+        // reshaping. Verified by running the Speed=Slow lowered fidelity gate locally.
         "ManualCanonicalReturnedAsExpression",
         "ManualCanonicalReturnedAsLambdaExpression",
         "ManualCanonicalReturnedAsObject",
@@ -146,30 +120,10 @@ public class LoweredFidelityGateTests
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
-        "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
         // Contract V1 rebaseline: opcode names still match, but canonical
         // operands, symbolic targets, or branch targets differ.
         "DayNumber",
-        "DoubleViaLocalFunction",
-        "StaticLocalFunctionCalledTwice",
-        // Synthesized local-function ordinals. Recompiling the reconstructed fixture
-        // type renumbers each local function's `g__Name|N_M` symbol (and the display
-        // class backing a captured one), which contract V1 observes as changed
-        // symbolic targets even though the opcode stream is unchanged. De-sugaring
-        // does not touch those ordinals, so this class of row affects the lowered
-        // rail exactly as it affects the sugared one — and the sugared gate already
-        // dockets all five with per-fixture rationale (see
-        // FidelityGateTests.KnownDiffs; #2983 covers the two EnumArg* entries,
-        // TwoLocalFunctionQuadrants records the |5_* -> |31_* shift). The lowered
-        // docket simply fell behind the sugared one while this Speed=Slow gate was
-        // being cancelled rather than reported. Tracked as #3491, and #3503 proposes
-        // canonicalizing synthesized ordinals so neither docket needs these rows.
-        "EnumArgInInlineLocalFunction",
-        "EnumArgInLocalFunctionWithLocal",
-        "RecursiveLocalFunction",
-        "StaticLocalFunctionWithLocal",
-        "TwoLocalFunctionQuadrants",
         // MakeConsumerWithTwoLeadingArgs (#3272): the trailing object initializer
         // with TWO preceding constructor arguments folds correctly (Valid + Correct)
         // to `new InitConsumer3(Identity(tag), Identity(a), new InitTarget { ... })`,
@@ -182,9 +136,19 @@ public class LoweredFidelityGateTests
     };
 
     /// <summary>
-    /// Methods the lowered view keeps exact under contract V1. This is the sugared pinned set minus the
-    /// two methods the lowered view legitimately reshapes: ReverseCopy (now an expected diff,
-    /// see <see cref="KnownDiffs"/>) and ClassicLock (lowering skips LockSugarPass, emitting an
+    /// Docket rows the harness reports as <see cref="FidelityCheck.CompileBackStatus.NotFull"/>:
+    /// the body imports below Full fidelity, so no opcode verdict is formed and an
+    /// opcode diff is expected rather than a defect. Empty on this rail today; it
+    /// exists so <see cref="DocketRowsStayCheckedDiffs"/> can require every other docket
+    /// row to remain an actual diff, and so a row that newly drops to NotFull fails as
+    /// the validity regression it is instead of landing here silently.
+    /// </summary>
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Methods the lowered view keeps exact under contract V1. This is the sugared pinned set minus
+    /// ClassicLock, which the lowered view legitimately reshapes (lowering skips LockSugarPass,
+    /// emitting an
     /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
     /// recompile-fail bucket the gate excludes by design, same as the sugared rail's
     /// shell-attribution failures). DayNumber moved to the V1 difference docket
@@ -243,6 +207,38 @@ public class LoweredFidelityGateTests
         "ClassifyMode",
         "ClassifyWide",
         "AnonShorthand",
+        // Promoted from KnownDiffs by #3584 after they were measured Exact on the
+        // current main. The local-function/lambda rows are the benign
+        // reconstruction-ordinal class that #3505 retired by canonicalizing
+        // synthesized-member ordinals in the oracle — the outcome this rail's
+        // ordinal comment anticipated when it pointed at #3503. The Issue2830_* /
+        // Issue2861_ForLoopTryAndCatchContinues rows became exact through the
+        // try/catch return-sinking work (#3553), and the rest through unrelated
+        // raising. They are pinned rather than merely deleted so each fix is now
+        // guarded: a docket row that stops diffing gates nothing, a PinnedExact
+        // row does.
+        "CallOutTarget",
+        "CollectionListLiteral",
+        "DoubleViaLocalFunction",
+        "EnumArgInInlineLocalFunction",
+        "EnumArgInLocalFunctionWithLocal",
+        "GenericRefKindCallSites",
+        "Issue2830_ForLoopEhCleanupContinue",
+        "Issue2830_ForLoopLeave",
+        "Issue2830_ForLoopNestedContinue",
+        "Issue2861_ForLoopTryAndCatchContinues",
+        "ManualParameterPlusConstantFactory",
+        "OrBoolIntMix",
+        "OrBoolUintMix",
+        "RecursiveLocalFunction",
+        "RefKindCallSites",
+        "ReverseCopy",
+        "SelectBoolReturn",
+        "SimpleExpressionTreeLambda",
+        "StaticLocalFunctionCalledTwice",
+        "StaticLocalFunctionWithLocal",
+        "TwoLocalFunctionQuadrants",
+        "WhileNestedContinueKeepsArmExclusive",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
@@ -281,6 +277,61 @@ public class LoweredFidelityGateTests
             "New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(r => r.Method))}");
+    }
+
+    /// <summary>
+    /// The reverse direction of <see cref="NoNewFidelityDiffsBeyondKnownDocket"/>, which is a
+    /// one-directional allow list: it fails when an undocketed method diffs, but never when a
+    /// docketed method stops diffing. A row that became <c>Exact</c> silently allows a future
+    /// regression it was never meant to cover, and a row that became
+    /// <c>RecompileFail</c>/<c>ContextFail</c> silently drops a real regression out of the
+    /// gated set. See the sugared rail's <c>DocketRowsStayCheckedDiffs</c> for the full
+    /// rationale and the #3505 precedent (#3584).
+    /// </summary>
+    [Fact]
+    public void DocketRowsStayCheckedDiffs()
+    {
+        var results = EvaluateFixtures();
+        var failures = new List<string>();
+
+        foreach (string method in KnownDiffs.OrderBy(m => m, StringComparer.Ordinal))
+        {
+            var matches = results.Where(r => r.Method == method).ToList();
+            if (matches.Count == 0)
+            {
+                failures.Add($"{method}: docketed, but the lowered fidelity check no longer renders it. "
+                    + "Remove the row if the fixture is gone, or restore the fixture.");
+                continue;
+            }
+
+            foreach (var result in matches)
+            {
+                if (result.Status is FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff)
+                    continue;
+
+                if (result.Status == FidelityCheck.CompileBackStatus.NotFull
+                    && KnownNotFull.Contains(method))
+                    continue;
+
+                failures.Add(result.Status switch
+                {
+                    FidelityCheck.CompileBackStatus.Exact =>
+                        $"{method}: now recompiles Exact in the lowered view, so its docket row is stale and "
+                        + "silently allows a future regression. Move it to PinnedExact so the fix is guarded.",
+                    FidelityCheck.CompileBackStatus.NotFull =>
+                        $"{method}: dropped to NotFull — it now imports below Full fidelity, so no opcode "
+                        + "verdict is formed. That is a validity regression, not a docketed diff.",
+                    _ =>
+                        $"{method}: regressed to {result.Status} — its lowered C# no longer recompiles, so it "
+                        + $"silently left the diff set the docket gates.\n  detail: {result.Detail}",
+                });
+            }
+        }
+
+        Assert.True(failures.Count == 0,
+            "Stale or regressed rows in LoweredFidelityGateTests.KnownDiffs (#3584):\n"
+            + string.Join("\n", failures));
     }
 
     [Fact]
