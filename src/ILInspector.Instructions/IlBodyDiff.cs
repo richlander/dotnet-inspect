@@ -95,24 +95,36 @@ public enum IlBodyDiffNormalization
     /// never a masked difference.
     /// </para>
     /// <para>
-    /// Every property claimed above is enforced by a gate in
-    /// <c>IlBodyDiffNormalizationTests</c>:
-    /// <c>ToleratesContainingMethodRenumbering</c> and
-    /// <c>ToleratesRenumberingOfALambdaCacheField</c> for what is related —
+    /// Every rule that can change what this option relates is enforced by a
+    /// gate in <c>IlBodyDiffNormalizationTests</c>, and each was confirmed
+    /// load-bearing by neutering it individually and observing that gate — and
+    /// only that gate — fail. <c>ToleratesContainingMethodRenumbering</c> and
+    /// <c>ToleratesRenumberingOfALambdaCacheField</c> cover what is related;
     /// each asserts the two names differ <em>without</em> the option as well
     /// as agreeing with it, so neither can pass vacuously in either
     /// direction. The remaining gates assert only that the names still differ
     /// <em>with</em> the option, which is the whole claim for a name this
     /// option must not relate: <c>PreservesEveryOtherNameComponent</c> for the
-    /// components that stay significant, the anchoring, and non-canonical
-    /// ordinals, <c>RejectsAFieldFormOnAMethod</c> and
-    /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence,
+    /// components that stay significant, the anchoring, every component of the
+    /// grammar, and both canonical-ordinal rules;
+    /// <c>RejectsAFieldFormOnAMethod</c> and
+    /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence;
     /// <c>RejectsAMethodFormBehindAMethodSpecificationOnAField</c> for the
-    /// generic-instantiation path,
+    /// generic-instantiation path;
     /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
-    /// ordinal spelling, <c>LeavesTypeOperandsAlone</c> and
-    /// <c>PreservesSynthesizedLikeStringLiterals</c> for the scope, and
+    /// ordinal spelling; <c>LeavesTypeOperandsAlone</c> and
+    /// <c>PreservesSynthesizedLikeStringLiterals</c> for the scope; and
     /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
+    /// </para>
+    /// <para>
+    /// Four checks are deliberately <em>not</em> gated, because they are
+    /// redundant fast paths rather than rules: the length floor, the leading
+    /// <c>&lt;</c> pre-check, and the <c>__</c> pre-check in
+    /// <c>Normalize</c>, and the empty-span check in
+    /// <c>IsCanonicalOrdinal</c>. Each is subsumed by a check that follows it,
+    /// so neutering one changes no observable behavior and no test can
+    /// distinguish it. They are listed here so that a future reader does not
+    /// mistake their absence from the gate list for an ungated property.
     /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
@@ -1132,8 +1144,15 @@ public static class IlBodyDiff
 
         static string Normalize(string value, SynthesizedMemberKind kind, int depth)
         {
-            // Every recognized form opens with '<', which C# cannot spell, and
-            // carries the '__' separator. Both checks are cheap rejects.
+            // Cheap rejects, subsumed by the grammar below rather than adding
+            // to it. The shortest recognized form is `<>9__0_0`, every form
+            // opens with '<', which C# cannot spell, and every form carries
+            // '__'. `TryNormalizeName` declines each of these on its own, so
+            // no test distinguishes their presence — they exist to skip the
+            // scan on the overwhelming majority of names, not to reject
+            // anything the grammar would otherwise accept. Widening one is
+            // therefore safe; narrowing one is not, since a form the grammar
+            // accepts must be able to reach it.
             if (value.Length < MinNameLength
                 || value[0] != '<'
                 || !value.Contains("__", StringComparison.Ordinal))
@@ -1288,6 +1307,9 @@ public static class IlBodyDiff
         static bool IsCanonicalOrdinal(string value, int start, int end)
         {
             int length = end - start;
+
+            // Redundant with the parse below, which also rejects an empty
+            // span; kept because it states the intent at the top.
             if (length == 0)
                 return false;
 

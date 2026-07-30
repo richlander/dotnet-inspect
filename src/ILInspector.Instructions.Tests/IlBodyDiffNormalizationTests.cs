@@ -349,6 +349,12 @@ public class IlBodyDiffNormalizationTests
         "<Run>b__000000000000000000000000000128_0")]              // padded ordinal
     [InlineData("<Run>b__2147483648_0", "<Run>b__2147483649_0")]  // ordinal past int.MaxValue, no leading zero
     [InlineData("<Run>b__103_2147483648", "<Run>b__128_2147483648")] // per-method index past int.MaxValue
+    [InlineData("<>x__103_0", "<>x__128_0")]                      // marker outside the `9`/`b`/`g` set
+    [InlineData("<A__B>bX_103_0", "<A__B>bX_128_0")]              // marker not followed by `__`
+    [InlineData("<A__B>b_X103_0", "<A__B>b_X128_0")]              // marker followed by only one `_`
+    [InlineData("<Run>b___0", "<Run>b__128_0")]                   // no ordinal digits at all
+    [InlineData("<Run>b__103_", "<Run>b__128_")]                  // no per-method index digits
+    [InlineData("<Run>b__103X0", "<Run>b__128X0")]                // ordinals not separated by `_`
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)
