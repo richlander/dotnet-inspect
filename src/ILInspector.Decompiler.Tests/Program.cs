@@ -38,7 +38,13 @@ internal static class Program
             "The docket and byte-neutrality gates only (matches the PR CI decompiler-gates job).",
             "-class", "ILInspector.Decompiler.Tests.FidelityGateTests",
             "-class", "ILInspector.Decompiler.Tests.LoweredFidelityGateTests",
-            "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests"),
+            "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests",
+            // The gate's own plumbing guard rides along in the preset it guards.
+            // Running it as a separate CI step was vacuous: a filter naming a
+            // renamed or deleted class discovers nothing and exits 0. Inside the
+            // preset it is covered by the same discovery/coverage checks as the
+            // correctness gates, so it cannot silently stop running.
+            "-class", "ILInspector.Decompiler.Tests.GateExpectedClassesTests"),
         new("corpus", "Only the Corpus area (the multi-hour sweep).", "-trait", "Area=Corpus"),
         new("roundtrip", "Only the RoundTrip area (compile-back / ReturnToSender).", "-trait", "Area=RoundTrip"),
         new("fidelity", "Only the Fidelity area.", "-trait", "Area=Fidelity"),

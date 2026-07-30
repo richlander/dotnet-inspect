@@ -446,15 +446,19 @@ jobs:
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 
-      # The gate below trusts eng/decompiler-gate-expected-classes.txt to say
-      # what must have run. Validate that file here rather than relying on
-      # another job's path filter to have run the fast lane: the job that
-      # consumes the inventory is the job that should prove it still matches
-      # the preset. Cheap (sub-second) and not continue-on-error.
-      - name: Verify gate inventory matches the preset
+      # Enumerate what the preset selects, without running it. This is the
+      # reference the completeness check compares the results against; the
+      # report's own summary counters cannot serve, because an honestly
+      # truncated report declares its own smaller total and agrees with itself.
+      #
+      # Uses --gate pre-merge, the same preset as the run below, so the two
+      # cannot drift. Sub-second, and not continue-on-error: if discovery fails
+      # there is no reference and the gate must not proceed.
+      - name: Discover expected gate tests
         run: |
           dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            -class ILInspector.Decompiler.Tests.GateExpectedClassesTests
+            --gate pre-merge -noColor -list methods/json \
+            > "$RUNNER_TEMP/decompiler-gates-expected.json"
 
       # continue-on-error so the pinned known-red failures do not fail the job
       # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
@@ -479,7 +483,8 @@ jobs:
           dotnet run eng/check-decompiler-gate.cs -- \
             "$RUNNER_TEMP/decompiler-gates.xml" \
             eng/decompiler-gate-known-red.txt \
-            eng/decompiler-gate-expected-classes.txt
+            eng/decompiler-gate-expected-classes.txt \
+            "$RUNNER_TEMP/decompiler-gates-expected.json"
 
       - name: Upload gate report
         if: always()

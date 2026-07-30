@@ -6,13 +6,21 @@
 //   * a pinned test that passed     -> the fix landed, retire the pin
 //   * a pinned test that never ran  -> the pin is dead (renamed/deleted test)
 //   * a gate test that did not run  -> coverage silently disappeared
-//   * an expected class is absent   -> the report is incomplete
+//   * an expected class is absent   -> the preset stopped selecting it
+//   * a discovered test has no row  -> the report is incomplete
 //
-// The last case is what an inventory buys. Without it the checker could only
-// judge the tests a report happens to contain, so a preset that stopped
-// selecting a class, a renamed class, or a run killed partway would each
-// produce a smaller report whose failing set still matched the pin list
-// exactly, and pass.
+// The last two are different properties and both are needed.
+//
+// The class inventory proves the *preset* still selects the classes it is
+// supposed to. It cannot prove the report is whole, because it only asks
+// whether each class contributed at least one row.
+//
+// Completeness needs a reference the report cannot forge, and the report's own
+// summary counters are not one: they are written by the same run. A report
+// containing four of fourteen tests and honestly declaring total="4" is
+// internally consistent and tells the checker nothing. So the expected test set
+// comes from a separate `-list methods` discovery pass over the same preset,
+// and every discovered test must appear in the results.
 //
 // Only "Pass" counts as passing. A gate test that is skipped is neither
 // passing nor failing, and treating it as either is how a gate becomes
@@ -21,27 +29,36 @@
 // last thing naming the test.
 //
 // Usage:
-//   dotnet run eng/check-decompiler-gate.cs -- <results.xml> <known-red.txt> <expected-classes.txt> [--partial]
+//   dotnet run eng/check-decompiler-gate.cs -- <results.xml> <known-red.txt> \
+//       <expected-classes.txt> <discovered-tests.json> [--partial]
 //
-// --partial suppresses the dead-pin and expected-class checks, for developers
-// running a subset of the gate classes locally. CI always runs the full preset
-// and must not pass it.
+// Produce the discovery listing with the *same* preset as the run, so the two
+// cannot drift:
+//   dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+//       --gate pre-merge -noColor -list methods/json > discovered-tests.json
+//
+// --partial suppresses the dead-pin, expected-class, and completeness checks,
+// for developers running a subset of the gate classes locally. CI always runs
+// the full preset and must not pass it.
 
+using System.Text.Json;
 using System.Xml.Linq;
 
 var positional = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 bool partial = args.Contains("--partial", StringComparer.Ordinal);
 
-if (positional.Length != 3)
+if (positional.Length != 4)
 {
     Console.Error.WriteLine(
-        "usage: check-decompiler-gate <results.xml> <known-red.txt> <expected-classes.txt> [--partial]");
+        "usage: check-decompiler-gate <results.xml> <known-red.txt> <expected-classes.txt> "
+            + "<discovered-tests.json> [--partial]");
     return 2;
 }
 
 string resultsPath = positional[0];
 string pinPath = positional[1];
 string expectedClassesPath = positional[2];
+string discoveredPath = positional[3];
 
 if (!File.Exists(resultsPath))
 {
@@ -61,6 +78,14 @@ if (!File.Exists(pinPath))
 if (!File.Exists(expectedClassesPath))
 {
     Console.Error.WriteLine($"error: expected-classes file not found: {expectedClassesPath}");
+    return 2;
+}
+
+if (!File.Exists(discoveredPath))
+{
+    Console.Error.WriteLine($"error: discovered-tests file not found: {discoveredPath}");
+    Console.Error.WriteLine("Without it there is no reference for what the run should have contained,");
+    Console.Error.WriteLine("and an incomplete report cannot be distinguished from a complete one.");
     return 2;
 }
 
@@ -86,15 +111,19 @@ if (tests.Count == 0)
     return 2;
 }
 
-// Cross-check the report against its own declared summary. The class inventory
-// proves the run selected every expected class; this proves the report is not
-// missing rows within them. xUnit writes per-assembly totals, so truncation is
-// detectable without pinning a test list that would rot on every added test.
+// Cross-check the report against its own declared summary. This is an
+// *internal consistency* check only: it catches a report that was truncated or
+// rewritten so that its rows no longer match its own counters. It deliberately
+// does not claim to prove completeness -- the counters come from the same run,
+// so an honestly-declared partial report satisfies them. The discovery
+// comparison below is what proves completeness.
 static int Sum(IEnumerable<XElement> assemblies, string attribute) =>
     assemblies.Sum(a => int.TryParse((string?)a.Attribute(attribute), out int n) ? n : 0);
 
 var assemblies = doc.Descendants("assembly").ToList();
 int declaredTotal = Sum(assemblies, "total");
+int declaredPassed = Sum(assemblies, "passed");
+int declaredFailed = Sum(assemblies, "failed");
 int declaredSkipped = Sum(assemblies, "skipped");
 int declaredNotRun = Sum(assemblies, "not-run");
 int declaredErrors = Sum(assemblies, "errors");
@@ -113,6 +142,18 @@ if (declaredSkipped != 0 || declaredNotRun != 0 || declaredErrors != 0)
         $"error: the report declares {declaredSkipped} skipped, {declaredNotRun} not-run, "
             + $"and {declaredErrors} errored tests.");
     Console.Error.WriteLine("Gate tests must run. Fix the environment or the test; do not skip it.");
+    return 2;
+}
+
+int actualPassed = tests.Count(t => (string?)t.Attribute("result") == "Pass");
+int actualFailed = tests.Count(t => (string?)t.Attribute("result") == "Fail");
+
+if (declaredPassed != actualPassed || declaredFailed != actualFailed)
+{
+    Console.Error.WriteLine(
+        $"error: the report declares {declaredPassed} passed and {declaredFailed} failed, "
+            + $"but contains {actualPassed} passing and {actualFailed} failing <test> elements.");
+    Console.Error.WriteLine("The report contradicts itself and cannot be trusted to describe the run.");
     return 2;
 }
 
@@ -199,6 +240,66 @@ var missingClasses = partial
     ? []
     : expectedClasses.Except(coveredClasses, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 
+// Completeness, against a reference the results file cannot forge. Discovery
+// enumerates what the preset selects without running anything, so a run that
+// was cut short, filtered down, or rewritten has a smaller result set than the
+// listing regardless of how self-consistent its own counters are.
+List<string> missingTests = [];
+List<string> unexpectedTests = [];
+
+if (!partial)
+{
+    HashSet<string> discovered;
+    try
+    {
+        using var listing = JsonDocument.Parse(File.ReadAllText(discoveredPath));
+        if (listing.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            Console.Error.WriteLine($"error: {discoveredPath} is not a JSON array of test names.");
+            Console.Error.WriteLine("Produce it with '-noColor -list methods/json'.");
+            return 2;
+        }
+
+        discovered = listing.RootElement
+            .EnumerateArray()
+            .Where(e => e.ValueKind == JsonValueKind.String)
+            .Select(e => e.GetString()!)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+    catch (JsonException ex)
+    {
+        Console.Error.WriteLine($"error: {discoveredPath} is not well-formed JSON: {ex.Message}");
+        Console.Error.WriteLine("A truncated listing would understate what the run owed, so this");
+        Console.Error.WriteLine("cannot be treated as an empty expectation.");
+        return 2;
+    }
+
+    if (discovered.Count == 0)
+    {
+        Console.Error.WriteLine($"error: {discoveredPath} lists no tests.");
+        Console.Error.WriteLine("Discovery matched nothing, so every report would satisfy it. A filter");
+        Console.Error.WriteLine("naming a renamed or deleted class discovers nothing and exits 0 --");
+        Console.Error.WriteLine("that is a broken preset, not an empty gate that passed.");
+        return 2;
+    }
+
+    // Discovery lists methods; a theory contributes one row per case, so
+    // compare at method granularity in both directions.
+    var executedMethods = executed
+        .Select(name =>
+        {
+            int paren = name.IndexOf('(', StringComparison.Ordinal);
+            return paren >= 0 ? name[..paren] : name;
+        })
+        .ToHashSet(StringComparer.Ordinal);
+
+    missingTests = discovered.Except(executedMethods, StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal).ToList();
+    unexpectedTests = executedMethods.Except(discovered, StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal).ToList();
+}
+
 var newFailures = failed.Except(pinned, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 var nowPassing = pinned.Intersect(passed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 var deadPins = partial
@@ -233,6 +334,29 @@ if (missingClasses.Count > 0)
     Console.WriteLine("  pre-merge no longer selects this class (renamed? deleted? preset edited?).");
     Console.WriteLine($"  A shrinking gate passes trivially, which is why {expectedClassesPath}");
     Console.WriteLine("  exists. Pass --partial if you deliberately ran a subset.");
+    Console.WriteLine();
+}
+
+if (missingTests.Count > 0)
+{
+    Console.WriteLine($"INCOMPLETE REPORT ({missingTests.Count}) — discovered but absent from the results:");
+    foreach (var name in missingTests)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  Discovery says the preset selects these; the report does not contain them.");
+    Console.WriteLine("  The run was cut short or the report was rewritten. A report that is missing");
+    Console.WriteLine("  tests cannot clear the gate no matter how consistent its own counters are.");
+    Console.WriteLine();
+}
+
+if (unexpectedTests.Count > 0)
+{
+    Console.WriteLine($"UNEXPECTED RESULTS ({unexpectedTests.Count}) — in the results but never discovered:");
+    foreach (var name in unexpectedTests)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  The results and the discovery listing describe different runs. They must be");
+    Console.WriteLine("  produced from the same preset against the same build.");
     Console.WriteLine();
 }
 
@@ -288,6 +412,8 @@ if (newFailures.Count == 0
     && nowPassing.Count == 0
     && deadPins.Count == 0
     && missingClasses.Count == 0
+    && missingTests.Count == 0
+    && unexpectedTests.Count == 0
     && unidentified == 0)
 {
     Console.WriteLine("OK: the failing set matches the known-red list exactly.");

@@ -237,11 +237,14 @@ the hot `test` lane, and runs `--gate pre-merge`:
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  --gate pre-merge -noColor -list methods/json > /tmp/expected.json
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -xml /tmp/gates.xml
 dotnet run eng/check-decompiler-gate.cs -- \
   /tmp/gates.xml \
   eng/decompiler-gate-known-red.txt \
-  eng/decompiler-gate-expected-classes.txt
+  eng/decompiler-gate-expected-classes.txt \
+  /tmp/expected.json
 ```
 
 The gate runs **red**. Turning it on was not made conditional on the open
@@ -259,11 +262,14 @@ and treats drift in **both** directions as an error:
 | a pinned test that passed | the fix landed; retire the pin |
 | a pinned test that never ran | dead pin — the test was renamed or deleted |
 | a gate test that neither passed nor failed | coverage silently disappeared |
-| an expected class with nothing executed | the report is incomplete |
+| an expected class with nothing executed | the preset stopped selecting it |
+| a discovered test with no row in the report | the report is incomplete |
+| a row for a test discovery never listed | report and listing describe different runs |
 | a `<test>` with no usable name | the report is malformed |
 | the report contradicts its own declared totals | truncated or rewritten |
 | the report declares skipped, not-run, or errored tests | coverage did not run |
 | no report, or a report with zero tests | a crashed or empty run is not a pass |
+| no discovery listing, or one listing zero tests | there is no reference to judge completeness against |
 
 Only `Pass` counts as passing. A skipped gate test is neither passing nor
 failing, and treating it as either is how a gate becomes vacuous: an unpinned
@@ -271,34 +277,40 @@ skip would report an exact match, and a pinned skip would look like a landed
 fix, prompting removal of the pin that was the last thing naming the test.
 Skipping is not an approved way to green this job.
 
-`eng/decompiler-gate-expected-classes.txt` is what stops an *incomplete* report
-from passing. Judging only the tests a report happens to contain is not enough:
-a preset that stopped selecting a class, a renamed class, or a run killed after
-emitting some results would each yield a smaller report whose failing set still
-matched the pin list exactly. The checker therefore requires every listed class
-to have executed something.
+`eng/decompiler-gate-expected-classes.txt` records the classes `--gate pre-merge`
+must select. It proves the *preset* has not quietly shrunk: a class renamed,
+deleted, or dropped from the preset yields a report whose failing set still
+matches the pin list exactly, and the inventory is what rejects it.
 
 That inventory is only worth its accuracy, so it is not maintained by hand
 against the preset. `GateExpectedClassesTests` asserts set equality between the
 file and the `pre-merge` preset's `-class` arguments, in both directions, so a
 class added to the preset without being added to the file fails and so does a
-stale entry. That test is in the fast lane deliberately — it must run on PRs
-that never trigger the slow gates — and editing the inventory sets `code=true`
-so the lane that validates it actually runs. The `decompiler-gates` job also
-runs that test directly before the gates, so the job that consumes the
-inventory proves it, rather than trusting another job's path filter.
+stale entry. That test is itself in the `pre-merge` preset, so it runs in the
+gate job and is covered by the same completeness check as the correctness
+gates. Running it as a *separate* CI step was worse than useless: a `-class`
+filter naming a renamed or deleted class discovers nothing and exits 0, so the
+step would have gone green while enforcing nothing.
 
-The class inventory proves the run selected every expected class; it does not
-prove no rows are missing *within* a class. For that the checker cross-checks
-the report against its own declared per-assembly totals, so a truncated or
-rewritten report fails even when every class is represented. Pinning expected
-test names would also catch it, but would rot on every added test; the declared
-totals do not.
+Completeness is a separate property, and it needs a reference the report cannot
+forge. The report's own summary counters are not one — they are written by the
+same run, so a report containing four of fifteen tests and honestly declaring
+`total="4"` is entirely self-consistent. The checker therefore compares the
+results against a **discovery listing** produced by `-list methods/json` over
+the same preset, which enumerates what should run without running it. Every
+discovered test must appear in the results, and every result must correspond to
+a discovered test.
+
+The declared totals are still cross-checked, including `passed` and `failed`
+against the actual rows, but only as an internal-consistency check on a
+possibly-corrupt report. They are not evidence of completeness and are not
+relied on as such.
 
 The stale-pin check is what keeps the pin list a ratchet rather than a growing
 exemption set: a pin that outlives its failure silently un-gates the test it
-names. Pass `--partial` to suppress the dead-pin and expected-class checks when
-deliberately running a subset locally.
+names. Pass `--partial` to suppress the dead-pin, expected-class, and
+completeness checks when deliberately running a subset locally. CI runs the full
+preset and never passes it.
 
 The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
 build files including `global.json` and `nuget.config`, minus `*.md`. A fidelity
