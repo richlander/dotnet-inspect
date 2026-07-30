@@ -340,11 +340,19 @@ public class CommandErrorOwnershipTests
     /// pin's subject. The gate for it is behavioural and lives elsewhere:
     /// <c>UntrustedArgumentDiagnosticContainmentTests</c> runs the CLI with
     /// hostile argv and asserts the emitted diagnostics are contained, and the
-    /// same tamper turns eight of its cases red. Neither rule subsumes the
+    /// same tamper turns eight of its cases red. That class drives argv only,
+    /// so it is the nearest member of the gate rather than the whole of it:
+    /// the metadata-derived routes that also reach this stream -- the
+    /// <c>--info</c> view and the Mermaid trace among them -- are gated by its
+    /// siblings, <c>UntrustedLibraryViewContainmentTests</c>,
+    /// <c>UntrustedProjectViewContainmentTests</c>,
+    /// <c>MarkoutRowContainmentTests</c>, and
+    /// <c>PayloadLensContainmentTests</c>, which share the
+    /// <c>HostileOutputAssert</c> oracle. Neither rule subsumes the
     /// other -- this one says only accounted code may touch the stream, that
-    /// one says what the accounted code puts on it is safe -- so a change that
-    /// silences one should be read against the other rather than against a
-    /// green suite.
+    /// family says what the accounted code puts on it is safe -- so a change
+    /// that silences one should be read against the other rather than against
+    /// a green suite.
     /// </remarks>
     [Fact]
     public void CompiledIl_ReachesStderrOnlyWhereAccountedFor()
