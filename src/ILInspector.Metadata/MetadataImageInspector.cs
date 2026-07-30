@@ -42,7 +42,7 @@ public static class MetadataImageInspector
         var headers = peReader.PEHeaders;
 
         return new MetadataImageOverview(
-            reader.MetadataVersion,
+            NeutralizeVersion(reader.MetadataVersion),
             reader.MetadataKind,
             reader.IsAssembly,
             headers.MetadataStartOffset,
@@ -51,6 +51,23 @@ public static class MetadataImageInspector
             DescribeTables(reader),
             DescribeHeaders(headers));
     }
+
+    /// <summary>
+    /// The metadata root's version stamp is a counted string read straight out of
+    /// the image, so it is attacker-controlled in exactly the way heap strings
+    /// are — and unlike them it reaches presentation without passing through the
+    /// row projection. Neutralizing it here keeps the containment with the layer
+    /// that owns the fact, so every consumer inherits it rather than each
+    /// renderer having to remember.
+    ///
+    /// The budget cannot truncate a conforming value: ECMA-335 bounds the field
+    /// at 255 bytes, and neutralization expands a control character to six
+    /// characters, so 255 * 6 is the widest a well-formed stamp can become.
+    /// </summary>
+    static string NeutralizeVersion(string version)
+        => MetadataTableProjector.NeutralizeControls(version, MetadataVersionBudget, out _);
+
+    const int MetadataVersionBudget = 255 * 6;
 
     static ImmutableArray<MetadataHeapSummary> DescribeHeaps(MetadataReader reader)
     {

@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -8,9 +8,9 @@ using Mdi;
 namespace DotnetInspector.MetadataRendering.Tests;
 
 /// <summary>
-/// A type that exists only so <see cref="MdiContainmentTests"/> has a long,
+/// A type that exists only so <see cref="HostileAssemblyFixture"/> has a long,
 /// unique ASCII name to find in this assembly's <c>#Strings</c> heap and splice
-/// a terminal escape sequence into. Nothing references it at runtime; its whole
+/// control characters into. Nothing references it at runtime; its whole
 /// contribution is the name recorded in metadata.
 /// </summary>
 internal sealed class TerminalEscapeCanaryPlaceholder;
@@ -21,69 +21,33 @@ internal sealed class TerminalEscapeCanaryPlaceholder;
 /// Presentation boundary, where "Terminal control injection" is the named risk
 /// and metadata names are named untrusted input.
 /// <para>
-/// The property under test is <em>inherited</em>, which is exactly why it needs
-/// its own gate here. <c>mdi</c> performs no escaping of its own: it hands every
-/// view to <c>MetadataProjectionRenderer</c>, which renders values already
+/// The property is mostly <em>inherited</em>, which is why it needs its own
+/// gate. <c>mdi</c> performs almost no escaping of its own: it hands every view
+/// to <c>MetadataProjectionRenderer</c>, which renders values already
 /// neutralized by <c>MetadataTableProjector</c>. That makes <c>mdi</c> the
 /// reference example of consuming the projection safely — and it also makes the
 /// safety invisible at the call site, so nothing in <c>mdi</c> would fail if a
-/// future renderer or projection path started emitting raw heap text. These
-/// tests fail instead.
+/// projection path started emitting raw heap text. These tests fail instead.
 /// </para>
 /// <para>
-/// The fixture is a real assembly rather than a synthetic string, per the
-/// <c>AGENTS.md</c> evidence rule: the claim is about what reaches a terminal
-/// when a hostile <em>artifact</em> is inspected, so the payload is spliced into
-/// a genuine <c>#Strings</c> entry and travels the whole decode-project-render
-/// path. The splice preserves length, so every heap offset in the image stays
-/// valid and the only thing that changes is the bytes of one name.
+/// That gap was not hypothetical. Review of the first version of this file found
+/// the overview reporting the metadata root's version stamp — an artifact-derived
+/// counted string — straight to the renderer, bypassing the projector entirely
+/// and emitting a raw ESC in Markdown and TSV. The fix neutralizes it in
+/// <c>MetadataImageInspector</c>, and
+/// <see cref="OverviewRendering_ContainsHostileVersionStamp_InEveryFormat"/> is
+/// the case that would have caught it.
 /// </para>
 /// <para>
-/// Verified by mutation: with <c>MetadataTableProjector.IsControl</c> forced to
-/// <c>false</c>, the Markdown and TSV table and heap tests fail on the raw
-/// control character itself. The JSONL cases keep passing, and that is a real
-/// property rather than a gap in the fixture — JSONL is written through
-/// <c>MarkoutTableMode.Jsonl</c>, whose string encoding escapes control
-/// characters independently, so JSONL carries a second containment layer. The
-/// projector is therefore pinned by the Markdown and TSV cases; the JSONL cases
-/// pin the writer.
+/// Each test asserts both halves of the containment claim: no raw control
+/// character survived, <em>and</em> the neutralized form of every control in the
+/// payload is present. Absence alone would also be satisfied by rendering
+/// nothing at all.
 /// </para>
 /// </summary>
-public sealed class MdiContainmentTests
+public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
+    : IClassFixture<HostileAssemblyFixture>
 {
-    /// <summary>
-    /// A real CSI sequence (<c>ESC [ 3 1 m</c> — "set foreground red"). A bare
-    /// ESC would prove less: this is a complete, effective control sequence, so
-    /// emitting it raw would actually reprogram a terminal rather than merely
-    /// look suspicious.
-    /// </summary>
-    static readonly byte[] Payload = [0x1B, (byte)'[', (byte)'3', (byte)'1', (byte)'m'];
-
-    /// <summary>
-    /// How the payload must appear once contained. Asserting on this — rather
-    /// than only on the absence of raw ESC — is what keeps every test below
-    /// non-vacuous: absence alone would also pass if the patch silently missed
-    /// the heap, or if the row stopped being rendered at all.
-    /// </summary>
-    const string Neutralized = @"\u001B";
-
-    const string CanaryName = nameof(TerminalEscapeCanaryPlaceholder);
-
-    /// <summary>Offset into <see cref="CanaryName"/> where the payload is spliced.</summary>
-    const int PayloadOffset = 8;
-
-    /// <summary>
-    /// The tail of the canary name that the splice leaves untouched. Locating the
-    /// row by this — rather than by the neutralized payload — keeps
-    /// <see cref="FindCanary"/> independent of the very escaping under test. When
-    /// the lookup keyed on the escaped form, disabling escaping made the lookup
-    /// throw, so the heap and reference tests "failed" without ever evaluating
-    /// their own assertions.
-    /// </summary>
-    static readonly string CanaryTail = CanaryName[(PayloadOffset + 5)..];
-
-    static readonly Lazy<string> HostileAssembly = new(CreateHostileAssembly, isThreadSafe: true);
-
     /// <summary>
     /// Drives coverage from the format enum itself, so adding a rendering format
     /// without contained output fails here rather than shipping unchecked. A
@@ -104,23 +68,20 @@ public sealed class MdiContainmentTests
     {
         var output = new StringWriter();
         int code = MdiCommand.Execute(
-            HostileAssembly.Value,
+            fixture.Path,
             new MetadataProjectionOptions { Tables = [TableIndex.TypeDef] },
             format,
             output,
             new StringWriter());
 
         Assert.Equal(0, code);
-
-        string text = output.ToString();
-        AssertNoRawControlCharacters(text, $"{format} table rendering");
-        Assert.Contains(Neutralized, text, StringComparison.Ordinal);
+        AssertContained(output.ToString(), $"{format} table rendering");
     }
 
     /// <summary>
     /// The heap view reads the hostile value directly by address, bypassing the
-    /// row projection that <see cref="TableRendering_ContainsHostileHeapText_InEveryFormat"/>
-    /// covers, so it needs its own gate rather than inheriting that one's result.
+    /// row projection the table test covers, so it needs its own case rather than
+    /// inheriting that one's result.
     /// </summary>
     [Theory]
     [MemberData(nameof(Formats))]
@@ -128,27 +89,44 @@ public sealed class MdiContainmentTests
     {
         var output = new StringWriter();
         int code = MdiCommand.ExecuteHeapValue(
-            HostileAssembly.Value,
+            fixture.Path,
             HeapKind.String,
-            CanaryOffset,
+            fixture.CanaryHeapOffset,
             new MetadataProjectionOptions(),
             format,
             output,
             new StringWriter());
 
         Assert.Equal(0, code);
-
-        string text = output.ToString();
-        AssertNoRawControlCharacters(text, $"{format} heap rendering");
-        Assert.Contains(Neutralized, text, StringComparison.Ordinal);
+        AssertContained(output.ToString(), $"{format} heap rendering");
     }
 
     /// <summary>
-    /// A regression net, not a payload-carrying case. The reference view renders
-    /// only coordinates — target, table, row id, column, kind — so no heap text
-    /// reaches it today and nothing here can detect a containment regression.
-    /// It is asserted so that a future reference view which starts resolving
-    /// names cannot introduce a raw control character unobserved.
+    /// The overview reports the metadata root's version stamp, which reaches the
+    /// renderer without passing through the row projection. This is the case that
+    /// caught a real raw-ESC leak; see the type remarks.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Formats))]
+    public void OverviewRendering_ContainsHostileVersionStamp_InEveryFormat(MetadataTableFormat format)
+    {
+        var output = new StringWriter();
+        int code = MdiCommand.ExecuteOverview(
+            fixture.Path,
+            format,
+            output,
+            new StringWriter());
+
+        Assert.Equal(0, code);
+        AssertContained(output.ToString(), $"{format} overview rendering");
+    }
+
+    /// <summary>
+    /// A regression net, not a payload-carrying case: the reference view renders
+    /// only coordinates — target, table, row id, column, kind — so no artifact
+    /// text reaches it today and nothing here can detect a containment
+    /// regression. It is asserted so that a future reference view which starts
+    /// resolving names cannot introduce a raw control character unobserved.
     /// </summary>
     [Theory]
     [MemberData(nameof(Formats))]
@@ -156,9 +134,9 @@ public sealed class MdiContainmentTests
     {
         var output = new StringWriter();
         int code = MdiCommand.ExecuteReferences(
-            HostileAssembly.Value,
+            fixture.Path,
             TableIndex.TypeDef,
-            CanaryRowId,
+            fixture.CanaryRowId,
             maxReferences: 4096,
             format,
             output,
@@ -169,53 +147,51 @@ public sealed class MdiContainmentTests
     }
 
     /// <summary>
-    /// The second regression net, for the same reason as the reference view: the
-    /// overview reports heap sizes and row counts rather than heap text. The
-    /// non-vacuity of this file rests on the table and heap tests above, both of
-    /// which fail when escaping is removed.
-    /// </summary>
-    [Theory]
-    [MemberData(nameof(Formats))]
-    public void OverviewRendering_EmitsNoRawControlCharacters(MetadataTableFormat format)
-    {
-        var output = new StringWriter();
-        int code = MdiCommand.ExecuteOverview(
-            HostileAssembly.Value,
-            format,
-            output,
-            new StringWriter());
-
-        Assert.Equal(0, code);
-        AssertNoRawControlCharacters(output.ToString(), $"{format} overview rendering");
-    }
-
-    /// <summary>
-    /// Proves the fixture is actually hostile. Without this, every assertion
-    /// above could pass against an unpatched assembly, and the file would gate
-    /// nothing at all.
+    /// Proves the fixture is actually hostile, at the two exact byte ranges the
+    /// splices target. An earlier version scanned the whole image for the payload
+    /// and passed against an unpatched assembly, because the payload's own array
+    /// initializer puts those bytes in this test assembly — the check confirmed
+    /// its own source code rather than the fixture.
     /// </summary>
     [Fact]
-    public void HostileFixture_ActuallyCarriesARawEscapeSequence()
+    public void HostileFixture_CarriesControlCharactersAtBothSpliceSites()
     {
-        byte[] bytes = File.ReadAllBytes(HostileAssembly.Value);
-        Assert.True(
-            IndexOf(bytes, Payload) >= 0,
-            "The fixture assembly does not contain the raw escape sequence, so the containment tests would pass vacuously.");
+        byte[] patched = File.ReadAllBytes(fixture.Path);
+        byte[] original = File.ReadAllBytes(typeof(MdiContainmentTests).Assembly.Location);
+        int length = HostileAssemblyFixture.Payload.Length;
+
+        foreach (int site in new[] { fixture.NameSpliceOffset, fixture.VersionSpliceOffset })
+        {
+            Assert.Equal(HostileAssemblyFixture.Payload, patched[site..(site + length)]);
+            Assert.NotEqual(HostileAssemblyFixture.Payload, original[site..(site + length)]);
+        }
+    }
+
+    static void AssertContained(string text, string what)
+    {
+        AssertNoRawControlCharacters(text, what);
+
+        foreach (string form in HostileAssemblyFixture.NeutralizedForms)
+            Assert.Contains(form, text, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Rejects any C0 control character other than the three that the formats
-    /// themselves use structurally (tab separates TSV columns; CR/LF end lines).
+    /// Rejects any control character other than the three the formats themselves
+    /// use structurally (tab separates TSV columns; CR and LF end lines).
     /// Excluding those three is safe because the projector escapes tab, CR, and
-    /// LF when they arrive in heap <em>content</em>, so a surviving tab can only
-    /// be one the renderer emitted.
+    /// LF when they arrive in content, so a surviving one can only be a separator
+    /// the renderer emitted.
     /// </summary>
     static void AssertNoRawControlCharacters(string text, string what)
     {
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];
-            if (c is '\n' or '\r' or '\t' || !char.IsControl(c))
+            if (c is '\n' or '\r' or '\t')
+                continue;
+
+            // Mirrors MetadataTableProjector.IsControl: C0, DEL, and C1.
+            if (c >= ' ' && c != '\x7f' && !(c >= '\x80' && c <= '\x9f'))
                 continue;
 
             Assert.Fail(
@@ -223,20 +199,115 @@ public sealed class MdiContainmentTests
                 "which a terminal would interpret rather than display.");
         }
     }
+}
 
-    static int CanaryRowId => Canary.Value.RowId;
+/// <summary>
+/// Builds — and afterwards deletes — a real assembly carrying terminal control
+/// characters in two artifact-derived strings that reach presentation by
+/// different routes.
+/// <para>
+/// The fixture is a real assembly rather than a synthetic string, per the
+/// <c>AGENTS.md</c> evidence rule: the claim is about what reaches a terminal
+/// when a hostile <em>artifact</em> is inspected, so the payload is spliced into
+/// genuine metadata and travels the whole decode-project-render path. Both
+/// splices are byte-for-byte length preserving, so heap offsets stay valid and
+/// the only thing that changes is the bytes of one name and one version stamp.
+/// </para>
+/// </summary>
+public sealed class HostileAssemblyFixture : IDisposable
+{
+    /// <summary>
+    /// The hostile bytes, as they sit in a UTF-8 <c>#Strings</c> entry:
+    /// <c>ESC [ 3 1 m</c> (a real "set foreground red" CSI sequence, so emitting
+    /// it raw would actually reprogram a terminal rather than merely look
+    /// suspicious), then BEL, then DEL, then the two UTF-8 bytes for U+009F.
+    /// <para>
+    /// The payload spans all three ranges <c>MetadataTableProjector.IsControl</c>
+    /// recognizes — C0, DEL, and C1 — because a single ESC would let a regression
+    /// that narrowed containment to ESC alone pass the whole gate while leaving
+    /// every other terminal control raw. Review demonstrated exactly that
+    /// mutation surviving an ESC-only fixture.
+    /// </para>
+    /// </summary>
+    public static readonly byte[] Payload =
+    [
+        0x1B, (byte)'[', (byte)'3', (byte)'1', (byte)'m',
+        0x07,
+        0x7F,
+        0xC2, 0x9F,
+    ];
 
-    static int CanaryOffset => Canary.Value.Offset;
+    /// <summary>How each control in <see cref="Payload"/> must appear once contained.</summary>
+    public static readonly string[] NeutralizedForms =
+        [@"\u001B", @"\u0007", @"\u007F", @"\u009F"];
 
-    static readonly Lazy<(int RowId, int Offset)> Canary = new(FindCanary, isThreadSafe: true);
+    const string CanaryName = nameof(TerminalEscapeCanaryPlaceholder);
+
+    /// <summary>Offset into <see cref="CanaryName"/> where the payload is spliced.</summary>
+    const int NamePayloadOffset = 8;
+
+    /// <summary>
+    /// The tail of the canary name the splice leaves untouched. Locating the row
+    /// by this — rather than by the neutralized payload — keeps the lookup
+    /// independent of the very escaping under test. When it keyed on the escaped
+    /// form, disabling escaping made the lookup throw, so the heap tests "failed"
+    /// without ever evaluating their own assertions. Derived from
+    /// <c>Payload.Length</c> so the two cannot drift apart.
+    /// </summary>
+    static readonly string CanaryTail = CanaryName[(NamePayloadOffset + Payload.Length)..];
+
+    public HostileAssemblyFixture()
+    {
+        string source = typeof(HostileAssemblyFixture).Assembly.Location;
+        byte[] bytes = File.ReadAllBytes(source);
+
+        NameSpliceOffset = Splice(
+            bytes, Encoding.ASCII.GetBytes(CanaryName), NamePayloadOffset, "canary type name");
+        VersionSpliceOffset = Splice(
+            bytes, Encoding.ASCII.GetBytes(ReadMetadataVersion(source)), 1, "metadata version stamp");
+
+        Path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"mdi-containment-{Guid.NewGuid():N}.dll");
+
+        File.WriteAllBytes(Path, bytes);
+        (CanaryRowId, CanaryHeapOffset) = FindCanary();
+    }
+
+    /// <summary>The hostile assembly on disk, valid for the lifetime of the fixture.</summary>
+    public string Path { get; }
+
+    /// <summary>Absolute offset of the payload spliced into the canary type name.</summary>
+    public int NameSpliceOffset { get; }
+
+    /// <summary>Absolute offset of the payload spliced into the metadata version stamp.</summary>
+    public int VersionSpliceOffset { get; }
+
+    /// <summary>The TypeDef row whose name carries the payload.</summary>
+    public int CanaryRowId { get; }
+
+    /// <summary>The <c>#Strings</c> address the patched name lives at.</summary>
+    public int CanaryHeapOffset { get; }
+
+    public void Dispose()
+    {
+        try
+        {
+            File.Delete(Path);
+        }
+        catch (IOException)
+        {
+            // A leftover temp file is not worth failing an otherwise green run over.
+        }
+    }
 
     /// <summary>
     /// Locates the patched name in the projected TypeDef table, yielding both the
     /// row that carries it and the heap address it lives at.
     /// </summary>
-    static (int RowId, int Offset) FindCanary()
+    (int RowId, int Offset) FindCanary()
     {
-        using var stream = File.OpenRead(HostileAssembly.Value);
+        using var stream = File.OpenRead(Path);
         using var peReader = new PEReader(stream);
 
         var projection = MetadataTableProjector.Project(
@@ -263,35 +334,34 @@ public sealed class MdiContainmentTests
     }
 
     /// <summary>
-    /// Copies this test assembly and splices <see cref="Payload"/> into the
-    /// <c>#Strings</c> entry for <see cref="TerminalEscapeCanaryPlaceholder"/>.
-    /// The name is searched as ASCII, which reaches the UTF-8 <c>#Strings</c>
-    /// heap while leaving any UTF-16 <c>#US</c> copy of the same identifier
-    /// alone, and the replacement is length-preserving so no heap offset moves.
+    /// Overwrites the first occurrence of <paramref name="within"/> at offset
+    /// <paramref name="at"/> with the payload, returning the absolute offset
+    /// written so the fixture test can verify that exact range.
     /// </summary>
-    static string CreateHostileAssembly()
+    static int Splice(byte[] bytes, byte[] within, int at, string what)
     {
-        string source = typeof(MdiContainmentTests).Assembly.Location;
-        byte[] bytes = File.ReadAllBytes(source);
+        if (within.Length < at + Payload.Length)
+        {
+            throw new InvalidOperationException(
+                $"The {what} is too short ({within.Length} bytes) to carry the " +
+                $"{Payload.Length}-byte payload at offset {at}.");
+        }
 
-        byte[] marker = Encoding.ASCII.GetBytes(CanaryName);
-        int index = IndexOf(bytes, marker);
+        int index = bytes.AsSpan().IndexOf(within);
         if (index < 0)
         {
             throw new InvalidOperationException(
-                $"'{CanaryName}' was not found in {source}; the containment fixture cannot be built.");
+                $"The {what} was not found; the containment fixture cannot be built.");
         }
 
-        Payload.CopyTo(bytes, index + PayloadOffset);
-
-        string path = Path.Combine(
-            Path.GetTempPath(),
-            $"mdi-containment-{Guid.NewGuid():N}.dll");
-
-        File.WriteAllBytes(path, bytes);
-        return path;
+        Payload.CopyTo(bytes, index + at);
+        return index + at;
     }
 
-    static int IndexOf(byte[] haystack, ReadOnlySpan<byte> needle)
-        => haystack.AsSpan().IndexOf(needle);
+    static string ReadMetadataVersion(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return peReader.GetMetadataReader(MetadataReaderOptions.None).MetadataVersion;
+    }
 }

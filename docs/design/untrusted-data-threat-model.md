@@ -238,7 +238,7 @@ only ordinary compiler output.
 | SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
-| Structured output | Untrusted delimiters/control characters cannot escape the selected format. `MdiContainmentTests` splices a live `ESC [ 3 1 m` sequence into a real `#Strings` entry and renders it through every `mdi` view in every format, asserting no raw control character survives; mutation-checked by disabling `MetadataTableProjector.IsControl` |
+| Structured output | Untrusted delimiters/control characters cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly through every `mdi` view in every format, asserting no raw control character survives and every neutralized form is present; mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone |
 
 ## Open work
 
