@@ -340,14 +340,16 @@ public class CommandErrorOwnershipTests
     /// pin's subject. The gate for it is behavioural and lives elsewhere:
     /// <c>UntrustedArgumentDiagnosticContainmentTests</c> runs the CLI with
     /// hostile argv and asserts the emitted diagnostics are contained, and the
-    /// same tamper turns eight of its cases red. That class drives argv only,
-    /// so it is the nearest member of the gate rather than the whole of it:
-    /// the metadata-derived routes that also reach this stream -- the
-    /// <c>--info</c> view and the Mermaid trace among them -- are gated by its
-    /// siblings, <c>UntrustedLibraryViewContainmentTests</c>,
-    /// <c>UntrustedProjectViewContainmentTests</c>,
-    /// <c>MarkoutRowContainmentTests</c>, and
-    /// <c>PayloadLensContainmentTests</c>, which share the
+    /// same tamper turns eight of its cases red. That class is the nearest
+    /// member of the gate rather than the whole of it, and its reach is wider
+    /// than its name: the <c>--trace-mermaid</c> channel is one of its cases,
+    /// which is how the sink blind spot described above is held. The
+    /// metadata-derived routes are gated by its siblings -- among them
+    /// <c>PayloadLensContainmentTests</c>, which drives <c>--info</c> onto
+    /// this stream and scans what lands there, alongside
+    /// <c>UntrustedLibraryViewContainmentTests</c>,
+    /// <c>UntrustedProjectViewContainmentTests</c>, and
+    /// <c>MarkoutRowContainmentTests</c>. All of them share the
     /// <c>HostileOutputAssert</c> oracle. Neither rule subsumes the
     /// other -- this one says only accounted code may touch the stream, that
     /// family says what the accounted code puts on it is safe -- so a change
