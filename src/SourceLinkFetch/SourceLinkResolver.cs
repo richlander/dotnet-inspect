@@ -15,14 +15,15 @@ namespace SourceLinkFetch;
 /// </param>
 /// <param name="Url">
 /// The source URL, with the key's wildcard substitution applied and each remainder segment
-/// percent-encoded. Null only when the matched entry carried no usable URL.
+/// percent-encoded. Never null: an entry that carries no usable URL is rejected at parse time
+/// rather than kept as an entry that matches and resolves to nothing.
 /// </param>
 /// <param name="IsPrefixMatch">
 /// True when a wildcard key matched a prefix of the path, false when a wildcard-free key matched
 /// it exactly. Both can produce an empty <paramref name="Remainder"/>, so a caller deriving a
 /// display path cannot tell them apart without this.
 /// </param>
-public readonly record struct SourceLinkResolution(string Remainder, string? Url, bool IsPrefixMatch);
+public readonly record struct SourceLinkResolution(string Remainder, string Url, bool IsPrefixMatch);
 
 /// <summary>
 /// Parses a SourceLink map and maps PDB document paths to source URLs.
@@ -63,10 +64,12 @@ public readonly record struct SourceLinkResolution(string Remainder, string? Url
 ///     with the other.
 ///   </item>
 ///   <item>
-///     A non-conformant entry is rejected individually and recorded in
-///     <see cref="RejectedKeys"/>, rather than invalidating the whole map. Rejecting the map
-///     would let one bad key deny source for every other document. The rejection stays visible
-///     rather than silent.
+///     A non-conformant entry — a key that breaks the wildcard rules, or a value that is not a
+///     string — is rejected individually and recorded in <see cref="RejectedKeys"/>, rather than
+///     invalidating the whole map. Rejecting the map would let one bad key deny source for every
+///     other document, and keeping the entry would let it match and outrank valid, less specific
+///     entries. The rejection is recorded here rather than being silently indistinguishable from
+///     a key that simply did not match.
 ///   </item>
 /// </list>
 /// </remarks>
@@ -85,7 +88,7 @@ public class SourceLinkResolver
     private readonly record struct Entry(
         string PathPrefix,
         bool IsPrefix,
-        string? UrlPrefix,
+        string UrlPrefix,
         string? UrlSuffix);
 
     private readonly Entry[] _entries;
@@ -99,9 +102,19 @@ public class SourceLinkResolver
     public IReadOnlyList<string> DocumentKeys { get; }
 
     /// <summary>
-    /// Keys that were dropped because they do not conform to the SourceLink rules. Recorded so a
-    /// rejected key is reportable rather than silently absent.
+    /// Keys that were dropped because the entry does not conform to the SourceLink rules, either
+    /// in the key's wildcard placement or because the value was not a string.
     /// </summary>
+    /// <remarks>
+    /// This makes a rejected key <em>available</em> to a caller, not visible to a user: no
+    /// command reports it today, so a map whose every entry is rejected is currently
+    /// indistinguishable in output from a healthy one. Tracked by
+    /// <see href="https://github.com/richlander/dotnet-inspect/issues/3590">#3590</see>. What is
+    /// gated here is the narrower claim that a rejected entry does not participate in matching
+    /// and does not shadow a valid one — see
+    /// <c>SourceLinkMapConformanceTests.ARejectedKey_IsReportedAndDoesNotDenyTheRestOfTheMap</c>
+    /// and <c>AnEntryWhoseValueIsNotAString_IsRejectedRatherThanMatchingNothing</c>.
+    /// </remarks>
     public IReadOnlyList<string> RejectedKeys { get; }
 
     /// <summary>
@@ -132,7 +145,8 @@ public class SourceLinkResolver
     internal SourceLinkResolver(Dictionary<string, string> documentMappings)
     {
         // Widened to a nullable value type because a map read from JSON may carry a non-string
-        // value, which is a key with no usable URL rather than an absent key.
+        // value. That is a malformed entry, and the entry parser rejects it; this overload's
+        // callers supply strings, so none of them can produce one.
         Dictionary<string, string?> mappings = new(documentMappings.Count);
         foreach (var (key, url) in documentMappings)
             mappings[key] = url;
@@ -232,11 +246,8 @@ public class SourceLinkResolver
         return false;
     }
 
-    private static string? SubstituteUrl(Entry entry, string remainder)
+    private static string SubstituteUrl(Entry entry, string remainder)
     {
-        if (entry.UrlPrefix is null)
-            return null;
-
         // Rule 4: the wildcard may sit anywhere in the URL, so the substitution is
         // prefix + path + suffix rather than an append to the end.
         return entry.UrlSuffix is null
@@ -335,8 +346,13 @@ public class SourceLinkResolver
 
         if (url is null)
         {
-            entry = new Entry(normalizedKey, isPrefix, UrlPrefix: null, UrlSuffix: null);
-            return true;
+            // A non-string JSON value is a malformed entry, not a mapping to nothing. Letting it
+            // into the map made it match: it resolved documents to no URL at all, and -- being
+            // ordered by specificity like any other entry -- a malformed 'C:/src/*' outranked a
+            // valid 'C:/*' and silently swallowed the URL that would otherwise have resolved.
+            // That is a failure wearing the shape of an empty success. Rejecting the entry keeps
+            // it out of matching and puts the key in RejectedKeys, where it is visible.
+            return false;
         }
 
         int urlStar = url.IndexOf('*', StringComparison.Ordinal);
@@ -408,9 +424,10 @@ public class SourceLinkResolver
 
         foreach (var property in documents.EnumerateObject())
         {
-            // A non-string value is a malformed URL, not an absent key. The key still takes part
-            // in matching so that the document keeps its canonical path; it simply resolves to no
-            // URL, which is visibly different from resolving to a wrong one.
+            // A non-string value is a malformed entry. It is carried as null so that the key
+            // reaches the entry parser and is rejected there, visibly, alongside every other
+            // non-conformant key -- rather than being dropped here, where the map would look as
+            // though the key had never been written.
             mappings[property.Name] = property.Value.ValueKind == JsonValueKind.String
                 ? property.Value.GetString()
                 : null;

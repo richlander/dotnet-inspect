@@ -284,6 +284,32 @@ public class SourceLinkMapConformanceTests
     }
 
     /// <summary>
+    /// A non-string value is a malformed entry, and is rejected on the same terms as a
+    /// non-conformant key: dropped individually, reported, and kept out of matching.
+    /// </summary>
+    /// <remarks>
+    /// Letting it into the map was worse than a silent drop. Entries are ordered by specificity,
+    /// so a malformed <c>/_/src/*</c> outranked a valid <c>/_/*</c> and resolved everything under
+    /// it to no URL at all — a failure wearing the shape of an empty success, and one that
+    /// swallowed a URL that would otherwise have resolved. The second assertion is the one that
+    /// pins that: the valid, less specific entry must still be reached.
+    /// </remarks>
+    [Theory]
+    [InlineData("null")]
+    [InlineData("123")]
+    [InlineData("true")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    public void AnEntryWhoseValueIsNotAString_IsRejectedRatherThanMatchingNothing(string value)
+    {
+        var map = SLF.SourceLinkResolver.Parse(
+            """{"documents":{"/_/src/*":""" + value + ""","/_/*":"https://right.test/*"}}""");
+
+        Assert.Equal(["/_/src/*"], map.RejectedKeys);
+        Assert.Equal("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    /// <summary>
     /// A map with more than one valid reading resolves nothing, and says why. Reporting the
     /// reason is what keeps this distinguishable from a map that legitimately covers no document.
     /// </summary>

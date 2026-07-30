@@ -54,6 +54,14 @@ public readonly record struct SourceLinkOrigin(
 /// be established, and <see cref="Reason"/> always says why in that case, so that "no repository"
 /// is reported as a decision rather than as absence.
 /// </summary>
+/// <remarks>
+/// "Reported" here means reported to the caller. Every product call site currently takes
+/// <c>Origin?.RepositoryUrl</c> and drops the reason, so a user sees no repository and no
+/// explanation. Carrying the reason into output is tracked by
+/// <see href="https://github.com/richlander/dotnet-inspect/issues/3590">#3590</see>. That the
+/// reason is always populated is gated by
+/// <c>SourceLinkProvenanceTests.EveryUnestablishedResult_CarriesAReason</c>.
+/// </remarks>
 public readonly record struct SourceLinkProvenanceResult(SourceLinkOrigin? Origin, string Reason)
 {
     /// <summary>Whether an origin was established.</summary>
