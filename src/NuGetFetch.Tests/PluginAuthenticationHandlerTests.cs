@@ -309,6 +309,22 @@ public sealed class PluginAuthenticationHandlerTests
         // Crucially, every request settles in exactly two attempts -- one refusal, one success --
         // so no request approaches MaxAuthRetries and none of them fails.
         Assert.All(attemptsPerRequest, n => Assert.Equal(2, n));
+
+        // Control: without contention the cache does its job, so a repeat of the org that just
+        // ran costs one attempt and no acquisition. This is what makes the counts above evidence
+        // of a *collision* rather than of a handler that simply never caches -- one that
+        // reacquired unconditionally would also spend two attempts per request, but it would
+        // spend two here as well.
+        int beforeRepeat = transport.Attempts;
+        int callsBeforeRepeat = source.Calls;
+
+        using (HttpResponseMessage repeat = await client.GetAsync(orgB, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, repeat.StatusCode);
+        }
+
+        Assert.Equal(1, transport.Attempts - beforeRepeat);
+        Assert.Equal(callsBeforeRepeat, source.Calls);
     }
 
     /// <summary>Hands back a distinct credential per Azure DevOps organization, keyed on the URL path.</summary>
