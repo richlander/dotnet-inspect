@@ -708,6 +708,25 @@ public sealed class ForwardedTypeAliases
         // unusable (a one-byte token never matches a real one). Differing only in version is not
         // ambiguity — both files are the same identity and both forward the type — so those
         // versions are merged instead.
+
+        // The versions a spelling can answer for come from the files that actually forward the
+        // type, merged across them — not from the census. The census deliberately contains files
+        // that forward nothing, because that is what lets a same-named twin contradict a facade;
+        // but letting such a file contribute its VERSION raises the ceiling that a signed
+        // reference is checked against. A v1 facade could then be made to vouch for a caller built
+        // against v2 by dropping an unrelated v2 file of the same identity beside it — a caller
+        // that in fact binds to the v2 file, which does not forward the type at all (executed in
+        // review of 37a4444b). Token and culture still come from the whole census below, so a twin
+        // that disagrees on either still poisons the spelling.
+        var forwardingIdentity = new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase);
+        foreach (var edge in edges)
+        {
+            forwardingIdentity[edge.Assembly] =
+                forwardingIdentity.TryGetValue(edge.Assembly, out var merged)
+                    ? merged.Observing(edge.Identity.Version)
+                    : edge.Identity;
+        }
+
         foreach (var edge in edges)
         {
             string target = TypeRef.CanonicalAssembly(edge.Target);
@@ -724,12 +743,14 @@ public sealed class ForwardedTypeAliases
             }
             else if (!tokensBySpelling.ContainsKey(edge.Assembly))
             {
-                // Identity comes from the CENSUS, not from this edge. Deriving it from the files
-                // that forward the type left a same-named twin that does not forward it invisible,
-                // so it contradicted nothing — and a caller that really binds to the twin's own
-                // definition was reported as calling the target (executed in review of 7572838c).
-                // The census sees every claimant, whatever it contains.
-                tokensBySpelling[edge.Assembly] = CensusIdentity(census, edge.Assembly, edge.Identity);
+                // Token and culture come from the CENSUS, not from this edge. Deriving them from
+                // the files that forward the type left a same-named twin that does not forward it
+                // invisible, so it contradicted nothing — and a caller that really binds to the
+                // twin's own definition was reported as calling the target (executed in review of
+                // 7572838c). The census sees every claimant, whatever it contains. The versions
+                // come from the forwarding files only; see above.
+                tokensBySpelling[edge.Assembly] =
+                    CensusIdentity(census, edge.Assembly, forwardingIdentity[edge.Assembly]);
             }
 
             if (!targetsByRaw.TryGetValue(edge.Assembly, out var targets))
@@ -908,36 +929,39 @@ public sealed class ForwardedTypeAliases
     static string? AssemblyNameOf(string path) => IdentityOf(path)?.Name;
 
     /// <summary>
-    /// The identity every file claiming <paramref name="spelling"/> agrees on, or the ambiguous
-    /// sentinel when they do not. Versions are merged rather than treated as disagreement, because
-    /// two builds of one unsigned assembly are the same identity; token and culture must match.
+    /// <paramref name="forwarding"/> confirmed against every file claiming
+    /// <paramref name="spelling"/>, or the ambiguous sentinel when one of them disagrees on token
+    /// or culture.
     ///
-    /// <para>Deriving this from forwarder rows instead left a same-named twin that does not forward
-    /// the type unseen, so it could not contradict anything.</para>
+    /// <para>The census is consulted rather than the forwarder rows because a same-named twin that
+    /// forwards nothing is invisible to those rows, and such a twin has to be able to contradict:
+    /// a caller naming the spelling may be bound to it rather than to the facade.</para>
+    ///
+    /// <para><b>Versions are taken from <paramref name="forwarding"/> and never widened here.</b>
+    /// A claimant that does not forward the type says nothing about which versions can answer for
+    /// it, so letting it raise the ceiling admitted callers that bind to the non-forwarding file
+    /// (executed in review of <c>37a4444b</c>). Two builds of one assembly that both forward the
+    /// type are merged before this is called, which is where version widening belongs.</para>
     /// </summary>
     static EvidenceIdentity CensusIdentity(
         Dictionary<string, List<(string Path, EvidenceIdentity Identity)>> census,
         string spelling,
-        EvidenceIdentity fallback)
+        EvidenceIdentity forwarding)
     {
         if (!census.TryGetValue(spelling, out var claimants) || claimants.Count == 0)
-            return fallback;
+            return forwarding;
 
-        EvidenceIdentity agreed = claimants[0].Identity;
-        for (int i = 1; i < claimants.Count; i++)
+        foreach ((_, EvidenceIdentity claimed) in claimants)
         {
-            EvidenceIdentity other = claimants[i].Identity;
             bool sameIdentity =
-                agreed.Token.AsSpan().SequenceEqual(other.Token)
-                && string.Equals(agreed.Culture, other.Culture, StringComparison.OrdinalIgnoreCase);
+                forwarding.Token.AsSpan().SequenceEqual(claimed.Token)
+                && string.Equals(forwarding.Culture, claimed.Culture, StringComparison.OrdinalIgnoreCase);
 
             if (!sameIdentity)
                 return new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
-
-            agreed = agreed.Observing(other.Version);
         }
 
-        return agreed;
+        return forwarding;
     }
 
     /// <summary>

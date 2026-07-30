@@ -1688,6 +1688,119 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>Runs the whole gate for a fixture directory, which is what the caller sees.</summary>
+    /// <summary>
+    /// A file that claims a spelling but forwards nothing does not lend its version to the file
+    /// that does forward.
+    ///
+    /// <para>The version ceiling a spelling can answer for is merged across every census claimant,
+    /// and the census deliberately sees files that do not forward the type — that is what lets a
+    /// same-named twin contradict a facade. But merging a non-forwarding claimant's <em>version</em>
+    /// raises the ceiling for the forwarder, and a signed reference is admitted whenever it sits at
+    /// or below that ceiling. So a v1 facade that forwards the type could be made to vouch for a
+    /// caller built against v2 by dropping an unrelated v2 file of the same identity beside it —
+    /// a caller that in fact binds to the v2 file, which does not forward the type at all.</para>
+    ///
+    /// <para>This is the additive rule failing in the fabricating direction: evidence that says
+    /// nothing about the type creates a caller. Found in review of <c>37a4444b</c>. The version
+    /// ceiling now comes from the files that actually forward the type; the census still supplies
+    /// token and culture, so a twin can still contradict.</para>
+    /// </summary>
+    [Fact]
+    public void ANonForwardingSiblingDoesNotLendItsVersionToAFacade()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            CallerScopeTypeFilter.TypeReferenceState AskForAV2Caller()
+            {
+                var aliases = ForwardedTypeAliases.ForTarget(
+                    target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+                using var caller = BuildCallerNaming(
+                    "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                    flags: default, culture: null, version: new Version(2, 0, 0, 0));
+                return CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases);
+            }
+
+            // The control. Only the v1 file forwards the type, and it cannot answer for a reference
+            // that names v2 — so without the sibling there is no alias and no caller.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, AskForAV2Caller());
+
+            // The attack: a v2 assembly of the same identity that forwards nothing at all.
+            WriteNonForwarder(
+                directory, "Contoso.Facade", publicKey, "Facade.v2", new Version(2, 0, 0, 0));
+
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, AskForAV2Caller());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The negative control for the rule above: when the v2 sibling really does forward the type,
+    /// its version is genuine evidence and the v2 caller is a real caller.
+    /// </summary>
+    [Fact]
+    public void AForwardingSiblingDoesLendItsVersionToAFacade()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] publicKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(2, 0, 0, 0));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Writes an assembly that claims a name and identity but exports nothing — a census claimant
+    /// with no forwarder evidence of its own.
+    /// </summary>
+    static void WriteNonForwarder(
+        string directory,
+        string name,
+        byte[]? publicKey,
+        string fileName,
+        Version version)
+        => File.WriteAllBytes(
+            Path.Combine(directory, fileName + ".dll"),
+            SerializePE(NewAssembly(name, publicKey, version)));
+
     static CallerScopeTypeFilter.TypeReferenceState Classify(
         TypeRef target,
         string targetPath,

@@ -85,6 +85,63 @@ public class CallerScopeResolverTests
     }
 
     /// <summary>
+    /// One physical file supplied under two spellings is one caller, even when the filesystem
+    /// resolved both spellings to it.
+    ///
+    /// <para>Round 12 changed this dedup from <c>OrdinalIgnoreCase</c> to <c>Ordinal</c> so that
+    /// two genuinely distinct files on a case-sensitive volume would both be scanned. That is
+    /// right, but comparing the strings exactly is the wrong way to get it: on a case-insensitive
+    /// volume <c>Out\Caller.dll</c> and <c>out\caller.dll</c> are two strings for one file, so the
+    /// resolver returned both, the same image was opened twice, and every call site in it was
+    /// reported twice. Two scope arguments differing only in case is enough to trigger it. Found in
+    /// review of <c>37a4444b</c>.</para>
+    ///
+    /// <para>The fix asks the filesystem which spelling the entry actually has rather than
+    /// assuming a platform rule, so this test is meaningful on either kind of volume: where the two
+    /// directory spellings name one directory there is one caller, and the companion test above
+    /// keeps genuinely distinct files apart where they can exist.</para>
+    /// </summary>
+    [Fact]
+    public async Task ResolveAsync_CountsOnePhysicalFileOnceAcrossTwoSpellingsOfItsDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("caller-scope-spelling-test").FullName;
+        try
+        {
+            var source = typeof(CallerScopeResolverTests).Assembly.Location;
+            File.Copy(source, Path.Combine(directory, "Caller.dll"));
+
+            string swapped = SwapLeafCase(directory);
+            Assert.SkipUnless(
+                Directory.Exists(swapped),
+                "Needs a volume that resolves the directory under both spellings.");
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await CallerScopeResolver.ResolveAsync(
+                directories: [directory, swapped],
+                projects: [],
+                packages: [],
+                tfm: null,
+                ownAssemblyPath: null,
+                httpClient,
+                new VerboseLogger(enabled: false));
+
+            Assert.Single(assemblySet.Assemblies);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>The same path with the case of its last segment inverted.</summary>
+    static string SwapLeafCase(string path)
+    {
+        string leaf = Path.GetFileName(path);
+        string swapped = new([.. leaf.Select(c => char.IsUpper(c) ? char.ToLowerInvariant(c) : char.ToUpperInvariant(c))]);
+        return Path.Combine(Path.GetDirectoryName(path)!, swapped);
+    }
+
+    /// <summary>
     /// Whether <paramref name="directory"/> distinguishes names that differ only in case, asked of
     /// the filesystem rather than of the operating system: Windows carries per-directory case
     /// sensitivity, so the answer is a property of the path and not of the platform.
