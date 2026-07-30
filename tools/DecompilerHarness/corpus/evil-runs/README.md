@@ -395,29 +395,37 @@ field that goes unchecked fails a test instead of going unenforced.
 decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
 its movement is a floor, not a census.
 
-### The next append cannot ratchet, and that is expected
+### The identity bootstrap, and how it was crossed
 
-No row in this store records `poolSha256` or `corpusSha256` — every one predates
-run identity. A live run always records both, and comparability compares both
-symmetrically, so **the first identified row you append is not comparable to the
-row it lands on**: the comparison skips, and a skip fails the gate. Expect the
-PR that adds it to be red.
+Rows recorded before 2026-07-30 carry no `poolSha256` or `corpusSha256` — they
+predate run identity. A live run always records both, and comparability compares
+both symmetrically, so the first identified row was comparable to *nothing*: the
+comparison skipped, and a skip fails the gate.
 
-Land it together with a **second** identified run over the same pool and corpus.
-Those two rows are the first ratchetable pair, and every append after that
-ratchets normally — including `productBodyDefect`, which no pair in the store can
-compare today.
+Crossing that took two identified runs landed together (#3353), both over the
+same pinned pool and the same corpus. They are the first ratchetable pair, and
+every append after them ratchets normally — including `productBodyDefect`, which
+no earlier pair in this store could compare.
 
-The historical rows cannot be back-filled: their pools and corpora were archived
-out-of-tree and the artifacts are gone. The cheaper alternative — let a baseline
-that records no identity compare against anything — is unsound, because
+Those two rows carry the **same date, the same commit, and identical counts**,
+and that is deliberate rather than a double-append: they are two separate full
+runs of the same product over the same pinned pool, so the pair also measures
+what the pin was built for. Identical `poolSha256` across two independent sweeps
+is the reproducibility claim of #3353 discharged end to end, and identical
+counts show the harness reads the same pool the same way twice. A trend needs a
+second point before it can have a direction; this pair's direction is flat by
+construction, which is the only honest thing a bootstrap pair can say.
+
+The historical rows could not be back-filled: their pools and corpora were
+archived out-of-tree and the artifacts are gone. The cheaper alternative — let a
+baseline that records no identity compare against anything — is unsound, because
 `--ratchet-baseline` reads a caller-supplied file and that rule would let any
 baseline opt out of identity and then compare clean against a run over a wholly
 different corpus.
 
-`TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet` pins this, so
-the warning arrives from a test rather than from a red merge lane. Delete that
-test in the same change that crosses the bootstrap. Tracked as #3362.
+Nothing re-opens the bootstrap. A future row that dropped its identity would be
+comparable to nothing in exactly the same way, and
+`TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline` fails on a skip.
 
 ### Who runs it
 
@@ -498,20 +506,14 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   cannot be used to drop a package out of the pool. A fresh sweep therefore
   reproduces the same assemblies, and its pool identity is stable.
 
-  What still stops this lane ratcheting is that no trend-store row has yet been
-  measured against the pinned pool. The ratchet compares the newest row to a
-  baseline, and every recorded row predates the pin, so `--ratchet-baseline`
-  would still find nothing comparable — it would skip, and a skip fails. Closing
-  that needs one full run over the pinned pool, recorded as a row carrying
-  `poolSha256` and `corpusSha256`; the pair after it is the first that can
-  ratchet. Merely omitting `--ratchet-baseline`
-  is not enough either: that selects the historical `invalid == 0` contract,
-  which this corpus cannot satisfy, so the job would still fail every week and
-  file a scheduled-failure issue each time. `--integrity-only` is how the lane
-  says what it actually claims. Pinning the pool — which is what lets this lane
-  ratchet for real — landed with the `nuget-top-packages.lock.json` pin; once two
-  pinned runs are in the trend store this lane can drop `--integrity-only`.
-  Note this limitation is not new:
+  Two rows measured over that pinned pool are now recorded, so the lane passes
+  `--ratchet-baseline` and judges the run by movement against the trend store.
+  Note what it must *not* do instead: merely omitting `--ratchet-baseline`
+  selects the historical `invalid == 0` contract, which this ~5,200-invalid
+  corpus cannot satisfy, so the job would fail every week and file a
+  scheduled-failure issue each time. `--integrity-only`, which this lane carried
+  until the bootstrap was crossed, says only that the measurement was sound.
+  Note the limitation it replaced was not new:
   the first comparability key was loose enough to compare across a drifted pool,
   which is a false green, and identifying the pool is what turned that silent
   wrong answer into a visible refusal.

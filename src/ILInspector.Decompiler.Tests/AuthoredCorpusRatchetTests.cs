@@ -944,7 +944,10 @@ public class AuthoredCorpusRatchetTests
     /// against the newest earlier row it is comparable with. Rows before it were
     /// recorded without a ratchet and are data, not a contract, so only the new row is
     /// judged — which is why this passes today even though the store contains an
-    /// earlier step where raw invalid rose.
+    /// earlier step where raw invalid rose. The store crossed the identity bootstrap
+    /// when the first two pinned-pool rows landed together (#3353): before them no row
+    /// recorded <c>poolSha256</c>, so a live run — which always records one — was
+    /// comparable to nothing and this gate skipped.
     ///
     /// <para><see cref="Assert.False(bool)"/> on <c>Skipped</c> is the load-bearing
     /// half. <c>Assert.Empty(Regressions)</c> alone passes for a skip, so this gate was
@@ -975,13 +978,13 @@ public class AuthoredCorpusRatchetTests
             ? ["valid", "correct", "invalid", "productBodyDefect"]
             : ["valid", "correct", "invalid"];
 
-        // Today the store's baseline predates methodology stamping, so this takes the
-        // second branch and productBodyDefect is not yet ratcheted — a real gap. It
-        // closes on the append after next, not the next one: see
-        // TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet. Nothing can
-        // re-open it once closed, because
-        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces refuses an
-        // unstamped newest row.
+        // That gap is now closed. The store's newest pair is the first two rows
+        // measured over the identified pool, both stamped v2, so this takes the first
+        // branch and productBodyDefect ratchets. Nothing can re-open it: an unstamped
+        // newest row is refused by
+        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces, and a newest row
+        // that dropped its identity would land in the branch above as a skip, which
+        // this test fails on.
         Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
     }
 
@@ -1053,9 +1056,10 @@ public class AuthoredCorpusRatchetTests
     /// The scheduled lane's own flag combination proceeds.
     ///
     /// <para>`deep-inspect.yml` invokes `--benchmark-authored-corpus &lt;corpus&gt;
-    /// --integrity-only`. The regression above refused exactly that, so the lane this PR
-    /// adds could never have run. Naming the caller's combination is what turns "the
-    /// rule is correct" into "the caller works".</para>
+    /// --ratchet-baseline &lt;history&gt;` (it carried `--integrity-only` until the
+    /// trend store crossed the identity bootstrap). The regression above refused exactly
+    /// that combination, so the lane could never have run. Naming the caller's
+    /// combination is what turns "the rule is correct" into "the caller works".</para>
     /// </summary>
     [Fact]
     public void PreemptedGateRefusal_LetsTheScheduledLaneRun()
@@ -1429,56 +1433,6 @@ public class AuthoredCorpusRatchetTests
 
             Assert.Equal(AuthoredCorpusExitContract.FlagDisposition.Refuse, verdict.Disposition);
         }
-    }
-
-    /// <summary>
-    /// No row in the tracked store records run identity, so the next append — which
-    /// will come from a live run, and a live run always records both digests — is
-    /// <em>not</em> comparable to the row it lands on, and
-    /// <see cref="TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline"/> will fail
-    /// with a skip. That is the ratchet working, not breaking: it refuses to certify a
-    /// comparison it cannot make. But an appender deserves to learn it from a test that
-    /// names the remedy rather than from a red merge lane, so this pins the gap.
-    ///
-    /// <para><b>If this test fails, the store has crossed the bootstrap</b> — delete it
-    /// and delete this paragraph. Until then, the first identified append is expected to
-    /// be red, and the appender must land it together with a second identified run over
-    /// the same pool and corpus (the two together form the first ratchetable pair). The
-    /// historical rows cannot be back-filled: their pools and corpora were archived
-    /// out-of-tree and the artifacts are gone.</para>
-    ///
-    /// <para>The obvious cheaper fix — let a baseline that records no identity compare
-    /// against anything — is unsound and was rejected twice. <c>--ratchet-baseline</c>
-    /// reads a caller-supplied file, so that rule would let any baseline opt out of
-    /// identity and then compare clean against a run over a wholly different corpus.
-    /// <see cref="AuthoredCorpusRatchet.RunKey.IsComparableTo"/> therefore compares both
-    /// digests symmetrically, absence included.</para>
-    ///
-    /// <para>Tracked as #3362.</para>
-    /// </summary>
-    [Fact]
-    public void TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet()
-    {
-        var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
-
-        Assert.All(tracked, row =>
-        {
-            Assert.Null(row.PoolSha256);
-            Assert.Null(row.CorpusSha256);
-        });
-
-        // And name the consequence, so this test fails if the bootstrap is crossed by
-        // some route that leaves the rows unidentified but the comparison sound.
-        var live = new AuthoredCorpusRatchet.RunKey(
-            Evaluated: tracked[^1].Evaluated,
-            PoolMatched: tracked[^1].PoolMatched,
-            PoolTotal: tracked[^1].PoolTotal,
-            PoolSha256: new string('a', 64),
-            CorpusSha256: new string('b', 64));
-
-        Assert.False(
-            live.IsComparableTo(AuthoredCorpusRatchet.RunKey.From(tracked[^1]), out string mismatch));
-        Assert.Contains("(none recorded)", mismatch, StringComparison.Ordinal);
     }
 
     /// <summary>
