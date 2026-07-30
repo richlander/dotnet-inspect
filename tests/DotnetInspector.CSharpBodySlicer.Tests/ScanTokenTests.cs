@@ -704,6 +704,7 @@ public class ScanTokenTests
         // of the line and swallows them, while outside one they belong to no token at all. Both
         // sides are trimmed so the comparison is exact; nothing else about the input is discarded.
         Assert.Equal(swept.Select(x => x.TrimEnd()).ToHashSet().Order(), scanned.Order());
+        AssertScannedAlphabet(" \"$@\\a{}", scanned);
     }
 
     /// <summary>
@@ -714,6 +715,22 @@ public class ScanTokenTests
     /// is the same length and draws on the same characters, leaving every count identical while
     /// the state that input existed for is never reached (adversarial review, GPT).
     /// </summary>
+    /// <summary>
+    /// Asserts that the strings a sweep actually scanned draw on exactly <paramref
+    /// name="alphabet"/>, character for character.
+    /// <para>
+    /// Pinning the alphabet constant by value does not pin the alphabet swept, because the
+    /// constant is not what <see cref="AllStringsOver"/> is handed: passing a same-length
+    /// literal in its place leaves the constant's pin untouched, leaves every count identical
+    /// because the generator reads only the alphabet's length, and erases a character's paths
+    /// from the sweep entirely. Nor can the expected side be derived from the generated set,
+    /// since that moves with it. So this reads the characters back out of what the scanner
+    /// consumed and compares them against a literal (adversarial review, Gemini).
+    /// </para>
+    /// </summary>
+    private static void AssertScannedAlphabet(string alphabet, IEnumerable<string> scanned)
+        => Assert.Equal(alphabet.Order(), scanned.SelectMany(x => x).ToHashSet().Order());
+
     private static HashSet<string> AllStringsOver(string alphabet, int upTo)
     {
         var singles = alphabet.Select(c => c.ToString()).ToArray();
@@ -788,15 +805,21 @@ public class ScanTokenTests
                     opened.TextIn(lines[2]).ToString().TrimStart(),
                     string.Concat(tokens.Where(t => t.Line == 3).Select(t => t.TextIn(lines[3]).ToString()))));
 
+                // The line and column are asserted with the depths so that the assertion says
+                // WHICH token it read. Naming only kind and the two depths let the opener token
+                // stand in for it: that token is also a literal at the same depths, so reading it
+                // instead satisfied every pin while no fragment was examined at all (adversarial
+                // review, GPT).
                 Assert.Equal(
-                    (ScanTokenKind.StringLiteral, 1, 1),
-                    (first.Kind, first.Depth, first.BracketDepth));
+                    (ScanTokenKind.StringLiteral, 3, 0, 1, 1),
+                    (first.Kind, first.Line, first.Column, first.Depth, first.BracketDepth));
             }
         }
 
         Assert.Equal(
             (from opener in openers from tail in tails select (opener, tail)).Order(),
             scannedPairs.Order());
+        AssertScannedAlphabet("\"$\\{}a", scannedPairs.Select(p => p.Tail));
     }
 
     /// <summary>
