@@ -372,13 +372,21 @@ points at.
 - **Bounded traversal.** Row enumeration, handle resolution, and text/heap
   projection are budgeted per
   [bounded-metadata-traversal.md](bounded-metadata-traversal.md): a bounded
-  number of rows visited, edges followed, and characters projected. Exceeding a
-  budget yields a **typed rejection**, never a plausible truncated value or a
-  success-shaped empty table.
+  number of rows visited, edges followed, and characters projected. Today a
+  budget produces a **successful projection carrying an explicit `Truncation`
+  marker**, not a typed rejection — visible, but not yet the rejection model
+  that contract describes. Gated by
+  `MetadataTableProjectionTests.RowBudget_TruncatesExplicitly_NeverSilently`,
+  `StringBudget_ProjectsBoundedPreviewWithExplicitTruncation`, and
+  `BlobBudget_ProjectsBoundedHexPreviewWithExplicitTruncation`.
 - **Parse, never load.** SRM-only, NativeAOT-friendly, Roslyn-free. A malformed
   coded index resolves to a visible failure marker, not a fabricated target.
+  This is an architectural constraint with no single gate naming it; treat the
+  property as unverified here.
 - **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
-  amplification surface, so they are never dumped by default.
+  amplification surface, so they are never dumped by default. Gated by
+  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing`.
+
 
 ### Two orthogonal axes
 
@@ -456,8 +464,8 @@ proves them: a decoder, plus a round-trip over every single code unit in
 from the characters that can collide — `\`, `^`, `u`, `?`, `@`, `[`, hex
 digits, and a representative of C0, `DEL`, C1, and the boundary above it.
 Encode-without-a-decoder is not this pattern, and an invertibility claim with
-no decoder in the test is not evidence. The caret-introduced scheme above was
-caught *by* that sweep, during review of this document.
+no decoder in the test is not evidence: a caret-introduced spelling passes
+every casual inspection and fails this sweep on `U+001E`.
 
 Because the encoding is inert, it needs no opt-in. It is the default on every
 artifact-text path, with exactly one named opt-out
@@ -476,11 +484,12 @@ channel the check just closed.
 
 ### Status
 
-The bounded-traversal, parse-never-load, and opt-in-heap contracts above are
-implemented. The trust and rendering axes, `--survey`, the visual-encoding
-spelling and its decoder, and the failure-message rule are the **target model**
-and are not yet implemented; today the projector neutralizes control characters
-unconditionally and continues. See the threat model's open work.
+The bounded-traversal budgets, parse-never-load architecture, and opt-in heaps
+are implemented, with the gates and the one unverified property named above.
+The trust and rendering axes, `--survey`, the visual-encoding spelling and its
+decoder, and the failure-message rule are the **target model** and are not yet
+implemented; today the projector neutralizes control characters unconditionally
+and continues. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 

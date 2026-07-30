@@ -391,8 +391,9 @@ This is established practice for tools that read hostile bytes:
   reserves raw output for `-r`.
 - **`rustc`** made bidirectional control characters a deny-by-default hard
   error after Trojan Source (CVE-2021-42574) rather than stripping them.
-- **`binutils`** is the cautionary case rather than a model: its parsers have
-  produced a continuous CVE stream, found almost entirely by fuzzing.
+- **`binutils`** is the cautionary case rather than a model: its parsers are
+  continuously fuzzed, and fuzzing has repeatedly found parser defects that
+  received CVEs.
 
 Do not copy `less`'s one mistake: its protection is conditional on stdout being
 a TTY, and it degrades to `cat` when output is redirected — `-r` makes no
@@ -495,8 +496,11 @@ only ordinary compiler output.
     re-point `MdiContainmentTests` at the new property. Ship the encoder with
     its decoder and the round-trip/injectivity gate described in
     [metadata-table-projection.md](metadata-table-projection.md#safety); a
-    caret-introduced spelling is not invertible and must not be used.
-11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
+    caret-introduced spelling is not invertible and must not be used. Note the
+    existing escaper has the same defect from the other direction: `EscapeCore`
+    renders controls as `\uXXXX` but only escapes `\` when `escapeStructural`
+    is set, and `NeutralizeControls` passes `false`, so a literal `\u001b` in
+    artifact text and a real `ESC` produce identical output.11. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
     throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
     Printability here is a function of **provenance, not content**: the same
     helper receives user-typed coordinates and artifact-derived ones, so it
@@ -508,6 +512,8 @@ only ordinary compiler output.
     - `NuspecParser` → `PackageDependency.Id`/`.Version` →
       `DependencyResolutionService.ResolveDependencyTreeAsync` →
       `PackageExtractor.TryGetNuspecXmlAsync` → `NuGetCache.TryGetCachedPackage`.
+    - A package-authored `DotnetToolSettings.xml` `Id` becoming the current
+      package source, then reaching acquisition and cache validation.
 
     The second path leaks twice and reaches a package the user never named.
     `DependencyResolutionService` logs `dep.Id`/`dep.Version` before any
@@ -519,8 +525,8 @@ only ordinary compiler output.
     application of the hardened-entrypoint pattern, alongside the nuspec input
     contract behind #3394 and #3418.
 12. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
-    points. The domain-matched precedent is `binutils`, whose parsers have
-    produced a continuous CVE stream found almost entirely by fuzzing. Most of
+    points. The domain-matched precedent is `binutils`, whose parsers are
+    continuously fuzzed and have repeatedly yielded CVEs that way. Most of
     those are memory-safety defects that C# denies us, so the realistic harm
     set here is smaller and enumerable — hang or unbounded allocation,
     plausible-but-wrong output, and output-channel injection — but nothing
