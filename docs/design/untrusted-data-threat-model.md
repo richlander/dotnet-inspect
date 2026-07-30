@@ -23,6 +23,16 @@ decision the user makes; that this tool is a no-commitment offer, easy to point
 at anything, raises rather than lowers the bar for what it does with what it
 finds.
 
+The intended consumer raises it further. This tool is built to be handed to
+**autonomous agents**, so its output is frequently acted on without a human
+reading it. Two things follow. A rendering hazard is not bounded by whether
+someone is watching a terminal, and output that misstates identity is not
+caught by a reader who would have noticed. Trust in the *input* is also
+misplaced in a specific way worth naming: a caller who pre-vetted their
+dependencies concludes that reading them is safe, but a vetted package can be
+hijacked after the fact, and the names entering a build are not spelled
+uniformly across projects, transitive edges, and floating versions.
+
 **Out of scope:** deliberately opening artifacts you already know are hostile,
 and running the tool elevated. Both are the caller's decision, and neither is a
 boundary this tool can defend.
@@ -405,8 +415,9 @@ is a design error.
 The axes are independent, and that is the design. Visual encoding is the
 default on **every** artifact-text path, including underneath the trust-axis
 skip — which is precisely what makes that skip defensible: it means "do not
-refuse," not "attack my terminal." Reaching a live control character therefore
-requires opting out of both axes, two separately named mistakes.
+refuse," not "it is fine to put my terminal at risk." Reaching a live control
+character therefore requires opting out of both axes, two separately named
+mistakes.
 
 Rendering is **visual encoding, not neutralization**: control characters are
 re-spelled into an inert, lossless, invertible form rather than removed or

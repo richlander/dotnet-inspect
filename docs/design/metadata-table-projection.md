@@ -427,9 +427,9 @@ decides how artifact text is *spelled*.
 The axes are independent, and that is the whole design. Visual encoding is the
 default on **every** artifact-text path, including under
 `--dangerously-skip-checks` — which is exactly what makes that flag defensible.
-It means "do not refuse," not "attack my terminal." Reaching a live `ESC` on a
-terminal therefore takes **both** flags: one to stop refusing, one to stop
-encoding. Two separately named mistakes.
+It means "do not refuse," not "it is fine to put my terminal at risk."
+Reaching a live `ESC` on a terminal therefore takes **both** flags: one to stop
+refusing, one to stop encoding. Two separately named mistakes.
 
 `--survey` is the mode that keeps a hostile image inspectable without handing
 over its bytes: it reports *where* and *what kind*, never *what*. This is the
@@ -438,17 +438,32 @@ only under `-a`/`--text`.
 
 ### Constrain the grammar first, encode only what cannot be
 
-The scenarios this hardening is scoped to are narrow on purpose, because a
-universal answer is not available at this size:
+The scenario this hardening is scoped to is narrow on purpose, because a
+universal answer is not available at this size. It is a business developer who
+has vetted the packages their project depends on and who now points
+**autonomous agents** at those same packages — using this tool to raise
+throughput without lowering the security bar. Having pre-vetted the set, they
+reasonably conclude that reading it is safe.
 
-- A business user inspecting packages they already chose to trust.
-- **Package hijack** — stolen credentials used to publish a malicious version
-  of a real package.
-- **Typosquatting** — a package whose identity is meant to be mistaken for
-  another's.
+Two assumptions inside that conclusion do not hold:
 
-All three are **identity** attacks, and that observation orders everything
-below.
+- **A vetted package does not stay vetted.** Credentials get stolen, and a new
+  version of a real, previously-reviewed package ships malicious content. The
+  name on the reference is the one that was approved; the artifact behind it is
+  not.
+- **The reference graph is not spelled uniformly.** Vetting happens over a set
+  of names, but names enter a build from many places — package references
+  across several projects, transitive dependencies, floating versions. One
+  reference spelled slightly differently is all a typosquat needs, and it will
+  not be the one anybody read closely.
+
+Both are **identity** attacks: the artifact is not the thing its name claims to
+be. That observation orders everything below.
+
+Autonomous agents sharpen this rather than softening it. An agent consumes this
+tool's output without a human reading it, so output that misrepresents identity
+is acted on directly, and a rendering hazard stops being bounded by whether
+someone happens to be watching a terminal.
 
 **Encoding is a deny list, and a deny list cannot solve identity.** The
 category rule in the next section is a better deny list than an enumerated one
