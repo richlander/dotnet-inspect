@@ -12,21 +12,9 @@
 # entry with the issue that tracks it and the date it was pinned.
 #
 # ---------------------------------------------------------------------------
-# #3489 — pinned 2026-07-29. The declaration formatter @-escapes unnamed
-# keyword-typed tuple elements, so `(int, int)` renders as `(@int, @int)` and
-# CfgSampleClass.TupleRest no longer recompiles (CS0246). Root-caused; the fix
-# is in the declaration formatter, not the decompiler.
-ILInspector.Decompiler.Tests.FidelityGateTests.PinnedFixesStayExact
-#
-# #3490 — pinned 2026-07-29. MakeConsumerWithTwoLeadingArgs shows a spurious
-# stloc/ldloc pair on the raised path. Real, and already docketed in the lowered
-# gate (LoweredFidelityGateTests.cs) against #3272; the raised docket needs the
-# same entry, or ExpressionInliningPass needs to remove both spill temps.
-ILInspector.Decompiler.Tests.FidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket
-#
-# #3491 — pinned 2026-07-29. Five of the six diffs are Roslyn local-function
-# name-mangling ordinals (`g__Name|N_K`), which encode source member position
-# and cannot match after reconstruction — no decompiler can pass that
-# comparison. The sixth (ManualConstantOnlyComparisonFactory) is a real
-# stack-slot/temporary reshape whose five siblings are already docketed.
-ILInspector.Decompiler.Tests.LoweredFidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket
+# No pins. #3489, #3490 and #3491 were pinned 2026-07-29 and retired 2026-07-30
+# when #3528 fixed them, along with #3492 and #3493. The three tests they named
+# — FidelityGateTests.PinnedFixesStayExact,
+# FidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket and
+# LoweredFidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket — are gated
+# normally again.
