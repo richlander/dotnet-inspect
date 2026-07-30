@@ -346,7 +346,10 @@ public class SourceLinkMapConformanceTests
     [InlineData("https://h.test/*%2f..%2ffixed.cs", false)]
     [InlineData("https://h.test/*%2F..%2Ffixed.cs", false)]
     [InlineData("https://h.test/*%5c..%5cfixed.cs", false)]
+    [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*/../fixed.cs", false)]
+    [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*%2f..%2ffixed.cs", false)]
     [InlineData("https://h.test/x?p=*&e=a%2fb", true)]
+    [InlineData("https://h.test/x?p=*&note=a/../b", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/0123456789012345678901234567890123456789/*", true)]
     [InlineData("http://internal.test/src/*", true)]
     [InlineData("https://h.test/x?p=*&q=1", true)]
@@ -396,6 +399,9 @@ public class SourceLinkMapConformanceTests
     [InlineData("https://h.test/*%2f..%2ffixed.cs", "https://h.test/*%2ffixed.cs")]
     // A wildcard in the host chooses the origin; in the first path segment it does not.
     [InlineData("https://*.test/x", "https://h.test/*/x")]
+    // A traversal inside a query value erases the substitution just as one in the path does; a
+    // '..' that erases nothing but the wildcard's own neighbour leaves the document choosing.
+    [InlineData("https://h.test/i?path=/*/../fixed.cs", "https://h.test/i?path=/*/fixed.cs")]
     public void EachRefusedUrlShape_IsRefusedForItsOwnReasonAndNotAnIncidentalOne(
         string refused,
         string acceptedTwin)
@@ -458,6 +464,64 @@ public class SourceLinkMapConformanceTests
 
         // And the less specific entry still governs everything the more specific one misses.
         Assert.Equal(Prefix + "src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    /// <summary>
+    /// A wildcard confined to the query is accepted, because the same shape is how Azure Repos
+    /// names the document and how a query-ignoring host names nothing at all. Which one it is is
+    /// host knowledge this matcher does not have.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in review as a bypass: aimed at <c>raw.githubusercontent.com</c>, the first URL
+    /// below matches the whole subtree, outranks a valid fallback, and serves one file as the
+    /// source of every document, because that host ignores the query. Measured, both halves:
+    /// </para>
+    /// <code>
+    /// .../CSharpDeclarationWriter.cs?document=A.cs    same bytes
+    /// .../CSharpDeclarationWriter.cs?document=B.cs    same bytes
+    /// .../CSharpDeclarationWriter.cs                  same bytes   &lt;- query ignored
+    ///
+    /// dev.azure.com/.../items?...&amp;path=/README.md     200
+    /// dev.azure.com/.../items?...&amp;path=/nope          404          &lt;- query selects
+    /// </code>
+    /// <para>
+    /// So the shape cannot be refused: it is exactly what <c>Microsoft.SourceLink.AzureRepos.Git</c>
+    /// generates, and refusing it would reintroduce the failure this matcher was collapsed to fix.
+    /// Telling the two apart needs a per-host content selector, which belongs with the host
+    /// grammars in <c>SourceLinkProvenance</c>, not here; issue #3599 tracks it. Provenance is not
+    /// at risk meanwhile, which the last assertion pins: the origin it reports is genuinely where
+    /// the bytes come from, so the invariant holds even while correspondence does not.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AWildcardConfinedToTheQuery_IsAcceptedBecauseOnlyTheHostKnowsWhetherItSelects()
+    {
+        const string Sha = "0123456789012345678901234567890123456789";
+        const string Raw = "https://raw.githubusercontent.com/o/r/" + Sha + "/";
+
+        var map = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{" +
+            "\"/_/src/*\":\"" + Raw + "One.cs?document=*\"," +
+            "\"/_/*\":\"" + Raw + "*\"}}");
+
+        Assert.Empty(map.RejectedKeys);
+        Assert.Equal(Raw + "One.cs?document=One.cs", map.ResolveUrl("/_/src/One.cs"));
+        Assert.Equal(Raw + "One.cs?document=Two.cs", map.ResolveUrl("/_/src/Two.cs"));
+
+        // The real Azure Repos shape is the same shape, and must keep working.
+        var azure = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"/_/*\":\"https://dev.azure.com/c/w/_apis/git/repositories/core/items" +
+            "?api-version=1.0&versionType=commit&version=" + Sha + "&path=/*\"}}");
+
+        Assert.Empty(azure.RejectedKeys);
+
+        // And the origin reported for the shadowing map is still the origin the bytes come from,
+        // so this is a correspondence gap and not a provenance one.
+        var provenance = SLF.SourceLinkProvenance.Determine(map, ["/_/src/One.cs", "/_/src/Two.cs"]);
+        Assert.Equal("o", provenance.Origin?.Organization);
+        Assert.Equal("r", provenance.Origin?.Repository);
+        Assert.Equal(Sha, provenance.Origin?.Revision);
     }
 
     /// <summary>

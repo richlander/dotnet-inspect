@@ -435,12 +435,29 @@ public partial class SourceLinkResolver
     ///   <item>
     ///     They must differ in the part actually sent to the server. A wildcard confined to the
     ///     fragment (<c>https://h.test/README.md#*</c>) is never transmitted, and one erased by
-    ///     dot-segment removal (<c>https://h.test/a/*/../fixed.cs</c>) is normalized away — both
-    ///     serve one file's content as the source of every document in the subtree. That is the
-    ///     same harm rule 2 refuses for a wildcard key paired with a constant URL, so it is
-    ///     refused on the same terms: wrong content is worse than no content.
+    ///     dot-segment removal (<c>https://h.test/a/*/../fixed.cs</c>, or the same traversal
+    ///     written inside a query value as <c>?path=/*/../fixed.cs</c>) is normalized away — both
+    ///     stop the document from choosing the request at all. That is the same harm rule 2
+    ///     refuses for a wildcard key paired with a constant URL, so it is refused on the same
+    ///     terms: wrong content is worse than no content.
     ///   </item>
     /// </list>
+    /// <para>
+    /// What this establishes is that the document changes the request. It does not establish that
+    /// the server <em>uses</em> the change, and no host-agnostic rule can, because the same URL
+    /// shape means opposite things on the two hosts SourceLink maps actually name. Measured: a
+    /// wildcard confined to the query is the documented Azure Repos shape, where <c>path=</c>
+    /// selects the file (<c>path=/README.md</c> → 200, a different path → 404); the identical
+    /// shape aimed at <c>raw.githubusercontent.com</c> serves one file for every document, because
+    /// that host ignores the query entirely (<c>?document=A.cs</c>, <c>?document=B.cs</c> and no
+    /// query all return the same bytes). Refusing the shape would break every Azure Repos
+    /// assembly, which is the bug this matcher was collapsed to fix. Deciding it needs a
+    /// per-host content selector, which belongs with the host grammars in
+    /// <c>SourceLinkProvenance</c> rather than in this host-agnostic matcher, and is tracked by
+    /// issue #3599. Until then a map may still point every document at one file on a host that
+    /// ignores the varying component; provenance stays correct in that case, because the origin
+    /// it reports is genuinely where the content is served from.
+    /// </para>
     /// <para>
     /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is
     /// the same scope decision the host allow list makes: <c>file:///tmp/*</c> is a well-formed
@@ -496,11 +513,69 @@ public partial class SourceLinkResolver
         }
 
         // UriPartial.Query is everything the request line carries -- scheme, authority, path and
-        // query -- and so excludes exactly the fragment, which is never transmitted.
+        // query -- and so excludes exactly the fragment, which is never transmitted. Uri resolves
+        // dot segments in the path but not in the query, so the query is resolved here: otherwise
+        // the one refusal rule 3 states is enforced only where Uri happened to do the work, and
+        // the same erasure written inside a query value walks straight through.
         return !string.Equals(
-            first.GetLeftPart(UriPartial.Query),
-            second.GetLeftPart(UriPartial.Query),
+            RequestKey(first),
+            RequestKey(second),
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The request line, with dot segments resolved in the query as well as the path.
+    /// </summary>
+    private static string RequestKey(Uri url)
+        => url.GetLeftPart(UriPartial.Path) + "?" + ResolveDotSegmentsInQuery(url.Query);
+
+    /// <summary>
+    /// Removes <c>.</c> and <c>..</c> segments from a query value, where <see cref="Uri"/> leaves
+    /// them alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Azure Repos carries the document in <c>path=</c>, so a traversal written into a query value
+    /// erases the substitution exactly the way one written into the path does, and rule 3 refuses
+    /// it for the same reason. <see cref="Uri"/> normalizes only <see cref="Uri.AbsolutePath"/>,
+    /// so without this the query form is accepted and the path form is not, which is an
+    /// inconsistency in the rule rather than a decision about it.
+    /// </para>
+    /// <para>
+    /// The first segment is a floor and is never popped. It holds the query's parameter names --
+    /// everything up to the <c>/</c> that starts the first path-shaped value -- and popping it
+    /// would erase the parameter the substitution landed in, making a URL whose document still
+    /// chooses the request look like one whose document does not. That would be a false refusal
+    /// of a shape a real map can carry, so a <c>..</c> with nothing left to remove is kept rather
+    /// than allowed to escape its span.
+    /// </para>
+    /// </remarks>
+    private static string ResolveDotSegmentsInQuery(string query)
+    {
+        if (!query.Contains("..", StringComparison.Ordinal))
+        {
+            return query;
+        }
+
+        string[] segments = query.Split('/');
+        var kept = new List<string>(segments.Length);
+        foreach (string segment in segments)
+        {
+            if (segment == "." && kept.Count > 0)
+            {
+                continue;
+            }
+
+            if (segment == ".." && kept.Count > 1)
+            {
+                kept.RemoveAt(kept.Count - 1);
+                continue;
+            }
+
+            kept.Add(segment);
+        }
+
+        return string.Join('/', kept);
     }
 
     /// <summary>
