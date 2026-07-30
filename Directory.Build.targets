@@ -42,7 +42,12 @@
        file-based app builds through a generated project whose
        MSBuildProjectExtension is .csproj, so it inherits the rule. Every
        file-based app in this repository lives under eng/, which declares the
-       opt-out for exactly that reason. -->
+       opt-out for exactly that reason.
+
+       The rule is repository-wide, not solution-wide. Six projects are outside
+       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests, four
+       metadata fixtures, and .review-fixtures/FixtureLib — so a solution build
+       is not evidence that this rule holds. Build them too, or let CI find it. -->
   <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
       <PrivateAssets>all</PrivateAssets>
