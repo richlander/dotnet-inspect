@@ -559,7 +559,11 @@ public sealed class ForwardedTypeAliases
         if (openDeclaringType.Kind != TypeRefKind.Definition)
             return None;
 
-        var paths = scopeAssemblyPaths.ToList();
+        // Normalized once, up front, so that two spellings of one path are one file everywhere
+        // below: the census counts claimants by path, and `dir\x.dll` and `dir\.\x.dll` counted as
+        // two files contesting one name, which made the target's identity unknowable and dropped
+        // every genuine caller (executed in review of d6405614).
+        var paths = scopeAssemblyPaths.Select(Normalize).ToList();
 
         // Every path's assembly name and AssemblyDef identity, read without touching the
         // ExportedType table. Indexing evidence by the identity a file *claims* rather than by its
@@ -584,7 +588,8 @@ public sealed class ForwardedTypeAliases
 
             // Deduplicated, because the same file listed twice is one claimant. Counting it twice
             // made a single-claimant name look contested and dropped a genuine alias (executed in
-            // review of 7572838c).
+            // review of 7572838c). Paths are normalized above, so two spellings of one file compare
+            // equal here.
             if (!claimants.Any(c => string.Equals(c.Path, path, StringComparison.OrdinalIgnoreCase)))
                 claimants.Add((path, claimed.Identity));
         }
@@ -666,20 +671,20 @@ public sealed class ForwardedTypeAliases
                 if (ProbeForType(path, openDeclaringType.Namespace, openDeclaringType.Name) is not { } probe)
                     continue;
 
-                if (probe.DefinesType)
+                if (probe.DeclaresType)
                     definingSpellings.Add(probe.Assembly);
 
-                if (probe.Edge is not { } edge)
-                    continue;
-
-                edges.Add(edge);
-
-                // Follow the chain: the assembly this one forwards to may itself be a facade that
-                // no caller names, and dropping it would break a multi-hop chain.
-                foreach (var claimant in census.TryGetValue(edge.Target, out var hops) ? hops : [])
+                foreach (var edge in probe.Edges)
                 {
-                    if (!probed.Contains(claimant.Path))
-                        next.Add(claimant.Path);
+                    edges.Add(edge);
+
+                    // Follow the chain: the assembly this one forwards to may itself be a facade
+                    // that no caller names, and dropping it would break a multi-hop chain.
+                    foreach (var claimant in census.TryGetValue(edge.Target, out var hops) ? hops : [])
+                    {
+                        if (!probed.Contains(claimant.Path))
+                            next.Add(claimant.Path);
+                    }
                 }
             }
 
@@ -925,6 +930,26 @@ public sealed class ForwardedTypeAliases
     }
 
     /// <summary>
+    /// One file's path in a single spelling, so that two ways of naming it compare equal. A path
+    /// this cannot resolve is returned unchanged: the walk opens it either way, and failing to
+    /// normalize can only cost a deduplication, never invent a claimant.
+    /// </summary>
+    static string Normalize(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                      or NotSupportedException
+                                      or PathTooLongException
+                                      or System.Security.SecurityException)
+        {
+            return path;
+        }
+    }
+
+    /// <summary>
     /// The name and <c>AssemblyDef</c> identity an assembly claims for itself, or null when the
     /// file is not a readable managed assembly.
     /// </summary>
@@ -959,13 +984,18 @@ public sealed class ForwardedTypeAliases
 
     /// <summary>
     /// What one file has to say about the type named by <paramref name="ns"/> and
-    /// <paramref name="name"/>: the assembly name it claims, the
-    /// forwarder edge it carries for that type if any, and whether it <em>defines</em> the type
-    /// itself.
+    /// <paramref name="name"/>: the assembly name it claims, <em>every</em> forwarder edge it
+    /// carries for that type, and whether it <em>declares</em> the type itself.
     ///
-    /// <para>Both answers come from the one read, because both bear on the same question. A file
-    /// that defines the type contradicts a same-named file that forwards it, and a walk that looked
-    /// only for forwarders could not see that contradiction.</para>
+    /// <para>All three answers come from the one read, because all three bear on the same question.
+    /// A file that declares the type contradicts a same-named file that forwards it, and a walk that
+    /// looked only for forwarders could not see that contradiction.</para>
+    ///
+    /// <para>Edges are returned whole rather than stopping at the first match: a file carrying two
+    /// forwarder rows for one type disagrees with itself, and answering from whichever row the table
+    /// listed first made the verdict depend on metadata row order (executed in review of d6405614).
+    /// Reporting both lets the ordinary disagreement rule refuse the spelling, which is where that
+    /// judgement already lives.</para>
     ///
     /// <para>The target's <c>AssemblyRef</c> row is returned whole rather than by name because the
     /// name alone cannot say <em>which</em> assembly of that name the forwarder meant, and that is
@@ -974,7 +1004,7 @@ public sealed class ForwardedTypeAliases
     /// <para>Reads metadata only; an unreadable image contributes nothing, which leaves the matcher
     /// exactly where it is today.</para>
     /// </summary>
-    static (string Assembly, ForwarderEdge? Edge, bool DefinesType)? ProbeForType(
+    static (string Assembly, List<ForwarderEdge> Edges, bool DeclaresType)? ProbeForType(
         string path,
         string ns,
         string name)
@@ -997,7 +1027,7 @@ public sealed class ForwardedTypeAliases
                 definition.Culture.IsNil ? "" : reader.GetString(definition.Culture),
                 definition.Version);
 
-            bool definesType = false;
+            bool declaresType = false;
             foreach (var handle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(handle);
@@ -1013,21 +1043,15 @@ public sealed class ForwardedTypeAliases
                 if (reader.StringComparer.Equals(type.Name, name)
                     && reader.StringComparer.Equals(type.Namespace, ns))
                 {
-                    definesType = true;
+                    declaresType = true;
                     break;
                 }
             }
 
+            var edges = new List<ForwarderEdge>();
             foreach (var handle in reader.ExportedTypes)
             {
                 var exported = reader.GetExportedType(handle);
-                if (!exported.IsForwarder)
-                    continue;
-                // A nested forwarded type's implementation is the enclosing ExportedType, not an
-                // AssemblyReference, so Outer+Inner forwarders are not recognized here. That loses an
-                // alias and never invents one; tracked as #3480.
-                if (exported.Implementation.Kind != HandleKind.AssemblyReference)
-                    continue;
 
                 if (!reader.StringComparer.Equals(exported.Name, name)
                     || !reader.StringComparer.Equals(exported.Namespace, ns))
@@ -1035,24 +1059,40 @@ public sealed class ForwardedTypeAliases
                     continue;
                 }
 
+                if (!exported.IsForwarder)
+                {
+                    // A multi-module assembly declares its public types in netmodules and lists
+                    // them here, implemented by an AssemblyFile. That row is a declaration, not a
+                    // forward, and it contradicts a same-named facade exactly as a TypeDef does —
+                    // a scan of TypeDef rows alone could not see it (executed in review of
+                    // d6405614). Rows implemented by anything else say nothing about this file.
+                    if (exported.Implementation.Kind == HandleKind.AssemblyFile)
+                        declaresType = true;
+
+                    continue;
+                }
+
+                // A nested forwarded type's implementation is the enclosing ExportedType, not an
+                // AssemblyReference, so Outer+Inner forwarders are not recognized here. That loses an
+                // alias and never invents one; tracked as #3480.
+                if (exported.Implementation.Kind != HandleKind.AssemblyReference)
+                    continue;
+
                 var target = reader.GetAssemblyReference(
                     (AssemblyReferenceHandle)exported.Implementation);
-                return (
+                edges.Add(new ForwarderEdge(
                     assembly,
-                    new ForwarderEdge(
-                        assembly,
+                    reader.GetString(target.Name),
+                    identity,
+                    new AssemblyReferenceSpelling(
                         reader.GetString(target.Name),
-                        identity,
-                        new AssemblyReferenceSpelling(
-                            reader.GetString(target.Name),
-                            [.. reader.GetBlobContent(target.PublicKeyOrToken)],
-                            target.Flags,
-                            target.Culture.IsNil ? "" : reader.GetString(target.Culture),
-                            target.Version)),
-                    definesType);
+                        [.. reader.GetBlobContent(target.PublicKeyOrToken)],
+                        target.Flags,
+                        target.Culture.IsNil ? "" : reader.GetString(target.Culture),
+                        target.Version)));
             }
 
-            return (assembly, null, definesType);
+            return (assembly, edges, declaresType);
         }
         catch (Exception ex) when (ex is BadImageFormatException
                                       or IOException

@@ -1546,6 +1546,224 @@ public class ForwardedTypeAliasesTests
             CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, twice));
     }
 
+    /// <summary>
+    /// A multi-module assembly declares its public types in netmodules and lists them in the
+    /// manifest as non-forwarder <c>ExportedType</c> rows implemented by an <c>AssemblyFile</c>.
+    /// That is a declaration, not a forward, so a same-named twin holding one contradicts a facade
+    /// exactly as a <c>TypeDef</c> does — but a scan that looked only at <c>TypeDef</c> rows could
+    /// not see it, and the caller bound to the twin's own type was reported as calling the target.
+    /// </summary>
+    [Fact]
+    public void ATwinThatExportsTheTypeFromItsOwnModuleContradictsTheFacade()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        string targetPath = Path.Combine(directory, "Contoso.Definer.dll");
+
+        // The control: with only the forwarder present, the alias stands.
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            Classify(target, targetPath, directory));
+
+        // The twin claims the same identity and declares `Contoso.Widget` in its own netmodule.
+        WriteModuleExporter(
+            directory, "Contoso.Facade", "Contoso", "Widget", fileName: "Rival.Facade");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            Classify(target, targetPath, directory));
+    }
+
+    /// <summary>
+    /// The negative control for the rule above: a module-exported type that is not the one under
+    /// inspection says nothing about it, so the alias must survive. Without this, a rule that
+    /// refused on the mere presence of any <c>AssemblyFile</c>-implemented export would pass.
+    /// </summary>
+    [Fact]
+    public void ATwinThatExportsAnUnrelatedTypeFromItsModuleLeavesTheAliasStanding()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+        WriteModuleExporter(
+            directory, "Contoso.Facade", "Contoso", "Gadget", fileName: "Rival.Facade");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            Classify(
+                TypeRef.Definition("Contoso.Definer", "Contoso", "Widget"),
+                Path.Combine(directory, "Contoso.Definer.dll"),
+                directory));
+    }
+
+    /// <summary>
+    /// A file carrying two forwarder rows for one type disagrees with itself, and nothing says
+    /// which row a caller bound to. Answering from whichever row the table happens to list first
+    /// makes the verdict depend on metadata row order — so the same disagreement that refuses two
+    /// files must refuse one file twice over.
+    /// </summary>
+    [Fact]
+    public void AFileForwardingOneTypeToTwoDefinersCannotAnswerForIt()
+    {
+        foreach (bool targetFirst in new[] { true, false })
+        {
+            string directory = NewTempDirectory();
+
+            // Both definers exist and both edges verify, so the only thing that can refuse this is
+            // the disagreement itself.
+            File.WriteAllBytes(
+                Path.Combine(directory, "Contoso.Definer.dll"),
+                SerializePE(NewAssembly("Contoso.Definer", publicKey: null)));
+            File.WriteAllBytes(
+                Path.Combine(directory, "Other.Definer.dll"),
+                SerializePE(NewAssembly("Other.Definer", publicKey: null)));
+
+            WriteDoubleForwarder(
+                directory,
+                "Contoso.Facade",
+                first: targetFirst ? "Contoso.Definer" : "Other.Definer",
+                second: targetFirst ? "Other.Definer" : "Contoso.Definer",
+                "Contoso",
+                "Widget");
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                Classify(
+                    TypeRef.Definition("Contoso.Definer", "Contoso", "Widget"),
+                    Path.Combine(directory, "Contoso.Definer.dll"),
+                    directory));
+        }
+    }
+
+    /// <summary>
+    /// The control for the rule above: one file forwarding a type it already forwards to the same
+    /// definer is not a disagreement, so a duplicated row must not refuse the alias.
+    /// </summary>
+    [Fact]
+    public void AFileForwardingOneTypeTwiceToTheSameDefinerStillAnswersForIt()
+    {
+        string directory = NewTempDirectory();
+        File.WriteAllBytes(
+            Path.Combine(directory, "Contoso.Definer.dll"),
+            SerializePE(NewAssembly("Contoso.Definer", publicKey: null)));
+        WriteDoubleForwarder(
+            directory, "Contoso.Facade",
+            first: "Contoso.Definer", second: "Contoso.Definer", "Contoso", "Widget");
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            Classify(
+                TypeRef.Definition("Contoso.Definer", "Contoso", "Widget"),
+                Path.Combine(directory, "Contoso.Definer.dll"),
+                directory));
+    }
+
+    /// <summary>
+    /// One file reached by two spellings of its path is one claimant. Comparing the supplied
+    /// strings alone let `dir\x.dll` and `dir\.\x.dll` count as two files contesting one name, so
+    /// the target's identity became unknowable and every genuine caller was dropped.
+    /// </summary>
+    [Fact]
+    public void OneFileNamedByTwoEquivalentPathsIsStillOneClaimant()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var once = Directory.GetFiles(directory, "*.dll");
+
+        // The control: the answer this fixture gives when no path is restated.
+        Assert.True(
+            ForwardedTypeAliases.ForTarget(target, once).IncludesRawSpelling("Contoso.Facade"));
+
+        // The same files, with the target restated through an equivalent path.
+        string restated = Path.Combine(directory, ".", "Contoso.Definer.dll");
+        Assert.True(File.Exists(restated));
+
+        Assert.True(
+            ForwardedTypeAliases
+                .ForTarget(target, [.. once, restated])
+                .IncludesRawSpelling("Contoso.Facade"));
+    }
+
+    /// <summary>Runs the whole gate for a fixture directory, which is what the caller sees.</summary>
+    static CallerScopeTypeFilter.TypeReferenceState Classify(
+        TypeRef target,
+        string targetPath,
+        string directory)
+    {
+        var aliases = ForwardedTypeAliases.ForTarget(
+            target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+
+        using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+        return CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases);
+    }
+
+    /// <summary>
+    /// Writes an assembly whose manifest exports a type declared in one of its own netmodules —
+    /// the multi-module representation of a public type, which is a declaration rather than a
+    /// forward.
+    /// </summary>
+    static void WriteModuleExporter(
+        string directory,
+        string name,
+        string ns,
+        string typeName,
+        string fileName)
+    {
+        var metadata = NewAssembly(name);
+        var file = metadata.AddAssemblyFile(
+            metadata.GetOrAddString(name + ".netmodule"),
+            hashValue: default,
+            containsMetadata: true);
+
+        // No tdForwarder bit: this row says "declared over there in my own module", not
+        // "forwarded to another assembly".
+        metadata.AddExportedType(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(typeName),
+            file,
+            typeDefinitionId: 0);
+
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
+    }
+
+    /// <summary>
+    /// Writes one facade carrying two forwarder rows for a single type, so a test can vary which
+    /// row the metadata lists first while holding everything else fixed.
+    /// </summary>
+    static void WriteDoubleForwarder(
+        string directory,
+        string name,
+        string first,
+        string second,
+        string ns,
+        string typeName)
+    {
+        var metadata = NewAssembly(name);
+
+        foreach (string target in new[] { first, second })
+        {
+            var reference = metadata.AddAssemblyReference(
+                metadata.GetOrAddString(target),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+            metadata.AddExportedType(
+                (TypeAttributes)0x00200000,
+                metadata.GetOrAddString(ns),
+                metadata.GetOrAddString(typeName),
+                reference,
+                typeDefinitionId: 0);
+        }
+
+        File.WriteAllBytes(Path.Combine(directory, name + ".dll"), SerializePE(metadata));
+    }
+
     /// <summary>Writes an assembly that declares the named type rather than forwarding it.</summary>
     static void WriteDefiner(string directory, string name, string ns, string typeName, string fileName)
     {
