@@ -387,7 +387,6 @@ points at.
   amplification surface, so they are never dumped by default. Gated by
   `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing`.
 
-
 ### Two orthogonal axes
 
 Safety here is two independent decisions, and conflating them into one flag is
