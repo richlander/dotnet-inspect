@@ -1,0 +1,378 @@
+using System.Reflection.Metadata;
+
+namespace SourceLinkFetch;
+
+/// <summary>
+/// The origin that source content is actually fetched from, read off a resolved SourceLink URL.
+/// </summary>
+/// <param name="Host">The canonical, lower-cased host of the resolved URL.</param>
+/// <param name="Organization">
+/// The owning account: the GitHub owner, or the Azure DevOps organization and project.
+/// </param>
+/// <param name="Repository">The repository name.</param>
+/// <param name="Revision">
+/// The commit, branch, or tag the content is served at. Two entries naming one repository at two
+/// revisions are two origins, because a revision is reachable in a repository without being part
+/// of it — the head of an unmerged pull request is served by the same host as the default branch.
+/// </param>
+/// <param name="RepositoryUrl">A browsable URL for the repository.</param>
+public readonly record struct SourceLinkOrigin(
+    string Host,
+    string Organization,
+    string Repository,
+    string Revision,
+    string RepositoryUrl)
+{
+    /// <summary>
+    /// A stable identity for this exact origin, suitable as a cache key. It names the revision
+    /// <em>and</em> the repository it was served from, because a commit hash alone is shared by
+    /// every fork that contains that commit.
+    /// </summary>
+    public string Identity => $"{Host}/{Organization}/{Repository}@{Revision}";
+}
+
+/// <summary>
+/// The outcome of establishing provenance. <see cref="Origin"/> is null when provenance could not
+/// be established, and <see cref="Reason"/> always says why in that case, so that "no repository"
+/// is reported as a decision rather than as absence.
+/// </summary>
+public readonly record struct SourceLinkProvenanceResult(SourceLinkOrigin? Origin, string Reason)
+{
+    /// <summary>Whether an origin was established.</summary>
+    public bool IsEstablished => Origin is not null;
+}
+
+/// <summary>
+/// Establishes the origin that source content is fetched from.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The invariant this implements is stated in <c>docs/design/untrusted-data-threat-model.md</c>:
+/// reported provenance must describe the origin that source content is actually fetched from, for
+/// every document the assembly resolves; when that cannot be established for all of them, report
+/// no repository.
+/// </para>
+/// <para>
+/// It is established on the <em>final resolved URL</em> — after wildcard substitution, after path
+/// escaping, and after <see cref="Uri"/> canonicalization — and never on the mapping text. Every
+/// weaker reading has a documented, reproduced bypass: reading the mapping text misses dot-segment
+/// removal; reading the mapping prefix misses that the wildcard suffix comes from the equally
+/// attacker-controlled PDB document path; and comparing only owner and repository misses that one
+/// repository serves any revision reachable in it.
+/// </para>
+/// <para>
+/// The whole SourceLink map comes from a PDB in a downloaded package. Every part of it is
+/// untrusted: the keys, the URL templates, and the document names the keys are matched against.
+/// </para>
+/// </remarks>
+public static class SourceLinkProvenance
+{
+    private const string GitHubRawHost = "raw.githubusercontent.com";
+    private const string AzureDevOpsHost = "dev.azure.com";
+    private const string VisualStudioHostSuffix = ".visualstudio.com";
+
+    /// <summary>
+    /// Determines the single origin every resolvable document is fetched from, or reports why no
+    /// such origin exists.
+    /// </summary>
+    /// <param name="resolver">The owner of the SourceLink mapping rule.</param>
+    /// <param name="documentPaths">
+    /// The document names recorded in the PDB. Provenance is a claim about what this assembly's
+    /// source resolves to, so it is established over the documents the assembly actually declares
+    /// and not over the map in the abstract: an entry no document matches is never fetched.
+    /// </param>
+    public static SourceLinkProvenanceResult Determine(
+        SourceLinkResolver resolver,
+        IEnumerable<string> documentPaths)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(documentPaths);
+
+        if (resolver.ParseError is not null)
+        {
+            return new SourceLinkProvenanceResult(null, $"the SourceLink map did not parse: {resolver.ParseError}");
+        }
+
+        SourceLinkOrigin? agreed = null;
+        int resolvedCount = 0;
+
+        foreach (string documentPath in documentPaths)
+        {
+            if (documentPath is null)
+            {
+                continue;
+            }
+
+            string? url = resolver.ResolveUrl(documentPath);
+            if (url is null)
+            {
+                // The document is not fetched, so it makes no claim about where source comes from.
+                continue;
+            }
+
+            resolvedCount++;
+
+            if (!TryReadOrigin(url, out SourceLinkOrigin origin, out string rejection))
+            {
+                return new SourceLinkProvenanceResult(
+                    null,
+                    $"a resolved source URL has no attributable origin: {rejection}");
+            }
+
+            if (agreed is null)
+            {
+                agreed = origin;
+            }
+            else if (agreed.Value != origin)
+            {
+                return new SourceLinkProvenanceResult(
+                    null,
+                    "documents resolve to more than one origin, so no single repository describes this assembly's source");
+            }
+        }
+
+        if (resolvedCount == 0)
+        {
+            return new SourceLinkProvenanceResult(null, "no document resolves to a source URL");
+        }
+
+        return new SourceLinkProvenanceResult(agreed, "");
+    }
+
+    /// <summary>
+    /// Determines provenance directly from a PDB, over the documents that PDB declares.
+    /// </summary>
+    /// <returns>
+    /// A result whose <see cref="SourceLinkProvenanceResult.Origin"/> is null, with a reason, when
+    /// the PDB carries no SourceLink map or no attributable single origin.
+    /// </returns>
+    public static SourceLinkProvenanceResult Determine(MetadataReader pdbReader)
+    {
+        ArgumentNullException.ThrowIfNull(pdbReader);
+
+        SourceLinkResolver? resolver = SourceLinkResolver.Create(pdbReader);
+        return resolver is null
+            ? new SourceLinkProvenanceResult(null, "the PDB carries no SourceLink map")
+            : Determine(resolver, EnumerateDocumentNames(pdbReader));
+    }
+
+    private static IEnumerable<string> EnumerateDocumentNames(MetadataReader pdbReader)
+    {
+        foreach (DocumentHandle handle in pdbReader.Documents)
+        {
+            yield return pdbReader.GetString(pdbReader.GetDocument(handle).Name);
+        }
+    }
+
+    /// <summary>
+    /// Converts a resolved GitHub raw-content URL into a browsable URL for the same content.
+    /// </summary>
+    /// <returns>
+    /// Null when the URL has no attributable GitHub origin. A URL that traverses out of the
+    /// repository it appears to name must not be dressed up as a github.com link, and callers
+    /// fall back to showing the resolved URL itself.
+    /// </returns>
+    public static string? BrowseUrl(string? resolvedUrl)
+    {
+        if (resolvedUrl is null || !TryReadOrigin(resolvedUrl, out SourceLinkOrigin origin, out _))
+        {
+            return null;
+        }
+
+        if (!string.Equals(origin.Host, GitHubRawHost, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // TryReadOrigin already established that this parses and has at least four segments.
+        string[] segments = new Uri(resolvedUrl).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string path = string.Join('/', segments[3..]);
+        return $"https://github.com/{origin.Organization}/{origin.Repository}/blob/{origin.Revision}/{path}";
+    }
+
+    /// <summary>
+    /// Reads the origin off one final resolved URL, or says why the URL is not attributable.
+    /// </summary>
+    internal static bool TryReadOrigin(string url, out SourceLinkOrigin origin, out string rejection)
+    {
+        origin = default;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
+        {
+            rejection = "it is not an absolute URI";
+            return false;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+        {
+            rejection = $"its scheme is '{uri.Scheme}', not https";
+            return false;
+        }
+
+        if (uri.UserInfo.Length != 0)
+        {
+            // "https://raw.githubusercontent.com@evil.example/..." parses with Host 'evil.example'
+            // and UserInfo 'raw.githubusercontent.com'. The host check below already rejects that
+            // one, but user info in a source URL is never legitimate and reads as the host.
+            rejection = "it carries user information before the host";
+            return false;
+        }
+
+        if (ContainsEncodedSeparatorOrDotSegment(url, out string encoded))
+        {
+            // Uri preserves these verbatim through canonicalization, so a canonicalize-then-check
+            // step passes while a server that percent-decodes before resolving dot segments still
+            // traverses out of the path this URL appears to name.
+            rejection = $"it contains the encoded sequence '{encoded}', which canonicalization does not resolve";
+            return false;
+        }
+
+        // AbsolutePath has had dot segments removed, so traversal has already been applied and the
+        // segments below name where content is really served from.
+        string[] segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string host = uri.Host;
+
+        if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
+        {
+            // /{owner}/{repo}/{ref}/{path...}
+            if (segments.Length < 4)
+            {
+                rejection = $"'{host}' path '{uri.AbsolutePath}' names no owner, repository, and revision";
+                return false;
+            }
+
+            origin = new SourceLinkOrigin(
+                host,
+                segments[0],
+                segments[1],
+                segments[2],
+                $"https://github.com/{segments[0]}/{segments[1]}");
+            rejection = "";
+            return true;
+        }
+
+        if (string.Equals(host, AzureDevOpsHost, StringComparison.Ordinal) ||
+            host.EndsWith(VisualStudioHostSuffix, StringComparison.Ordinal))
+        {
+            return TryReadAzureDevOpsOrigin(uri, host, segments, out origin, out rejection);
+        }
+
+        rejection = $"host '{host}' is not a recognized source host";
+        return false;
+    }
+
+    /// <summary>
+    /// Reads an Azure DevOps Git items URL:
+    /// <c>https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/items?version={rev}</c>,
+    /// or the older <c>https://{account}.visualstudio.com/{project}/_apis/...</c> spelling.
+    /// </summary>
+    private static bool TryReadAzureDevOpsOrigin(
+        Uri uri,
+        string host,
+        string[] segments,
+        out SourceLinkOrigin origin,
+        out string rejection)
+    {
+        origin = default;
+
+        int apis = Array.IndexOf(segments, "_apis");
+        if (apis < 0 ||
+            segments.Length < apis + 4 ||
+            !string.Equals(segments[apis + 1], "git", StringComparison.Ordinal) ||
+            !string.Equals(segments[apis + 2], "repositories", StringComparison.Ordinal))
+        {
+            rejection = $"'{host}' path '{uri.AbsolutePath}' is not a Git items path";
+            return false;
+        }
+
+        string organization = string.Join('/', segments[..apis]);
+        if (organization.Length == 0)
+        {
+            rejection = $"'{host}' path '{uri.AbsolutePath}' names no organization";
+            return false;
+        }
+
+        string repository = segments[apis + 3];
+        string? revision = ReadSingleQueryValue(uri.Query, "version", out string queryRejection);
+        if (revision is null)
+        {
+            rejection = $"'{host}' URL {queryRejection}";
+            return false;
+        }
+
+        origin = new SourceLinkOrigin(
+            host,
+            organization,
+            repository,
+            revision,
+            $"https://{host}/{organization}/_git/{repository}");
+        rejection = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Reads exactly one value for <paramref name="name"/>. A repeated parameter is rejected
+    /// rather than resolved, for the same reason a duplicated JSON key is: two readers of one
+    /// query string can disagree about which value wins.
+    /// </summary>
+    private static string? ReadSingleQueryValue(string query, string name, out string rejection)
+    {
+        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        string? found = null;
+
+        foreach (Range range in pairs.Split('&'))
+        {
+            ReadOnlySpan<char> pair = pairs[range];
+            int equals = pair.IndexOf('=');
+            if (equals < 0 || !pair[..equals].SequenceEqual(name))
+            {
+                continue;
+            }
+
+            string value = Uri.UnescapeDataString(pair[(equals + 1)..].ToString());
+            if (found is not null && !string.Equals(found, value, StringComparison.Ordinal))
+            {
+                rejection = $"repeats the '{name}' parameter with different values";
+                return null;
+            }
+
+            found = value;
+        }
+
+        if (found is null || found.Length == 0)
+        {
+            rejection = $"names no '{name}'";
+            return null;
+        }
+
+        rejection = "";
+        return found;
+    }
+
+    /// <summary>
+    /// Detects percent-encoded path separators and percent-encoded dot segments, which survive
+    /// <see cref="Uri"/> canonicalization unchanged.
+    /// </summary>
+    private static bool ContainsEncodedSeparatorOrDotSegment(string url, out string encoded)
+    {
+        for (int i = 0; i + 2 < url.Length; i++)
+        {
+            if (url[i] != '%')
+            {
+                continue;
+            }
+
+            ReadOnlySpan<char> pair = url.AsSpan(i + 1, 2);
+            if (pair.Equals("2f", StringComparison.OrdinalIgnoreCase) ||
+                pair.Equals("5c", StringComparison.OrdinalIgnoreCase) ||
+                pair.Equals("2e", StringComparison.OrdinalIgnoreCase))
+            {
+                encoded = url.Substring(i, 3);
+                return true;
+            }
+        }
+
+        encoded = "";
+        return false;
+    }
+}

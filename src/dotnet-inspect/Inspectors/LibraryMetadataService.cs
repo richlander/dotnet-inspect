@@ -417,7 +417,7 @@ internal static class LibraryMetadataService
             }
         }
 
-        inspection.Builder = InferBuilder(inspection);
+        inspection.Builder = InferBuilder(inspection, pdbContext.Provenance().Origin);
     }
 
     /// <summary>
@@ -459,7 +459,15 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.
     /// </summary>
-    public static string? InferBuilder(LibraryInspection inspection)
+    /// <param name="origin">
+    /// The established SourceLink origin, or null when provenance could not be established. This
+    /// is read instead of the SourceLink JSON text: the map is attacker-controlled, so a substring
+    /// test over it let any package claim a Microsoft origin by naming one anywhere in the map --
+    /// in a key, in a query parameter, or in an entry no document matches.
+    /// </param>
+    public static string? InferBuilder(
+        LibraryInspection inspection,
+        SourceLinkFetch.SourceLinkOrigin? origin)
     {
         var company = inspection.AssemblyInfo?.Company;
         bool isMicrosoftAssembly = company?.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) == true;
@@ -474,13 +482,10 @@ internal static class LibraryMetadataService
             return "Microsoft";
         }
 
-        if (inspection.HasSourceLink && inspection.SourceLinkJson != null)
+        if (origin is { } established
+            && established.Organization.Equals("dotnet", StringComparison.OrdinalIgnoreCase))
         {
-            if (inspection.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
-                inspection.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
-            {
-                return "Microsoft";
-            }
+            return "Microsoft";
         }
 
         if (inspection.SourceLinkUnavailableReason == "no symbols")

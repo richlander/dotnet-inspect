@@ -99,8 +99,8 @@ public class SourceLinkService : IDisposable
     public string? RepositoryUrl => _context.ExtractRepositoryUrl();
 
     /// <summary>
-    /// The commit hash extracted from SourceLink URL patterns.
-    /// Returns null if no SourceLink data or the commit hash cannot be determined.
+    /// The revision source is served at. Returns null if no SourceLink data, or if no single
+    /// origin describes every document the assembly resolves.
     /// </summary>
     public string? CommitHash => ExtractCommitHash();
 
@@ -190,8 +190,10 @@ public class SourceLinkService : IDisposable
         if (_typeFileIndex != null)
             return _typeFileIndex;
 
-        // Try loading from disk cache
-        var commitHash = CommitHash;
+        // Try loading from disk cache. The key is the full origin, not the bare revision: a
+        // commit hash is shared by every fork containing that commit, so keying on it alone would
+        // serve one repository's index for another's assembly.
+        var commitHash = _context.Provenance().Origin?.Identity;
         if (commitHash != null)
         {
             var cached = _cache?.TryGet(commitHash);
@@ -298,11 +300,7 @@ public class SourceLinkService : IDisposable
         return existing;
     }
 
-    private string? ExtractCommitHash()
-    {
-        var resolver = _context.GetResolver();
-        return resolver?.ExtractCommitHash();
-    }
+    private string? ExtractCommitHash() => _context.Provenance().Origin?.Revision;
 
     public void Dispose()
     {

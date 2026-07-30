@@ -52,12 +52,15 @@ internal sealed class SourceDocumentPathResolver
 
         if (_map.TryResolve(filePath, out var resolution))
         {
-            // For a wildcard key the canonical path is whatever the key did not cover, which is
-            // the repository-relative path for a conventional "/_/*" map; its leading separator is
-            // cosmetic, so it is trimmed for display. A wildcard-free key covers the whole path,
-            // leaving no remainder, so the document keeps its own name.
-            string canonical = resolution.IsPrefixMatch
-                ? resolution.Remainder.TrimStart('/')
+            // The canonical path is whatever the key did not cover, which is the
+            // repository-relative path for a conventional "/_/*" map; its leading separator is
+            // cosmetic, so it is trimmed for display. A key can cover the whole path in two ways:
+            // by carrying no wildcard, or by carrying one that the document path happens to
+            // consume entirely. Both leave nothing to name the document by, so both fall back to
+            // the document's own name -- the condition is "no remainder", not "not a wildcard".
+            string remainder = resolution.IsPrefixMatch ? resolution.Remainder.TrimStart('/') : "";
+            string canonical = remainder.Length != 0
+                ? remainder
                 : SourceDocumentPath.TrimSyntheticRoot(SourceDocumentPath.NormalizeSeparators(filePath));
 
             // The URL is built by the owner from the untrimmed remainder, so trimming for display

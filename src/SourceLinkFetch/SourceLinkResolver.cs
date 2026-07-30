@@ -91,12 +91,12 @@ public class SourceLinkResolver
     private readonly Entry[] _entries;
 
     /// <summary>
-    /// The URL templates in document order, retained for the provenance readers below. Matching
-    /// deliberately does not use this: it uses <see cref="_entries"/>, which is ordered by
-    /// specificity. Keeping the two separate is what lets the mapping rule and the provenance
-    /// rule be fixed independently.
+    /// The document keys exactly as authored, in document order, before separator normalization
+    /// and before the trailing wildcard is split off. Callers that ask a question about the map's
+    /// text -- such as whether its paths were normalized by a deterministic build -- must see what
+    /// was written, not what matching rewrote it into.
     /// </summary>
-    private readonly string[] _urlTemplates;
+    public IReadOnlyList<string> DocumentKeys { get; }
 
     /// <summary>
     /// Keys that were dropped because they do not conform to the SourceLink rules. Recorded so a
@@ -119,12 +119,12 @@ public class SourceLinkResolver
 
     private SourceLinkResolver(
         Entry[] entries,
-        string[] urlTemplates,
+        string[] documentKeys,
         IReadOnlyList<string> rejectedKeys,
         string? parseError)
     {
         _entries = entries;
-        _urlTemplates = urlTemplates;
+        DocumentKeys = documentKeys;
         RejectedKeys = rejectedKeys;
         ParseError = parseError;
     }
@@ -138,7 +138,7 @@ public class SourceLinkResolver
             mappings[key] = url;
 
         _entries = Build(mappings, out var rejected);
-        _urlTemplates = [.. mappings.Values.OfType<string>()];
+        DocumentKeys = [.. mappings.Keys];
         RejectedKeys = rejected;
         ParseError = null;
     }
@@ -176,7 +176,7 @@ public class SourceLinkResolver
 
         var entries = Build(mappings, out var rejected);
         return new SourceLinkResolver(
-            entries, [.. mappings.Values.OfType<string>()], rejected, parseError: null);
+            entries, [.. mappings.Keys], rejected, parseError: null);
     }
 
     /// <summary>
@@ -263,9 +263,37 @@ public class SourceLinkResolver
                 rejected.Add(key);
         }
 
-        // "Resolved in order from most specific to least specific." A longer prefix is more
-        // specific, and an exact key sorts by its whole length, so it beats every prefix of it.
-        entries.Sort(static (left, right) => right.PathPrefix.Length.CompareTo(left.PathPrefix.Length));
+        // "Resolved in order from most specific to least specific." Length alone does not order
+        // the map: an exact key and the prefix key derived from it have the same length once the
+        // trailing wildcard is stripped, and List<T>.Sort is unstable, so a length-only comparison
+        // decides that pair by JSON enumeration order. That is the same document-order dependence
+        // this type exists to remove, so the comparison is a total order instead.
+        entries.Sort(static (left, right) =>
+        {
+            // A longer prefix is more specific, so it is checked first.
+            int byLength = right.PathPrefix.Length.CompareTo(left.PathPrefix.Length);
+            if (byLength != 0)
+                return byLength;
+
+            // "Absolute paths will be checked before a wildcard path with a matching base": an
+            // exact key names one document, a prefix key names a subtree, so the exact key is the
+            // more specific of the two.
+            int byExactness = left.IsPrefix.CompareTo(right.IsPrefix);
+            if (byExactness != 0)
+                return byExactness;
+
+            // Nothing below here can change which entry a path matches -- two distinct keys of
+            // equal length and equal kind cannot both match one path unless they differ only by
+            // case or by separator, in which case they are the same rule spelled twice. These
+            // comparisons exist so that the resulting order is total, and therefore independent
+            // of how the map was enumerated, rather than merely usually right.
+            int byPrefix = string.CompareOrdinal(left.PathPrefix, right.PathPrefix);
+            if (byPrefix != 0)
+                return byPrefix;
+
+            int byUrlPrefix = string.CompareOrdinal(left.UrlPrefix, right.UrlPrefix);
+            return byUrlPrefix != 0 ? byUrlPrefix : string.CompareOrdinal(left.UrlSuffix, right.UrlSuffix);
+        });
 
         rejectedKeys = rejected;
         return [.. entries];
@@ -310,9 +338,14 @@ public class SourceLinkResolver
         int urlStar = url.IndexOf('*', StringComparison.Ordinal);
         if (urlStar < 0)
         {
-            // A URL without a wildcard is a constant target. Rule 2 pairs a wildcard key with a
-            // wildcard URL, but the reference consumer accepts this shape rather than dropping
-            // the entry, and dropping it would lose source for maps that are otherwise usable.
+            // Rule 2, in the direction the reference consumer states but does not enforce: "if
+            // the file path contains a * the URL must contain a *". A wildcard key paired with a
+            // constant URL maps every document in a subtree to one file, so the tool would show
+            // one file's content as the source of all of them. Wrong content is worse than no
+            // content, so the entry is rejected and reported rather than honoured.
+            if (isPrefix)
+                return false;
+
             entry = new Entry(normalizedKey, isPrefix, url, UrlSuffix: null);
             return true;
         }
@@ -347,11 +380,26 @@ public class SourceLinkResolver
             sourceLinkJson,
             new JsonDocumentOptions { AllowDuplicateProperties = false });
 
-        if (document.RootElement.ValueKind != JsonValueKind.Object
-            || !document.RootElement.TryGetProperty("documents", out var documents)
-            || documents.ValueKind != JsonValueKind.Object)
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
+            throw new JsonException(
+                $"The SourceLink map's root is {document.RootElement.ValueKind}, not an object.");
+        }
+
+        if (!document.RootElement.TryGetProperty("documents", out var documents))
+        {
+            // A map carrying only other properties declares no documents. That is an empty map,
+            // not a malformed one: the format reserves unknown root properties for extensibility.
             return mappings;
+        }
+
+        if (documents.ValueKind != JsonValueKind.Object)
+        {
+            // A 'documents' value that is not an object has no reading at all. Returning an empty
+            // map here would turn a malformed, attacker-supplied input into success-shaped
+            // emptiness indistinguishable from an assembly that ships no SourceLink.
+            throw new JsonException(
+                $"The SourceLink map's 'documents' value is {documents.ValueKind}, not an object.");
         }
 
         foreach (var property in documents.EnumerateObject())
@@ -365,50 +413,6 @@ public class SourceLinkResolver
         }
 
         return mappings;
-    }
-
-    /// <summary>
-    /// Extracts the repository URL from SourceLink document mappings.
-    /// </summary>
-    public string? ExtractRepositoryUrl()
-    {
-        foreach (string urlTemplate in _urlTemplates)
-        {
-            var match = Regex.Match(urlTemplate,
-                @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/");
-            if (match.Success)
-                return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Extracts the commit hash from SourceLink URL patterns.
-    /// </summary>
-    public string? ExtractCommitHash()
-    {
-        foreach (string urlTemplate in _urlTemplates)
-        {
-            var match = Regex.Match(urlTemplate, @"/([0-9a-f]{40})(?:/|$)", RegexOptions.IgnoreCase);
-            if (match.Success)
-                return match.Groups[1].Value;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com browse URL.
-    /// </summary>
-    public static string? ConvertToGitHubBrowseUrl(string? rawUrl)
-    {
-        if (rawUrl == null) return null;
-
-        var match = Regex.Match(rawUrl,
-            @"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)");
-        if (match.Success)
-            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}/raw/{match.Groups[3].Value}/{match.Groups[4].Value}";
-
-        return rawUrl;
     }
 
     /// <summary>

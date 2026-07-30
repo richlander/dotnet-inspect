@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
@@ -100,6 +103,15 @@ public class SourceLinkMapConformanceTests
             """{"documents":{"/_/sr*":"https://host/A/*"}}""",
             "/_/src/Foo.cs",
             "https://host/A/c/Foo.cs"),
+
+        // Rule 2, in the direction the reference consumer states but does not enforce: "if the
+        // file path contains a * the URL must contain a *". Honouring this entry would serve one
+        // file's content as the source of every document in the subtree.
+        new(
+            "a wildcard key paired with a constant url is dropped",
+            """{"documents":{"/_/*":"https://host/A/pinned.cs"}}""",
+            "/_/src/Foo.cs",
+            null),
     ];
 
     public static TheoryData<string, string, string, string?> SpecifiedResolutions()
@@ -140,6 +152,7 @@ public class SourceLinkMapConformanceTests
         "a hash in a document name is percent-encoded",
         "a url template with two wildcards is dropped",
         "a url wildcard is substituted wherever it appears",
+        "a wildcard key paired with a constant url is dropped",
     ];
 
     /// <summary>
@@ -175,7 +188,7 @@ public class SourceLinkMapConformanceTests
                 ReplacedFetchMatcher(row.Map, row.DocumentPath) != row.Expected
                 || ReplacedMetadataMatcher(row.Map, row.DocumentPath) != row.Expected)
             .Select(row => row.Because)
-            .Order();
+            .Order(StringComparer.Ordinal);
 
         Assert.Equal(RowsTheCollapseDecided.Order(), decided);
     }
@@ -285,16 +298,15 @@ public class SourceLinkMapConformanceTests
     /// watches.
     /// </para>
     /// <para>
-    /// <c>SourceLinkResolver</c> is the owner. <c>AssemblyInspector</c> is the remaining second
-    /// reader: it walks the same map to report provenance and to audit path normalization, and it
-    /// disagrees with the owner about which entry speaks for the assembly. Folding it in is the
-    /// next change, so it is listed here as a known exception rather than tolerated silently — and
-    /// when it goes, this list must shrink, which is why the assertion is set equality rather than
-    /// a containment check.
+    /// <c>SourceLinkResolver</c> is the owner, and now the only reader. <c>AssemblyInspector</c>
+    /// used to walk the same map to report provenance and to audit path normalization, and it
+    /// disagreed with the owner about which entry speaks for the assembly; it now asks the owner
+    /// for both. The assertion is set equality rather than containment precisely so that this
+    /// shrinking had to be made here as well as in the product.
     /// </para>
     /// </remarks>
     [Fact]
-    public void OnlyTheSourceLinkOwner_AndTheKnownSecondReader_ReadTheDocumentsMap()
+    public void OnlyTheSourceLinkOwner_ReadsTheDocumentsMap()
     {
         string src = Path.Combine(FindRepoRoot(), "src");
 
@@ -303,14 +315,119 @@ public class SourceLinkMapConformanceTests
             .Where(static file => !file.Contains(".Tests", StringComparison.Ordinal))
             .Where(static file => File.ReadAllText(file).Contains("\"documents\"", StringComparison.Ordinal))
             .Select(file => Path.GetRelativePath(src, file).Replace('\\', '/'))
-            .Order();
+            .Order(StringComparer.Ordinal);
 
-        Assert.Equal(
-            [
-                "ILInspector.Metadata/AssemblyInspector.cs",
-                "SourceLinkFetch/SourceLinkResolver.cs",
-            ],
-            readers);
+        Assert.Equal(["SourceLinkFetch/SourceLinkResolver.cs"], readers);
+    }
+
+    /// <summary>
+    /// A map means the same thing however its keys happen to be enumerated.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the general form of the defect two reviewers found independently. Ordering entries
+    /// by prefix length alone leaves ties, and <c>List&lt;T&gt;.Sort</c> is unstable, so a tie was
+    /// decided by JSON enumeration order — the exact document-order dependence the collapse set
+    /// out to remove, still present in the implementation that claimed to remove it.
+    /// </para>
+    /// <para>
+    /// A gate naming the one input that exposed it would be satisfied by a fix that special-cases
+    /// that input. This asserts the property over every conformance row and every specificity
+    /// case below, so any future comparison that is not a total order fails here, whatever shape
+    /// the tie takes.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(SpecifiedResolutions))]
+    public void AMapsMeaning_DoesNotDependOnTheOrderItsKeysAreWritten(
+        string because, string map, string documentPath, string? expected)
+    {
+        Assert.Equal(expected, SLF.SourceLinkResolver.Parse(ReverseDocumentOrder(map)).ResolveUrl(documentPath));
+        Assert.NotEmpty(because);
+    }
+
+    /// <summary>
+    /// An exact key and the wildcard key with the same base tie on length once the wildcard is
+    /// stripped. The reference consumer states the intent — "absolute paths will be checked before
+    /// a wildcard path with a matching base" — but orders by length alone, so it does not achieve
+    /// it. Both spellings are asserted, because a tie broken by enumeration order passes one.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"documents":{"/_/a.cs*":"https://host/prefix/*","/_/a.cs":"https://host/exact.cs"}}""")]
+    [InlineData("""{"documents":{"/_/a.cs":"https://host/exact.cs","/_/a.cs*":"https://host/prefix/*"}}""")]
+    public void AnExactKey_BeatsTheWildcardKeyWithTheSameBase(string map)
+    {
+        Assert.Equal("https://host/exact.cs", SLF.SourceLinkResolver.Parse(map).ResolveUrl("/_/a.cs"));
+        Assert.Equal("https://host/exact.cs", SourceDocumentPath.Resolve("/_/a.cs", map).ResolvedUrl);
+    }
+
+    /// <summary>
+    /// A wildcard key can consume a document path entirely, leaving no remainder to name the
+    /// document by. That is the same situation as a key carrying no wildcard at all, and it must
+    /// reach the same answer: the document keeps its own name. Reporting the empty remainder
+    /// would erase the document's identity while still reporting a URL for it.
+    /// </summary>
+    [Fact]
+    public void AWildcardKeyThatConsumesTheWholePath_StillNamesTheDocument()
+    {
+        const string map = """{"documents":{"/_/src/a.cs*":"https://host/prefix/*"}}""";
+
+        var resolution = SourceDocumentPath.Resolve("/_/src/a.cs", map);
+
+        Assert.Equal("src/a.cs", resolution.CanonicalPath);
+        Assert.Equal("https://host/prefix/", resolution.ResolvedUrl);
+        Assert.True(resolution.IsMapped);
+    }
+
+    /// <summary>
+    /// A map whose shape has no reading at all fails visibly instead of resolving nothing quietly.
+    /// </summary>
+    /// <remarks>
+    /// The whole map is attacker-controlled. Returning an empty resolver for a structurally
+    /// invalid one makes malformed input indistinguishable from an assembly that ships no
+    /// SourceLink, which is the success-shaped empty output the repository's failure-visibility
+    /// rule forbids. A root carrying only unknown properties is a different case and stays silent:
+    /// the format reserves those for extensibility, so such a map declares no documents rather
+    /// than failing to declare them.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"documents":[]}""", true)]
+    [InlineData("""{"documents":"nope"}""", true)]
+    [InlineData("""{"documents":null}""", true)]
+    [InlineData("""["documents"]""", true)]
+    [InlineData(""""a string"""", true)]
+    [InlineData("""{"version":2}""", false)]
+    [InlineData("""{"documents":{}}""", false)]
+    public void AStructurallyInvalidMap_SaysWhyRatherThanResolvingNothingQuietly(
+        string map, bool expectedToFail)
+    {
+        var resolver = SLF.SourceLinkResolver.Parse(map);
+
+        Assert.Equal(expectedToFail, resolver.ParseError is not null);
+        Assert.Null(resolver.ResolveUrl("/_/a.cs"));
+    }
+
+    /// <summary>
+    /// Rewrites a map with its <c>documents</c> entries in the opposite order, preserving each
+    /// key and value exactly. Used to assert that meaning is independent of enumeration order.
+    /// </summary>
+    private static string ReverseDocumentOrder(string map)
+    {
+        using var document = JsonDocument.Parse(map);
+        var entries = document.RootElement.GetProperty("documents").EnumerateObject().Reverse().ToList();
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartObject("documents");
+            foreach (var entry in entries)
+                entry.WriteTo(writer);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     private static string FindRepoRoot()
