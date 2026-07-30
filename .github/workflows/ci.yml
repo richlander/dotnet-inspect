@@ -69,6 +69,10 @@ jobs:
               eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
+              # GateExpectedClassesTests lives in the fast lane and is the only
+              # thing keeping this file honest against the pre-merge preset, so
+              # editing the file must run the lane that validates it.
+              eng/decompiler-gate-expected-classes.txt) CODE=true ;;
               *.props|*.targets|*.sln|*.slnx) CODE=true ;;
               .github/workflows/*) CODE=true ;;
             esac
@@ -441,6 +445,16 @@ jobs:
       # reads exactly like a product regression.
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      # The gate below trusts eng/decompiler-gate-expected-classes.txt to say
+      # what must have run. Validate that file here rather than relying on
+      # another job's path filter to have run the fast lane: the job that
+      # consumes the inventory is the job that should prove it still matches
+      # the preset. Cheap (sub-second) and not continue-on-error.
+      - name: Verify gate inventory matches the preset
+        run: |
+          dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+            -class ILInspector.Decompiler.Tests.GateExpectedClassesTests
 
       # continue-on-error so the pinned known-red failures do not fail the job
       # here; eng/check-decompiler-gate.cs decides pass/fail from the report.

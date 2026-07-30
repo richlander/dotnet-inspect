@@ -86,6 +86,36 @@ if (tests.Count == 0)
     return 2;
 }
 
+// Cross-check the report against its own declared summary. The class inventory
+// proves the run selected every expected class; this proves the report is not
+// missing rows within them. xUnit writes per-assembly totals, so truncation is
+// detectable without pinning a test list that would rot on every added test.
+static int Sum(IEnumerable<XElement> assemblies, string attribute) =>
+    assemblies.Sum(a => int.TryParse((string?)a.Attribute(attribute), out int n) ? n : 0);
+
+var assemblies = doc.Descendants("assembly").ToList();
+int declaredTotal = Sum(assemblies, "total");
+int declaredSkipped = Sum(assemblies, "skipped");
+int declaredNotRun = Sum(assemblies, "not-run");
+int declaredErrors = Sum(assemblies, "errors");
+
+if (declaredTotal != tests.Count)
+{
+    Console.Error.WriteLine(
+        $"error: the report declares {declaredTotal} tests but contains {tests.Count} <test> elements.");
+    Console.Error.WriteLine("The report is truncated or was rewritten. It cannot clear the gate.");
+    return 2;
+}
+
+if (declaredSkipped != 0 || declaredNotRun != 0 || declaredErrors != 0)
+{
+    Console.Error.WriteLine(
+        $"error: the report declares {declaredSkipped} skipped, {declaredNotRun} not-run, "
+            + $"and {declaredErrors} errored tests.");
+    Console.Error.WriteLine("Gate tests must run. Fix the environment or the test; do not skip it.");
+    return 2;
+}
+
 static string? TestName(XElement test)
 {
     string? name = (string?)test.Attribute("name");

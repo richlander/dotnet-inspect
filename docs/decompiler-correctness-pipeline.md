@@ -261,6 +261,8 @@ and treats drift in **both** directions as an error:
 | a gate test that neither passed nor failed | coverage silently disappeared |
 | an expected class with nothing executed | the report is incomplete |
 | a `<test>` with no usable name | the report is malformed |
+| the report contradicts its own declared totals | truncated or rewritten |
+| the report declares skipped, not-run, or errored tests | coverage did not run |
 | no report, or a report with zero tests | a crashed or empty run is not a pass |
 
 Only `Pass` counts as passing. A skipped gate test is neither passing nor
@@ -281,7 +283,17 @@ against the preset. `GateExpectedClassesTests` asserts set equality between the
 file and the `pre-merge` preset's `-class` arguments, in both directions, so a
 class added to the preset without being added to the file fails and so does a
 stale entry. That test is in the fast lane deliberately — it must run on PRs
-that never trigger the slow gates.
+that never trigger the slow gates — and editing the inventory sets `code=true`
+so the lane that validates it actually runs. The `decompiler-gates` job also
+runs that test directly before the gates, so the job that consumes the
+inventory proves it, rather than trusting another job's path filter.
+
+The class inventory proves the run selected every expected class; it does not
+prove no rows are missing *within* a class. For that the checker cross-checks
+the report against its own declared per-assembly totals, so a truncated or
+rewritten report fails even when every class is represented. Pinning expected
+test names would also catch it, but would rot on every added test; the declared
+totals do not.
 
 The stale-pin check is what keeps the pin list a ratchet rather than a growing
 exemption set: a pin that outlives its failure silently un-gates the test it
