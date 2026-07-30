@@ -92,10 +92,6 @@ public static class PackageExtractor
             return ExtractLocalPackage(packageSource, log, tempDirPrefix);
         }
 
-        // Collect source failures for the whole acquisition so that a lookup ending in "no
-        // version found" can tell an absent package apart from a source that never answered.
-        using var failureScope = FeedFailureTelemetry.Scope();
-
         // Keep redirect traversal outside exact-coordinate acquisition so one
         // package flight never waits on another package key.
         var visitedPackageIds = new HashSet<string>(
@@ -108,15 +104,23 @@ public static class PackageExtractor
 
         while (true)
         {
-            var outcome = await DownloadAndExtractPackageAsync(
-                client,
-                currentPackageSource,
-                log,
-                tempDirPrefix,
-                sourceOptions,
-                currentVersion,
-                currentForceLatest,
-                currentIncludePrerelease).ConfigureAwait(false);
+            // Scoped per hop, not per acquisition: each hop resolves a different package id,
+            // and a source failure recorded while resolving one package must not be offered
+            // as the explanation for the next one going missing.
+            PackageExtractionOutcome outcome;
+            using (FeedFailureTelemetry.Scope())
+            {
+                outcome = await DownloadAndExtractPackageAsync(
+                    client,
+                    currentPackageSource,
+                    log,
+                    tempDirPrefix,
+                    sourceOptions,
+                    currentVersion,
+                    currentForceLatest,
+                    currentIncludePrerelease).ConfigureAwait(false);
+            }
+
             if (!outcome.IsSuccess)
                 return outcome;
 

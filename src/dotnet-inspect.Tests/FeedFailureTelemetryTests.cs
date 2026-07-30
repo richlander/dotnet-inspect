@@ -125,6 +125,8 @@ public class FeedFailureTelemetryTests
     [InlineData("https://user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     [InlineData("https://private.example/v3/index.json?access_token=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/v3/index.json?sig=sup3rs3cret", "sup3rs3cret")]
+    [InlineData("https://private.example/v3/index.json?accessToken=sup3rs3cret", "sup3rs3cret")]
+    [InlineData("https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
     public async Task ASecretInTheSourceUrlIsNeverStoredOrPrinted(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
@@ -148,6 +150,28 @@ public class FeedFailureTelemetryTests
 
         // Redaction must not blank the whole URL; the operator still needs to know which source.
         Assert.Contains("private.example", failure.Url, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFailureFromOneRedirectHopDoesNotExplainTheNextHop()
+    {
+        // A tool wrapper redirect resolves a different package id on each hop. A 401 recorded
+        // while resolving the wrapper must not be offered as the reason the target is missing:
+        // the recorded URL carries the *wrapper's* id in its flat-container path.
+        using (FeedFailureTelemetry.Scope())
+        {
+            FeedFailureTelemetry.Record(
+                "https://private.example/v3/flat2/wrapper/index.json",
+                HttpStatusCode.Unauthorized);
+
+            Assert.NotNull(FeedFailureTelemetry.Current!.DescribeFailure("wrapper"));
+        }
+
+        using (FeedFailureTelemetry.Scope())
+        {
+            Assert.False(FeedFailureTelemetry.Current!.HasFailures);
+            Assert.Null(FeedFailureTelemetry.Current!.DescribeFailure("redirect-target"));
+        }
     }
 
     private sealed class FixedStatusHandler(HttpStatusCode status) : HttpMessageHandler

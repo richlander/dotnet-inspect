@@ -259,11 +259,19 @@ The status is known inside
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: `ExtractPackageAsync` opens one scope,
-nested async work records into the same collector, and the "nothing resolved" path consults it
-before choosing a message.
+ambient-scope shape already used by `NetworkTelemetry`: a scope is opened around each package
+acquisition, nested async work records into the same collector, and the "nothing resolved" path
+consults it before choosing a message.
 
-Two rules keep the message honest:- **404 is never recorded.** It is the one status that genuinely means the package is absent,
+The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
+the whole traversal. Each hop resolves a different package id, so a shared collector would let
+a refusal recorded while fetching the wrapper explain the redirect target going missing — and
+the recorded URL carries the wrapper's id in its flat-container path, so the message would name
+a source and a package that had nothing to do with the failure.
+
+Two further rules keep the message honest:
+
+- **404 is never recorded.** It is the one status that genuinely means the package is absent,
   so a real miss still reports *not found*. A recorder that captured every non-success status
   would destroy that message, which is why the test suite pins the 404 case as a control.
 - **A recorded failure is advisory, not fatal.** The collector is only consulted when the
@@ -289,6 +297,20 @@ $ dotnet-inspect package Markout --source 'https://user:hunter2@pkgs.dev.azure.c
 ```
 
 The host survives redaction, because an operator still needs to know *which* source refused.
+
+Query names are matched on fragments (`token`, `key`, `secret`, `password`, `credential`,
+`auth`, `sig`) rather than against a list of exact names. The same credential travels as
+`access_token`, `accessToken`, `apiKey` or `x-api-key` depending on the feed, and an exact-name
+list quietly passes every spelling it has not been taught. Fragment matching errs toward
+redacting a parameter that turns out to be harmless, which costs a little diagnostic detail;
+the reverse error prints a live credential.
+
+A credential can also ride in the *path*: MyGet issues service index URLs shaped like
+`https://host/F/<feed>/auth/<token>/api/v3/index.json`. The segment following an `auth` segment
+is therefore redacted too. Nothing else in the path is, deliberately — an Azure DevOps
+organization, project and feed all live in path segments, and blanking them would leave a
+message that cannot distinguish two feeds on the same host, which is precisely what this
+message exists to do.
 
 ## Service index discovery
 
