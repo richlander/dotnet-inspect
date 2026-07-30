@@ -364,6 +364,7 @@ public class IlBodyDiffNormalizationTests
     [InlineData("x!<Run>b__103_0", "x!<Run>b__128_0")]            // synthesized form buried after leading text
     [InlineData("<<Run>b__103_0", "<<Run>b__128_0")]              // buried behind an unbalanced `<`
     [InlineData("<>b__103_0", "<>b__128_0")]                      // empty containing method with a lambda marker
+    [InlineData("<>g__Local|103_0", "<>g__Local|128_0")]          // empty containing method with a local-function marker
     [InlineData("<Run>g__|103_0", "<Run>g__|128_0")]              // empty local function name
     [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]    // state machine of an async lambda: a type name
     [InlineData("<Run>b__0103_0", "<Run>b__0128_0")]              // leading zero: not how Roslyn spells an ordinal
@@ -394,9 +395,16 @@ public class IlBodyDiffNormalizationTests
     /// requires recursion over hostile input to be bounded
     /// (docs/design/untrusted-data-threat-model.md), so the enclosing-name
     /// recursion stops at <c>MaxNestingDepth</c> (16). This pins the
-    /// boundary's observable behavior: an ordinal nested within the cap is
-    /// still normalized, and one nested past it stays literal. Degrading to
-    /// literal can only cost a false positive, never a masked difference.
+    /// boundary's observable behavior exactly: the last level within the cap
+    /// still normalizes, and the first level past it stays literal.
+    /// Degrading to literal can only cost a false positive, never a masked
+    /// difference.
+    /// <para>
+    /// Asserting only a far-outside level (19) would not pin the boundary —
+    /// widening the cap by one still leaves such a test green. The level-16
+    /// and level-17 assertions are what make an off-by-one in the comparison
+    /// observable.
+    /// </para>
     /// </summary>
     [Fact]
     public void NormalizeSynthesizedMemberOrdinals_StopsNormalizingPastTheNestingCap()
@@ -406,6 +414,18 @@ public class IlBodyDiffNormalizationTests
             Nest(depth: 20, differingLevel: 0, shift: 500),
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
             "The outermost ordinal is within the cap and must still normalize.");
+
+        Assert.True(CompareMemberNames(
+            Nest(depth: 20, differingLevel: 16),
+            Nest(depth: 20, differingLevel: 16, shift: 500),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Level 16 is the last level within the cap and must still normalize.");
+
+        Assert.False(CompareMemberNames(
+            Nest(depth: 20, differingLevel: 17),
+            Nest(depth: 20, differingLevel: 17, shift: 500),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Level 17 is the first level past the cap and must stay literal.");
 
         Assert.False(CompareMemberNames(
             Nest(depth: 20, differingLevel: 19),

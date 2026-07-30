@@ -120,21 +120,24 @@ public enum IlBodyDiffNormalization
     /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
     /// </para>
     /// <para>
-    /// Four checks are deliberately <em>not</em> gated, and fall into two
-    /// kinds. The length floor and the marker bounds check in
-    /// <c>TryNormalizeName</c> are <em>bounds guards</em>: neutering either
-    /// makes the scan index past the end, so their failure mode is an
-    /// exception, not a collapse. They cannot mask a difference, and a test
-    /// that pinned them would be pinning an <c>IndexOutOfRangeException</c>.
-    /// The <c>__</c> pre-check in <c>Normalize</c> and the closing-angle check
-    /// in <c>TryNormalizeName</c> are <em>redundant fast paths</em>: each is
-    /// subsumed by a later check — the grammar re-derives <c>__</c> at the
-    /// marker, and a name with no closing angle leaves the marker on the
-    /// leading <c>&lt;</c>, which no marker accepts — so neutering either
-    /// changes no observable behavior and no test can distinguish it. The
-    /// empty-span check in <c>IsCanonicalOrdinal</c> is redundant in the same
-    /// way, subsumed by the parse. These are listed so that a future reader
-    /// does not mistake their absence from the gate list for an oversight.
+    /// Six checks are deliberately <em>not</em> gated, and fall into two
+    /// kinds. Three are <em>bounds guards</em>: the length floor in
+    /// <c>Normalize</c>, and the marker bounds check
+    /// (<c>marker + 2 &gt;= value.Length</c>) and the ordinal bounds check
+    /// (<c>digitsEnd &gt;= value.Length</c>) in <c>TryNormalizeName</c>.
+    /// Neutering any of them makes the scan index past the end, so their
+    /// failure mode is an exception, not a collapse. They cannot mask a
+    /// difference, and a test that pinned them would be pinning an
+    /// <c>IndexOutOfRangeException</c>. Three are <em>redundant fast
+    /// paths</em>: the <c>__</c> pre-check in <c>Normalize</c>, the
+    /// closing-angle check in <c>TryNormalizeName</c>, and the empty-span
+    /// check in <c>IsCanonicalOrdinal</c>. Each is subsumed by a later check
+    /// — the grammar re-derives <c>__</c> at the marker, a name with no
+    /// closing angle leaves the marker on the leading <c>&lt;</c> which no
+    /// marker accepts, and the parse rejects an empty span — so neutering
+    /// any of them changes no observable behavior and no test can
+    /// distinguish it. These are listed so that a future reader does not
+    /// mistake their absence from the gate list for an oversight.
     /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
@@ -1244,10 +1247,11 @@ public static class IlBodyDiff
             // compiler emits, such as `<>b__1_0`, comparing literally.
             //
             // One predicate, two independently breakable directions, so each
-            // has its own gate: `<>b__103_0` in
-            // `PreservesEveryOtherNameComponent` covers a method form with no
-            // containing name, and `RejectsACacheFormWithAContainingName`
-            // covers a cache field that has one.
+            // has its own gate: `<>b__103_0` and `<>g__Local|103_0` in
+            // `PreservesEveryOtherNameComponent` cover the two method forms
+            // with no containing name, and
+            // `RejectsACacheFormWithAContainingName` covers a cache field
+            // that has one.
             bool namesContainingMethod = close > 1;
             if (namesContainingMethod != (value[marker] is 'b' or 'g'))
                 return false;
@@ -1273,6 +1277,9 @@ public static class IlBodyDiff
             // is what separates a closure name from an identifier that merely
             // ends in digits, and it stays significant so a lambda bound to the
             // wrong slot still differs.
+            // `digitsEnd >= value.Length` is a bounds guard for the read that
+            // follows it, not a rejection rule; neutering it indexes past the
+            // end on a name like `<Run>b__103` that stops after the ordinal.
             if (!IsCanonicalOrdinal(value, digitsStart, digitsEnd)
                 || digitsEnd >= value.Length
                 || value[digitsEnd] != '_')
