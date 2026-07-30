@@ -4427,44 +4427,117 @@ public partial class CommandExecutionTests
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
     }
 
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task Find_ColumnProjectionWithJson_IsRejected(string projectionFlag)
+    [Fact]
+    public async Task Find_ColumnProjectionWithJson_LowersToProjectedView()
     {
-        // Same category error as #3386: --fields/--columns select table columns, but find's
-        // --json emits the full per-result objects and has no column-slicing facility, so the
-        // combination used to silently drop the column filter. It now fails closed.
+        // #3494: --fields/--columns name post-lowering vocabulary (computed table columns), so
+        // naming one opts into the lowered display view rather than the pre-lowered typed
+        // document. This combination failed closed under #3386/#3472 only because the lowered
+        // JSON view did not exist yet; the error is now replaced by the output it asked for.
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, projectionFlag, "Type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("Results");
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.NotEmpty(rows.EnumerateArray().ToArray());
+
+        // The projection is honored rather than dropped: the requested column is the only key.
+        foreach (var row in rows.EnumerateArray())
+            Assert.Equal(["Type"], row.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]
-    public async Task Find_MemberSearch_ColumnProjectionWithJson_IsRejected()
+    public async Task Find_FieldsProjectionWithJson_AgreesWithTableFormats()
     {
-        // The member-search path shares ExecuteAsync's guard, so it rejects too.
+        // Format-invariance gate (#3494): --fields selects rows of a fields section, not table
+        // columns, so on find's table section it is a no-op -- under --tsv as much as --json. The
+        // lowered JSON view must agree with the table formats rather than invent a narrowing of
+        // its own, so compare the two renderings instead of asserting a shape in isolation.
+        var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+
+        Assert.Equal(0, jsonExit);
+        Assert.Equal(0, tsvExit);
+        Assert.DoesNotContain("cannot be combined with --json", jsonError);
+
+        using var document = JsonDocument.Parse(jsonOutput);
+        var keys = document.RootElement.GetProperty("Results")[0]
+            .EnumerateObject().Select(property => property.Name).ToArray();
+        var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
+
+        Assert.Equal(tsvColumns.Length, keys.Length);
+        Assert.True(keys.Length > 1, $"expected the unprojected column set, got: {string.Join(",", keys)}");
+    }
+
+    [Fact]
+    public async Task Find_MemberSearch_ColumnProjectionWithJson_LowersToProjectedView()
+    {
+        // The member-search path shares the writer, so it lowers the same way (#3494).
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--members", "--library", TestAssemblyPath, "--fields", "Member", "--json");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("cannot be combined with --json", error);
+
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("Members");
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.NotEmpty(rows.EnumerateArray().ToArray());
+
+        foreach (var row in rows.EnumerateArray())
+            Assert.Equal(["Member"], row.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
+    public async Task Find_UnmatchedColumnUnderJson_StillFailsClosed()
+    {
+        // Lowering must not turn a bad column name into a success-shaped empty document. The
+        // lowered path reuses Markout's projection, so it fails exactly as --tsv does.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "NotAColumn", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Contains("No columns matched projection", error);
+    }
+
+    [Fact]
+    public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
+    {
+        // The lowering is opt-in: plain --json must keep emitting the typed per-result objects
+        // with their machine keys, not the title-cased display view (#3494).
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("\"type\":", output);
+        Assert.DoesNotContain("\"Results\":", output);
     }
 
     [Fact]
     public async Task Find_ColumnProjectionWithJsonl_IsHonored()
     {
-        // Boundary: the row-oriented formats keep honoring column projection. Only document
-        // --json is rejected.
-        var (exit, _, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+        // Boundary: the row-oriented formats project columns, and must keep doing so now that
+        // --json lowers to the same projected view. The pattern has to actually match: while the
+        // rejection guard ran ahead of the search, a non-matching pattern still exercised it, so
+        // this assertion has to reach real rows to mean anything.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
+
+        var firstRow = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
+        using var document = JsonDocument.Parse(firstRow);
+        Assert.Equal(["type"], document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Fact]

@@ -348,7 +348,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) does **not** compose with `--json`: JSON renders the whole document and has no column-slicing facility, so the combination is rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). A column projection (`--fields`/`--columns`) selects **lowered** vocabulary — computed table columns such as `Return Type` have no counterpart in the typed object model — so naming one opts into the lowered display view instead of the pre-lowered typed document (#3494). On `find`, that combination renders the projected sections as JSON. Elsewhere the lowered JSON view is not wired yet, so the combination is still rejected rather than silently dropped — use `--tsv`/`--jsonl`/`--table` to project columns, or add `--value`/`--print` to project a payload (`--fields` then picks which column feeds it). |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

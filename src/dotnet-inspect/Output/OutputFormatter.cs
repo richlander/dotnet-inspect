@@ -134,6 +134,51 @@ public static class OutputFormatter
         RowWindow? maxRows = null) =>
         output.Write(LimitRenderedTableRows(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize), maxRows, showHeader));
 
+    /// <summary>
+    /// Renders a view as the lowered JSON view: the same section and projection decisions the
+    /// table formats honor, emitted as JSON instead of Markdown/TSV/JSONL (dotnet-inspect#3494).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <c>--json</c> destination once a caller names <c>--fields</c>/<c>--columns</c>.
+    /// Those flags select from the post-lowering vocabulary, so naming one opts into the display
+    /// view; plain <c>--json</c> keeps the pre-lowered typed shape and does not come through here.
+    /// </para>
+    /// <para>
+    /// The projection is applied by Markout, not re-implemented here, which is what keeps JSON
+    /// content-identical to the table formats at the same shape. An unmatched column therefore
+    /// fails the same way it does under <c>--tsv</c>: Markout throws and the top-level handler
+    /// reports <c>No columns matched projection</c>. Letting that propagate keeps a bad column
+    /// name failing closed instead of silently yielding an empty document.
+    /// </para>
+    /// <para>
+    /// The serialize callback is handed <see cref="TextWriter.Null"/> because JSON is assembled by
+    /// the formatter rather than written linearly; the rendered text stream carries no content.
+    /// </para>
+    /// </remarks>
+    public static string RenderProjectedJson(
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
+        bool indented = true)
+    {
+        var writerOptions = CreateProjectedWriterOptions(columns, fields);
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(writerOptions);
+        serialize(TextWriter.Null, formatter, writerOptions);
+        return formatter.Finish(indented);
+    }
+
+    /// <summary>
+    /// Writes the lowered JSON view produced by <see cref="RenderProjectedJson"/>.
+    /// </summary>
+    public static void WriteProjectedJson(
+        TextWriter output,
+        string[]? columns,
+        string[]? fields,
+        Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize) =>
+        output.WriteLine(RenderProjectedJson(columns, fields, serialize));
+
     public static string ApplyRowLimit(string markdown, RowWindow? rows) =>
         MarkdownTableRowLimiter.Apply(markdown.TrimEnd(), rows);
 
