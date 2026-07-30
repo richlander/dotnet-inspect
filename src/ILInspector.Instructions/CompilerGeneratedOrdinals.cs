@@ -139,8 +139,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// <c>#Strings</c> heap is NUL-terminated, so a name read back can never contain NUL
     /// however the assembly was written — a type emitted as <c>A\0B</c> reads back as
     /// <c>A</c>. The elided form therefore cannot equal any name, and no enumeration has
-    /// to be kept complete. Pinned by
-    /// <c>PlaceholderCannotBeSpelledByAMetadataName</c>, with the attack it defeats pinned
+    /// to be kept complete. This holds for the default string decoder; see the precondition
+    /// on <see cref="Build"/> for the one way a caller can defeat it. Pinned by
+    /// <c>PlaceholderCannotBeSpelledByAMetadataName</c>, which derives its assertion from
+    /// this constant so a spellable placeholder fails it, with the attack it defeats pinned
     /// by <c>PlaceholderCollidingName_DoesNotHideARealTargetChange</c> and its member
     /// reference and type-name siblings.
     /// </para>
@@ -188,6 +190,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// Builds the correspondence for each side. A member folds only when its ordinal-free
     /// key resolves to exactly one eligible member on <b>both</b> sides.
     /// </summary>
+    /// <remarks>
+    /// Precondition: both readers must use the default metadata string decoder. The safety
+    /// of <see cref="OrdinalPlaceholder"/> and <see cref="KeySeparator"/> rests on a name
+    /// never containing NUL, which follows from the <c>#Strings</c> heap being
+    /// NUL-terminated — but a custom <c>MetadataStringDecoder</c> may return whatever it
+    /// likes, including a name that spells the elided form. The decoder is chosen by the
+    /// caller constructing the reader, never by the assembly being read, so an untrusted
+    /// input cannot arrange this. Within this repository it is enforced rather than
+    /// assumed: <c>MetadataStringDecoderBoundaryTests</c> fails if any product source names
+    /// that type.
+    /// </remarks>
     public static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
         MetadataReader oldReader,
         MetadataReader newReader)

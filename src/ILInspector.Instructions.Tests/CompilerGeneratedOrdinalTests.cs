@@ -184,25 +184,31 @@ public class CompilerGeneratedOrdinalTests
     /// form as equal and restores the collision. Making <c>IlBodyDiff.CanonicalEquals</c>
     /// culture-sensitive fails all three.
     /// </para>
+    /// <para>
+    /// The colliding name is derived from <see cref="CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder"/>
+    /// rather than written out, so the control follows the constant. A placeholder changed
+    /// to any spellable text — not just the historical <c>#</c> — makes this name reproduce
+    /// the folded form exactly and fails here.
+    /// </para>
     /// </summary>
     [Fact]
     public void PlaceholderCollidingName_DoesNotHideARealTargetChange()
     {
         var result = Compare(
             [Generated("<M>g__L|3_0")],
-            [Plain("<M>g__L|#_0"), Generated("<M>g__L|7_0")],
+            [Plain($"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0"), Generated("<M>g__L|7_0")],
             Ordinals);
 
         Assert.False(result.IsExact);
     }
 
-    /// <summary>The same collision on the type side.</summary>
+    /// <summary>The same collision on the type side, likewise derived from the constant.</summary>
     [Fact]
     public void PlaceholderCollidingTypeName_DoesNotHideARealTargetChange()
     {
         var result = Compare(
             [Generated("<M>d__3")],
-            [Plain("<M>d__#"), Generated("<M>d__7")],
+            [Plain($"<M>d__{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}"), Generated("<M>d__7")],
             Ordinals);
 
         Assert.False(result.IsExact);
@@ -289,39 +295,64 @@ public class CompilerGeneratedOrdinalTests
             [Generated("<M>g__L|3_0")],
             [Generated("<M>g__L|7_0")],
             Ordinals,
-            newCallsReferenceNamed: "<M>g__L|#_0");
+            newCallsReferenceNamed: $"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0");
 
         Assert.False(result.IsExact);
     }
 
     /// <summary>
-    /// The property the placeholder's safety rests on: the <c>#Strings</c> heap is
-    /// NUL-terminated, so a name read back through <see cref="MetadataReader"/> can never
-    /// contain NUL however the assembly was written. That is what makes the elided form
-    /// unequal to every name in the compared text without enumerating any of them.
+    /// The property the placeholder's safety rests on, asserted against the constant the
+    /// product actually uses: an assembly that tries to spell the elided form cannot carry
+    /// it, because the <c>#Strings</c> heap is NUL-terminated and truncates at the first
+    /// NUL. That is what makes the elided form unequal to every name in the compared text
+    /// without enumerating any of them.
     /// </summary>
     /// <remarks>
-    /// This asserts the metadata property, not the constant — <c>OrdinalPlaceholder</c> is
-    /// internal and this assembly has no <c>InternalsVisibleTo</c>. The constant is held to
-    /// its visible half by the three <c>PlaceholderColliding*</c> controls, which fail if
-    /// the placeholder becomes spellable as <c>#</c>. A placeholder changed to some other
-    /// spellable text would defeat both, which is why the argument for NUL is recorded on
-    /// the constant itself rather than left implicit.
+    /// This drives the assertion from <see cref="CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder"/>
+    /// rather than restating it, so a placeholder changed to any spellable text fails here
+    /// — including one the <c>PlaceholderColliding*</c> controls would not notice on their
+    /// own. The two halves are complementary: this one pins the constant's unspellability,
+    /// and those three pin that unspellability is what prevents a hidden target change.
     /// </remarks>
     [Fact]
     public void PlaceholderCannotBeSpelledByAMetadataName()
     {
+        string elided = $"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0";
         using var pe = new PEReader(new MemoryStream(
-            BuildImage("Probe", [Generated("<M>g__L|#\0_0")])));
+            BuildImage("Probe", [Generated(elided)])));
 
         var reader = pe.GetMetadataReader();
         foreach (var handle in reader.TypeDefinitions)
         {
             var type = reader.GetTypeDefinition(handle);
-            Assert.DoesNotContain('\0', reader.GetString(type.Name));
+            Assert.NotEqual(elided, reader.GetString(type.Name));
             foreach (var methodHandle in type.GetMethods())
-                Assert.DoesNotContain('\0', reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
+                Assert.NotEqual(elided, reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
         }
+    }
+
+    /// <summary>
+    /// The property the key separator's injectivity rests on, asserted against the constant
+    /// the product actually uses: a metadata name cannot contain the separator, so no
+    /// forged name can reproduce a different segmentation of the same flattened key.
+    /// </summary>
+    /// <remarks>
+    /// Driven from <see cref="CompilerGeneratedOrdinalCorrespondence.KeySeparator"/>, so a separator
+    /// changed to any spellable character fails here. That is the half
+    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> cannot see: its attack
+    /// is written against the historical <c>.</c>/<c>+</c>/<c>::</c> joining, so it does
+    /// not fire for an arbitrary spellable single-character separator.
+    /// </remarks>
+    [Fact]
+    public void KeySeparatorCannotBeSpelledByAMetadataName()
+    {
+        string forged = $"A{CompilerGeneratedOrdinalCorrespondence.KeySeparator}B";
+        using var pe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<M>g__L|3_0")], typeName: forged)));
+
+        var reader = pe.GetMetadataReader();
+        foreach (var handle in reader.TypeDefinitions)
+            Assert.NotEqual(forged, reader.GetString(reader.GetTypeDefinition(handle).Name));
     }
 
     /// <summary>
@@ -353,19 +384,80 @@ public class CompilerGeneratedOrdinalTests
         Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
     }
 
+    /// <summary>
+    /// Type-side counterpart of the method ambiguity controls. The new side declares two
+    /// generated types that elide to one key, so that key identifies no single counterpart
+    /// and nothing may fold — the old side's type must still be compared under its real
+    /// name. Deleting the <c>newIndex.AmbiguousTypes</c> check makes the index keep its
+    /// first-seen type, fold the two onto each other, and hide a changed target.
+    /// </summary>
+    /// <remarks>
+    /// The two sides deliberately share no ordinal. <c>SideIndex.Add</c> keeps the
+    /// first-seen handle, so a control whose sides agree on their first ordinal folds to
+    /// the same text either way and cannot see the check at all — the mistake round one
+    /// found on the method side.
+    /// </remarks>
+    [Fact]
+    public void AmbiguousGeneratedTypeOnNewSide_DoesNotFold()
+    {
+        var result = CompareTypes(["<M>d__3"], ["<M>d__5", "<M>d__9"], Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The same on the old side, so that deleting either type ambiguity check alone is
+    /// caught by one of the pair rather than only their simultaneous deletion.
+    /// </summary>
+    [Fact]
+    public void AmbiguousGeneratedTypeOnOldSide_DoesNotFold()
+    {
+        var result = CompareTypes(["<M>d__3", "<M>d__7"], ["<M>d__5"], Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The positive case the two controls above are measured against: one generated type
+    /// per side, differing only in ordinal, folds and compares equal. Without this, the
+    /// pair could pass by nothing ever folding.
+    /// </summary>
+    [Fact]
+    public void UnambiguousGeneratedType_FoldsAcrossOrdinals()
+    {
+        Assert.False(CompareTypes(["<M>d__3"], ["<M>d__5"], IlBodyDiffNormalization.None).IsExact);
+        Assert.True(CompareTypes(["<M>d__3"], ["<M>d__5"], Ordinals).IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     static Member Plain(string name) => new(name, CompilerGenerated: false);
 
     readonly record struct Member(string Name, bool CompilerGenerated);
 
+    /// <summary>
+    /// Compares two assemblies whose caller invokes a method on the first
+    /// <c>CompilerGeneratedAttribute</c>-bearing <em>type</em>, so the rendered operand
+    /// carries the declaring type's name and the type index decides the outcome.
+    /// </summary>
+    static IlBodyDiffResult CompareTypes(
+        string[] oldTypes,
+        string[] newTypes,
+        IlBodyDiffNormalization normalization)
+    {
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [], generatedTypes: oldTypes)));
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [], generatedTypes: newTypes)));
+        return Compare(oldPe, newPe, normalization);
+    }
+
     static IlBodyDiffResult Compare(
         Member[] oldMembers,
         Member[] newMembers,
         IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None,
         string? newCallsReferenceNamed = null)
-    {
-        using var oldPe = new PEReader(new MemoryStream(BuildImage("Probe", oldMembers)));
+    {        using var oldPe = new PEReader(new MemoryStream(BuildImage("Probe", oldMembers)));
         using var newPe = new PEReader(new MemoryStream(BuildImage("Probe", newMembers, newCallsReferenceNamed)));
         return IlAssemblyDiff.CompareMembers(
             oldPe,
@@ -386,7 +478,8 @@ public class CompilerGeneratedOrdinalTests
         string assemblyName,
         Member[] members,
         string? callReferenceNamed = null,
-        string typeName = "C")
+        string typeName = "C",
+        string[]? generatedTypes = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -435,6 +528,21 @@ public class CompilerGeneratedOrdinalTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
+        // Each generated type owns exactly one method, laid out after the caller and the
+        // members so the MethodList ranges stay contiguous and ascending.
+        string[] extraTypes = generatedTypes ?? [];
+        var generatedTypeHandles = new List<TypeDefinitionHandle>();
+        for (int i = 0; i < extraTypes.Length; i++)
+        {
+            generatedTypeHandles.Add(metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString(extraTypes[i]),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
+        }
+
         var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
 
         // A reference to a type named `C` scoped to this module renders under the same
@@ -453,8 +561,12 @@ public class CompilerGeneratedOrdinalTests
         var callerIl = new BlobBuilder();
         var caller = new InstructionEncoder(callerIl, new ControlFlowBuilder());
         // The first member is always method 2: method 1 is the caller emitted below.
+        // With generated types present the caller instead targets the first such type's
+        // method, so the rendered operand carries that type's name.
         if (callReferenceNamed is not null)
             caller.Call(reference);
+        else if (extraTypes.Length > 0)
+            caller.Call(MetadataTokens.MethodDefinitionHandle(members.Length + 2));
         else
             caller.Call(MetadataTokens.MethodDefinitionHandle(2));
         caller.OpCode(ILOpCode.Ret);
@@ -467,6 +579,15 @@ public class CompilerGeneratedOrdinalTests
             var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
             encoder.OpCode(ILOpCode.Ret);
             memberOffsets[i] = bodies.AddMethodBody(encoder);
+        }
+
+        var extraOffsets = new int[extraTypes.Length];
+        for (int i = 0; i < extraTypes.Length; i++)
+        {
+            var il = new BlobBuilder();
+            var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ret);
+            extraOffsets[i] = bodies.AddMethodBody(encoder);
         }
 
         metadata.AddMethodDefinition(
@@ -491,13 +612,32 @@ public class CompilerGeneratedOrdinalTests
                 generated.Add(handle);
         }
 
-        // The CustomAttribute table must be sorted by its coded parent index, and the
-        // members are already emitted in ascending row order, so appending in order is
-        // sufficient here.
+        // The CustomAttribute table must be sorted by its coded parent index. Methods and
+        // types interleave under that encoding — HasCustomAttribute puts MethodDef at tag 0
+        // and TypeDef at tag 3 — so the rows are sorted explicitly rather than appended in
+        // declaration order.
+        foreach (var handle in generatedTypeHandles)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                signature,
+                extraOffsets[generatedTypeHandles.IndexOf(handle)],
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var attributeTargets = new List<(int Coded, EntityHandle Parent)>();
         foreach (var handle in generated)
+            attributeTargets.Add((MetadataTokens.GetRowNumber(handle) << 5, handle));
+        foreach (var handle in generatedTypeHandles)
+            attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle));
+        attributeTargets.Sort((left, right) => left.Coded.CompareTo(right.Coded));
+
+        foreach (var (_, parent) in attributeTargets)
         {
             metadata.AddCustomAttribute(
-                handle,
+                parent,
                 attributeCtor,
                 metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         }
