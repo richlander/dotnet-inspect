@@ -146,6 +146,7 @@ public static class InspectionCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

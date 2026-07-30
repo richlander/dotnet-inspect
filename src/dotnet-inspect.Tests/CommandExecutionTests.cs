@@ -10970,6 +10970,66 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageLibraryMode_BareSelect_MatchesStandaloneLibraryBareSelect()
+    {
+        // The nested library view is constructed from the package options, so bare -S has to be
+        // carried across the boundary explicitly. Before #3547 it rode along inside Select as the
+        // "@Default" string and propagated for free; a dedicated flag does not, and dropping it
+        // silently downgrades the nested view to "no sections requested".
+        var (nestedExit, nestedOutput, _) = await RunAppAsync("package", "Markout", "--library", "-S");
+        var (standaloneExit, standaloneOutput, _) = await RunAppAsync("library", "Markout", "-S");
+
+        Assert.Equal(0, nestedExit);
+        Assert.Equal(0, standaloneExit);
+
+        static List<string> Headings(string output) => output
+            .Split('\n')
+            .Where(l => l.StartsWith("## ", StringComparison.Ordinal))
+            .Select(l => l.Trim())
+            .ToList();
+
+        Assert.NotEmpty(Headings(nestedOutput));
+        Assert.Equal(Headings(standaloneOutput), Headings(nestedOutput));
+    }
+
+    [Fact]
+    public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
+    {
+        // Both timeline sections grow with the version range, so there is no fixed/bounded subset
+        // for bare -S to mean. The refusal is preserved from before #3547; what changes is that
+        // the message no longer spells an internal marker at the user.
+        var (exit, _, error) = await RunAppAsync(
+            "timeline", "Markout@0.29.0..0.33.0", "Markout.MarkoutWriter", "-S");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+        Assert.Contains("Bare -S has no fixed sections for timeline", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_BareSelectWithDiscover_ListsSectionsRatherThanFailing()
+    {
+        // -S <name> -D has always listed the named section. Bare -S -D used to fail instead, but
+        // only because the marker was the string "@Default" and package drops the computed poles,
+        // so the discovery lookup missed. That is the same defect as gaps 2 and 3, so it clears
+        // with them rather than being a separate behavior decision.
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "-D");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+            Assert.Contains("| Package Info | section |", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Manifest_RendersBasicPackageManifestRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");

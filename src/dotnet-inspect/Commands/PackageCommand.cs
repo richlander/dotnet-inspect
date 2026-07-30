@@ -2286,6 +2286,7 @@ public class PackageCommand
             Discover = options.Discover,
             Tree = options.Tree,
             Select = options.Select,
+            SelectDefault = options.SelectDefault,
             Columns = options.Columns,
             Fields = options.Fields,
             Schema = options.Schema,
