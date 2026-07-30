@@ -409,6 +409,51 @@ public class SourceLinkMapConformanceTests
     }
 
     /// <summary>
+    /// A wildcard key that names a document exactly substitutes nothing, and that is correct: the
+    /// URL's wildcard stands where the document's own name already is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in review as a bypass, on this map, where the more specific entry resolves
+    /// <c>/_/README.md</c> to the repository root and shadows a fallback that would have resolved
+    /// it correctly:
+    /// </para>
+    /// <code>
+    /// {"/_/README.md*": "https://…/&lt;sha&gt;/*", "/_/*": "https://…/&lt;sha&gt;/*"}
+    /// </code>
+    /// <para>
+    /// That map is simply wrong — its key says "documents beginning <c>/_/README.md</c>" while its
+    /// URL prefix does not name <c>README.md</c> — but no local rule can tell it from the right
+    /// one, because SourceLink deliberately does not constrain how a key's text relates to its
+    /// URL's. Measured live: the consistent map below resolves to a URL that returns HTTP 200,
+    /// and the one above to the repository root, which returns 404. Refusing an empty
+    /// substitution would therefore break the working map to spare the broken one, which is why
+    /// this is a gate rather than a fix.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AWildcardKeyThatNamesADocumentExactly_SubstitutesNothingAndStillNamesIt()
+    {
+        const string Sha = "0123456789012345678901234567890123456789";
+        const string Prefix = "https://raw.githubusercontent.com/o/r/" + Sha + "/";
+
+        var map = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{" +
+            "\"/_/README.md*\":\"" + Prefix + "README.md*\"," +
+            "\"/_/*\":\"" + Prefix + "*\"}}");
+
+        Assert.Empty(map.RejectedKeys);
+        Assert.Equal(Prefix + "README.md", map.ResolveUrl("/_/README.md"));
+
+        // The wildcard still carries whatever follows the key, so the entry is a prefix rule and
+        // not an exact one.
+        Assert.Equal(Prefix + "README.md.bak", map.ResolveUrl("/_/README.md.bak"));
+
+        // And the less specific entry still governs everything the more specific one misses.
+        Assert.Equal(Prefix + "src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    /// <summary>
     /// A map with more than one valid reading resolves nothing, and says why. Reporting the
     /// reason is what keeps this distinguishable from a map that legitimately covers no document.
     /// </summary>
