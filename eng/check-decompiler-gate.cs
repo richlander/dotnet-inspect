@@ -172,6 +172,12 @@ static string? TestName(XElement test)
 var passed = new HashSet<string>(StringComparer.Ordinal);
 var failed = new HashSet<string>(StringComparer.Ordinal);
 var notExecuted = new SortedDictionary<string, string>(StringComparer.Ordinal);
+// Method identity taken from the report's own type/method attributes rather
+// than parsed out of the display name. Display names carry theory arguments,
+// honor -methodDisplayOptions, and can contain the very characters a parser
+// would split on; type/method are unambiguous.
+var executedMethods = new HashSet<string>(StringComparer.Ordinal);
+var executedClasses = new HashSet<string>(StringComparer.Ordinal);
 int unidentified = 0;
 
 foreach (var test in tests)
@@ -196,6 +202,28 @@ foreach (var test in tests)
         default:
             notExecuted[name] = result;
             break;
+    }
+
+    if (result is "Pass" or "Fail")
+    {
+        string? type = (string?)test.Attribute("type");
+        string? method = (string?)test.Attribute("method");
+        if (!string.IsNullOrWhiteSpace(type) && !string.IsNullOrWhiteSpace(method))
+        {
+            executedMethods.Add($"{type}.{method}");
+            executedClasses.Add(type);
+        }
+        else
+        {
+            // Fall back to the display name only when the structured identity is
+            // absent. Cutting at the first '(' strips theory arguments; the last
+            // '.' separates class from method.
+            int paren = name.IndexOf('(', StringComparison.Ordinal);
+            string bare = paren >= 0 ? name[..paren] : name;
+            executedMethods.Add(bare);
+            int dot = bare.LastIndexOf('.');
+            executedClasses.Add(dot > 0 ? bare[..dot] : bare);
+        }
     }
 }
 
@@ -226,15 +254,7 @@ executed.UnionWith(failed);
 // A class counts as covered only if it executed something. A class present in
 // the report solely as skips is a coverage hole, and is already reported as
 // one above.
-var coveredClasses = executed
-    .Select(name =>
-    {
-        int paren = name.IndexOf('(', StringComparison.Ordinal);
-        string bare = paren >= 0 ? name[..paren] : name;
-        int dot = bare.LastIndexOf('.');
-        return dot > 0 ? bare[..dot] : bare;
-    })
-    .ToHashSet(StringComparer.Ordinal);
+var coveredClasses = executedClasses;
 
 var missingClasses = partial
     ? []
@@ -244,6 +264,14 @@ var missingClasses = partial
 // enumerates what the preset selects without running anything, so a run that
 // was cut short, filtered down, or rewritten has a smaller result set than the
 // listing regardless of how self-consistent its own counters are.
+//
+// This is *method*-granular, because no `-list` mode enumerates theory cases:
+// a theory with five cases lists once, so a run that lost four of them would
+// still satisfy this check. Method granularity is only sufficient while the
+// gate classes declare no theories, which is not an assumption --
+// GateExpectedClassesTests.PreMergeGateClasses_DeclareNoTheories enforces it,
+// and adding a theory to a gate class fails that test rather than quietly
+// weakening this one.
 List<string> missingTests = [];
 List<string> unexpectedTests = [];
 
@@ -284,16 +312,9 @@ if (!partial)
         return 2;
     }
 
-    // Discovery lists methods; a theory contributes one row per case, so
-    // compare at method granularity in both directions.
-    var executedMethods = executed
-        .Select(name =>
-        {
-            int paren = name.IndexOf('(', StringComparison.Ordinal);
-            return paren >= 0 ? name[..paren] : name;
-        })
-        .ToHashSet(StringComparer.Ordinal);
-
+    // Discovery lists methods; identity comes from the report's type/method
+    // attributes, so theory arguments and display-name options cannot confuse
+    // the comparison.
     missingTests = discovered.Except(executedMethods, StringComparer.Ordinal)
         .Order(StringComparer.Ordinal).ToList();
     unexpectedTests = executedMethods.Except(discovered, StringComparer.Ordinal)

@@ -299,7 +299,19 @@ same run, so a report containing four of fifteen tests and honestly declaring
 results against a **discovery listing** produced by `-list methods/json` over
 the same preset, which enumerates what should run without running it. Every
 discovered test must appear in the results, and every result must correspond to
-a discovered test.
+a discovered test. Identity comes from the report's `type` and `method`
+attributes rather than from parsing display names, which carry theory arguments
+and honor `-methodDisplayOptions`.
+
+That comparison is **method-granular**, and deliberately so: no `-list` mode
+enumerates theory cases. A theory with five cases is listed once, so a run that
+lost four of them would still satisfy the check. Method granularity is
+sufficient only while the gate classes declare no theories, and that is
+enforced rather than assumed —
+`GateExpectedClassesTests.PreMergeGateClasses_DeclareNoTheories` fails if a
+theory is added to a gate class, with a message pointing at this constraint.
+Resolving each preset class by name in the same test also catches an arm naming
+a renamed or deleted class, which would otherwise select zero tests and exit 0.
 
 The declared totals are still cross-checked, including `passed` and `failed`
 against the actual rows, but only as an internal-consistency check on a
