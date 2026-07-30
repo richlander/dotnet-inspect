@@ -167,8 +167,20 @@ static string? TestName(XElement test)
 {
     string? type = (string?)test.Attribute("type");
     string? method = (string?)test.Attribute("method");
-    if (!string.IsNullOrWhiteSpace(type) && !string.IsNullOrWhiteSpace(method))
+    bool hasType = !string.IsNullOrWhiteSpace(type);
+    bool hasMethod = !string.IsNullOrWhiteSpace(method);
+
+    if (hasType && hasMethod)
         return $"{type}.{method}";
+
+    // A row carrying only half of the structured identity is malformed, and
+    // must not quietly fall back: the display name would then assert an
+    // identity the row's own attributes do not corroborate, which is exactly
+    // the substitution the structured identity exists to prevent. Treat it as
+    // unidentified, which fails the run rather than clearing it.
+    if (hasType || hasMethod)
+        return null;
+
     // Fall back to the display name only when the structured identity is
     // absent entirely.
     string? name = (string?)test.Attribute("name");

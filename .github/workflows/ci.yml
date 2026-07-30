@@ -482,12 +482,18 @@ jobs:
       # step that the job survives, so the checker still runs, finds a missing
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
+      #
+      # --no-build is required, not an optimization. Without it `dotnet run`
+      # builds implicitly, which would (a) break the guarantee that this run and
+      # the discovery listing above describe the same binary, and (b) hide a
+      # build failure inside a continue-on-error step, where it would surface
+      # only as a missing report.
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
         timeout-minutes: 25
         run: |
-          dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+          dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
             --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
 
       - name: Compare against pinned known-red
