@@ -602,6 +602,22 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// the count comes from `NumberOfRvaAndSizes` rather than from this file.
     /// </summary>
     static (string Name, int Rva)[] DataDirectories(byte[] image)
+        => [.. DirectoryEntries(image).Select(d => (d.Name, d.Rva))];
+
+    /// <summary>
+    /// Each data directory's declared extent, paired with its name.
+    /// <para>
+    /// A size is not an address, so
+    /// <see cref="HostileImage_BreaksOnlyTheRvasItIsKnownToBreak"/> never looks
+    /// at one — it classifies RVAs. That left every declared extent in the image
+    /// unchecked, and review shrank the patched import directory's size to
+    /// exclude its own null terminator, leaving all 147 tests green.
+    /// </para>
+    /// </summary>
+    static (string Name, int Size)[] DataDirectorySizes(byte[] image)
+        => [.. DirectoryEntries(image).Select(d => (d.Name, d.Size))];
+
+    static (string Name, int Rva, int Size)[] DirectoryEntries(byte[] image)
     {
         PEHeaders headers = Headers(image);
         int optionalHeader = headers.PEHeaderStartOffset;
@@ -616,7 +632,44 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 
         return [.. Enumerable.Range(0, count).Select(i => (
             i < DirectoryNames.Length ? DirectoryNames[i] : $"Directory{i}",
-            BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(first + (i * 8), 4))))];
+            BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(first + (i * 8), 4)),
+            BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(first + (i * 8) + 4, 4))))];
+    }
+
+    /// <summary>
+    /// The expansion moves bytes; it does not change how much of the image any
+    /// directory claims. Every declared extent must therefore survive it
+    /// unchanged.
+    /// <para>
+    /// This is the one thing in the header that the RVA inventory structurally
+    /// cannot cover: a directory entry is an address *and* a size, and only the
+    /// address half is an RVA to classify. Review used the other half — shrinking
+    /// the patched import directory to 20 bytes so that its own null terminator
+    /// fell outside the declared extent, without altering a single byte the walk
+    /// reads. Every test passed.
+    /// </para>
+    /// <para>
+    /// <see cref="ImportShape"/> depends on this directly: it bounds both
+    /// traversals with the baseline's `ImportTableDirectory.Size`, which is only
+    /// legitimate while the patched image declares the same extent.
+    /// </para>
+    /// <para>
+    /// The second reviewer attacked the same seam from the other side, planting a
+    /// descriptor-shaped run of bytes *past* the declared extent while leaving the
+    /// extent alone. That is not a finding, for the reason a byte scan was
+    /// rejected earlier: the import region here is 79 bytes covering the
+    /// descriptors, the lookup table and the name strings, the descriptor array
+    /// ends at its null terminator, and bytes beyond both are declared by nothing.
+    /// Reporting them would mean recognising structures by their shape rather
+    /// than by reachability. The half of that attack which *is* real — growing
+    /// the patched extent so the new bytes become declared — is what this test
+    /// fails on.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_KeepsEveryDeclaredDirectoryExtent()
+    {
+        Assert.Equal(DataDirectorySizes(fixture.Baseline), DataDirectorySizes(fixture.Bytes));
     }
 
     static readonly string[] DirectoryNames =
