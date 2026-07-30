@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -263,32 +264,32 @@ public class CommandErrorOwnershipTests
         {
             // The owner, which contains every string before it writes it. Four
             // methods rather than one, because the stream is fetched at each.
-            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDiagnostic"] = 1,
-            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDetail"] = 1,
-            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteLine"] = 1,
-            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteBlankLine"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDiagnostic(string, string, string[])"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteDetail(string)"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteLine(string)"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.CommandError.WriteBlankLine()"] = 1,
 
             // Markout views of the tips and the legend; every field of both
             // rows is contained where the row is built.
-            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteTips"] = 1,
-            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteLegend"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteTips(DotnetInspector.Options.TipLevel, DotnetInspector.Output.Tip[], bool)"] = 1,
+            ["dotnet-inspect!DotnetInspector.Output.Hints.WriteLegend(DotnetInspector.Views.LegendEntry[])"] = 1,
 
             // --info and --trace-mermaid, both in top-level code, so IL sees one
             // method where the source shows two statements.
-            ["dotnet-inspect!Program.<Main>$"] = 2,
+            ["dotnet-inspect!Program.<Main>$(string[])"] = 2,
 
             // The network traffic log. Its caller is behind #if DEBUG, but this
             // method is not: it is public API and the reference to the stream is
             // in the shipped assembly, which is a thing only this rule can say.
             // Its consumer takes containment as a required constructor
             // parameter, and the logged URL carries the package id from argv.
-            ["DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging"] = 1,
+            ["DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(System.Func<string, string>, System.IO.TextWriter)"] = 1,
 
             // CommandError.Writer's Encoding override. It reads the stream
             // rather than writing to it; its Write/Flush go through
             // CommandError.WriteLine, which is why no other member of this type
             // appears here.
-            ["dotnet-inspect!ContainedWriter.get_Encoding"] = 1,
+            ["dotnet-inspect!ContainedWriter.get_Encoding()"] = 1,
         };
 
         Assert.Equal(
@@ -342,7 +343,7 @@ public class CommandErrorOwnershipTests
         // it from the severity name and a colon -- which is why the owner is
         // absent from a list of everything that spells one.
         Assert.Equal(
-            ["dotnet-inspect!Program.<<Main>$>g__FormatParseError|0_6"],
+            ["dotnet-inspect!Program.<<Main>$>g__FormatParseError|0_6(string)"],
             found.Distinct(StringComparer.Ordinal).OrderBy(f => f, StringComparer.Ordinal));
     }
 
@@ -507,6 +508,22 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// <paramref name="method"/> as <c>Namespace.Type.Method</c>.
     /// </summary>
+    /// <summary>
+    /// A method's fully qualified name, including its signature.
+    /// </summary>
+    /// <remarks>
+    /// The signature is part of the key because the key is a pin, and a pin
+    /// that two methods share is a pin either of them can satisfy. Two
+    /// reviewers found this independently: the bare name collides across
+    /// overloads, so moving an accounted write from <c>WriteLine(string)</c>
+    /// into a new <c>WriteLine(string, int)</c> keeps the count for
+    /// "CommandError.WriteLine" at its pinned value while changing which code
+    /// writes. Decoding the signature makes the two spellings two keys.
+    ///
+    /// Decoded with the product's own <see cref="SignatureDecoder"/> rather
+    /// than a local one: this class already learned what re-deriving a rule
+    /// costs, and a second signature formatter is that mistake in miniature.
+    /// </remarks>
     private static string MethodName(MetadataReader reader, MethodDefinition method)
     {
         TypeDefinition declaring = reader.GetTypeDefinition(method.GetDeclaringType());
@@ -514,7 +531,10 @@ public class CommandErrorOwnershipTests
             ? $"{ns}.{reader.GetString(declaring.Name)}"
             : reader.GetString(declaring.Name);
 
-        return $"{type}.{reader.GetString(method.Name)}";
+        MethodSignature<string> signature = method.DecodeSignature(SignatureDecoder.Instance, genericContext: null);
+        string arity = signature.GenericParameterCount > 0 ? $"`{signature.GenericParameterCount}" : string.Empty;
+
+        return $"{type}.{reader.GetString(method.Name)}{arity}({string.Join(", ", signature.ParameterTypes)})";
     }
 
     /// <summary>
