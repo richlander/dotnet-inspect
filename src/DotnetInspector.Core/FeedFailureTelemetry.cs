@@ -84,7 +84,7 @@ public static class FeedFailureTelemetry
     /// </summary>
     /// <remarks>
     /// The URL is redacted before it is stored, not merely before it is rendered. A source URL
-    /// can carry userinfo (<c>https://user:pass@host/...</c>, a configuration operators do try)
+    /// can carry userinfo (<c>https://user:pass@host/...</c>, a shape NuGet does not support but that operators type anyway)
     /// or a token query parameter, and this failure text is printed to the console. Redacting on
     /// the way in means the secret never reaches the collector, whose contents are publicly
     /// readable through <see cref="FeedFailureCollector.Failures"/>.

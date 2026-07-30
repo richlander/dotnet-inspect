@@ -83,6 +83,12 @@ tool honors is the clearest statement of the gap:
 | 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
 | 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
 
+Credentials embedded in the source URL itself — `https://<user>:<access-token>@host/...` — are
+ignored too, and that is not an omission here. NuGet does not support them at all: the client
+never sends URL userinfo, so no feed authenticates that way, and this tool has no code that
+reads it. The shape is a git and curl convention, which is precisely why operators reach for it,
+and why the failure message redacts it rather than assuming it will never turn up.
+
 The two supported mechanisms are the ranking's top and bottom. Rank 1 is the most secure where
 it is available; rank 5 is available everywhere. Ranks 2 through 4 remain unsupported, and are
 still dropped in silence.
@@ -285,8 +291,8 @@ be taught to describe itself.
 ### The URL is redacted before it is stored
 
 This message prints a source URL, and a source URL can carry a secret: userinfo
-(`https://user:pass@host/...`, which the [ignored mechanisms](#what-is-ignored) section notes
-operators do try) or a token query parameter. The URL is therefore passed through
+(`https://user:pass@host/...`, a shape NuGet does not support and this tool
+never reads, but which operators type out of git and curl habit) or a token query parameter. The URL is therefore passed through
 `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector, not on the
 way out to the console — `FeedFailureCollector.Failures` is public, so an unredacted URL sitting
 in it would already be an exposure.
