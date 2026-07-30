@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1334,6 +1335,19 @@ public sealed class CSharpDeclarationWriterTests
         "public void M(string s = $\"{\")\"}\", int @event = 0)")]
     [InlineData("M", "void M(string s = $\"{{)}}\", int event = 0)",
         "public void M(string s = $\"{{)}}\", int @event = 0)")]
+    // MAI-Code round-5 finding: a raw string literal has no escape character at all, so
+    // the closing delimiter is a quote run of at least the opening length. This exact
+    // input already round-tripped before the fix, because three quotes coincidentally
+    // pair up as three degenerate literals; the two rows below are the ones that fail
+    // without SkipRawLiteral.
+    [InlineData("M", "void M(string s = \"\"\"x)\"\"\", int event = 0)",
+        "public void M(string s = \"\"\"x)\"\"\", int @event = 0)")]
+    // A shorter quote run inside a longer delimiter is content, not a terminator.
+    [InlineData("M", "void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int event = 0)",
+        "public void M(string s = \"\"\"\"a\"\"\", )\"\"\"\", int @event = 0)")]
+    // Interpolated raw: the delimiter run terminates it, so holes need no modelling.
+    [InlineData("M", "void M(string s = $\"\"\"{\"a)\"}\"\"\", int event = 0)",
+        "public void M(string s = $\"\"\"{\"a)\"}\"\"\", int @event = 0)")]
     public void MemberDeclaration_TreatsPunctuationInsideLiteralsAsText(
         string name, string signature, string expected)
     {
@@ -1345,8 +1359,35 @@ public sealed class CSharpDeclarationWriterTests
                 type, new ApiMember { Name = name, Kind = "method", Signature = signature }));
     }
 
+    [Fact]
+    // GPT round-5 finding: SkipLiteral and SkipInterpolationHole are mutually recursive,
+    // so deeply nested interpolation used to stack-overflow at ~4,800 levels. A stack
+    // overflow is uncatchable process death, so the depth is capped; this test dies with
+    // the host if the cap is ever removed.
+    public void MemberDeclaration_DoesNotOverflowOnDeeplyNestedInterpolation()
+    {
+        const int Depth = 10_000;
+        var literal = new StringBuilder();
+        for (int i = 0; i < Depth; i++)
+            literal.Append("$\"{");
+        literal.Append('x');
+        for (int i = 0; i < Depth; i++)
+            literal.Append("}\"");
+
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var rendered = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            new ApiMember
+            {
+                Name = "M",
+                Kind = "method",
+                Signature = $"void M(string s = {literal}, int event = 0)",
+            });
+
+        Assert.StartsWith("public void M(string s = ", rendered);
+    }
+
     [Theory]
-    // GPT round-3 finding: 'where' is a contextual keyword, so a member may be named it.
     // A tuple-returning one puts that name exactly where a constraint would go.
     [InlineData("where", "(int, int) where (int event)", "public (int, int) where (int @event)")]
     // 'where' needs no escape in member-name position; it is contextual, not reserved.

@@ -1751,10 +1751,16 @@ internal static class CSharpDeclarationWriter
     /// would swallow the rest of the signature. All four prefix spellings are recognised
     /// (<c>"</c>, <c>@"</c>, <c>$"</c>, and both orders of <c>$@"</c>), and an
     /// interpolation hole is scanned with brace tracking so a quote or paren inside it is
-    /// not read as structure.
+    /// not read as structure. Raw string literals (<c>"""..."""</c>) are delegated to
+    /// <see cref="SkipRawLiteral"/>.
     ///
-    /// An unterminated literal returns the last index so every caller still makes
-    /// progress rather than looping.
+    /// A literal inside an interpolation hole recurses, so nesting is capped at
+    /// <see cref="MaxLiteralNestingDepth"/>. At the cap the scan stops descending and
+    /// falls back to reading the inner punctuation as structure, which is what this code
+    /// did before literals were modelled at all. Deep nesting is not producible from
+    /// metadata — <c>ApiSurfaceExtractor.StringLiteral</c> backslash-escapes every quote,
+    /// so a rendered default can never open a nested literal — but a stack overflow is
+    /// uncatchable process death, so the bound is enforced rather than argued away.
     ///
     /// Comments are deliberately not modelled. This runs over a *rendered declaration*,
     /// not over C# source: no producer in this repository emits a comment into a
@@ -1762,7 +1768,11 @@ internal static class CSharpDeclarationWriter
     /// parameter default. See #3561 on escaping from the structured signature model
     /// instead of re-lexing rendered text.
     /// </remarks>
-    static int SkipLiteral(string text, int index)
+    static int SkipLiteral(string text, int index) => SkipLiteral(text, index, 0);
+
+    const int MaxLiteralNestingDepth = 32;
+
+    static int SkipLiteral(string text, int index, int depth)
     {
         char quote = text[index];
         bool verbatim = false;
@@ -1778,6 +1788,12 @@ internal static class CSharpDeclarationWriter
             }
         }
 
+        int opening = 0;
+        while (index + opening < text.Length && text[index + opening] == quote)
+            opening++;
+        if (quote == '"' && opening >= 3)
+            return SkipRawLiteral(text, index, opening);
+
         for (int i = index + 1; i < text.Length; i++)
         {
             char c = text[i];
@@ -1788,7 +1804,9 @@ internal static class CSharpDeclarationWriter
                     i++;
                     continue;
                 }
-                i = SkipInterpolationHole(text, i);
+                if (depth >= MaxLiteralNestingDepth)
+                    continue;
+                i = SkipInterpolationHole(text, i, depth + 1);
                 continue;
             }
             if (verbatim)
@@ -1814,23 +1832,55 @@ internal static class CSharpDeclarationWriter
     }
 
     /// <summary>
+    /// Returns the index of the last quote of the delimiter closing the raw string
+    /// literal that opens at <paramref name="index"/> with <paramref name="opening"/>
+    /// quotes.
+    /// </summary>
+    /// <remarks>
+    /// A raw string ends at the first run of at least as many quotes as opened it, and
+    /// its content has no escape character at all — a shorter run of quotes, a backslash
+    /// and an interpolation brace are all ordinary text. Scanning for the delimiter run
+    /// therefore also handles the interpolated form (<c>$"""..."""</c>) without needing
+    /// to model holes.
+    /// </remarks>
+    static int SkipRawLiteral(string text, int index, int opening)
+    {
+        for (int i = index + opening; i < text.Length; i++)
+        {
+            if (text[i] != '"')
+                continue;
+
+            int run = 0;
+            while (i + run < text.Length && text[i + run] == '"')
+                run++;
+            if (run >= opening)
+                return i + opening - 1;
+            i += run - 1;
+        }
+        return text.Length - 1;
+    }
+
+    /// <summary>
     /// Returns the index of the <c>}</c> closing the interpolation hole that opens at
     /// <paramref name="open"/>. Nested literals inside the hole are skipped whole, so a
-    /// quote or brace within them is not read as structure.
+    /// quote or brace within them is not read as structure. Recursion is bounded by
+    /// <see cref="MaxLiteralNestingDepth"/>; see <see cref="SkipLiteral(string, int, int)"/>.
     /// </summary>
-    static int SkipInterpolationHole(string text, int open)
+    static int SkipInterpolationHole(string text, int open, int depth)
     {
-        int depth = 0;
+        int braces = 0;
         for (int i = open; i < text.Length; i++)
         {
             char c = text[i];
             if (c is '"' or '\'')
             {
-                i = SkipLiteral(text, i);
+                if (depth >= MaxLiteralNestingDepth)
+                    continue;
+                i = SkipLiteral(text, i, depth + 1);
                 continue;
             }
-            if (c == '{') depth++;
-            else if (c == '}' && --depth == 0) return i;
+            if (c == '{') braces++;
+            else if (c == '}' && --braces == 0) return i;
         }
         return text.Length - 1;
     }
