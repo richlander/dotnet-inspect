@@ -1321,6 +1321,19 @@ public sealed class CSharpDeclarationWriterTests
     // '""' is the escape inside a verbatim string.
     [InlineData("M", "void M(string s = @\"a\"\")\"\"b\", int event = 0)",
         "public void M(string s = @\"a\"\")\"\"b\", int @event = 0)")]
+    // GPT round-5 finding: both orders of the verbatim-interpolated prefix must behave
+    // the same. Keying on the single character before the quote made '$@' work and
+    // '@$' fail.
+    [InlineData("M", "void M(string s = $@\"\\\", int event = 0)",
+        "public void M(string s = $@\"\\\", int @event = 0)")]
+    [InlineData("M", "void M(string s = @$\"\\\", int event = 0)",
+        "public void M(string s = @$\"\\\", int @event = 0)")]
+    // An interpolation hole may contain a quote or a paren; brace tracking keeps them
+    // out of the structural scan.
+    [InlineData("M", "void M(string s = $\"{\")\"}\", int event = 0)",
+        "public void M(string s = $\"{\")\"}\", int @event = 0)")]
+    [InlineData("M", "void M(string s = $\"{{)}}\", int event = 0)",
+        "public void M(string s = $\"{{)}}\", int @event = 0)")]
     public void MemberDeclaration_TreatsPunctuationInsideLiteralsAsText(
         string name, string signature, string expected)
     {

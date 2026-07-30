@@ -1748,23 +1748,52 @@ internal static class CSharpDeclarationWriter
     ///
     /// Both literal forms are handled: in a verbatim string a backslash is an ordinary
     /// character and <c>""</c> is the escape, so treating <c>@"\"</c> as backslash-escaped
-    /// would swallow the rest of the signature. Interpolated strings are deliberately not
-    /// modelled — correct handling needs full brace and nesting tracking, and
-    /// <c>ApiSurfaceExtractor.StringLiteral</c> only ever emits backslash-escaped regular
-    /// literals, so neither an interpolated nor a verbatim string is reachable from
-    /// metadata. Verbatim is supported anyway because a hand-authored signature can carry
-    /// one; interpolation is left alone rather than half-modelled.
+    /// would swallow the rest of the signature. All four prefix spellings are recognised
+    /// (<c>"</c>, <c>@"</c>, <c>$"</c>, and both orders of <c>$@"</c>), and an
+    /// interpolation hole is scanned with brace tracking so a quote or paren inside it is
+    /// not read as structure.
+    ///
+    /// An unterminated literal returns the last index so every caller still makes
+    /// progress rather than looping.
+    ///
+    /// Comments are deliberately not modelled. This runs over a *rendered declaration*,
+    /// not over C# source: no producer in this repository emits a comment into a
+    /// signature string, whereas every literal form above is a legal spelling of a
+    /// parameter default. See #3561 on escaping from the structured signature model
+    /// instead of re-lexing rendered text.
     /// </remarks>
     static int SkipLiteral(string text, int index)
     {
         char quote = text[index];
-        bool verbatim = quote == '"' && index > 0 && text[index - 1] == '@';
+        bool verbatim = false;
+        bool interpolated = false;
+        if (quote == '"')
+        {
+            for (int p = index - 1; p >= 0 && text[p] is '@' or '$'; p--)
+            {
+                if (text[p] == '@')
+                    verbatim = true;
+                else
+                    interpolated = true;
+            }
+        }
 
         for (int i = index + 1; i < text.Length; i++)
         {
+            char c = text[i];
+            if (interpolated && c == '{')
+            {
+                if (i + 1 < text.Length && text[i + 1] == '{')
+                {
+                    i++;
+                    continue;
+                }
+                i = SkipInterpolationHole(text, i);
+                continue;
+            }
             if (verbatim)
             {
-                if (text[i] != quote)
+                if (c != quote)
                     continue;
                 if (i + 1 < text.Length && text[i + 1] == quote)
                 {
@@ -1773,13 +1802,35 @@ internal static class CSharpDeclarationWriter
                 }
                 return i;
             }
-            if (text[i] == '\\')
+            if (c == '\\')
             {
                 i++;
                 continue;
             }
-            if (text[i] == quote)
+            if (c == quote)
                 return i;
+        }
+        return text.Length - 1;
+    }
+
+    /// <summary>
+    /// Returns the index of the <c>}</c> closing the interpolation hole that opens at
+    /// <paramref name="open"/>. Nested literals inside the hole are skipped whole, so a
+    /// quote or brace within them is not read as structure.
+    /// </summary>
+    static int SkipInterpolationHole(string text, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
+            if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) return i;
         }
         return text.Length - 1;
     }
