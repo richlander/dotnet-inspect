@@ -1713,6 +1713,340 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// A hop refuted by its own unverifiable edge must not still vouch for the facade that points
+    /// at it. Raised independently by both reviewers of <c>0450561f</c> — one framing it as a
+    /// chain that outruns the ceiling, the other as an ordering bug — and they are the same fact.
+    ///
+    /// <para>The edge fold verifies each edge against the far side's identity, and the ceiling that
+    /// refutes a spelling is written in the sweep <em>after</em> the one that reads it. So a facade
+    /// whose only route runs through a hop this very fold was in the middle of refuting was checked
+    /// against the hop as it looked <em>before</em> the refutation, and shipped as an alias. The
+    /// call it vouches for cannot reach the target at all: <c>Outer v1</c> forwards to
+    /// <c>Middle v2</c>, which forwards to a <c>Definer v2</c> that does not exist, and binding
+    /// never rolls back to the <c>Definer v1</c> that does.</para>
+    ///
+    /// <para>Refuting a spelling is evidence about every edge pointing at it, so the fold has to
+    /// run to a fixed point. The middle assertion is what makes that non-vacuous: the hop really is
+    /// refuted at its own version, so a single sweep would have had the information and merely
+    /// published it too late.</para>
+    /// </summary>
+    [Fact]
+    public void AHopRefutedByItsOwnEdgeDoesNotVouchForTheFacadePointingAtIt()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+
+            // The only definer on disk is v1, and it declares the type.
+            WriteDefiner(
+                directory, "Contoso.Definer", "Contoso", "Widget", "Definer.v1",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            // Middle v1 forwards to the definer that exists; Middle v2 to one that does not.
+            WriteForwarderToVersion(
+                directory, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+                fileName: "Middle.v1",
+                version: new Version(1, 0, 0, 0), targetVersion: new Version(1, 0, 0, 0));
+            WriteForwarderToVersion(
+                directory, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+                fileName: "Middle.v2",
+                version: new Version(2, 0, 0, 0), targetVersion: new Version(2, 0, 0, 0));
+
+            // The facade's only route to the type runs through the hop at the refuted version.
+            WriteForwarderToVersion(
+                directory, "Contoso.Outer", "Contoso.Middle", "Contoso", "Widget",
+                fileName: "Outer.v1",
+                version: new Version(1, 0, 0, 0), targetVersion: new Version(2, 0, 0, 0));
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target,
+                Path.Combine(directory, "Definer.v1.dll"),
+                Directory.GetFiles(directory, "*.dll"),
+                seedSpellings: null);
+
+            // The hop itself is refuted at and below v2 — a reference to Middle v1 rolls forward
+            // onto the v2 file, which does not reach the target either.
+            using var hop = BuildCallerNaming(
+                "Contoso.Middle", "Contoso", "Widget", publicKeyOrToken: null,
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(hop.GetMetadataReader(), target, aliases));
+
+            // And so is the facade that can only get there through it.
+            using var outer = BuildCallerNaming(
+                "Contoso.Outer", "Contoso", "Widget", publicKeyOrToken: null,
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(outer.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The control for <see cref="AHopRefutedByItsOwnEdgeDoesNotVouchForTheFacadePointingAtIt"/>:
+    /// the same chain with the hop's unverifiable edge removed, so the only thing that changed is
+    /// the fact under test. Without this the test above could pass because the fixture never
+    /// produced an alias for any reason at all.
+    /// </summary>
+    [Fact]
+    public void AHopWhoseEveryEdgeVerifiesStillVouchesForTheFacadePointingAtIt()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+
+            WriteDefiner(
+                directory, "Contoso.Definer", "Contoso", "Widget", "Definer.v1",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+            WriteForwarderToVersion(
+                directory, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+                fileName: "Middle.v1",
+                version: new Version(1, 0, 0, 0), targetVersion: new Version(1, 0, 0, 0));
+
+            // Middle v2 forwards to the definer that DOES exist, so nothing is refuted.
+            WriteForwarderToVersion(
+                directory, "Contoso.Middle", "Contoso.Definer", "Contoso", "Widget",
+                fileName: "Middle.v2",
+                version: new Version(2, 0, 0, 0), targetVersion: new Version(1, 0, 0, 0));
+            WriteForwarderToVersion(
+                directory, "Contoso.Outer", "Contoso.Middle", "Contoso", "Widget",
+                fileName: "Outer.v1",
+                version: new Version(1, 0, 0, 0), targetVersion: new Version(2, 0, 0, 0));
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target,
+                Path.Combine(directory, "Definer.v1.dll"),
+                Directory.GetFiles(directory, "*.dll"),
+                seedSpellings: null);
+
+            using var outer = BuildCallerNaming(
+                "Contoso.Outer", "Contoso", "Widget", publicKeyOrToken: null,
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(outer.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A newer file's disagreeing route must not borrow an older file's good one. The
+    /// disagreement ceiling admits callers <em>above</em> the older file, which is right — but the
+    /// reachability fold then merged every destination the spelling ever had into one set, so a
+    /// caller above the ceiling was credited with a route only the file below it carries. Raised in
+    /// review of <c>0450561f</c>; it is a fabrication this PR's own ceiling introduced, because
+    /// before the ceiling the whole spelling was withdrawn and nobody was admitted at all.
+    ///
+    /// <para>Here <c>Facade v1</c> forwards to the target and <c>Facade v2</c> forwards somewhere
+    /// else. A caller referencing v2 binds to the v2 file, which does not reach the target; the v1
+    /// file that does is below it and binding never rolls back. Both ends of the band close on
+    /// this spelling at once, so it admits nobody.</para>
+    ///
+    /// <para>Run signed and unsigned, and in both enumeration orders, because the fold reads the
+    /// files in scope order and an order-dependent answer here would be a different bug wearing
+    /// this one's clothes.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ANewerDisagreeingRouteDoesNotBorrowAnOlderFilesTarget(bool signed, bool reverse)
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[]? publicKey = signed ? [.. Enumerable.Repeat((byte)0xA7, 16)] : null;
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+
+            using var caller = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", publicKey is null ? null : TokenOf(publicKey),
+                flags: default, culture: null, version: new Version(2, 0, 0, 0));
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target,
+                        targetPath,
+                        reverse
+                            ? Directory.GetFiles(directory, "*.dll").Reverse()
+                            : Directory.GetFiles(directory, "*.dll"),
+                        seedSpellings: null));
+
+            // Control: while both files agree, the v2 caller is a genuine caller.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // Now the file the caller actually binds to forwards the type somewhere else.
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Other", "Contoso", "Widget",
+                publicKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Other", "Contoso.Other", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Other",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The same borrowing one hop further in, which is what makes the bound part of the fixed point
+    /// rather than a last step: <c>Outer</c> references <c>Middle</c> at the version whose route
+    /// goes elsewhere, and only the older <c>Middle</c> reaches the target. The chain must not be
+    /// credited with a route no reference it carries can reach.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AChainDoesNotBorrowAnOlderIntermediateRoute(bool reverse)
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] middleKey = [.. Enumerable.Repeat((byte)0xA7, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Middle", "Contoso.Target", "Contoso", "Widget",
+                middleKey, fileName: "Middle.v0",
+                version: new Version(0, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Middle", "Contoso.Target", "Contoso", "Widget",
+                middleKey, fileName: "Contoso.Middle",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Outer", "Contoso.Middle", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Outer",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(middleKey));
+            WriteForwarder(directory, "Contoso.Outermost", "Contoso.Outer", "Contoso", "Widget");
+
+            using var caller = BuildCallerNaming("Contoso.Outermost", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target,
+                        targetPath,
+                        reverse
+                            ? Directory.GetFiles(directory, "*.dll").Reverse()
+                            : Directory.GetFiles(directory, "*.dll"),
+                        seedSpellings: null));
+
+            // Control: while every Middle reaches the target, the whole chain is genuine.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // The Middle the chain's reference binds to now goes elsewhere.
+            WriteForwarder(
+                directory, "Contoso.Middle", "Contoso.Other", "Contoso", "Widget",
+                middleKey, fileName: "Contoso.Middle",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+            WriteForwarder(
+                directory, "Contoso.Other", "Contoso.Other", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Other",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The unverified-edge ceiling in its own right. Raised in review of <c>0450561f</c>: deleting
+    /// the ceiling outright still passed the whole suite, because the only test covering that block
+    /// pinned the <em>drop</em> direction — that the ceiling is narrower than the spelling-wide
+    /// removal it replaced — and nothing pinned that it refuses anything at all.
+    ///
+    /// <para>Both files here forward to the <em>same</em> target, so the disagreement fold cannot
+    /// stand in for the missing ceiling. The v1 facade's edge is unverifiable only because it
+    /// records the wrong token for the definer, which is exactly the shape the ceiling exists
+    /// for.</para>
+    /// </summary>
+    [Fact]
+    public void AnOlderUnverifiedEdgeRefusesOnlyTheVersionsThatCanReachIt()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] facadeKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+            byte[] definerKey = [.. Enumerable.Repeat((byte)0xC3, 16)];
+            byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                definerKey, new Version(1, 0, 0, 0));
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                facadeKey, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(rivalKey));
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                facadeKey, fileName: "Facade.v2",
+                version: new Version(2, 0, 0, 0), targetPublicKeyToken: TokenOf(definerKey));
+
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+
+            using var v2 = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(facadeKey),
+                flags: default, culture: null, version: new Version(2, 0, 0, 0));
+            using var v1 = BuildCallerNaming(
+                "Contoso.Facade", "Contoso", "Widget", TokenOf(facadeKey),
+                flags: default, culture: null, version: new Version(1, 0, 0, 0));
+
+            // Above the bad file, the only reachable facade verifies.
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(v2.GetMetadataReader(), target, aliases));
+
+            // At its own version, the reference may land on the file whose edge proves nothing.
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(v1.GetMetadataReader(), target, aliases));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The other half of the signing-independence claim: a silent sibling at the <em>same</em>
     /// version contradicts whether or not the assemblies are signed. Without this, making the
     /// contradiction rule signing-independent could be satisfied by refusing nothing at all.
@@ -1905,9 +2239,13 @@ public class ForwardedTypeAliasesTests
     /// <para>The sibling is unreadable only to the probe, which is the point: a locked file fails
     /// the census first and exits through the round-16 path, so it can never reach here. See
     /// <see cref="WriteUnprobableClaimant"/>.</para>
+    ///
+    /// <para>The refusal stops at this spelling; see
+    /// <see cref="AnUnreadableClaimantOfAnotherNameLeavesAGoodAliasStanding"/> for the other
+    /// half.</para>
     /// </summary>
     [Fact]
-    public void AClaimantWhoseTablesCannotBeReadDeclinesTheAnswer()
+    public void AClaimantWhoseTablesCannotBeReadRefusesItsSpelling()
     {
         string directory = NewTempDirectory();
         try
@@ -1950,6 +2288,122 @@ public class ForwardedTypeAliasesTests
             File.Delete(sibling);
             WriteUnprobableClaimant(
                 directory, "Contoso.Facade", publicKey, "Facade.b", new Version(1, 0, 0, 0));
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The other half of <see cref="AClaimantWhoseTablesCannotBeReadRefusesItsSpelling"/>: a file
+    /// the probe cannot read says nothing about a spelling it does not claim. Raised in review of
+    /// <c>0450561f</c>, where the refusal was the whole answer rather than the one spelling, so a
+    /// single unreadable file with an unrelated name erased every good alias in the scope — a drop
+    /// with no evidence behind it.
+    ///
+    /// <para>Both seeds are asserted from one evidence directory, so the only thing that varies is
+    /// whether the walk opens the bad file at all. A scope holds whatever <c>*.dll</c> files
+    /// happen to be beside the target, so an unrelated malformed one is ordinary.</para>
+    /// </summary>
+    [Fact]
+    public void AnUnreadableClaimantOfAnotherNameLeavesAGoodAliasStanding()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Good", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Good");
+            WriteUnprobableClaimant(
+                directory, "Contoso.Bad", publicKey: null,
+                fileName: "Contoso.Bad", version: new Version(1, 0, 0, 0));
+
+            using var caller = BuildCallerNaming("Contoso.Good", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify(params string[] seeds) =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target,
+                        targetPath,
+                        Directory.GetFiles(directory, "*.dll"),
+                        new HashSet<string>(seeds, StringComparer.OrdinalIgnoreCase)));
+
+            // The control: the bad file is on disk but out of the seeded frontier.
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                Classify("Contoso.Good"));
+
+            // And now the walk actually opens it and fails.
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                Classify("Contoso.Good", "Contoso.Bad"));
+
+            // The unseeded walk opens every file, so it is the same question without the seeds.
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The one spelling whose unreadable claimant still declines everything: the target's own. Its
+    /// identity is what every terminal hop in the walk is verified against, so a second file
+    /// claiming that name and refusing to be read leaves nothing to check the chain with — the
+    /// rival might be a definition of the type under the target's name, and an edge "verified"
+    /// against the file on disk may bind to the rival instead.
+    ///
+    /// <para>Named separately from
+    /// <see cref="AnUnreadableClaimantOfAnotherNameLeavesAGoodAliasStanding"/> because the two are
+    /// the same code path taking opposite branches, and without this the scoping added in review of
+    /// <c>0450561f</c> could be widened to every name without a test noticing.</para>
+    /// </summary>
+    [Fact]
+    public void AnUnreadableClaimantOfTheTargetsOwnNameDeclinesTheAnswer()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Good", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Good");
+
+            using var caller = BuildCallerNaming("Contoso.Good", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null));
+
+            // The control: without the rival, the facade is a genuine alias.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // A second file claiming the target's name that the probe cannot read.
+            WriteUnprobableClaimant(
+                directory, "Contoso.Target", publicKey: null,
+                fileName: "Target.rival", version: new Version(1, 0, 0, 0));
+
             Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
         }
         finally
@@ -2523,7 +2977,7 @@ public class ForwardedTypeAliasesTests
     /// the census wants only the <c>AssemblyDef</c> and gets it, while the probe walks the type and
     /// forwarder tables and cannot. A locked or deleted file fails both reads and so never reaches
     /// the probe at all, which is why it cannot gate
-    /// <see cref="AClaimantWhoseTablesCannotBeReadDeclinesTheAnswer"/>.</para>
+    /// <see cref="AClaimantWhoseTablesCannotBeReadRefusesItsSpelling"/>.</para>
     ///
     /// <para>The dangling row index is deliberate rather than a patched byte offset: it says what
     /// is wrong with the image in one line and cannot silently stop being wrong when the serializer
@@ -2949,6 +3403,42 @@ public class ForwardedTypeAliasesTests
         string definer = Path.Combine(directory, target + ".dll");
         if (!File.Exists(definer))
             File.WriteAllBytes(definer, SerializePE(NewAssembly(target, publicKey: null)));
+    }
+
+    /// <summary>
+    /// A forwarder whose reference to its target carries an explicit <paramref name="targetVersion"/>,
+    /// and which writes no definer of its own. The other overloads pin that reference at
+    /// <c>1.0.0.0</c> and materialize a target if none exists, which is right for fixtures about a
+    /// single hop but cannot express a chain whose middle link points at a version that is not
+    /// there — the shape a refuted hop is made of.
+    /// </summary>
+    static void WriteForwarderToVersion(
+        string directory,
+        string name,
+        string target,
+        string ns,
+        string typeName,
+        string fileName,
+        Version version,
+        Version targetVersion)
+    {
+        var metadata = NewAssembly(name, publicKey: null, version);
+        var targetReference = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(target),
+            targetVersion,
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            // tdForwarder (ECMA-335 II.23.1.15); not named in System.Reflection.TypeAttributes.
+            (TypeAttributes)0x00200000,
+            metadata.GetOrAddString(ns),
+            metadata.GetOrAddString(typeName),
+            targetReference,
+            typeDefinitionId: 0);
+
+        File.WriteAllBytes(Path.Combine(directory, fileName + ".dll"), SerializePE(metadata));
     }
 
     /// <summary>Metadata for an image whose only TypeRef names one type in one assembly.</summary>

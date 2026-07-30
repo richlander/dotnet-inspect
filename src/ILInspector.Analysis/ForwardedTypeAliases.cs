@@ -98,6 +98,22 @@ public sealed class ForwardedTypeAliases
         /// </summary>
         internal Version? RefutedCeiling { get; init; }
 
+        /// <summary>
+        /// The highest version of a file answering to this spelling that forwards the type onto a
+        /// route which actually arrives at the target, or null when no bound applies.
+        /// <see cref="RefutedCeiling"/>'s opposite end: that one refuses references at or below a
+        /// version, this one refuses them <em>above</em> one, and a spelling whose good route is
+        /// carried only by an old file is bounded on both sides at once.
+        ///
+        /// <para>Binding rolls forward and never back, so a reference above this version can only
+        /// land on a file that does not take it to the target — the route that does is older than
+        /// anything the reference can bind to. Without this the reachability fold merged every
+        /// destination a spelling ever had into one version-blind set, and a caller above the
+        /// ceiling borrowed a route carried only by a file below it (executed in review of
+        /// <c>0450561f</c>).</para>
+        /// </summary>
+        internal Version? ReachesUpTo { get; init; }
+
         /// <summary>This identity widened to also account for <paramref name="version"/>.</summary>
         internal EvidenceIdentity Observing(Version version)
             => ObservedVersions.Contains(version)
@@ -113,6 +129,16 @@ public sealed class ForwardedTypeAliases
             => RefutedCeiling is { } ceiling && ceiling >= version
                 ? this
                 : this with { RefutedCeiling = version };
+
+        /// <summary>
+        /// This identity bounded to reach the target only at and below <paramref name="version"/>.
+        /// Keeps the lower of the two, so the bound only ever tightens — which is what lets the
+        /// fold that computes it run to a fixed point.
+        /// </summary>
+        internal EvidenceIdentity ReachingUpTo(Version version)
+            => ReachesUpTo is { } bound && bound <= version
+                ? this
+                : this with { ReachesUpTo = version };
 
         /// <summary>
         /// Whether a reference naming <paramref name="version"/> is one this evidence answers for.
@@ -441,6 +467,13 @@ public sealed class ForwardedTypeAliases
         if (evidence.RefutedCeiling is { } refuted && reference.Version <= refuted)
             return ReferenceVerdict.Contradicted;
 
+        // And the other end of the band. The route that reaches the target is carried by a file at
+        // this version; a reference above it rolls forward onto a file that carries some other
+        // route, or none. See the reachability fold in ForTarget, which is where the bound is
+        // measured, and ReachesUpTo for why the two ends are the same fact about binding.
+        if (evidence.ReachesUpTo is { } reaches && reference.Version > reaches)
+            return ReferenceVerdict.Contradicted;
+
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
             ? PublicKeyTokenOf(reference.PublicKeyOrToken.AsSpan())
             : reference.PublicKeyOrToken.AsSpan();
@@ -620,9 +653,10 @@ public sealed class ForwardedTypeAliases
         var census = new Dictionary<string, List<(string Path, EvidenceIdentity Identity)>>(
             StringComparer.OrdinalIgnoreCase);
 
-        // The census's own paths, so the walk can tell a claimant it failed to re-read from an
-        // ordinary non-assembly file it is walking past. Ordinal: these are file paths.
-        var claimantPaths = new HashSet<string>(StringComparer.Ordinal);
+        // The census's own paths and the identity each one claims, so the walk can tell a claimant
+        // it failed to re-read from an ordinary non-assembly file it is walking past, and can name
+        // the spelling that claimant speaks for. Ordinal: these are file paths.
+        var claimantPaths = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (string path in paths)
         {
             switch (IdentityOf(path, out var claimed))
@@ -653,7 +687,10 @@ public sealed class ForwardedTypeAliases
             if (!claimants.Any(c => string.Equals(c.Path, path, StringComparison.Ordinal)))
                 claimants.Add((path, claimed.Identity));
 
-            claimantPaths.Add(path);
+            // Indexer, not Add: the same file may be supplied twice, and the census above already
+            // deduplicates claimants by path. Throwing here would turn a duplicated scope entry
+            // into a crash.
+            claimantPaths[path] = claimed.Name;
         }
 
         var frontier = seedSpellings is null
@@ -719,6 +756,12 @@ public sealed class ForwardedTypeAliases
         // depend on enumeration order.
         var edges = new List<ForwarderEdge>();
 
+        // Spellings whose claimant the census read but the forwarder probe could not. The doubt is
+        // scoped to the spelling, and applied after the walk beside the ambiguity poison, because
+        // what the file might have said is exactly what an ambiguous spelling's rival might have
+        // said: something that refutes it.
+        var unreadableSpellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         // Spellings under which some file DEFINES the type itself. A file that defines the type
         // contradicts a same-named file that forwards it exactly as a rival forwarder does: a
         // caller naming that spelling may be bound to the definition, in which case it is not a
@@ -754,11 +797,24 @@ public sealed class ForwardedTypeAliases
                     // declares or forwards. Treating that as silence hides a DEFINER, and a definer
                     // poisons the spelling outright, so losing it admits a caller whose call throws
                     // (found in review of 5b954b91). A path that claimed no identity is a file the
-                    // runtime would refuse as well, so it stays a non-assembly the walk steps over
-                    // — which is why the decline is scoped to claimants rather than to the probe
-                    // returning null.
-                    if (claimantPaths.Contains(path))
-                        return None;
+                    // runtime would refuse as well, so it stays a non-assembly the walk steps over.
+                    //
+                    // The doubt is about the SPELLING this file claims, not about the answer as a
+                    // whole. Declining everything let one unreadable file with an unrelated name
+                    // erase every good alias in the scope, which is a drop with no evidence behind
+                    // it (executed in review of 0450561f). Poisoning the spelling reaches exactly
+                    // as far as the doubt does: a caller naming it is refused, and every edge
+                    // pointing at it fails verification, which the fold above propagates up the
+                    // chain. A file claiming the TARGET's own name is the one case that has to
+                    // decline outright — the target's identity is what every terminal hop is
+                    // checked against, so there is nothing left to answer with.
+                    if (claimantPaths.TryGetValue(path, out string? unreadable))
+                    {
+                        if (string.Equals(unreadable, targetAssemblyName, StringComparison.OrdinalIgnoreCase))
+                            return None;
+
+                        unreadableSpellings.Add(unreadable);
+                    }
 
                     continue;
                 }
@@ -877,6 +933,17 @@ public sealed class ForwardedTypeAliases
             }
         }
 
+        // A spelling one of whose claimants could not be read is unusable for the same reason: what
+        // that file forwards, or whether it defines the type outright, is exactly what would decide
+        // the spelling, and it is what could not be read. See the walk above for why the doubt
+        // stops at the spelling. Written unconditionally, so that an edge pointing at a spelling
+        // whose only claimant was unreadable is refused as well as a caller naming it.
+        foreach (string spelling in unreadableSpellings)
+        {
+            tokensBySpelling[spelling] =
+                new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+        }
+
         // Every claimant of a usable spelling that the spelling answers for has to forward the
         // type. A file that answers to the facade's identity — same name, culture and token, at a
         // version the spelling vouches for — but carries no forwarder for the type contradicts it:
@@ -979,50 +1046,135 @@ public sealed class ForwardedTypeAliases
         // for callers that cannot bind to that old file at all (executed in review of 5b954b91).
         // A spelling all of whose edges fail is still removed outright — there is nothing left of
         // it to answer with.
+        //
+        // This runs to a FIXED POINT, because refuting a spelling is itself evidence about every
+        // edge that points AT that spelling. A single pass evaluated each edge against the
+        // pre-pass identity of its far side, so a facade whose only route to the target ran through
+        // a hop that this very pass was in the middle of refuting was verified against the hop as
+        // it looked before the refutation — and shipped as an alias for a caller whose call cannot
+        // reach the target at all (executed in review of 0450561f). Both reviewers found this
+        // independently, one by the chain and one by the ordering.
+        //
+        // It terminates because both effects are monotone: a ceiling only ever rises
+        // (RefutedAt keeps the higher), and spellings and targets are only ever removed, so no
+        // iteration can undo an earlier one. The bound is defensive rather than load-bearing.
         var verifiedTargets = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var unverifiedAt = new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
-        foreach (var edge in edges)
+        for (int sweep = 0; ; sweep++)
         {
-            if (!targetsByRaw.ContainsKey(edge.Assembly))
-                continue;
+            if (sweep > edges.Count)
+                return None;
 
-            EvidenceIdentity? far =
-                targetIdentity is { } known
-                && string.Equals(edge.Target, targetAssemblyName, StringComparison.OrdinalIgnoreCase)
-                    ? known
-                    : tokensBySpelling.TryGetValue(edge.Target, out EvidenceIdentity hop) ? hop : null;
-
-            if (far is { } evidence && VerdictFor(edge.TargetReference, evidence) == ReferenceVerdict.Verified)
+            verifiedTargets.Clear();
+            unverifiedAt.Clear();
+            foreach (var edge in edges)
             {
-                if (!verifiedTargets.TryGetValue(edge.Assembly, out var kept))
-                    verifiedTargets[edge.Assembly] = kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                kept.Add(TypeRef.CanonicalAssembly(edge.Target));
-                continue;
+                if (!targetsByRaw.ContainsKey(edge.Assembly))
+                    continue;
+
+                EvidenceIdentity? far =
+                    targetIdentity is { } known
+                    && string.Equals(edge.Target, targetAssemblyName, StringComparison.OrdinalIgnoreCase)
+                        ? known
+                        : tokensBySpelling.TryGetValue(edge.Target, out EvidenceIdentity hop) ? hop : null;
+
+                if (far is { } evidence && VerdictFor(edge.TargetReference, evidence) == ReferenceVerdict.Verified)
+                {
+                    if (!verifiedTargets.TryGetValue(edge.Assembly, out var kept))
+                        verifiedTargets[edge.Assembly] = kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    kept.Add(TypeRef.CanonicalAssembly(edge.Target));
+                    continue;
+                }
+
+                unverifiedAt[edge.Assembly] =
+                    unverifiedAt.TryGetValue(edge.Assembly, out var highest) && highest > edge.Identity.Version
+                        ? highest
+                        : edge.Identity.Version;
             }
 
-            unverifiedAt[edge.Assembly] =
-                unverifiedAt.TryGetValue(edge.Assembly, out var highest) && highest > edge.Identity.Version
-                    ? highest
-                    : edge.Identity.Version;
-        }
-
-        foreach (string spelling in targetsByRaw.Keys.ToArray())
-        {
-            if (!verifiedTargets.TryGetValue(spelling, out var kept))
+            bool settled = true;
+            foreach (string spelling in targetsByRaw.Keys.ToArray())
             {
-                targetsByRaw.Remove(spelling);
-                continue;
+                if (!verifiedTargets.TryGetValue(spelling, out var kept))
+                {
+                    targetsByRaw.Remove(spelling);
+                    settled = false;
+                    continue;
+                }
+
+                var targets = targetsByRaw[spelling];
+                foreach (string withdrawn in targets.Keys.Where(t => !kept.Contains(t)).ToArray())
+                {
+                    targets.Remove(withdrawn);
+                    settled = false;
+                }
+
+                if (unverifiedAt.TryGetValue(spelling, out var ceiling)
+                    && tokensBySpelling.TryGetValue(spelling, out var identity))
+                {
+                    var refuted = identity.RefutedAt(ceiling);
+                    if (refuted != identity)
+                    {
+                        tokensBySpelling[spelling] = refuted;
+                        settled = false;
+                    }
+                }
             }
 
-            var targets = targetsByRaw[spelling];
-            foreach (string withdrawn in targets.Keys.Where(t => !kept.Contains(t)).ToArray())
-                targets.Remove(withdrawn);
-
-            if (unverifiedAt.TryGetValue(spelling, out var ceiling)
-                && tokensBySpelling.TryGetValue(spelling, out var identity))
+            // Reachability is part of the same fixed point, not a step after it. Which versions of
+            // a spelling reach the target bounds every edge pointing AT that spelling, and those
+            // edges in turn decide which of its routes survive, so the two cannot be settled
+            // independently. Computing it once at the end let a chain borrow a hop's older route
+            // (executed in review of 0450561f).
+            var reachable = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach ((string raw, var destinations) in targetsByRaw)
             {
-                tokensBySpelling[spelling] = identity.RefutedAt(ceiling);
+                string canonical = TypeRef.CanonicalAssembly(raw);
+
+                if (!reachable.TryGetValue(canonical, out var merged))
+                    reachable[canonical] = merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                merged.UnionWith(destinations.Keys);
             }
+
+            foreach (string spelling in targetsByRaw.Keys.ToArray())
+            {
+                // The target's own spelling is not routed to itself; identity answers for it.
+                if (TypeRef.CanonicalAssembly(spelling) == openDeclaringType.Assembly)
+                    continue;
+
+                // The highest version whose route actually arrives. Each destination is asked on
+                // its own, because the version that reaches the target is the version of the file
+                // carrying the destination that reaches it — not the highest of the union.
+                Version? reaches = null;
+                foreach ((string destination, Version carried) in targetsByRaw[spelling])
+                {
+                    if (!ReachesTarget([destination], openDeclaringType.Assembly, reachable))
+                        continue;
+
+                    if (reaches is null || carried > reaches)
+                        reaches = carried;
+                }
+
+                if (reaches is null)
+                {
+                    targetsByRaw.Remove(spelling);
+                    settled = false;
+                    continue;
+                }
+
+                if (tokensBySpelling.TryGetValue(spelling, out var identity))
+                {
+                    var bounded = identity.ReachingUpTo(reaches);
+                    if (bounded != identity)
+                    {
+                        tokensBySpelling[spelling] = bounded;
+                        settled = false;
+                    }
+                }
+            }
+
+            if (settled)
+                break;
         }
 
         if (targetsByRaw.Count == 0)
