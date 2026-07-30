@@ -700,7 +700,7 @@ public class PackageCommand
                 if (hasProjection)
                 {
                     // Capture output for projection diagnostics
-                    var sw = new StringWriter();
+                    var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
                     var rendered = OutputFormatter.RenderTable(!options.NoHeader,

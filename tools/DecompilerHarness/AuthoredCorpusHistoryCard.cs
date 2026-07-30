@@ -102,7 +102,7 @@ static class AuthoredCorpusHistoryCard
             WindowNote = note,
         };
 
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         MarkoutSerializer.Serialize(
             view,
             output,

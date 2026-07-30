@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
+using ILInspector.Text;
 using ILReader = ILInspector.Instructions.ILReader;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -1364,6 +1365,12 @@ public static class IrImporter
                     // (new DateTime(...)) is not misread as a heap allocation.
                     constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
                     constructor = source.CrossAssembly.Upgrade(constructor, function.UsesUpdatedMemorySafetyRules);
+                    // A same-assembly MethodDef ctor whose body proves it effect-free
+                    // (a trivial direct-Object parameterless ctor with no static ctor)
+                    // lets ObjectInitializerPass hoist an enclosing call's this-field
+                    // receiver read past this newobj when folding an initializer argument.
+                    if (ctorHandle.Kind == HandleKind.MethodDefinition)
+                        constructor = ConstructorConfinementFacts.Stamp(source, (MethodDefinitionHandle)ctorHandle, constructor);
                     var arguments = new IrExpression[constructor.ParameterTypes.Length];
                     for (int i = arguments.Length - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
@@ -2771,14 +2778,14 @@ public static class IrPrinter
         var sb = new System.Text.StringBuilder();
         Append(sb, function, 0);
         foreach (var diagnostic in function.Diagnostics)
-            sb.AppendLine($"// {diagnostic}");
-        sb.AppendLine($"// fidelity: {function.Fidelity}");
+            sb.AppendLf($"// {diagnostic}");
+        sb.AppendLf($"// fidelity: {function.Fidelity}");
         return sb.ToString();
     }
 
     static void Append(System.Text.StringBuilder sb, IrNode node, int indent)
     {
-        sb.Append(' ', indent * 2).AppendLine(node.Describe());
+        sb.Append(' ', indent * 2).AppendLf(node.Describe());
         foreach (var child in node.Children)
             Append(sb, child, indent + 1);
     }

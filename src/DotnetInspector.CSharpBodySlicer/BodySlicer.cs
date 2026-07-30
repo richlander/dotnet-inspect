@@ -1166,6 +1166,28 @@ public static class BodySlicer
     }
 
     /// <summary>
+    /// Scans <paramref name="lines"/> as one continuous stretch of C# and returns every token on
+    /// them, in order.
+    /// <para>
+    /// The scan is the same one the slicer's predicates run on; this entry point differs only in
+    /// keeping what that scan works out instead of discarding it at each line break. It exists so
+    /// the token stream can be pinned and checked directly, ahead of the predicates moving onto
+    /// it.
+    /// </para>
+    /// </summary>
+    internal static List<ScanToken> ScanTokens(IReadOnlyList<string> lines)
+    {
+        var state = new LexState();
+        var tokens = new List<ScanToken>();
+        int depth = 0;
+
+        for (int i = 0; i < lines.Count; i++)
+            Scan(lines[i], state, ref depth, start: 0, untilLiteralCloses: false, out _, tokens: tokens, lineIndex: i);
+
+        return tokens;
+    }
+
+    /// <summary>
     /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
     /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
     /// literal it opened is closed, which is how a caller consumes a single literal.
@@ -1178,12 +1200,96 @@ public static class BodySlicer
         bool untilLiteralCloses,
         out char significant,
         bool untilCodeResumes = false,
-        bool untilBracketsClose = false)
+        bool untilBracketsClose = false,
+        List<ScanToken>? tokens = null,
+        int lineIndex = 0)
+    {
+        bool untrackedOnEntry = state.Untracked;
+        int mark = tokens?.Count ?? 0;
+
+        int stopped = ScanCore(
+            line, state, ref depth, start, untilLiteralCloses, out significant,
+            untilCodeResumes, untilBracketsClose, tokens, lineIndex);
+
+        // Losing the place is discovered at the end of a line, after tokens on it were emitted.
+        // Those tokens recorded a depth that has since become meaningless, so correct them rather
+        // than leave a stale "known" that reads exactly like a real depth.
+        if (tokens is not null && state.Untracked && !untrackedOnEntry)
+        {
+            for (int t = mark; t < tokens.Count; t++)
+                tokens[t] = tokens[t] with { DepthKnown = false };
+        }
+
+        return stopped;
+    }
+
+    private static int ScanCore(
+        string line,
+        LexState state,
+        ref int depth,
+        int start,
+        bool untilLiteralCloses,
+        out char significant,
+        bool untilCodeResumes,
+        bool untilBracketsClose,
+        List<ScanToken>? tokens,
+        int lineIndex)
     {
         significant = '\0';
         int i = start;
         bool opened = false;
         bool bracketOpened = false;
+
+        void Emit(int atDepth, ScanTokenKind kind, int column, int length) =>
+            EmitAt(atDepth, state.BracketDepth, kind, column, length);
+
+        void EmitAt(int atDepth, int atBracketDepth, ScanTokenKind kind, int column, int length)
+        {
+            if (tokens is null || length <= 0)
+                return;
+
+            // Literal text arrives in fragments — an escape, a quote run, a stretch of plain
+            // characters — because the scan decides what each one means separately. They are one
+            // token to a caller, so adjacent fragments coalesce instead of surfacing that.
+            // Adjacency is same line and touching columns: a literal that spans lines emits one
+            // token per line, so an empty line inside a verbatim literal must not fuse the
+            // fragments on either side of it.
+            if (kind == ScanTokenKind.StringLiteral && tokens.Count > 0)
+            {
+                var previous = tokens[^1];
+
+                if (previous.Kind == ScanTokenKind.StringLiteral &&
+                    previous.Line == lineIndex &&
+                    previous.End == column)
+                {
+                    tokens[^1] = previous with { Length = previous.Length + length };
+                    return;
+                }
+            }
+
+            tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, !state.Untracked));
+        }
+
+        // Advances past the rest of an open block comment, clearing the carried flag if the
+        // comment ends on this line. Shared by the branch that opens one and the branch that
+        // resumes one carried in from an earlier line.
+        int ConsumeBlockComment(int from)
+        {
+            int j = from;
+
+            while (j < line.Length)
+            {
+                if (line[j] == '*' && j + 1 < line.Length && line[j + 1] == '/')
+                {
+                    state.InBlockComment = false;
+                    return j + 2;
+                }
+
+                j++;
+            }
+
+            return j;
+        }
 
         if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
         {
@@ -1193,6 +1299,7 @@ public static class BodySlicer
             if (conditional)
                 state.Untracked = true;
 
+            Emit(depth, ScanTokenKind.Directive, i, line.Length - i);
             return line.Length;
         }
 
@@ -1211,16 +1318,9 @@ public static class BodySlicer
 
             if (state.InBlockComment)
             {
-                if (c == '*' && i + 1 < line.Length && line[i + 1] == '/')
-                {
-                    state.InBlockComment = false;
-                    i += 2;
-                }
-                else
-                {
-                    i++;
-                }
-
+                int commentStart = i;
+                i = ConsumeBlockComment(i);
+                Emit(depth, ScanTokenKind.Comment, commentStart, i - commentStart);
                 continue;
             }
 
@@ -1238,6 +1338,7 @@ public static class BodySlicer
                     {
                         // Not interpolated, or a closing run in literal text: content either
                         // way. A hole is closed from inside the hole, not from here.
+                        Emit(depth, ScanTokenKind.StringLiteral, i, run);
                         i += run;
                         continue;
                     }
@@ -1245,6 +1346,7 @@ public static class BodySlicer
                     if (run < frame.DollarRun)
                     {
                         // Too short to delimit a hole.
+                        Emit(depth, ScanTokenKind.StringLiteral, i, run);
                         i += run;
                         continue;
                     }
@@ -1254,6 +1356,7 @@ public static class BodySlicer
                         // One "$": braces pair off as escapes, and an odd one out opens a hole.
                         if (run % 2 == 0)
                         {
+                            Emit(depth, ScanTokenKind.StringLiteral, i, run);
                             i += run;
                             continue;
                         }
@@ -1264,12 +1367,14 @@ public static class BodySlicer
                     frame.InHole = true;
                     frame.HoleDepth = 1;
                     state.Replace(frame);
+                    Emit(depth, ScanTokenKind.StringLiteral, i, run);
                     i += run;
                     continue;
                 }
 
                 if (c == '\\' && !frame.Verbatim && !frame.Raw)
                 {
+                    Emit(depth, ScanTokenKind.StringLiteral, i, Math.Min(2, line.Length - i));
                     i += 2;
                     continue;
                 }
@@ -1283,12 +1388,14 @@ public static class BodySlicer
                         // "" is an escaped quote; a lone quote closes.
                         if (run >= 2)
                         {
+                            Emit(depth, ScanTokenKind.StringLiteral, i, 2);
                             i += 2;
                             continue;
                         }
 
                         state.Pop();
                         significant = '"';
+                        Emit(depth, ScanTokenKind.StringLiteral, i, 1);
                         i += 1;
                         continue;
                     }
@@ -1297,16 +1404,31 @@ public static class BodySlicer
                     {
                         state.Pop();
                         significant = '"';
+                        Emit(depth, ScanTokenKind.StringLiteral, i, run);
                         i += run;
                         continue;
                     }
 
                     // A shorter run inside a raw literal is content.
+                    Emit(depth, ScanTokenKind.StringLiteral, i, run);
                     i += run;
                     continue;
                 }
 
+                // Plain content. Consuming the whole run rather than one character at a time is
+                // the same scan — none of these characters carry meaning here — and it keeps the
+                // emitted token from being assembled a character at a time.
+                int contentStart = i;
                 i++;
+
+                while (i < line.Length &&
+                       line[i] is not ('{' or '}' or '"') &&
+                       !(line[i] == '\\' && !frame.Verbatim && !frame.Raw))
+                {
+                    i++;
+                }
+
+                Emit(depth, ScanTokenKind.StringLiteral, contentStart, i - contentStart);
                 continue;
             }
 
@@ -1319,24 +1441,29 @@ public static class BodySlicer
                 {
                     // A line comment runs to the end of the line. Inside a hole that means the
                     // literal cannot close here, which only a multi-line form survives.
+                    Emit(depth, ScanTokenKind.Comment, i, line.Length - i);
                     break;
                 }
 
                 if (line[i + 1] == '*')
                 {
                     state.InBlockComment = true;
-                    i += 2;
+                    int openerStart = i;
+                    i = ConsumeBlockComment(i + 2);
+                    Emit(depth, ScanTokenKind.Comment, openerStart, i - openerStart);
                     continue;
                 }
             }
 
             if (c == '\'')
             {
+                int literalStart = i;
                 i++;
                 while (i < line.Length && line[i] != '\'')
                     i += line[i] == '\\' ? 2 : 1;
                 i++;
                 significant = '\'';
+                Emit(depth, ScanTokenKind.CharLiteral, literalStart, Math.Min(i, line.Length) - literalStart);
                 continue;
             }
 
@@ -1360,9 +1487,11 @@ public static class BodySlicer
                 {
                     // "$" or "@" not opening a literal: an identifier like "@class", or an
                     // interpolation-free use. Consume what was examined and carry on.
+                    int examined = i;
                     i = open > i ? open : i + 1;
                     if (!char.IsWhiteSpace(c))
                         significant = c;
+                    Emit(depth, ScanTokenKind.Punctuator, examined, i - examined);
                     continue;
                 }
 
@@ -1375,6 +1504,7 @@ public static class BodySlicer
                 if (!raw && quotes == 2)
                 {
                     // The empty literal.
+                    Emit(depth, ScanTokenKind.StringLiteral, i, open + 2 - i);
                     i = open + 2;
                     significant = '"';
                     if (untilLiteralCloses)
@@ -1392,9 +1522,29 @@ public static class BodySlicer
 
                 opened = true;
                 significant = '"';
+                int openerAt = i;
                 i = open + (raw ? quotes : 1);
+                Emit(depth, ScanTokenKind.StringLiteral, openerAt, i - openerAt);
                 continue;
             }
+
+            // An identifier, keyword, or numeric literal. Taking the whole run at once is the
+            // same scan the character-at-a-time loop performed — none of these characters is a
+            // delimiter — and it is what lets a caller ask for a word rather than rebuild one.
+            if (c == '_' || char.IsLetterOrDigit(c))
+            {
+                int wordStart = i;
+
+                while (i < line.Length && (line[i] == '_' || char.IsLetterOrDigit(line[i])))
+                    i++;
+
+                significant = line[i - 1];
+                Emit(depth, ScanTokenKind.Word, wordStart, i - wordStart);
+                continue;
+            }
+
+            int depthBefore = depth;
+            int bracketBefore = state.BracketDepth;
 
             if (c == '{')
             {
@@ -1435,7 +1585,18 @@ public static class BodySlicer
                         frame.InHole = false;
                         frame.HoleDepth = 0;
                         state.Replace(frame);
+                        int closerAt = i;
+
+                        // Min because a longer run closes the hole with DollarRun braces and
+                        // leaves the rest as literal text. This cannot be gated through the token
+                        // stream: the leftover braces are re-consumed by the literal branch on the
+                        // next step and coalesce back into this token, so consuming one brace here
+                        // produces a byte-identical stream. Verified inert over every string up to
+                        // length 7 on the `$ " { } \ a` alphabet (335,922 inputs, 0 divergences).
+                        // It is kept because it is what the language says, and a consumer that
+                        // wants un-coalesced fragments would be able to tell.
                         i += frame.DollarRun > 1 ? Math.Min(run, frame.DollarRun) : 1;
+                        EmitAt(depthBefore, bracketBefore, ScanTokenKind.StringLiteral, closerAt, i - closerAt);
                         continue;
                     }
 
@@ -1449,7 +1610,10 @@ public static class BodySlicer
             }
 
             if (!char.IsWhiteSpace(c))
+            {
                 significant = c;
+                EmitAt(depthBefore, bracketBefore, ScanTokenKind.Punctuator, i, 1);
+            }
 
             i++;
         }

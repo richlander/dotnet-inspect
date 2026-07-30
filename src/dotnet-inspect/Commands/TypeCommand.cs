@@ -262,7 +262,7 @@ public static class TypeCommand
                     {
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
-                        var sw = new StringWriter();
+                        var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
                         if (writeExitCode != 0)
                             return writeExitCode;

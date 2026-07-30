@@ -487,15 +487,31 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   `--ratchet-baseline`: this lane is the measurement-integrity gate and the
   source of the run JSON that an append starts from.
 
-  The reason it cannot ratchet is that `docs/data/nuget-top-packages.json`
-  records no versions, so the sweep resolves *latest* and a fresh pool can never
-  match a recorded baseline's identity. The ratchet would skip, and a skip fails,
-  so the job would be red by construction. Merely omitting `--ratchet-baseline`
+  The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
+  records the exact version, TFM, and SHA-256 of every swept package, and the
+  sweep refuses to run against a package it cannot acquire as pinned (#3353). The
+  hash is what makes the pin describe the bytes measured rather than the request
+  made: a local NuGet cache entry whose contents were replaced still answers at
+  the pinned version and TFM. Nine of the top
+  hundred ship no primary library and are pinned as `no-library`; those are
+  acquired too, and the absence is confirmed rather than believed, so the status
+  cannot be used to drop a package out of the pool. A fresh sweep therefore
+  reproduces the same assemblies, and its pool identity is stable.
+
+  What still stops this lane ratcheting is that no trend-store row has yet been
+  measured against the pinned pool. The ratchet compares the newest row to a
+  baseline, and every recorded row predates the pin, so `--ratchet-baseline`
+  would still find nothing comparable — it would skip, and a skip fails. Closing
+  that needs one full run over the pinned pool, recorded as a row carrying
+  `poolSha256` and `corpusSha256`; the pair after it is the first that can
+  ratchet. Merely omitting `--ratchet-baseline`
   is not enough either: that selects the historical `invalid == 0` contract,
   which this corpus cannot satisfy, so the job would still fail every week and
   file a scheduled-failure issue each time. `--integrity-only` is how the lane
-  says what it actually claims. Pinning the pool — which would let this lane
-  ratchet for real — is tracked separately. Note this limitation is not new:
+  says what it actually claims. Pinning the pool — which is what lets this lane
+  ratchet for real — landed with the `nuget-top-packages.lock.json` pin; once two
+  pinned runs are in the trend store this lane can drop `--integrity-only`.
+  Note this limitation is not new:
   the first comparability key was loose enough to compare across a drifted pool,
   which is a false green, and identifying the pool is what turned that silent
   wrong answer into a visible refusal.

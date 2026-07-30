@@ -158,7 +158,7 @@ public sealed partial class CSharpPrinter
         }
 
         return statements.Count > 1
-            ? LambdaBlockText(parameters, string.Join(Environment.NewLine, statements))
+            ? LambdaBlockText(parameters, string.Join("\n", statements))
             : $"{parameters} => {{ {string.Join(" ", statements)} }}";
     }
 
@@ -177,10 +177,10 @@ public sealed partial class CSharpPrinter
         string pad = new(' ', _statementIndent * 4);
         string innerPad = new(' ', (_statementIndent + 1) * 4);
         var sb = new StringBuilder();
-        sb.Append(parameters).Append(" =>").Append(Environment.NewLine);
-        sb.Append(pad).Append('{').Append(Environment.NewLine);
-        foreach (var line in bodyText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
-            sb.Append(innerPad).Append(line).Append(Environment.NewLine);
+        sb.Append(parameters).Append(" =>").Append("\n");
+        sb.Append(pad).Append('{').Append("\n");
+        foreach (var line in bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries))
+            sb.Append(innerPad).Append(line).Append("\n");
         sb.Append(pad).Append('}');
         return sb.ToString();
     }
@@ -255,7 +255,7 @@ public sealed partial class CSharpPrinter
     }
 
     static string FlattenLambdaBodyText(string bodyText)
-        => string.Join(" ", bodyText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
+        => string.Join(" ", bodyText.Split("\n", StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
 
     string? LambdaStatement(IrNode node) => node switch
     {
