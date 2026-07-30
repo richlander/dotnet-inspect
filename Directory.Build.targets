@@ -20,4 +20,28 @@
     <Features>$(Features);updated-memory-safety-rules</Features>
   </PropertyGroup>
 
+  <!-- Only CommandError may reach stderr (issue #3319). The rule is enforced by
+       the compiler's semantic model via BannedApiAnalyzers, not by a scan of the
+       source text, because a scan has to model C# to know what a name binds to
+       and every spelling it does not model is a hole. eng/BannedSymbols.txt
+       carries the list and the rationale.
+
+       On by default so a project added to the CLI's reference closure inherits
+       the rule rather than having to remember it. A project that legitimately
+       owns its own stderr — a separate entry point, or a test that captures the
+       stream — opts out with <OwnsItsOwnStderr>true</OwnsItsOwnStderr>, and
+       StderrOwnershipTests pins the opt-out set against the CLI's closure so an
+       opt-out cannot silently appear inside it.
+
+       This lives in Directory.Build.targets (not .props) because the opt-out is
+       set in the project file, which .props files are imported before. Items
+       added here still take part in restore. -->
+  <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.txt" />
+  </ItemGroup>
+
 </Project>

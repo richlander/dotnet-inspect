@@ -8,10 +8,6 @@
     <ArtifactsPath>$(MSBuildThisFileDirectory)../artifacts</ArtifactsPath>
     <IncludeProjectNameInArtifactsPaths>true</IncludeProjectNameInArtifactsPaths>
     <IsAotCompatible>true</IsAotCompatible>
-
-    <!-- Source-generator output is compiled code. CommandErrorOwnershipTests
-         reads it, and can only read it if the build writes it down. -->
-    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OfficialAotBuild)' == 'true'">

@@ -75,7 +75,9 @@ public static class HttpClientFactory
             return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink, contain));
 
         return _networkTrafficLoggingSubscription ??=
+#pragma warning disable RS0030 // An accounted stderr sink: NetworkTrafficLogConsumer applies `contain` to every line before writing it (issue #3319).
             NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error, contain));
+#pragma warning restore RS0030
     }
 
     /// <summary>

@@ -1,3 +1,9 @@
+// This file is the one place the stderr-ownership rule (#3319) exempts, because
+// it is the thing the rule points at. eng/BannedSymbols.txt bans Console.Error
+// so that every other write goes through the containment below; the containment
+// itself has to reach the stream.
+#pragma warning disable RS0030 // CommandError is the accountable owner of stderr.
+
 using System.Text;
 using ILInspector.CSharp;
 
@@ -46,11 +52,17 @@ namespace DotnetInspector.Output;
 ///
 /// <list type="bullet">
 /// <item><description>
-/// "the single writer" -- <c>CommandErrorOwnershipTests.CommandError_IsTheOnlyWriterOfStderr</c>
-/// scans the CLI's transitive ProjectReference closure for any call on
-/// <c>Console.Error</c>, for <c>OpenStandardError</c>/<c>SetError</c>, and for
-/// any <c>using static</c>/alias import of <c>System.Console</c> that would
-/// make <c>Error</c> nameable without that receiver.
+/// "the single writer" -- the C# compiler. <c>eng/BannedSymbols.txt</c> bans
+/// <c>Console.Error</c>, <c>Console.SetError</c>, and
+/// <c>Console.OpenStandardError</c>, and
+/// <c>Microsoft.CodeAnalysis.BannedApiAnalyzers</c> fails the build at any
+/// other use of them. The rule is enforced against what a name binds to rather
+/// than how it is spelled, so an alias, a <c>using static</c>, an identifier
+/// escape, or a generated file is not a separate case.
+/// <c>CommandErrorOwnershipTests.EveryProjectInTheCliClosureIsAnalyzedForTheStderrRule</c>
+/// pins that the analyzer is switched on for every project whose code runs in
+/// this process, because an analyzer that is absent reports nothing and looks
+/// exactly like a clean project.
 /// </description></item>
 /// <item><description>
 /// "an unindented, non-empty line is something only this writer can emit" --
@@ -67,9 +79,11 @@ namespace DotnetInspector.Output;
 /// </description></item>
 /// <item><description>
 /// "the four sinks are the only ones" --
-/// <c>CommandErrorOwnershipTests.StderrSinks_AreStillTheOnesAccountedFor</c>,
-/// which asserts the set of sites rather than their number, so a fifth cannot
-/// arrive by replacing one of the four.
+/// <c>CommandErrorOwnershipTests.CompiledIl_ReachesStderrOnlyWhereAccountedFor</c>,
+/// which reads the shipped Release assemblies and pins a per-method count, so
+/// neither a fifth sink nor a second write inside an accounted method can
+/// arrive unnoticed. It reads compiled output rather than source, so it is the
+/// one rule here that still holds if the analyzer wiring is removed.
 /// </description></item>
 /// </list>
 ///
@@ -309,3 +323,5 @@ internal static class CommandError
         }
     }
 }
+
+#pragma warning restore RS0030

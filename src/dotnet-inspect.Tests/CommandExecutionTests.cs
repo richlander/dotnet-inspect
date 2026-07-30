@@ -565,7 +565,7 @@ public partial class CommandExecutionTests
             // reimplement the check here.
             if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
             {
-                Console.Error.WriteLine($"Error: {staleArgumentError}");
+                CommandError.Write(staleArgumentError!);
                 return 1;
             }
 
@@ -578,10 +578,13 @@ public partial class CommandExecutionTests
             {
                 foreach (var error in result.Errors)
                 {
+                    // CommandError composes the severity prefix and contains the
+                    // message, so a message that already carries one is unwrapped
+                    // rather than prefixed twice.
                     var message = error.Message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-                        ? error.Message
-                        : $"Error: {error.Message}";
-                    Console.Error.WriteLine(message);
+                        ? error.Message["Error:".Length..].TrimStart()
+                        : error.Message;
+                    CommandError.Write(message);
                 }
                 return 1;
             }
@@ -592,7 +595,7 @@ public partial class CommandExecutionTests
             catch (RowWindowValidationException ex)
             {
                 // Defensive: matches the Program.cs safety-net catch.
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                CommandError.Write(ex.Message);
                 return 1;
             }
         });

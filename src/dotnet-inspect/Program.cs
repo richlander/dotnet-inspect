@@ -217,7 +217,9 @@ try
         };
 
         CommandError.WriteBlankLine();
+        #pragma warning disable RS0030 // An accounted stderr sink: the --info view is tool-composed, and InfoViewContext contains what it renders (issue #3319).
         MarkoutSerializer.Serialize(view, Console.Error, InfoViewContext.Default);
+        #pragma warning restore RS0030
     }
 
     // Parse diagnostics quote argv, which an agent may have composed from a
@@ -279,7 +281,9 @@ try
     if (traceMermaid != null)
     {
         CommandError.WriteBlankLine();
+        #pragma warning disable RS0030 // An accounted stderr sink: WriteTo applies the containment passed to it to every line (issue #3319).
         traceMermaid.WriteTo(Console.Error, CSharpIdentifier.ContainRenderedText);
+        #pragma warning restore RS0030
     }
 
     var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));

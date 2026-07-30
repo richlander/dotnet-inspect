@@ -12,9 +12,10 @@ namespace DotnetInspector.Output;
 /// belongs here, at the one write, rather than at the hundred-odd call sites
 /// that compose the text (issue #3319).
 ///
-/// Enforced by <c>CommandErrorOwnershipTests.CommandError_IsTheOnlyWriterOfStderr</c>,
-/// which fails if this class writes to the stream itself instead of routing
-/// through <see cref="CommandError"/>, and demonstrated end to end by the
+/// Enforced by the compiler: <c>eng/BannedSymbols.txt</c> bans
+/// <c>Console.Error</c>, so this class cannot write to the stream itself
+/// instead of routing through <see cref="CommandError"/>. Demonstrated end to
+/// end by the
 /// <c>verbose-progress</c> channel of
 /// <c>UntrustedArgumentDiagnosticContainmentTests</c>.
 /// </remarks>

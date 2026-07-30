@@ -16,10 +16,10 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     /// <remarks>
     /// This used to take a <see cref="TextWriter"/> and write line by line.
     /// Every caller passed <c>Console.Error</c>, so the parameter bought no
-    /// flexibility while putting the write outside what
-    /// <c>CommandErrorOwnershipTests</c> can see -- the scan looks for
-    /// <c>Console.Error</c>, and an aliased writer is exactly the shape that
-    /// slips past it. Composing the message and handing it to
+    /// flexibility while moving the write to a place where nothing names the
+    /// banned symbol: the stream arrives as a <see cref="TextWriter"/>
+    /// argument, which is a hole no rule about <c>Console.Error</c> can close.
+    /// Composing the message and handing it to
     /// <see cref="CommandError"/> puts the prefix, the containment, and the
     /// continuation indent all in one place.
     /// </remarks>
