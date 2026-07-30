@@ -681,23 +681,29 @@ public class ScanTokenTests
         var scanned = new HashSet<string>();
         var rebuilt = new StringBuilder();
         int scans = 0;
+        var scannedInputs = new HashSet<string>();
 
         foreach (var input in swept)
         {
             scans++;
 
-            var tokens = BodySlicer.ScanTokens([input]);
-            string? gap = FindCoverageGap([input], tokens);
+            // One array, built here and handed to the scanner, read back for the length below
+            // and used for the coverage check. There is no second copy for a recording to be
+            // pointed at while the scanner is given something else.
+            var lines = new[] { input };
+            var tokens = BodySlicer.ScanTokens(lines);
+            string? gap = FindCoverageGap(lines, tokens);
 
             if (gap is not null)
-                Assert.Fail($"input \"{input}\": {gap}");
+                Assert.Fail($"input \"{lines[0]}\": {gap}");
 
+            scannedInputs.Add(lines[0]);
             rebuilt.Clear();
 
             foreach (var token in tokens)
             {
                 rebuilt.Append(' ', token.Column - rebuilt.Length);
-                rebuilt.Append(token.TextIn(input));
+                rebuilt.Append(token.TextIn(lines[0]));
             }
 
             scanned.Add(rebuilt.ToString().TrimEnd());
@@ -726,6 +732,21 @@ public class ScanTokenTests
         Assert.Equal(
             new[] { (0, 1), (1, 7), (2, 56), (3, 448), (4, 3_584), (5, 28_672), (6, 229_376) },
             scanned.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
+
+        // That vector characterises the TRIMMED images, which is not the same as characterising
+        // what the scanner consumed: appending spaces to every input ending in `\` leaves every
+        // image, every count and the alphabet untouched, while removing long lines that end in a
+        // backslash from the sweep entirely and letting an unclamped escape length through at
+        // 1377 (adversarial review, GPT). The lengths actually handed to the scanner are
+        // therefore characterised too, from the same array the scan consumed. Counting DISTINCT
+        // inputs rather than scans matters: a multiplicity vector is satisfied by scanning one
+        // string eight times. With the alphabet pinned to exactly eight characters there are only
+        // 8^L distinct strings of length L, so observing that many is observing all of them and
+        // nothing about the input is left unpinned.
+        AssertScannedAlphabet(" \"$@\\a{}", scannedInputs);
+        Assert.Equal(
+            new[] { (1, 8), (2, 64), (3, 512), (4, 4_096), (5, 32_768), (6, 262_144) },
+            scannedInputs.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
     }
 
     /// <summary>
