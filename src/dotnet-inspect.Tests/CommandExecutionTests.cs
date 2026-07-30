@@ -2980,10 +2980,110 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("├─", output);
     }
 
+    /// <summary>
+    /// <c>Type Info</c> is the type view's identity fact table, and the only section on the type
+    /// pipeline that does not grow with the type under inspection.
+    /// </summary>
     [Fact]
-    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()
+    public async Task Type_TypeInfoSection_RendersIdentityFactsRatherThanMembers()
     {
         var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
+        Assert.Contains("| Kind | class |", output);
+        Assert.Contains("| Library | System.Text.Json |", output);
+        // Identity, not inventory: the member sections stay out.
+        Assert.DoesNotContain("## Methods", output);
+        Assert.DoesNotContain("## Method Groups", output);
+    }
+
+    /// <summary>
+    /// The section is <c>ExplicitOnly</c>, so it must not join the default markdown view, where
+    /// the same facts already render as the inline identity line. This is the gate for the
+    /// "new sections do not enter the default -v:m view" rule for this section.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotEnterTheDefaultMarkdownView()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MarkdownExplicitlySet = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Type Info", output);
+        // The identity facts are present, just inline rather than as a section.
+        Assert.Contains("Kind: class", output);
+    }
+
+    /// <summary>
+    /// The boundedness claim: the row set is a function of which facts apply to the type, never of
+    /// how many members it has. A 200+ member type must not produce a materially larger section
+    /// than an 8-member enum, and every label it emits must come from the same fixed vocabulary.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotGrowWithTheType()
+    {
+        var large = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "String");
+        var small = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "DayOfWeek");
+
+        Assert.NotEmpty(large);
+        Assert.NotEmpty(small);
+
+        // Both draw from one declared vocabulary; neither invents rows for members.
+        string[] vocabulary =
+        [
+            "Type", "Kind", "Modifiers", "Base", "Type Parameters", "Interfaces", "Library",
+            "Package", "Version", "TFM", "Source", "Members", "Constructors", "Finalizer",
+            "Fields", "Properties", "Methods", "Operators", "Events",
+            "Explicit Interface Implementations", "Extension Methods"
+        ];
+
+        Assert.All(large, label => Assert.Contains(label, vocabulary));
+        Assert.All(small, label => Assert.Contains(label, vocabulary));
+        Assert.True(
+            large.Count <= vocabulary.Length,
+            $"Type Info grew past its declared vocabulary: {string.Join(", ", large)}");
+    }
+
+    private static async Task<List<string>> RenderTypeInfoLabelsAsync(string assembly, string typeName)
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = assembly,
+            TypeName = typeName,
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|') && !line.StartsWith("| ---") && line != "| Field | Value |")
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries)[0].Trim())
+            .ToList();
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()    {        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",

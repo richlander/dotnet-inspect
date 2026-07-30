@@ -429,6 +429,30 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            TypeInfo = memberDetail ? null : new TypeInfoSection
+            {
+                Type = FormatGenericFullName(type),
+                Kind = type.Kind,
+                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = baseType,
+                TypeParameters = typeParamsInline,
+                Interfaces = NullIfZero(type.Interfaces.Count),
+                Assembly = foundIn,
+                Package = packageName,
+                Version = packageVersion,
+                Tfm = selectedTfm,
+                Source = apiSource,
+                Members = NullIfZero(type.Members.Count),
+                Constructors = NullIfZero(type.Members.Count(m => m.Kind == "constructor")),
+                Finalizer = NullIfZero(type.Members.Count(m => m.Kind == "finalizer")),
+                Fields = NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)),
+                Properties = NullIfZero(type.Members.Count(m => m.Kind == "property")),
+                Methods = NullIfZero(type.Members.Count(m => m.Kind == "method")),
+                Operators = NullIfZero(type.Members.Count(m => m.Kind == "operator")),
+                Events = NullIfZero(type.Members.Count(m => m.Kind == "event")),
+                ExplicitInterfaceImplementations = NullIfZero(type.Members.Count(m => m.Kind == "explicit-interface-implementation")),
+                ExtensionMethods = NullIfZero(type.Members.Count(m => m.Kind == "extension-method")),
+            },
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;

@@ -75,6 +75,15 @@ public class TypeView
     [MarkoutSkipNull] public int? Events { get; set; }
 
     /// <summary>
+    /// Type identity fact table. Unlike every other section on this view, the row set does not
+    /// grow with the type: it answers "what is this type" rather than listing its members, so it
+    /// is the same shape for <c>System.String</c> and for a one-member struct.
+    /// </summary>
+    [MarkoutSection(Name = "Type Info")]
+    [JsonIgnore]
+    public TypeInfoSection? TypeInfo { get; set; }
+
+    /// <summary>
     /// Enum values without Description column (default).
     /// </summary>
     [MarkoutSection(Name = "Values", IgnoreProperty = nameof(EnumValueRow.Description))]
@@ -472,6 +481,58 @@ public class InterfaceRow
 public class BaseclassRow
 {
     public string Type { get; set; } = "";
+}
+
+/// <summary>
+/// Type identity fact table for the <c>Type Info</c> section.
+/// </summary>
+/// <remarks>
+/// The row set is structurally fixed: every property here is a fact *about* the type rather than
+/// an entry *from* it, so the section is the same size for a 200-member type and a 2-member one.
+/// That is what makes it the bare <c>-S</c> overview for the type view. Adding a property whose
+/// count of rows depends on the type under inspection would break that contract.
+/// </remarks>
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class TypeInfoSection
+{
+    public string? Type { get; init; }
+    public string? Kind { get; init; }
+    public string? Modifiers { get; init; }
+
+    [MarkoutPropertyName("Base")]
+    public string? BaseType { get; init; }
+
+    [MarkoutPropertyName("Type Parameters")]
+    public string? TypeParameters { get; init; }
+
+    public int? Interfaces { get; init; }
+
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; init; }
+
+    public string? Package { get; init; }
+    public string? Version { get; init; }
+
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; init; }
+
+    public string? Source { get; init; }
+
+    public int? Members { get; init; }
+    public int? Constructors { get; init; }
+    public int? Finalizer { get; init; }
+    public int? Fields { get; init; }
+    public int? Properties { get; init; }
+    public int? Methods { get; init; }
+    public int? Operators { get; init; }
+    public int? Events { get; init; }
+
+    [MarkoutPropertyName("Explicit Interface Implementations")]
+    public int? ExplicitInterfaceImplementations { get; init; }
+
+    [MarkoutPropertyName("Extension Methods")]
+    public int? ExtensionMethods { get; init; }
 }
 
 /// <summary>
