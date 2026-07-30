@@ -91,10 +91,11 @@ error CS0534: 'TypeViewContext' does not implement inherited abstract member
 Everything under `src/dotnet-inspect/Views/` depends on generated output, so
 this appears dozens of times at once.
 
-**Project references import Markout's current transitive constraints.** A
-`PackageReference` pins one resolved graph; Markout source brings whatever its
-`main` requires today, which can be ahead of what this repository pins. The
-symptom is a downgrade error rather than anything naming Markout:
+**Markout's transitive constraints move with Markout.** Markout depends on
+`MarkdownTable.Formatting`, and raises its floor over time. NU1605 is
+warning-as-error here, so when Markout's floor passes this repository's pin,
+restore fails before anything compiles — and the error names a package that
+neither side's change touches:
 
 ```text
 error NU1605: Detected package downgrade: MarkdownTable.Formatting from 0.3.4 to 0.3.3
@@ -102,10 +103,12 @@ error NU1605: Detected package downgrade: MarkdownTable.Formatting from 0.3.4 to
   dotnet-inspect -> MarkdownTable.Formatting (>= 0.3.3)
 ```
 
-The fix is to raise the pin in `Directory.Packages.props` to satisfy Markout.
-Do this as a deliberate, separate step: it is a real dependency change that
-outlives the local phase, not scaffolding to be reverted with the project
-references.
+This fires on a plain version bump as readily as on the project-reference swap;
+the swap just reaches further, since source carries whatever Markout's `main`
+requires *today* rather than what its last release required. Either way the fix
+is to raise the pin in `Directory.Packages.props`. Do that as its own change,
+not as scaffolding to be reverted with the project references: it is a real
+dependency change that outlives the local phase.
 
 **The edit is tracked; the thing it points at is not.** `.worktrees/` is
 git-ignored, but the `.csproj` files are not. The one artifact that can be
@@ -115,8 +118,20 @@ references before every commit during the local phase.
 **The package version is not where you left it.** dotnet-inspect pins a Markout
 version that can be well behind Markout's `main`. Returning to
 `PackageReference` at step 4 may absorb unrelated drift along with the intended
-change. Prefer bumping to current Markout **before** starting the local phase,
-as its own change, so that a step-4 failure is unambiguous.
+change. Bump to current Markout **before** starting the local phase, as its own
+change, so that a step-4 failure is unambiguous.
+
+**A version bump attracts false attribution.** Once the diff says "Markout
+0.29.0 -> 0.33.0", every failure in the run looks like it belongs to the bump,
+and a failure's own text is easy to read as corroboration. Baseline before
+believing it: re-run the failing tests at the unmodified base commit. The
+0.33.0 bump had seven decompiler tests fail, reported as rendering drift from
+the bump; the identical seven failed at the base with Markout still at 0.29.0.
+Their content already disagreed with that reading — assembly binding moving
+between `System.Runtime` and `System.Private.CoreLib`, Roslyn closure slots
+renumbering, `CS0246` on `int` — none of which a markdown renderer can reach.
+Markout renders markdown, TSV, and JSONL; if a failure is not about rendered
+output, suspect the SDK before the package.
 
 **Local green does not mean CI green.** During the local phase, the build
 proves the Markout change works against this consumer. It proves nothing about
