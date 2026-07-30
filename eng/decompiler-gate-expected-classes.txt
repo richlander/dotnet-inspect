@@ -1,0 +1,17 @@
+# Decompiler gate: expected classes
+#
+# The classes `--gate pre-merge` must actually execute. eng/check-decompiler-gate.cs
+# requires at least one executed test from every class listed here.
+#
+# Scope, precisely: this file proves the *preset still selects these classes*. It
+# does not prove the report is complete -- a report can honestly contain fewer
+# tests than the preset would select. Completeness is a separate check, against
+# the runner's own discovery listing; see check-decompiler-gate.cs.
+#
+# This file is not maintained by hand against the preset: GateExpectedClassesTests
+# asserts it matches the `pre-merge` preset's -class arguments exactly, so a class
+# added to the preset without being added here fails, and so does the reverse.
+ILInspector.Decompiler.Tests.FidelityGateTests
+ILInspector.Decompiler.Tests.LoweredFidelityGateTests
+ILInspector.Decompiler.Tests.ByteNeutralityGateTests
+ILInspector.Decompiler.Tests.GateExpectedClassesTests
