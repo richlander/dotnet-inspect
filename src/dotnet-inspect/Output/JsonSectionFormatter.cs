@@ -237,18 +237,43 @@ internal sealed class JsonSectionFormatter :
         var buffer = new ArrayBufferWriter<byte>();
         using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = indented }))
         {
+            // Utf8JsonWriter does not reject a repeated property name -- it emits both, and the
+            // consumer's parser silently keeps one. Two display names can normalize to the same
+            // machine key ("Call Graph" and "CallGraph" both give "call_graph"), and a root field
+            // can collide with a section, so the collision has to be caught here rather than
+            // trusted to the writer. Reported by adversarial review of dotnet-inspect#3494.
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
+
             json.WriteStartObject();
 
             foreach (var field in _rootFields)
-                json.WriteString(MachineKey(field.Key), field.Value);
+                json.WriteString(RequireUniqueKey(emitted, field.Key), field.Value);
 
             foreach (var section in _sections)
-                WriteSection(json, section, _rows);
+                WriteSection(json, section, RequireUniqueKey(emitted, section.Name), _rows);
 
             json.WriteEndObject();
         }
 
         return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>
+    /// Converts <paramref name="display"/> to its machine key and records it, failing when the
+    /// document has already emitted that key.
+    /// </summary>
+    private static string RequireUniqueKey(HashSet<string> emitted, string display)
+    {
+        var key = MachineKey(display);
+        if (!emitted.Add(key))
+        {
+            throw new NotSupportedException(
+                $"Two parts of this view both serialize to the JSON key '{key}' " +
+                $"(most recently '{display}'). Duplicate keys are not an error a JSON parser reports, " +
+                "so one of them would be dropped without a word. Rename the section or field.");
+        }
+
+        return key;
     }
 
     /// <summary>
@@ -266,12 +291,12 @@ internal sealed class JsonSectionFormatter :
     private static string MachineKey(string display) =>
         JsonNamingPolicy.SnakeCaseLower.ConvertName(display);
 
-    private static void WriteSection(Utf8JsonWriter json, Section section, RowWindow? rows)
+    private static void WriteSection(Utf8JsonWriter json, Section section, string key, RowWindow? rows)
     {
         switch (section.Kind)
         {
             case SectionKind.Table:
-                json.WriteStartArray(MachineKey(section.Name));
+                json.WriteStartArray(key);
                 // Resolve the --rows window over the buffered rows. RowWindow.Resolve is the single
                 // place head/tail/range semantics are interpreted, so JSON keeps the same window the
                 // table formats get instead of reinterpreting the flag.
@@ -293,23 +318,24 @@ internal sealed class JsonSectionFormatter :
                 break;
 
             case SectionKind.List:
-                json.WriteStartArray(MachineKey(section.Name));
+                json.WriteStartArray(key);
                 foreach (var item in section.Items)
                     json.WriteStringValue(item);
                 json.WriteEndArray();
                 break;
 
             case SectionKind.Tree:
-                json.WriteStartArray(MachineKey(section.Name));
+                json.WriteStartArray(key);
                 foreach (var node in section.Tree)
                     WriteTreeNode(json, node);
                 json.WriteEndArray();
                 break;
 
             default:
-                json.WriteStartObject(MachineKey(section.Name));
+                json.WriteStartObject(key);
+                var fieldKeys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var field in section.Fields)
-                    json.WriteString(MachineKey(field.Key), field.Value);
+                    json.WriteString(RequireUniqueKey(fieldKeys, field.Key), field.Value);
                 json.WriteEndObject();
                 break;
         }

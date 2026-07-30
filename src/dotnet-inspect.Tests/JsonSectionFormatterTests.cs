@@ -185,4 +185,63 @@ public class JsonSectionFormatterTests
         Assert.Equal(1, rows.GetArrayLength());
         Assert.Equal("MemoryCache", rows[0].GetProperty("type").GetString());
     }
+
+    [Fact]
+    public void TwoSectionsSharingAMachineKey_FailRatherThanEmittingDuplicateKeys()
+    {
+        // Normalizing display headings to machine keys made collisions possible that verbatim names
+        // could not produce: "Call Graph" and "CallGraph" are distinct sections but one JSON key.
+        // Utf8JsonWriter happily writes the key twice and a parser keeps whichever it saw last, so
+        // nothing downstream reports the loss. Reported by adversarial review of #3494.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Call Graph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["a"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "CallGraph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["b"], false);
+
+        var error = Assert.Throws<NotSupportedException>(() => formatter.Finish());
+
+        Assert.Contains("call_graph", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RootFieldCollidingWithASection_FailsRatherThanEmittingDuplicateKeys()
+    {
+        // Fields emitted before any heading become the document's own top-level keys, so they share
+        // a namespace with the section keys and can collide with them.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Results", "1")], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["type"], [["MemoryCache"]], 0, new MarkoutWriterOptions());
+
+        var error = Assert.Throws<NotSupportedException>(() => formatter.Finish());
+
+        Assert.Contains("results", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DistinctMachineKeys_AreEmittedSideBySide()
+    {
+        // The negative case that keeps the collision guard honest: sections whose machine keys
+        // differ must still serialize together. A guard that rejected these would be rejecting
+        // every ordinary multi-section document.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatFields(TextWriter.Null, [new MarkoutField("Package", "Contoso")], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Call Graph", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["a"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+        formatter.FormatTable(TextWriter.Null, ["type"], [["MemoryCache"]], 0, new MarkoutWriterOptions());
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+
+        Assert.Equal("Contoso", document.RootElement.GetProperty("package").GetString());
+        Assert.Equal("a", document.RootElement.GetProperty("call_graph")[0].GetString());
+        Assert.Equal("MemoryCache", document.RootElement.GetProperty("results")[0].GetProperty("type").GetString());
+    }
 }
