@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using NuGetFetch;
 using Xunit;
 
@@ -163,11 +164,40 @@ public class NuGetApiTests
     }
 
     [Fact]
-    public async Task GetSearchResponseAsync_MalformedJson_ReturnsNull()
+    public async Task GetSearchResponseAsync_MalformedJson_Throws()
     {
+        // A swallowed parse failure is indistinguishable from a zero-result search,
+        // so the failure propagates instead of being reported as an absent response.
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("not json"));
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetSearchResponseAsync_AzureDevOpsStringTotalHits_ParsesData()
+    {
+        // Azure DevOps serialises totalHits as a string and reports "0" alongside a
+        // populated data array. Modelling the field at all rejected the whole document.
+        // Issue #3417.
+        string json = """
+        {
+            "data": [
+                {
+                    "id": "Contoso.Internal",
+                    "version": "1.2.3",
+                    "versions": []
+                }
+            ],
+            "totalHits": "0"
+        }
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
         var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
-        Assert.Null(result);
+
+        Assert.NotNull(result);
+        Assert.Single(result.Data);
+        Assert.Equal("Contoso.Internal", result.Data[0].Id);
+        Assert.Equal("1.2.3", result.Data[0].Version);
     }
 
     [Fact]

@@ -29,17 +29,18 @@ public static class NuGetApi
         }
     }
 
+    /// <summary>
+    /// Deserializes a NuGet V3 search response.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the service-index and version-index readers above, a malformed
+    /// document propagates as <see cref="JsonException"/> instead of being
+    /// reported as an absent response. A swallowed parse failure here is
+    /// indistinguishable from a genuine zero-result search, which turns a hard
+    /// failure into success-shaped empty output. See issue #3417.
+    /// </remarks>
     public static async ValueTask<SearchResponse?> GetSearchResponseAsync(Stream json, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            return await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.SearchResponse, cancellationToken).ConfigureAwait(false);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
+        => await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.SearchResponse, cancellationToken).ConfigureAwait(false);
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

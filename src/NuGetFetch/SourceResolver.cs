@@ -19,7 +19,8 @@ public static class SourceResolver
     public static IReadOnlyList<PackageSource> ResolveSources(
         string? explicitSource = null,
         string? configPath = null,
-        IEnumerable<string>? additionalSources = null)
+        IEnumerable<string>? additionalSources = null,
+        string? workingDirectory = null)
     {
         // Explicit source overrides everything
         if (explicitSource is not null)
@@ -27,6 +28,42 @@ public static class SourceResolver
             return [new PackageSource("explicit", explicitSource)];
         }
 
+        List<PackageSource> sources = [.. ResolveConfiguredSources(configPath, workingDirectory)];
+
+        // Default to nuget.org if no config sources found
+        if (sources.Count == 0)
+        {
+            sources.Add(new PackageSource(NuGetOrgName, NuGetOrgUrl));
+        }
+
+        // Append additional sources
+        if (additionalSources is not null)
+        {
+            foreach (string url in additionalSources)
+            {
+                sources.Add(new PackageSource("additional", url));
+            }
+        }
+
+        return sources;
+    }
+
+    /// <summary>
+    /// Resolves the sources declared by configuration, without substituting nuget.org when
+    /// configuration declares none.
+    /// </summary>
+    /// <remarks>
+    /// The fallback in <see cref="ResolveSources"/> is right for configs discovered by walking
+    /// the directory tree — a machine with no nuget.config should still reach nuget.org. It is
+    /// wrong for a config the caller named explicitly, where an empty result means the file could
+    /// not supply what it was asked for, and silently searching nuget.org instead answers with
+    /// packages from a feed the caller did not choose. Callers that need to tell those two cases
+    /// apart use this method and decide for themselves.
+    /// </remarks>
+    public static IReadOnlyList<PackageSource> ResolveConfiguredSources(
+        string? configPath = null,
+        string? workingDirectory = null)
+    {
         // Merge sources across all config files (most-distant first, so nearest wins)
         Dictionary<string, string> mergedSources = [];
         HashSet<string> disabled = [];
@@ -34,7 +71,7 @@ public static class SourceResolver
 
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
-            : FindConfigFiles();
+            : FindConfigFiles(workingDirectory);
 
         // FindConfigFiles returns nearest-first; reverse to process most-distant first
         // so that <clear/> in a nearer config properly resets distant sources
@@ -55,21 +92,6 @@ public static class SourceResolver
 
             credentials.TryGetValue(name, out PackageSourceCredential? credential);
             sources.Add(new PackageSource(name, url, credential));
-        }
-
-        // Default to nuget.org if no config sources found
-        if (sources.Count == 0)
-        {
-            sources.Add(new PackageSource(NuGetOrgName, NuGetOrgUrl));
-        }
-
-        // Append additional sources
-        if (additionalSources is not null)
-        {
-            foreach (string url in additionalSources)
-            {
-                sources.Add(new PackageSource("additional", url));
-            }
         }
 
         return sources;

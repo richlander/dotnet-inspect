@@ -140,6 +140,49 @@ public static class OutputFormatter
     public static void WriteLimitedMarkdown(TextWriter output, string markdown, RowWindow? rows) =>
         output.WriteLine(ApplyRowLimit(markdown, rows));
 
+    /// <summary>
+    /// Writes version/feed rows in whichever format the caller selected.
+    /// </summary>
+    /// <remarks>
+    /// A version carried by two feeds appears twice, once per feed. That is the point of the
+    /// view: every other listing collapses feeds together, so this is where cross-feed
+    /// duplication becomes visible.
+    /// </remarks>
+    /// <summary>
+    /// Writes versions with the feed that served each one. A <c>Listing</c> column appears only
+    /// when the set actually contains an unlisted version, so the common case stays two columns.
+    /// </summary>
+    public static void WriteVersionFeedTable(
+        IEnumerable<PackageVersionSourceInfo> versionFeeds,
+        InspectionOptions options,
+        TextWriter output)
+    {
+        var items = versionFeeds.ToArray();
+
+        if (options.JsonOutput)
+        {
+            var objects = items.Select(v => new VersionFeedJson(v.Version, v.Feed, v.Listed)).ToList();
+            output.WriteLine(JsonSerializer.Serialize(objects, JsonContext.Default.ListVersionFeedJson));
+            return;
+        }
+
+        bool showListing = items.Any(v => !v.Listed);
+        string[] display = showListing ? ["Version", "Feed", "Listing"] : ["Version", "Feed"];
+        string[] stable = showListing ? ["version", "feed", "listing"] : ["version", "feed"];
+        var rows = items
+            .Select(v => showListing
+                ? new[] { v.Version, v.Feed, v.Listed ? "listed" : "unlisted" }
+                : new[] { v.Version, v.Feed })
+            .ToArray();
+
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(options.Tsv, options.Jsonl));
+            markoutWriter.WriteTable(display, stable, rows);
+            markoutWriter.Flush();
+        });
+    }
+
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {
