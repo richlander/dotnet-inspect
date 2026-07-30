@@ -192,17 +192,30 @@ public sealed class PluginDiscoveryTests : IDisposable
             _ => null,
         };
 
+    /// <remarks>
+    /// The relative path is written with '/' for readability, but the product builds its paths
+    /// from <see cref="Directory.EnumerateFiles(string)"/> and <see cref="Path.Combine(string, string)"/>,
+    /// which yield the platform separator throughout. <see cref="Path.Combine(string, string)"/> does not
+    /// rewrite separators inside a segment, so without this normalization the expected and actual
+    /// paths differ by separator alone on Windows.
+    /// </remarks>
     private string CreateFile(string relativePath)
     {
-        string full = Path.Combine(_root, relativePath);
+        string full = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, string.Empty);
         return full;
     }
 
+    /// <remarks>
+    /// Executability is expressed differently per platform, and the fixture has to match the
+    /// product: <c>PluginDiscovery</c> requires a <c>.exe</c> or <c>.bat</c> extension on Windows
+    /// and the owner execute bit elsewhere. An extensionless file with the execute bit set is not
+    /// a Windows executable, so the extension is part of creating one.
+    /// </remarks>
     private string CreateExecutable(string relativePath)
     {
-        string full = CreateFile(relativePath);
+        string full = CreateFile(OperatingSystem.IsWindows() ? relativePath + ".exe" : relativePath);
 
         if (!OperatingSystem.IsWindows())
         {
