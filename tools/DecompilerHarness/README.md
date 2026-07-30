@@ -462,6 +462,18 @@ covers any particular run. Coverage depends on the ranks a sweep is asked for, w
 the file alone does not decide, so a pin can be well formed here and still leave a run
 short at exit 1.
 
+It also names the rules it applies, one per line:
+
+```bash
+dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
+```
+
+`EvilPoolPinTests` holds each of those rules with a tampered pin file and asserts the
+set it covers equals the set named here. Round fourteen on #3434 added a rule with no
+such file and the suite stayed green over a check no input reached, so coverage is
+asked for rather than assumed: a rule with no case fails, and a case naming a rule
+that is gone fails too.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |
