@@ -50,6 +50,38 @@ public static class NuGetSourceResolver
     }
 
     /// <summary>
+    /// Returns a description of why <paramref name="url"/> cannot be used as a NuGet source, or
+    /// null when it can.
+    /// </summary>
+    /// <remarks>
+    /// Credentials embedded in the URL are the one case worth catching here. NuGet has no
+    /// support for them — the client never sends userinfo — so they authenticate against
+    /// nothing and the request fails as an ordinary 401, giving the operator no hint that the
+    /// credential they supplied was never used. Saying so plainly costs one comparison.
+    ///
+    /// Like <see cref="DescribeConfigProblem"/>, this reports rather than throws, because its
+    /// caller is a parse-time validator.
+    /// </remarks>
+    public static string? DescribeSourceProblem(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            || string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return null;
+        }
+
+        string withoutCredentials = new UriBuilder(uri)
+        {
+            UserName = "",
+            Password = "",
+        }.Uri.ToString();
+
+        return $"Source URL '{withoutCredentials}' embeds <user>:<password>, which NuGet does "
+            + "not support. Configure the credentials in a nuget.config, or use a credential "
+            + "provider.";
+    }
+
+    /// <summary>
     /// Returns a description of why <paramref name="configFile"/> cannot be used as a NuGet
     /// config, or null when it can. Exposed so the CLI can report the same problem at parse
     /// time rather than letting it surface as an exception from whichever service resolves

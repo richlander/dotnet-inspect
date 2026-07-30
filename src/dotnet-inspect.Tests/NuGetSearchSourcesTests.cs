@@ -395,6 +395,40 @@ public class NuGetSearchSourcesTests
         }
     }
 
+    [Theory]
+    [InlineData("https://user:t0ken@private.example/v3/index.json", "t0ken")]
+    [InlineData("https://:t0ken@private.example/v3/index.json", "t0ken")]
+    [InlineData("https://alice@private.example/v3/index.json", "alice")]
+    public void DescribeSourceProblem_CredentialsInUrl_ReportsWithoutEchoingTheCredential(
+        string url, string secret)
+    {
+        // NuGet never sends URL userinfo, so this authenticates against nothing and would
+        // otherwise surface as a bare 401 that reads like a wrong credential rather than an
+        // unused one.
+        string? problem = NuGetSourceResolver.DescribeSourceProblem(url);
+
+        Assert.NotNull(problem);
+        Assert.Contains("<user>:<password>", problem, StringComparison.Ordinal);
+
+        // The problem text is printed, so it must not carry the credential it is rejecting.
+        Assert.DoesNotContain(secret, problem, StringComparison.Ordinal);
+
+        // It still has to say which source was rejected.
+        Assert.Contains("private.example", problem, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://api.nuget.org/v3/index.json")]
+    [InlineData("https://pkgs.dev.azure.com/org/proj/_packaging/feed/nuget/v3/index.json")]
+    [InlineData("https://private.example/v3/index.json?access_token=t0ken")]
+    [InlineData("/tmp/local/folder")]
+    public void DescribeSourceProblem_SourceWithoutEmbeddedCredentials_IsAccepted(string url)
+    {
+        // A token in the query is a shape some feeds really use, so it must not be rejected
+        // here; only userinfo is unsupported.
+        Assert.Null(NuGetSourceResolver.DescribeSourceProblem(url));
+    }
+
     [Fact]
     public void DescribeConfigProblem_UnreadableConfig_ReportsRatherThanThrows()
     {

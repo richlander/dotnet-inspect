@@ -83,12 +83,6 @@ tool honors is the clearest statement of the gap:
 | 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
 | 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
 
-Credentials embedded in the source URL itself — `https://<user>:<access-token>@host/...` — are
-ignored too, and that is not an omission here. NuGet does not support them at all: the client
-never sends URL userinfo, so no feed authenticates that way, and this tool has no code that
-reads it. The shape is a git and curl convention, which is precisely why operators reach for it,
-and why the failure message redacts it rather than assuming it will never turn up.
-
 The two supported mechanisms are the ranking's top and bottom. Rank 1 is the most secure where
 it is available; rank 5 is available everywhere. Ranks 2 through 4 remain unsupported, and are
 still dropped in silence.
@@ -290,36 +284,24 @@ be taught to describe itself.
 
 ### The URL is redacted before it is stored
 
-This message prints a source URL, and a source URL can carry a secret: userinfo
-(`https://user:pass@host/...`, a shape NuGet does not support and this tool
-never reads, but which operators type out of git and curl habit) or a token query parameter. The URL is therefore passed through
-`NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector, not on the
-way out to the console — `FeedFailureCollector.Failures` is public, so an unredacted URL sitting
-in it would already be an exposure.
+This message prints a source URL, and some feeds put a credential in one. The URL is passed
+through `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector
+rather than on the way out to the console — `FeedFailureCollector.Failures` is public, so an
+unredacted URL sitting in it would already be an exposure.
 
 ```console
-$ dotnet-inspect package Markout --source 'https://<user>:<access-token>@pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=<access-token>'
   https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
 ```
 
-Only the credential is removed. The host *and the whole path* survive, because on Azure DevOps
-the organization, project and feed name all live in path segments, and an operator reading this
-line needs to know **which** source refused — two feeds in the same organization differ only
-there. Redaction that collapsed the path would leave a message unable to do its one job.
-
 Query names are matched on fragments (`token`, `key`, `secret`, `password`, `credential`,
-`auth`, `sig`) rather than against a list of exact names. The same credential travels as
-`access_token`, `accessToken`, `apiKey` or `x-api-key` depending on the feed, and an exact-name
-list quietly passes every spelling it has not been taught. Fragment matching errs toward
-redacting a parameter that turns out to be harmless, which costs a little diagnostic detail;
-the reverse error prints a live credential.
+`auth`, `sig`) rather than against exact names, because the same credential travels as
+`access_token`, `accessToken`, `apiKey` or `x-api-key` depending on the feed. MyGet also issues
+service index URLs shaped like `https://host/F/<feed>/auth/<token>/api/v3/index.json`, so the
+segment following an `auth` segment is redacted as well.
 
-A credential can also ride in the *path*: MyGet issues service index URLs shaped like
-`https://host/F/<feed>/auth/<token>/api/v3/index.json`. The segment following an `auth` segment
-is therefore redacted too. Nothing else in the path is, deliberately — an Azure DevOps
-organization, project and feed all live in path segments, and blanking them would leave a
-message that cannot distinguish two feeds on the same host, which is precisely what this
-message exists to do.
+Nothing else in the path is. On Azure DevOps the organization, project and feed name are all
+path segments, so collapsing the path would leave a message that cannot say *which* source
+refused — its one job.
 
 ## Service index discovery
 

@@ -83,11 +83,10 @@ public static class FeedFailureTelemetry
     /// so the HTTP helpers stay usable outside a collecting context.
     /// </summary>
     /// <remarks>
-    /// The URL is redacted before it is stored, not merely before it is rendered. A source URL
-    /// can carry userinfo (<c>https://user:pass@host/...</c>, a shape NuGet does not support but that operators type anyway)
-    /// or a token query parameter, and this failure text is printed to the console. Redacting on
-    /// the way in means the secret never reaches the collector, whose contents are publicly
-    /// readable through <see cref="FeedFailureCollector.Failures"/>.
+    /// The URL is redacted before it is stored, not merely before it is rendered. Some feeds
+    /// carry a credential in the source URL, and this failure text is printed to the console.
+    /// Redacting on the way in means the secret never reaches the collector, whose contents are
+    /// publicly readable through <see cref="FeedFailureCollector.Failures"/>.
     /// </remarks>
     /// <param name="url">The request URL that failed.</param>
     /// <param name="status">The status returned, or null when no response arrived.</param>
