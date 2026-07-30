@@ -702,7 +702,7 @@ public class ScanTokenTests
 
             unchecked
             {
-                fingerprint += Fingerprint(tokens);
+                fingerprint += Fingerprint(lines, tokens);
             }
             rebuilt.Clear();
 
@@ -755,7 +755,7 @@ public class ScanTokenTests
         // two adjacent tokens, or split one, covers the same characters and rebuilds the same
         // string. Population totals do not close that either, being marginals that can be traded
         // against each other. See Fingerprint.
-        Assert.Equal(1_063_498_068_715_668_122ul, fingerprint);
+        Assert.Equal(11_951_850_630_526_800_311ul, fingerprint);
         Assert.Equal(
             new[] { (1, 8), (2, 64), (3, 512), (4, 4_096), (5, 32_768), (6, 262_144) },
             scannedInputs.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
@@ -797,6 +797,15 @@ public class ScanTokenTests
     /// token's full state into one value.
     /// </para>
     /// <para>
+    /// The LINES ARE FOLDED IN TOO, so the value binds an input to the stream it produced.
+    /// Without that the sum is blind to which input produced which stream, and the sweeps are
+    /// exhaustive: rewriting `$` to `@` and back permutes the swept set onto itself, so every
+    /// per-scan hash reappears against a different input and the total is unchanged
+    /// (adversarial review, GPT). Folding the lines also ties the stream to the text the
+    /// reconstruction reads, closing the swap-after-the-scan seam directly rather than by
+    /// consequence.
+    /// </para>
+    /// <para>
     /// The per-scan hashes are SUMMED rather than chained because the sweeps iterate a
     /// <see cref="HashSet{T}"/> of strings, whose enumeration order is not stable across
     /// processes. Within a scan the fold is order-sensitive, so token order is pinned too.
@@ -807,25 +816,39 @@ public class ScanTokenTests
     /// what it adds is that no change to them can pass unnoticed here.
     /// </para>
     /// </summary>
-    private static ulong Fingerprint(IEnumerable<ScanToken> tokens)
+    private static ulong Fingerprint(IReadOnlyList<string> lines, IEnumerable<ScanToken> tokens)
     {
         ulong hash = 0xCBF2_9CE4_8422_2325;
 
+        foreach (var line in lines)
+        {
+            foreach (char c in line)
+                Fold(c);
+
+            Fold('\n');
+        }
+
         foreach (var token in tokens)
         {
-            foreach (long field in (long[])
-                [(long)token.Kind, token.Line, token.Column, token.Length,
-                 token.Depth, token.BracketDepth, token.DepthKnown ? 1 : 0])
-            {
-                for (int i = 0; i < 8; i++)
-                {
-                    hash ^= (byte)(field >> (i * 8));
-                    hash *= 0x0000_0100_0000_01B3;
-                }
-            }
+            Fold((long)token.Kind);
+            Fold(token.Line);
+            Fold(token.Column);
+            Fold(token.Length);
+            Fold(token.Depth);
+            Fold(token.BracketDepth);
+            Fold(token.DepthKnown ? 1 : 0);
         }
 
         return hash;
+
+        void Fold(long field)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                hash ^= (byte)(field >> (i * 8));
+                hash *= 0x0000_0100_0000_01B3;
+            }
+        }
     }
 
     private static HashSet<string> AllStringsOver(string alphabet, int upTo)
@@ -901,7 +924,7 @@ public class ScanTokenTests
 
                 unchecked
                 {
-                    fingerprint += Fingerprint(tokens);
+                    fingerprint += Fingerprint(lines, tokens);
                 }
 
                 scannedPairs.Add((
@@ -952,7 +975,7 @@ public class ScanTokenTests
         // product, while the escape branch was never reached and 1377 survived (adversarial
         // review, Gemini). The token POPULATION is what that substitution cannot preserve,
         // because the character it removes is the one that makes the scanner cut a token.
-        Assert.Equal(8_186_124_917_422_309_577ul, fingerprint);
+        Assert.Equal(7_678_094_121_913_078_782ul, fingerprint);
     }
 
     /// <summary>
@@ -988,7 +1011,8 @@ public class ScanTokenTests
 
         foreach (var input in swept)
         {
-            var tokens = BodySlicer.ScanTokens([input]);
+            var lines = new[] { input };
+            var tokens = BodySlicer.ScanTokens(lines);
             int lost = tokens.Count(t => !t.DepthKnown);
 
             unknown += lost;
@@ -1003,14 +1027,14 @@ public class ScanTokenTests
             foreach (var token in tokens)
             {
                 rebuilt.Append(' ', token.Column - rebuilt.Length);
-                rebuilt.Append(token.TextIn(input));
+                rebuilt.Append(token.TextIn(lines[0]));
             }
 
             scanned.Add(rebuilt.ToString());
 
             unchecked
             {
-                fingerprint += Fingerprint(tokens);
+                fingerprint += Fingerprint(lines, tokens);
             }
         }
 
@@ -1032,7 +1056,7 @@ public class ScanTokenTests
             new[] { (1, 9), (2, 81), (3, 729), (4, 6561) },
             scanned.GroupBy(x => x.Length).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())));
         Assert.Equal(9 + 81 + 729 + 6561, scans);
-        Assert.Equal(2_799_085_048_465_510_717ul, fingerprint);
+        Assert.Equal(14_232_786_410_893_318_623ul, fingerprint);
 
         // Both readings are pinned, so the field cannot be moved in either direction: pinning
         // only the unknown tokens would let every token become knowable, and pinning only the
