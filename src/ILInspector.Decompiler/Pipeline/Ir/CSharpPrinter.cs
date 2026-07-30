@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 

@@ -6,6 +6,7 @@ using System.Text;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler;
 

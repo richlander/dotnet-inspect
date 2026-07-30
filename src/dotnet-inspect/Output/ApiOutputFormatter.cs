@@ -2362,7 +2362,7 @@ public static class ApiOutputFormatter
     }
 
     private static string DiagnosticComment(Decompiler.DecompilerResult result)
-        => string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
+        => string.Join("\n", result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
 
     private static CodeSection FormatCSharpResult(
         ApiType type,
@@ -2452,7 +2452,7 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
         {
             return declarationTrailingComment is { Length: > 0 } bareComment
-                ? $"// {bareComment}{Environment.NewLine}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
+                ? $"// {bareComment}{"\n"}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
                 : Decompiler.Annotations.AnnotationCaret.Flatten(body);
         }
 
@@ -2476,7 +2476,7 @@ public static class ApiOutputFormatter
                 .Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[0]));
             for (int i = 1; i < multilineExpression.Count; i++)
             {
-                expression.Append(Environment.NewLine);
+                expression.Append("\n");
                 expression.Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[i]));
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
@@ -2495,13 +2495,13 @@ public static class ApiOutputFormatter
         // or the carets shear away from the code they point at.
         string bodyIndent = new(' ', Decompiler.Annotations.AnnotationCaret.BodyIndentWidth);
         var indentedBody = string.Join(
-            Environment.NewLine,
+            "\n",
             lines.Select(line =>
                 line.Length == 0 ? ""
                 : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
                 : bodyIndent + line));
 
-        return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+        return $"{Annotate(declaration)}{"\n"}{{{"\n"}{indentedBody}{"\n"}}}";
     }
 
     private static string FormatMemberDeclaration(

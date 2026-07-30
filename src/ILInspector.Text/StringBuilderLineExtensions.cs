@@ -4,7 +4,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace ILInspector.Instructions;
+namespace ILInspector.Text;
 
 /// <summary>
 /// Appends a line terminator that does not vary by platform.
@@ -12,11 +12,11 @@ namespace ILInspector.Instructions;
 /// <remarks>
 /// <see cref="StringBuilder.AppendLine()"/> writes <see cref="System.Environment.NewLine"/>, so the
 /// same input rendered as CRLF on Windows and LF everywhere else. Rendered C# and IL text is
-/// compared, diffed, and embedded in Markdown, so it has to be byte-identical on every platform;
-/// a decompilation is not a platform-specific artifact. Printers therefore spell the terminator
-/// explicitly instead of inheriting the ambient one. See #3526.
+/// compared, diffed, hashed, and embedded in Markdown, so it has to be byte-identical on every
+/// platform; a decompilation is not a platform-specific artifact. Printers therefore spell the
+/// terminator explicitly instead of inheriting the ambient one. See #3526.
 /// </remarks>
-internal static class StringBuilderLineExtensions
+public static class StringBuilderLineExtensions
 {
     /// <summary>Appends a single LF.</summary>
     public static StringBuilder AppendLf(this StringBuilder builder) => builder.Append('\n');

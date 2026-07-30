@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using ILInspector.Text;
 
 namespace ILInspector.Instructions;
 

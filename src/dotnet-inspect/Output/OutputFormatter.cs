@@ -386,7 +386,7 @@ public static class OutputFormatter
         if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
         {
             var body = markdown.TrimEnd();
-            markdown = body.Length == 0 ? metadata : body + Environment.NewLine + Environment.NewLine + metadata;
+            markdown = body.Length == 0 ? metadata : body + "\n" + "\n" + metadata;
         }
 
         return MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
