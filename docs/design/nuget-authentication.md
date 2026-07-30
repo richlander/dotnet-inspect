@@ -127,7 +127,7 @@ unreadable rather than as a missing package, naming the source, the status, and 
 ```console
 $ dotnet-inspect package Markout --source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json
 Error: Package 'markout' could not be resolved because a source requires credentials.
-  https://pkgs.dev.azure.com/.../index.json — HTTP 401 Unauthorized while reading the service index
+  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json — HTTP 401 Unauthorized while reading the service index
 The package may exist; the source was not readable. Supply credentials for this source and retry.
 ```
 
@@ -292,11 +292,14 @@ way out to the console — `FeedFailureCollector.Failures` is public, so an unre
 in it would already be an exposure.
 
 ```console
-$ dotnet-inspect package Markout --source 'https://user:hunter2@pkgs.dev.azure.com/.../index.json?access_token=hunter2'
-  https://pkgs.dev.azure.com/.../index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
+$ dotnet-inspect package Markout --source 'https://user:hunter2@pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=hunter2'
+  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
 ```
 
-The host survives redaction, because an operator still needs to know *which* source refused.
+Only the credential is removed. The host *and the whole path* survive, because on Azure DevOps
+the organization, project and feed name all live in path segments, and an operator reading this
+line needs to know **which** source refused — two feeds in the same organization differ only
+there. Redaction that collapsed the path would leave a message unable to do its one job.
 
 Query names are matched on fragments (`token`, `key`, `secret`, `password`, `credential`,
 `auth`, `sig`) rather than against a list of exact names. The same credential travels as
