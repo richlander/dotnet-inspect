@@ -40,6 +40,19 @@ public class LibraryCommand
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
 
+        // Hex table aliases are resolved before anything reads a selector — including the static
+        // discovery return below — so every consumer of Select/Discover sees canonical names. That
+        // placement is the invariant the alias rests on, not an optimization: adversarial review of
+        // #3510 found the normalizer sitting below this branch, where `-D "Metadata: 0x02"
+        // --schema` returned "not found" while the effective-discovery path resolved it.
+        var aliasNormalized = NormalizeMetadataTableAliases(options);
+        if (aliasNormalized.Error is not null)
+        {
+            Console.Error.WriteLine(aliasNormalized.Error);
+            return 1;
+        }
+        options = aliasNormalized.Options;
+
         // Static discovery mode: -D --schema lists schema without resolving/loading the library.
         if (options.Discover != null)
         {
@@ -911,6 +924,59 @@ public class LibraryCommand
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Rewrites hex table spellings in <c>-S</c> and <c>-D</c> to canonical section names, so
+    /// <c>-S "Metadata: 0x02"</c> and <c>-S "Metadata: TypeDef"</c> reach the same section.
+    ///
+    /// This runs before selection resolution, so everything downstream — the section orderer, the
+    /// rendered heading, <c>--count</c>, the schema, the effective-section cache key — sees only
+    /// canonical names and cannot treat the two spellings as two sections.
+    /// </summary>
+    private static (LibraryOptions Options, string? Error) NormalizeMetadataTableAliases(LibraryOptions options)
+    {
+        var (select, selectError) = ResolveTableAliases(options.Select);
+        if (selectError is not null)
+            return (options, $"Error: {selectError}");
+
+        var (discover, discoverError) = ResolveTableAliases(options.Discover);
+        if (discoverError is not null)
+            return (options, $"Error: {discoverError}");
+
+        if (select is null && discover is null)
+            return (options, null);
+
+        return (options with
+        {
+            Select = select ?? options.Select,
+            Discover = discover ?? options.Discover,
+        }, null);
+    }
+
+    /// <summary>
+    /// Resolves every hex table spelling in <paramref name="values"/>. Returns a null array when
+    /// nothing needed rewriting, so an untouched selection keeps its original instance.
+    /// </summary>
+    private static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
+    {
+        if (values is not { Length: > 0 })
+            return (null, null);
+
+        string[]? rewritten = null;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!MetadataSectionNames.TryResolveTableAlias(values[i], out string canonical, out string? error))
+                return (null, error);
+
+            if (!ReferenceEquals(canonical, values[i]))
+            {
+                rewritten ??= [.. values];
+                rewritten[i] = canonical;
+            }
+        }
+
+        return (rewritten, null);
     }
 
     /// <summary>
