@@ -360,7 +360,7 @@ internal sealed class ApiMemberAnalysisInspection
         if (widened.Count == selected.Count)
             return shared;
 
-        var already = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var already = selected.ToHashSet(StringComparer.Ordinal);
         var opened = new List<MethodBodyInspectionSession>(shared);
         foreach (string scopePath in widened)
         {
@@ -414,7 +414,11 @@ internal sealed class ApiMemberAnalysisInspection
         // The raw scope, deliberately, not the prefiltered one: the selection this evidence feeds
         // cannot also be its input.
         var paths = new List<string>(_callerScopeAssemblies ?? []);
-        var seen = paths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Ordinal, because these are paths and not assembly names. Folding case merges two
+        // distinct files on a case-sensitive volume, and the merge silently drops the second —
+        // which, when the second is the one that contradicts a facade, admits a spelling the
+        // evidence refutes and fabricates a caller (#3419 review of 32951519).
+        var seen = paths.ToHashSet(StringComparer.Ordinal);
 
         try
         {
@@ -524,7 +528,7 @@ internal sealed class ApiMemberAnalysisInspection
         var scopePaths = _callerScopeAssemblies!;
         var identities = ScopeIdentitiesCached();
         var widened = new List<string>(selected);
-        var already = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var already = selected.ToHashSet(StringComparer.Ordinal);
 
         for (int i = 0; i < scopePaths.Count; i++)
         {

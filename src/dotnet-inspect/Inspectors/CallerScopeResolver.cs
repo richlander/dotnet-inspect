@@ -25,7 +25,10 @@ public static class CallerScopeResolver
         VerboseLogger logger)
     {
         var result = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Ordinal: these are full paths, not assembly names. Case-folding them merges two files
+        // that a case-sensitive volume keeps distinct, and the merge drops the second — so a real
+        // caller is never scanned (#3419 review of 32951519).
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
         if (ownAssemblyPath != null)
             seen.Add(Path.GetFullPath(ownAssemblyPath));

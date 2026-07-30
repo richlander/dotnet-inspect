@@ -243,8 +243,197 @@ public class ForwardedCallerEdgeTests
     }
 
     /// <summary>
-    /// A caller image that indexed successfully keeps its callers even if the file underneath it
-    /// becomes unreadable afterwards.
+    /// Two sibling files whose paths differ only in case are two files, and the evidence in the
+    /// second one has to reach the alias walk.
+    ///
+    /// <para>The gate for the CLI's own path comparison. <c>32951519</c> made
+    /// <c>ForwardedTypeAliases</c> compare paths exactly, but the alias walk only ever sees the
+    /// paths this inspection hands it, and <c>AliasEvidencePaths</c> deduplicated the target's
+    /// siblings case-insensitively — so on a case-sensitive volume the second of two case-distinct
+    /// siblings was dropped before the walk could read it. Dropping a rival claimant is the
+    /// fabricating direction: the surviving facade is then uncontested, its spelling is admitted,
+    /// and a caller that reaches the target only through that spelling is reported on evidence that
+    /// a file sitting right beside it contradicts. Found in review of <c>32951519</c>.</para>
+    ///
+    /// <para>Nothing unusual is needed to reach it. The collision is between two <em>siblings</em>,
+    /// both yielded by the same directory enumeration, so no caller-scope argument participates —
+    /// an ordinary <c>--bin</c> request over such a directory is enough.</para>
+    /// </summary>
+    [Fact]
+    public void CallerEdges_DoNotApplyAFacadeContradictedByACaseDistinctSibling()
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        string facade = Path.Combine(FrameworkDirectory, "System.Xml.ReaderWriter.dll");
+        Assert.SkipUnless(File.Exists(facade), "System.Xml.ReaderWriter not in the runtime directory.");
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), "fwd-case-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Assert.SkipUnless(
+                IsCaseSensitive(directory),
+                "Needs a case-sensitive filesystem; CI runs one.");
+
+            string copy = Path.Combine(directory, "System.Private.Xml.dll");
+            File.Copy(target!, copy);
+            File.Copy(facade, Path.Combine(directory, "System.Xml.ReaderWriter.dll"));
+
+            // The control, taken first over the same fixture minus the rival. Without it,
+            // "reports nothing" — a copied target that simply fails to analyze would do it —
+            // would satisfy the assertion below.
+            var control = CreateForCallers(copy, [SelfPath]).CallerEdges(CreateFromUriToken(copy));
+            Assert.Contains(control, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+
+            // A rival claimant of the same spelling, signed with a different key, at a path that
+            // differs from the genuine facade only in case.
+            WriteFacade(
+                directory,
+                [.. Enumerable.Repeat((byte)0xC3, 16)],
+                new Version(1, 0, 0, 0),
+                "system.xml.readerwriter.dll");
+
+            var edges = CreateForCallers(copy, [SelfPath]).CallerEdges(CreateFromUriToken(copy));
+
+            Assert.DoesNotContain(edges, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Two scope files whose paths differ only in case are two candidates, and the one the closure
+    /// rules out still has to be reachable through the facade widening.
+    ///
+    /// <para>The gate for the two scope-selection comparisons. Widening adds a candidate the
+    /// reverse-reference closure rejected, and both the widening and the opening loop skipped
+    /// anything already selected — case-insensitively. On a case-sensitive volume a selected
+    /// <c>X.dll</c> therefore suppressed a distinct <c>x.dll</c>, and the forwarded caller inside
+    /// it was silently dropped. This is the losing direction rather than the fabricating one, but
+    /// it is #3419's own bug returning one layer above the fix. Found in review of
+    /// <c>32951519</c>.</para>
+    ///
+    /// <para><c>X.dll</c> is a stub that exists only to be selected: it names the target in its
+    /// <c>AssemblyRef</c> table and contains no code, so every edge this test sees can only have
+    /// come from <c>x.dll</c>.</para>
+    ///
+    /// <para>Both routes to the widening are taken, because they are two comparisons and not one.
+    /// A fresh request widens the selection itself; a request that finds a scope another lens
+    /// already resolved widens that shared list instead, in a second loop with its own skip set.
+    /// The first version of this test exercised only the fresh route, and the shared route's
+    /// comparison survived reverting — the same route-shaped blind spot this PR has now hit
+    /// eight times.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CallerEdges_WidenToAScopeFileACaseDistinctSiblingAlreadySelected(
+        bool reuseSharedScope)
+    {
+        string? target = PrivateXmlPath();
+        Assert.SkipWhen(target is null, "System.Private.Xml not in the runtime directory.");
+
+        string directory = Path.Combine(
+            Path.GetTempPath(), "fwd-scope-case-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Assert.SkipUnless(
+                IsCaseSensitive(directory),
+                "Needs a case-sensitive filesystem; CI runs one.");
+
+            string selected = Path.Combine(directory, "X.dll");
+            string widened = Path.Combine(directory, "x.dll");
+            WriteTargetReferencingStub(selected);
+            File.Copy(SelfPath, widened);
+
+            var inspection = CreateForCallers(target!, [selected, widened]);
+            if (reuseSharedScope)
+            {
+                // Resolves and caches the shared, un-widened scope, so the request below takes the
+                // reuse path rather than building its own selection.
+                inspection.CallerScopes(includeAllocations: false);
+            }
+
+            var edges = inspection.CallerEdges(CreateFromUriToken(target!));
+
+            Assert.Contains(edges, edge => edge.Call.Caller.Name == nameof(ReadThroughFacade));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A code-free assembly that references the target, so the reverse-reference closure selects it
+    /// and nothing else about it can contribute an edge.
+    /// </summary>
+    static void WriteTargetReferencingStub(string path)
+    {
+        var targetIdentity = System.Reflection.AssemblyName.GetAssemblyName(PrivateXmlPath()!);
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Contoso.SelectedStub"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        byte[]? targetToken = targetIdentity.GetPublicKeyToken();
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.Xml"),
+            targetIdentity.Version ?? new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: targetToken is { Length: > 0 }
+                ? metadata.GetOrAddBlob(targetToken)
+                : default,
+            flags: default,
+            hashValue: default);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    /// <summary>
+    /// Whether <paramref name="directory"/> distinguishes names that differ only in case, asked of
+    /// the filesystem rather than of the operating system: Windows carries per-directory case
+    /// sensitivity, and the tests above are only meaningful where the answer is yes.
+    /// </summary>
+    static bool IsCaseSensitive(string directory)
+    {
+        string probe = Path.Combine(directory, "case-probe.tmp");
+        File.WriteAllText(probe, "");
+        try
+        {
+            return !File.Exists(Path.Combine(directory, "CASE-PROBE.TMP"));
+        }
+        finally
+        {
+            File.Delete(probe);
+        }
+    }
+
+    /// <summary>
+
     ///
     /// <para>The gate for answering identity from the bytes that were indexed. An earlier revision
     /// re-opened <c>BodyIndex.Path</c> to read the caller's <c>AssemblyRef</c> rows, so a file
@@ -401,7 +590,11 @@ public class ForwardedCallerEdgeTests
     /// The same, with the identity behind the spelling supplied by the caller, so a test can hold
     /// the forwarding behaviour fixed and vary one component of ECMA identity.
     /// </summary>
-    static void WriteFacade(string directory, byte[] publicKey, Version version)
+    static void WriteFacade(
+        string directory,
+        byte[] publicKey,
+        Version version,
+        string fileName = "System.Xml.ReaderWriter.dll")
     {
         // The reference to the definer carries the definer's real identity, because a real facade's
         // does and because that edge is now verified. An earlier revision recorded a tokenless
@@ -449,7 +642,6 @@ public class ForwardedCallerEdgeTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        File.WriteAllBytes(
-            Path.Combine(directory, "System.Xml.ReaderWriter.dll"), image.ToArray());
+        File.WriteAllBytes(Path.Combine(directory, fileName), image.ToArray());
     }
 }
