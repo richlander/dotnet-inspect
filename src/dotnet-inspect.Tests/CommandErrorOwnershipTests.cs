@@ -331,6 +331,20 @@ public class CommandErrorOwnershipTests
     /// found it independently. Each sink is therefore accounted for by name,
     /// and carries a <c>#pragma warning disable RS0030</c> with its
     /// justification at the site.
+    ///
+    /// Counting bounds <em>where</em> stderr is reached, not <em>what</em> is
+    /// written there, and the difference is measurable. Replacing the contained
+    /// write in <see cref="CommandError.WriteLine"/> with a raw one leaves the
+    /// count for that key at its pinned value, so this rule stays green while
+    /// the line stops being contained. That is not a hole in the pin; it is the
+    /// pin's subject. The gate for it is behavioural and lives elsewhere:
+    /// <c>UntrustedArgumentDiagnosticContainmentTests</c> runs the CLI with
+    /// hostile argv and asserts the emitted diagnostics are contained, and the
+    /// same tamper turns eight of its cases red. Neither rule subsumes the
+    /// other -- this one says only accounted code may touch the stream, that
+    /// one says what the accounted code puts on it is safe -- so a change that
+    /// silences one should be read against the other rather than against a
+    /// green suite.
     /// </remarks>
     [Fact]
     public void CompiledIl_ReachesStderrOnlyWhereAccountedFor()
