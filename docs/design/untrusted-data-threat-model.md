@@ -207,6 +207,23 @@ one that was here, and it had gone stale by two.
   label — which is exactly what `AzureDevOpsUrlParser` builds. `DefaultCollection`
   is dropped rather than made part of the identity, because the host serves
   byte-identical content with and without it.
+- The two content selectors are each allow-listed, and their *combination* was
+  never considered. `path` names an item and `scopePath` a collection, and the
+  host refuses to be asked for both rather than preferring one: measured,
+  `scopePath=/&path=/*` and `path=/*&scopePath=/` both return 400, `Cannot
+  specify an item "path" as well as "scopePath"`. The pair passes every other
+  rule — both names are known, neither is repeated, and each carries its own
+  wildcard, so the two-probe check sees two distinct request texts — while the
+  URL selects nothing at all. An origin reported for a request the host will not
+  answer describes no content. An allow list states that each entry is
+  understood, not that any two of them compose.
+- Reading the route positionally is not enough on `dev.azure.com`, where a
+  leading `e` is the enterprise discovery prefix rather than an account.
+  `/e/{org}/_apis/git/repositories/{repo}/items` satisfies the segment count
+  exactly and reports the organization `e`. Measured: it returns 404 where the
+  same request without the prefix returns 200, so the shape serves nothing for
+  the reported origin to describe. `AzureDevOpsUrlParser` refuses it for the
+  same reason, so no generated shape is lost by refusing it here.
 - A literal `+` in a value decodes to a space under a form decoder and to a plus
   under a percent decoder, so `version=a%2Bb&versionDescriptor.version=a+b`
   presents two agreeing selectors to one reader and two disagreeing ones to
