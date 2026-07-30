@@ -4132,6 +4132,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageSection_Rows_WindowsTheTabularRenderAndAgreesWithCount()
+    {
+        // Regression (#3457): --count windowed the section through the markdown limiter, but the
+        // tabular render never received options.Rows, so `--rows 1..1 --count` reported one row
+        // while `--rows 1..1 --jsonl` emitted the whole section. A count that does not describe
+        // the payload it is counting is worse than no count at all.
+        const string Package = "Newtonsoft.Json@13.0.4";
+
+        // Negative case: with no window, the count and the render already agreed, and must still.
+        var (bareCountExit, bareCountOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--count", "--tips", "q");
+        var (bareRowsExit, bareRowsOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--jsonl", "--tips", "q");
+        Assert.Equal(0, bareCountExit);
+        Assert.Equal(0, bareRowsExit);
+        var bareRows = bareRowsOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(bareRows > 2, "The section must have more rows than the window keeps for this test to prove anything.");
+        Assert.Equal(bareRows, int.Parse(bareCountOutput.Trim(), CultureInfo.InvariantCulture));
+
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--count", "--tips", "q");
+        Assert.Equal(0, countExit);
+        Assert.Equal(2, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+
+        var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--jsonl", "--tips", "q");
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(2, jsonlOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+
+        // The window is absolute, so it names rows 2 and 3 of the section rather than the first
+        // two, and the header survives it.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--rows", "2..3", "--tsv", "--tips", "q");
+        Assert.Equal(0, tsvExit);
+        var tsvLines = tsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(3, tsvLines.Length);
+        Assert.StartsWith("Built\t", tsvLines[1], StringComparison.Ordinal);
+        Assert.StartsWith("Content\t", tsvLines[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Content_Count_CountsMatchedFilesBecauseThePayloadIsAVector()
     {
         // --content renders text, but it yields one structured row per matched file rather than a
