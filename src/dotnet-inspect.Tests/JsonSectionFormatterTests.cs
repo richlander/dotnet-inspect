@@ -244,4 +244,21 @@ public class JsonSectionFormatterTests
         Assert.Equal("a", document.RootElement.GetProperty("call_graph")[0].GetString());
         Assert.Equal("MemoryCache", document.RootElement.GetProperty("results")[0].GetProperty("type").GetString());
     }
+
+    [Fact]
+    public void TableWithARepeatedHeader_FailsRatherThanEmittingDuplicateKeys()
+    {
+        // Row objects are keyed by the header set, so a repeated header repeats a JSON property.
+        // BuildProjection rejects the --columns spelling of this, but the formatter is shared
+        // infrastructure and must not depend on its only caller for the guarantee.
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions());
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Results", null);
+
+        var error = Assert.Throws<NotSupportedException>(() =>
+            formatter.FormatTable(TextWriter.Null, ["type", "type"], [["a", "a"]], 0, new MarkoutWriterOptions()));
+
+        Assert.Contains("two columns named 'type'", error.Message, StringComparison.Ordinal);
+    }
 }

@@ -524,11 +524,39 @@ public static class OutputFormatter
         if (columns == null && fields == null)
             return null;
 
+        RejectDuplicates(columns, "--columns");
+        RejectDuplicates(fields, "--fields");
+
         return new MarkoutProjection
         {
             IncludeColumns = columns,
             IncludeFields = fields,
         };
+    }
+
+    /// <summary>
+    /// Rejects a projection that names the same column or field twice.
+    /// </summary>
+    /// <remarks>
+    /// Naming a column twice cannot mean anything a caller wants, and what it produces depends on
+    /// whether the format keys its output: TSV and the Markdown table repeat a harmless column,
+    /// but JSON and JSONL emit a duplicate property, which is not an error any JSON parser reports
+    /// -- consumers silently keep one. Rejecting the request here rather than in a renderer keeps
+    /// every format agreeing about which requests are valid, which is the same reason an unmatched
+    /// column already fails closed (dotnet-inspect#3494 review). Matching is case-insensitive
+    /// because column selection is.
+    /// </remarks>
+    private static void RejectDuplicates(string[]? names, string flag)
+    {
+        if (names is not { Length: > 1 })
+            return;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
+        {
+            if (!seen.Add(name))
+                throw new InvalidOperationException($"Duplicate {flag} entry: {name}");
+        }
     }
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>

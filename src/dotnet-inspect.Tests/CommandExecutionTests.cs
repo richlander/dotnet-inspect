@@ -4626,6 +4626,39 @@ public partial class CommandExecutionTests
             Assert.Equal(["member"], row.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    public async Task Find_DuplicateColumn_FailsClosedInEveryFormat(string format)
+    {
+        // A duplicate column is silent data loss in the keyed formats: --jsonl and the lowered
+        // --json both emit the property twice, and no JSON parser reports that -- consumers keep
+        // one. Rejecting it in BuildProjection rather than in a renderer is what keeps every format
+        // agreeing about which requests are valid; fixing it only where it happens to be lossy
+        // would make --json reject what --jsonl accepts, which is the Format-invariance this change
+        // exists to establish. Found by adversarial review of #3494.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,Type", format);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("CommandExecutionTests", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_DuplicateColumn_IsDetectedCaseInsensitively()
+    {
+        // Column selection is case-insensitive, so "Type,type" is the same duplicate request and
+        // produces the same duplicate JSON key. A case-sensitive check would pass this through.
+        var (exit, _, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,type", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Find_UnmatchedColumnUnderJson_StillFailsClosed()
     {

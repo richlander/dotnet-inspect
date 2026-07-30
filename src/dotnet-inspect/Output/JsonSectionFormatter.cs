@@ -108,6 +108,22 @@ internal sealed class JsonSectionFormatter :
                     "which the JSON view cannot represent as one array.");
             }
 
+            // Each row serializes as an object keyed by these headers, so a repeated header emits a
+            // repeated property -- silent loss again, reached through the table door rather than the
+            // section door. BuildProjection already rejects a duplicated --columns entry, which is
+            // where a user can cause this; the check is repeated here because this formatter is
+            // shared infrastructure and a view could declare the collision itself.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var header in headers)
+            {
+                if (!seen.Add(header))
+                {
+                    throw new NotSupportedException(
+                        $"Section '{(Name.Length == 0 ? "<unnamed>" : Name)}' has two columns named '{header}'. " +
+                        "Each row would carry that JSON key twice, and a parser would keep only one.");
+                }
+            }
+
             Headers = headers.ToArray();
         }
     }
