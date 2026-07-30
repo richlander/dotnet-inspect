@@ -47,11 +47,20 @@ namespace ILInspector.Instructions;
 /// The mangled forms are unspellable in C# but not in IL, so an untrusted assembly can
 /// declare a type literally named <c>&lt;Foo&gt;d__5</c>; without the attribute check such
 /// a type would be folded together with an unrelated one. Local-function methods and
-/// state-machine and display-class types all carry the attribute.
+/// state-machine and display-class types all carry the attribute. Enforced by
+/// <c>NameShapeAlone_DoesNotFold</c>, which declares a type with a hand-written mangled
+/// name and no attribute and asserts it keeps its ordinal.
 /// </para>
 /// <para>
-/// Enforced by <c>NameShapeAlone_DoesNotFold</c>, which declares a type with a
-/// hand-written mangled name and no attribute and asserts it keeps its ordinal.
+/// <b>That gate raises the cost of a collision; it is not a security boundary.</b>
+/// <c>CompilerGeneratedAttribute</c> is publicly applicable, and an assembly may declare
+/// its own — the assembly that owns the framework definition necessarily does, which is
+/// why a <c>MethodDefinition</c> constructor is accepted here. So an assembly that has
+/// been built to do so can present a hand-written member as generated. The residue is
+/// bounded rather than open: folding additionally requires the containing-method name,
+/// the local-function name, and the slot ordinal to agree, and requires the key to be
+/// unique on <em>both</em> sides, so a forged attribute cannot equate members that differ
+/// in anything but the member ordinal. Do not read this gate as authenticating provenance.
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
@@ -133,6 +142,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 continue;
             }
 
+            if (CollidesWithARawName(oldIndex, newIndex, oldIndex.MethodNames[handle])
+                || CollidesWithARawName(oldIndex, newIndex, newIndex.MethodNames[counterpart]))
+            {
+                continue;
+            }
+
             oldMethods[handle] = oldIndex.MethodNames[handle];
             newMethods[counterpart] = newIndex.MethodNames[counterpart];
         }
@@ -148,6 +163,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 continue;
             }
 
+            if (CollidesWithARawName(oldIndex, newIndex, oldIndex.TypeNames[handle])
+                || CollidesWithARawName(oldIndex, newIndex, newIndex.TypeNames[counterpart]))
+            {
+                continue;
+            }
+
             oldTypes[handle] = oldIndex.TypeNames[handle];
             newTypes[counterpart] = newIndex.TypeNames[counterpart];
         }
@@ -158,6 +179,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         return (new CompilerGeneratedOrdinalCorrespondence(oldMethods, oldTypes),
                 new CompilerGeneratedOrdinalCorrespondence(newMethods, newTypes));
     }
+
+    /// <summary>
+    /// Whether the elided form is spelled by some member's <em>raw</em> name on either
+    /// side, in which case folding onto it is unsafe.
+    /// </summary>
+    /// <remarks>
+    /// The elided form is substituted into the compared text, so it shares a namespace
+    /// with every raw name in either assembly. A member literally named
+    /// <c>&lt;M&gt;g__L|#_0</c> is unspellable in C# but legal in metadata, and it would
+    /// render identically to a folded <c>&lt;M&gt;g__L|3_0</c> — so a body that changed
+    /// which of the two it calls would read as unchanged. Declining the fold restores the
+    /// un-normalized comparison, which is the behavior the rest of this type promises.
+    /// </remarks>
+    static bool CollidesWithARawName(SideIndex oldIndex, SideIndex newIndex, string elided)
+        => oldIndex.RawNames.Contains(elided) || newIndex.RawNames.Contains(elided);
 
     /// <summary>
     /// Rewrites a Roslyn mangled name to its ordinal-free form, or returns null when the
@@ -238,12 +274,50 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         public required HashSet<string> AmbiguousTypes { get; init; }
         public required Dictionary<TypeDefinitionHandle, string> TypeNames { get; init; }
 
+        /// <summary>Every type and method name in this assembly, verbatim.</summary>
+        public required HashSet<string> RawNames { get; init; }
+
         public bool IsEmpty => Methods.Count == 0 && Types.Count == 0;
 
         public static SideIndex For(MetadataReader reader)
             => s_cache.GetValue(reader, static r => Create(r));
 
+        /// <summary>
+        /// Builds the index, or yields an empty one when the metadata cannot be read.
+        /// </summary>
+        /// <remarks>
+        /// Failure is whole-index rather than per-row on purpose. This index's guarantee is
+        /// that a key resolves to exactly one member; a member skipped because its row is
+        /// malformed is a member that cannot witness an ambiguity, so per-row recovery
+        /// could fold two members that a complete read would have kept apart. Malformed
+        /// metadata is also reachable from parts of the assembly the comparison itself
+        /// never touches — enumerating every type is this type's own added exposure — so
+        /// it must not turn a comparison that would have succeeded into a thrown exception.
+        /// Declining to fold restores the un-normalized comparison. Enforced by
+        /// <c>MalformedUnrelatedMetadata_FailsClosedRatherThanThrowing</c>.
+        /// </remarks>
         static SideIndex Create(MetadataReader reader)
+        {
+            try
+            {
+                return CreateCore(reader);
+            }
+            catch (BadImageFormatException)
+            {
+                return new SideIndex
+                {
+                    Methods = [],
+                    AmbiguousMethods = [],
+                    MethodNames = [],
+                    Types = [],
+                    AmbiguousTypes = [],
+                    TypeNames = [],
+                    RawNames = [],
+                };
+            }
+        }
+
+        static SideIndex CreateCore(MetadataReader reader)
         {
             var methods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
             var ambiguousMethods = new HashSet<string>(StringComparer.Ordinal);
@@ -251,14 +325,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             var types = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
             var ambiguousTypes = new HashSet<string>(StringComparer.Ordinal);
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
+            var rawNames = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var typeHandle in reader.TypeDefinitions)
             {
-                TypeDefinition type;
-                try { type = reader.GetTypeDefinition(typeHandle); }
-                catch (BadImageFormatException) { continue; }
+                var type = reader.GetTypeDefinition(typeHandle);
+                rawNames.Add(reader.GetString(type.Name));
 
                 string? typeKeyPrefix = TypeKeyPrefix(reader, typeHandle, typeNames);
+                foreach (var methodHandle in type.GetMethods())
+                    rawNames.Add(reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
+
                 if (typeKeyPrefix is null)
                     continue;
 
@@ -270,10 +347,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
                 foreach (var methodHandle in type.GetMethods())
                 {
-                    MethodDefinition method;
-                    try { method = reader.GetMethodDefinition(methodHandle); }
-                    catch (BadImageFormatException) { continue; }
-
+                    var method = reader.GetMethodDefinition(methodHandle);
                     if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes()) is not { } elided)
                         continue;
 
@@ -290,6 +364,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 Types = types,
                 AmbiguousTypes = ambiguousTypes,
                 TypeNames = typeNames,
+                RawNames = rawNames,
             };
         }
 
@@ -374,11 +449,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         {
             foreach (var handle in attributes)
             {
-                CustomAttribute attribute;
-                try { attribute = reader.GetCustomAttribute(handle); }
-                catch (BadImageFormatException) { continue; }
-
-                if (IsCompilerGenerated(reader, attribute))
+                if (IsCompilerGenerated(reader, reader.GetCustomAttribute(handle)))
                     return true;
             }
             return false;
@@ -386,10 +457,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         static bool IsCompilerGenerated(MetadataReader reader, CustomAttribute attribute)
         {
-            try
+            switch (attribute.Constructor.Kind)
             {
-                switch (attribute.Constructor.Kind)
-                {
                     case HandleKind.MemberReference:
                         var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
                         if (member.Parent.Kind != HandleKind.TypeReference)
@@ -401,12 +470,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         var typeDef = reader.GetTypeDefinition(ctor.GetDeclaringType());
                         return Matches(reader.GetString(typeDef.Namespace), reader.GetString(typeDef.Name));
                     default:
-                        return false;
-                }
-            }
-            catch (BadImageFormatException)
-            {
-                return false;
+                    return false;
             }
 
             static bool Matches(string ns, string name)

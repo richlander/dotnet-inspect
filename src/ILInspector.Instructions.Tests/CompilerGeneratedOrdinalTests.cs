@@ -171,6 +171,103 @@ public class CompilerGeneratedOrdinalTests
         Assert.False(Compare([Generated("<M>g__A|3_0")], [Generated("<M>g__B|3_0")], Ordinals).IsExact);
     }
 
+    /// <summary>
+    /// The elided form is substituted into the compared text, so it shares a namespace
+    /// with every raw name in either assembly. A member literally named with the
+    /// placeholder must not become indistinguishable from a folded one, or a real change
+    /// of call target reads as identical. The names here are unspellable in C# but legal
+    /// in metadata, and this tool reads untrusted assemblies.
+    /// </summary>
+    [Fact]
+    public void PlaceholderCollidingName_DoesNotHideARealTargetChange()
+    {
+        var result = Compare(
+            [Generated("<M>g__L|3_0")],
+            [Plain("<M>g__L|#_0"), Generated("<M>g__L|7_0")],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>The same collision on the type side.</summary>
+    [Fact]
+    public void PlaceholderCollidingTypeName_DoesNotHideARealTargetChange()
+    {
+        var result = Compare(
+            [Generated("<M>d__3")],
+            [Plain("<M>d__#"), Generated("<M>d__7")],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// Building the correspondence enumerates every type and method in both assemblies —
+    /// exposure the comparison itself does not have. Malformed metadata in a type the
+    /// comparison never touches must therefore not turn a comparison that succeeds without
+    /// this normalization into a thrown exception.
+    /// </summary>
+    /// <remarks>
+    /// The corruption points the unrelated <c>&lt;Module&gt;</c> type's name at a string
+    /// heap offset past the end of the heap. The first assertion is load-bearing: it fails
+    /// if the byte patch damaged anything the comparison actually reads, so this test can
+    /// only pass while the corruption really is confined to metadata the un-normalized
+    /// comparison ignores.
+    /// </remarks>
+    [Fact]
+    public void MalformedUnrelatedMetadata_FailsClosedRatherThanThrowing()
+    {
+        byte[] image = CorruptUnrelatedTypeName(BuildImage("Probe", [Generated("<M>g__L|3_0")]));
+
+        using var pe = new PEReader(new MemoryStream(image));
+        using var other = new PEReader(new MemoryStream(image));
+
+        Assert.True(Compare(pe, other, IlBodyDiffNormalization.None).IsExact);
+        Assert.True(Compare(pe, other, Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Repoints every reference to the <c>&lt;Module&gt;</c> type's name at an offset past
+    /// the end of the string heap.
+    /// </summary>
+    static byte[] CorruptUnrelatedTypeName(byte[] image)
+    {
+        int offset;
+        using (var pe = new PEReader(new MemoryStream(image)))
+        {
+            var reader = pe.GetMetadataReader();
+            var module = reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(1));
+            Assert.Equal("<Module>", reader.GetString(module.Name));
+            offset = MetadataTokens.GetHeapOffset(module.Name);
+        }
+
+        Assert.InRange(offset, 1, ushort.MaxValue);
+        byte lo = (byte)offset;
+        byte hi = (byte)(offset >> 8);
+
+        var patched = (byte[])image.Clone();
+        for (int i = 0; i < patched.Length - 1; i++)
+        {
+            if (patched[i] == lo && patched[i + 1] == hi)
+            {
+                patched[i] = 0xF0;
+                patched[i + 1] = 0x7F;
+            }
+        }
+
+        return patched;
+    }
+
+    static IlBodyDiffResult Compare(PEReader oldPe, PEReader newPe, IlBodyDiffNormalization normalization)
+        => IlAssemblyDiff.CompareMembers(
+            oldPe,
+            oldPe.GetMetadataReader(),
+            MetadataTokens.MethodDefinitionHandle(1),
+            newPe,
+            newPe.GetMetadataReader(),
+            MetadataTokens.MethodDefinitionHandle(1),
+            normalization: normalization).Diff;
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     static Member Plain(string name) => new(name, CompilerGenerated: false);
