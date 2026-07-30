@@ -303,6 +303,12 @@ public partial class SourceLinkResolver
             // case or by separator, in which case they are the same rule spelled twice. These
             // comparisons exist so that the resulting order is total, and therefore independent
             // of how the map was enumerated, rather than merely usually right.
+            //
+            // Of the two, only the URL comparison is observable through resolution, and
+            // AMapWhoseKeysTieOnLengthAndKind_ResolvesTheSameWhicheverOrderTheyAreWrittenIn gates
+            // it on both shapes named above. byPrefix orders entries that resolve identically, so
+            // no assertion on resolved output can reach it; it is here for a total order and is
+            // deliberately recorded as ungated rather than credited to that test.
             int byPrefix = string.CompareOrdinal(left.PathPrefix, right.PathPrefix);
             if (byPrefix != 0)
                 return byPrefix;
@@ -530,8 +536,8 @@ public partial class SourceLinkResolver
         => url.GetLeftPart(UriPartial.Path) + "?" + ResolveDotSegmentsInQuery(url.Query);
 
     /// <summary>
-    /// Removes <c>.</c> and <c>..</c> segments from a query value, where <see cref="Uri"/> leaves
-    /// them alone.
+    /// Removes <c>.</c> and <c>..</c> segments from each query value, where <see cref="Uri"/>
+    /// leaves them alone.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -542,12 +548,13 @@ public partial class SourceLinkResolver
     /// inconsistency in the rule rather than a decision about it.
     /// </para>
     /// <para>
-    /// The first segment is a floor and is never popped. It holds the query's parameter names --
-    /// everything up to the <c>/</c> that starts the first path-shaped value -- and popping it
-    /// would erase the parameter the substitution landed in, making a URL whose document still
-    /// chooses the request look like one whose document does not. That would be a false refusal
-    /// of a shape a real map can carry, so a <c>..</c> with nothing left to remove is kept rather
-    /// than allowed to escape its span.
+    /// Each parameter's value is resolved on its own, so a <c>..</c> can never escape into the
+    /// parameter names around it. Treating the query as one <c>/</c>-separated run instead was the
+    /// first attempt, and it failed in both directions: a <c>..</c> could pop the parameter names,
+    /// falsely refusing a URL whose document still chose the request, and protecting those names
+    /// with a fixed floor then left <c>?path=*/../README.md</c> accepted, because the substitution
+    /// lands in the same run as the names it was protecting. Parsing the query removes the choice
+    /// -- the parameter name is outside the poppable text structurally rather than by index.
     /// </para>
     /// </remarks>
     private static string ResolveDotSegmentsInQuery(string query)
@@ -557,7 +564,34 @@ public partial class SourceLinkResolver
             return query;
         }
 
-        string[] segments = query.Split('/');
+        string[] parameters = query.Split('&');
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            int equals = parameters[i].IndexOf('=', StringComparison.Ordinal);
+            if (equals < 0)
+            {
+                continue;
+            }
+
+            parameters[i] = string.Concat(
+                parameters[i].AsSpan(0, equals + 1),
+                ResolveDotSegments(parameters[i][(equals + 1)..]));
+        }
+
+        return string.Join('&', parameters);
+    }
+
+    /// <summary>
+    /// Removes <c>.</c> and <c>..</c> segments from one <c>/</c>-separated value.
+    /// </summary>
+    private static string ResolveDotSegments(string value)
+    {
+        if (!value.Contains("..", StringComparison.Ordinal))
+        {
+            return value;
+        }
+
+        string[] segments = value.Split('/');
         var kept = new List<string>(segments.Length);
         foreach (string segment in segments)
         {
@@ -566,7 +600,7 @@ public partial class SourceLinkResolver
                 continue;
             }
 
-            if (segment == ".." && kept.Count > 1)
+            if (segment == ".." && kept.Count > 0)
             {
                 kept.RemoveAt(kept.Count - 1);
                 continue;

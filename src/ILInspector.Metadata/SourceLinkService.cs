@@ -190,13 +190,15 @@ public class SourceLinkService : IDisposable
         if (_typeFileIndex != null)
             return _typeFileIndex;
 
-        // Try loading from disk cache. The key is the full origin, not the bare revision: a
-        // commit hash is shared by every fork containing that commit, so keying on it alone would
-        // serve one repository's index for another's assembly.
-        var commitHash = _context.Provenance().Origin?.Identity;
-        if (commitHash != null)
+        // Try loading from disk cache. The key names both the origin and this assembly's symbols.
+        // The origin is not enough on its own in either direction: a bare revision is shared by
+        // every fork containing that commit, and a full origin is shared by every assembly built
+        // from that repository at that revision -- and the index being cached is built from one
+        // assembly's PDB, so origin alone serves one assembly's source files for another's types.
+        var cacheKey = BuildIndexCacheKey();
+        if (cacheKey != null)
         {
-            var cached = _cache?.TryGet(commitHash);
+            var cached = _cache?.TryGet(cacheKey);
             if (cached != null)
             {
                 try
@@ -215,12 +217,12 @@ public class SourceLinkService : IDisposable
         _typeFileIndex = BuildTypeFileIndex();
 
         // Persist to disk
-        if (commitHash != null && _typeFileIndex.Count > 0)
+        if (cacheKey != null && _typeFileIndex.Count > 0)
         {
             try
             {
                 var json = JsonSerializer.Serialize(_typeFileIndex, SourceLinkJsonContext.Default.DictionaryStringStringArray);
-                _cache?.Set(commitHash, json);
+                _cache?.Set(cacheKey, json);
             }
             catch
             {
@@ -229,6 +231,41 @@ public class SourceLinkService : IDisposable
         }
 
         return _typeFileIndex;
+    }
+
+    /// <summary>
+    /// The cache key for this assembly's type-to-file index, or null when the assembly cannot be
+    /// identified precisely enough to share one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The debug directory's CodeView identity — the PDB GUID and age — names the exact symbols
+    /// this index was built from, which is what the index actually depends on. Parts are joined
+    /// with the same length-prefixed encoding <see cref="SLF.SourceLinkOrigin.Identity"/> uses, so
+    /// no combination of values can spell another combination's key.
+    /// </para>
+    /// <para>
+    /// Returning null when either part is missing declines the cache rather than falling back to
+    /// a weaker key. A cache miss costs one index rebuild; a key that does not name the assembly
+    /// hands back another assembly's source files, which is wrong output rather than slow output.
+    /// </para>
+    /// </remarks>
+    private string? BuildIndexCacheKey()
+        => BuildIndexCacheKey(_context.Provenance().Origin?.Identity, _context.PdbId);
+
+    /// <summary>
+    /// Composes the key from the two identities, so the composition can be gated without a build
+    /// that carries SourceLink data. Internal for that reason only.
+    /// </summary>
+    internal static string? BuildIndexCacheKey(string? originIdentity, CodeViewInfo? pdbId)
+    {
+        if (originIdentity is null || pdbId is null)
+        {
+            return null;
+        }
+
+        string symbols = $"{pdbId.Guid:N}-{pdbId.Age}";
+        return $"{originIdentity}{symbols.Length}:{symbols}|";
     }
 
     private Dictionary<string, string[]> BuildTypeFileIndex()

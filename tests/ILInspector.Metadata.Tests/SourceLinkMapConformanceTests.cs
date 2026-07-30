@@ -348,6 +348,9 @@ public class SourceLinkMapConformanceTests
     [InlineData("https://h.test/*%5c..%5cfixed.cs", false)]
     [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*/../fixed.cs", false)]
     [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=/*%2f..%2ffixed.cs", false)]
+    [InlineData("https://dev.azure.com/c/w/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=0123456789012345678901234567890123456789&path=*/../fixed.cs", false)]
+    [InlineData("https://h.test/i?path=*/../fixed.cs", false)]
+    [InlineData("https://h.test/i?a=x/../y&path=*", true)]
     [InlineData("https://h.test/x?p=*&e=a%2fb", true)]
     [InlineData("https://h.test/x?p=*&note=a/../b", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/0123456789012345678901234567890123456789/*", true)]
@@ -402,6 +405,9 @@ public class SourceLinkMapConformanceTests
     // A traversal inside a query value erases the substitution just as one in the path does; a
     // '..' that erases nothing but the wildcard's own neighbour leaves the document choosing.
     [InlineData("https://h.test/i?path=/*/../fixed.cs", "https://h.test/i?path=/*/fixed.cs")]
+    // The same traversal with the wildcard first in its value, so no '/' separates it from the
+    // parameter name; a '..' confined to a different parameter erases nothing the document chose.
+    [InlineData("https://h.test/i?path=*/../fixed.cs", "https://h.test/i?a=x/../y&path=*")]
     public void EachRefusedUrlShape_IsRefusedForItsOwnReasonAndNotAnIncidentalOne(
         string refused,
         string acceptedTwin)
@@ -585,9 +591,13 @@ public class SourceLinkMapConformanceTests
     /// </para>
     /// <para>
     /// A gate naming the one input that exposed it would be satisfied by a fix that special-cases
-    /// that input. This asserts the property over every conformance row and every specificity
-    /// case below, so any future comparison that is not a total order fails here, whatever shape
-    /// the tie takes.
+    /// that input, so this asserts the property over every conformance row and every specificity
+    /// case below. What it does <em>not</em> cover is a tie that survives the length and exactness
+    /// rules: no row here spells one, so the ordinal fall-through is never reached and erasing it
+    /// leaves this test green. Raised in review, and confirmed by erasing both ordinal comparisons
+    /// and watching the whole suite pass.
+    /// <c>AMapWhoseKeysTieOnLengthAndKind_ResolvesTheSameWhicheverOrderTheyAreWrittenIn</c> covers
+    /// that case; the claim is split between the two rather than overstated here.
     /// </para>
     /// </remarks>
     [Theory]
@@ -597,6 +607,59 @@ public class SourceLinkMapConformanceTests
     {
         Assert.Equal(expected, SLF.SourceLinkResolver.Parse(ReverseDocumentOrder(map)).ResolveUrl(documentPath));
         Assert.NotEmpty(because);
+    }
+
+    /// <summary>
+    /// Two keys that tie on length and on kind still resolve the same way whichever order the map
+    /// writes them in. This is where the comparison has to be a total order rather than merely
+    /// usually right.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The comparator's own comment names the only shapes that reach it: keys of equal length and
+    /// equal kind cannot both match one document "unless they differ only by case or by
+    /// separator", which this reader accepts because it compares paths case-insensitively and
+    /// normalizes separators on both sides. Those are the two rows.
+    /// </para>
+    /// <para>
+    /// Measured non-vacuity, since a tie test that does not tie is exactly the defect this exists
+    /// for: with the ordinal fall-through erased, the winner follows JSON order — <c>a.test</c>
+    /// when written first, <c>b.test</c> when written second — and both rows fail. What resolution
+    /// can observe is the URL comparison; <c>byPrefix</c> orders entries that resolve identically,
+    /// so no assertion on resolved output can reach it, and the comparator says so rather than
+    /// claiming a gate it does not have.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // Keys differing only by case; both match, and neither is more specific.
+    [InlineData("/_/SRC/*", "/_/src/*")]
+    // Keys differing only by separator, which normalizes to one prefix on both sides.
+    [InlineData("/_\\src\\*", "/_/src/*")]
+    public void AMapWhoseKeysTieOnLengthAndKind_ResolvesTheSameWhicheverOrderTheyAreWrittenIn(
+        string firstKey,
+        string secondKey)
+    {
+        const string Document = "/_/src/Foo.cs";
+
+        string written = Resolve(firstKey, "https://a.test/*", secondKey, "https://b.test/*");
+        string reversed = Resolve(secondKey, "https://b.test/*", firstKey, "https://a.test/*");
+
+        Assert.Equal(written, reversed);
+
+        // Non-vacuity: the pair really does tie, so both entries were candidates for the document.
+        Assert.Contains("Foo.cs", written, StringComparison.Ordinal);
+
+        static string Resolve(string keyA, string urlA, string keyB, string urlB)
+        {
+            // A separator key carries a backslash, which JSON requires escaped.
+            var map = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"" + Json(keyA) + "\":\"" + urlA + "\",\"" + Json(keyB) + "\":\"" + urlB + "\"}}");
+
+            Assert.Empty(map.RejectedKeys);
+            return map.ResolveUrl(Document) ?? "<unresolved>";
+        }
+
+        static string Json(string key) => key.Replace("\\", "\\\\", StringComparison.Ordinal);
     }
 
     /// <summary>
