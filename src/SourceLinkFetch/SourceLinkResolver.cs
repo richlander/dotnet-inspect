@@ -74,7 +74,7 @@ public readonly record struct SourceLinkResolution(string Remainder, string Url,
 ///   </item>
 /// </list>
 /// </remarks>
-public class SourceLinkResolver
+public partial class SourceLinkResolver
 {
     // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
@@ -454,8 +454,9 @@ public class SourceLinkResolver
     /// <c>SourceLinkMapConformanceTests.AnEntryWhoseUrlNamesNoFetchableOrigin_IsRejectedRatherThanShadowingAValidEntry</c>,
     /// whose accept rows are the shapes <c>Microsoft.SourceLink.GitHub</c> and
     /// <c>Microsoft.SourceLink.AzureRepos.Git</c> actually generate, and by
-    /// <c>ASubstitutionThatCannotReachTheServer_IsRejected</c>, which pins the third property
-    /// against the reason it holds rather than against the refusal alone.
+    /// <c>EachRefusedUrlShape_IsRefusedForItsOwnReasonAndNotAnIncidentalOne</c>, which pins each
+    /// property against a close twin that differs only in the cause, rather than against the
+    /// refusal alone.
     /// </para>
     /// </remarks>
     private static bool ProducesAFetchableRequest(string urlPrefix, string? urlSuffix)
@@ -465,8 +466,23 @@ public class SourceLinkResolver
 
         // Two probes, not one: a single substitution says whether some URL is produced, but not
         // whether the document had any bearing on which one.
-        if (!TryReadFetchable(urlPrefix + "a" + urlSuffix, out Uri? first) ||
-            !TryReadFetchable(urlPrefix + "b" + urlSuffix, out Uri? second))
+        string first = urlPrefix + "a" + urlSuffix;
+        string second = urlPrefix + "b" + urlSuffix;
+
+        // Both readings must hold. A URL that survives one and not the other has two readings,
+        // and which one applies is the receiving server's choice rather than anything the map
+        // states.
+        return SubstitutionSurvives(first, second)
+            && SubstitutionSurvives(DecodeSeparators(first), DecodeSeparators(second));
+    }
+
+    /// <summary>
+    /// Whether two probe substitutions still name one origin and two different requests.
+    /// </summary>
+    private static bool SubstitutionSurvives(string firstUrl, string secondUrl)
+    {
+        if (!TryReadFetchable(firstUrl, out Uri? first) ||
+            !TryReadFetchable(secondUrl, out Uri? second))
         {
             return false;
         }
@@ -486,6 +502,42 @@ public class SourceLinkResolver
             second.GetLeftPart(UriPartial.Query),
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The reading a server reaches when it percent-decodes before resolving the path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Uri"/> preserves <c>%2f</c> and <c>%5c</c> verbatim and never treats them as
+    /// separators, so dot-segment removal does not see them and the two probes come out looking
+    /// different. A server that decodes first sees something else entirely. Measured against the
+    /// host most SourceLink maps name, at a real commit:
+    /// </para>
+    /// <code>
+    /// .../&lt;sha&gt;/README.md                 200
+    /// .../&lt;sha&gt;/src/../README.md           200
+    /// .../&lt;sha&gt;/src%2f..%2fREADME.md       200   &lt;- decoded, then traversed
+    /// .../&lt;sha&gt;/src%5c..%5cREADME.md       404
+    /// </code>
+    /// <para>
+    /// So <c>https://host/*%2f..%2ffixed.cs</c> passes the undecoded reading — the probes differ
+    /// as text — while <c>raw.githubusercontent.com</c> serves one file's content as the source of
+    /// every document under the key. That is the harm rule 2 refuses for a wildcard key paired
+    /// with a constant URL, reached by hiding the separator from the client's parser instead.
+    /// </para>
+    /// <para>
+    /// Both separators are decoded even though only one is live at that host: which of the two a
+    /// server honours is a property of the server, and the reader's own provenance layer already
+    /// refuses both for the same reason. Decoding only affects entries that carry an encoded
+    /// separator, and a substitution that still reaches the server after decoding is still
+    /// accepted, so a map using <c>%2f</c> harmlessly — inside a query value, say — is unaffected.
+    /// </para>
+    /// </remarks>
+    private static string DecodeSeparators(string url) =>
+        EncodedSeparatorRegex().Replace(url, "/");
+
+    [GeneratedRegex("%2f|%5c", RegexOptions.IgnoreCase)]
+    private static partial Regex EncodedSeparatorRegex();
 
     private static bool TryReadFetchable(string url, out Uri? uri) =>
         Uri.TryCreate(url, UriKind.Absolute, out uri)

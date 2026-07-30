@@ -343,6 +343,10 @@ public class SourceLinkMapConformanceTests
     [InlineData("https://user:*@h.test/x", false)]
     [InlineData("https://h.test/README.md#*", false)]
     [InlineData("https://h.test/a/*/../fixed.cs", false)]
+    [InlineData("https://h.test/*%2f..%2ffixed.cs", false)]
+    [InlineData("https://h.test/*%2F..%2Ffixed.cs", false)]
+    [InlineData("https://h.test/*%5c..%5cfixed.cs", false)]
+    [InlineData("https://h.test/x?p=*&e=a%2fb", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/0123456789012345678901234567890123456789/*", true)]
     [InlineData("http://internal.test/src/*", true)]
     [InlineData("https://h.test/x?p=*&q=1", true)]
@@ -387,6 +391,9 @@ public class SourceLinkMapConformanceTests
     [InlineData("https://h.test/README.md#*", "https://h.test/README.md?x=*")]
     // Dot-segment removal erases the substitution; without the '..' it survives.
     [InlineData("https://h.test/a/*/../fixed.cs", "https://h.test/a/*/fixed.cs")]
+    // An encoded separator hides the traversal from Uri but not from a server that decodes
+    // first; an encoded separator that erases nothing is still accepted.
+    [InlineData("https://h.test/*%2f..%2ffixed.cs", "https://h.test/*%2ffixed.cs")]
     // A wildcard in the host chooses the origin; in the first path segment it does not.
     [InlineData("https://*.test/x", "https://h.test/*/x")]
     public void EachRefusedUrlShape_IsRefusedForItsOwnReasonAndNotAnIncidentalOne(
