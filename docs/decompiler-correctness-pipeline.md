@@ -95,7 +95,9 @@ entry gate invalidates every later result, so run it first and report it.
    default in every host except the shipped CLI (`IrInvariants`, #3267) — and
    pass tests assert it explicitly; a thrown invariant is an entry-gate failure,
    not a fidelity question. New pass tests should call `CheckInvariant()` on the
-   result.
+   result. [IR invariant checks: hosts, levels, and
+   fixtures](#ir-invariant-checks-hosts-levels-and-fixtures) below is the full
+   contract.
 
 4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
 
@@ -131,6 +133,54 @@ Notes:
   round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
+
+### IR invariant checks: hosts, levels, and fixtures
+
+`AGENTS.md` requires that a correctness check not hide behind
+`[Conditional("DEBUG")]`, because the suite runs Release for fixture fidelity
+and such a call is stripped from the Release test assembly. The IR invariant
+check is the worked example of the alternative: `IrNode.CheckInvariant` is
+reached through a runtime flag (`IrInvariants.Enabled`, env var
+`DOTNET_INSPECT_IR_INVARIANTS`) that is **on by default**, so any host that runs
+the pipeline — test suite, harness, sweep, benchmark — validates after every
+pass in the same build users run.
+
+The shipped CLI is the one sanctioned opt-out
+(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+the tool pays nothing on the decompile hot path. Declining validation has
+exactly one form — `Enabled`'s setter is private, so the compiler rejects any
+other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
+a new host cannot quietly decline. An explicit `DOTNET_INSPECT_IR_INVARIANTS`
+value (trimmed, case-insensitive) outranks the opt-out in both directions.
+
+The check is **leveled**, but both levels are armed together, so the leveling
+names what is checked rather than offering a way to check less:
+
+- **Structural** invariants (parent/child back-pointer consistency, tree shape)
+  hold on *any* well-formed `IrNode` graph, including the deliberately minimal
+  `IrFunction`s that hand-built pass-unit fixtures construct
+  (`IrInvariants.Enabled`).
+- **Semantic** invariants (e.g. local-slot indices within the enclosing
+  function/lambda's `Locals`) require a function that declares the slots it
+  references. These were opt-in until #3302 on the stated grounds that arming
+  them suite-wide would false-positive on ~120 minimal fixtures; measured, the
+  number was five. Those five now declare their locals, and the level is on by
+  default (`IrInvariants.CheckSemantics`), as a computed projection of `Enabled`
+  so the two cannot drift apart and the shipped tool's opt-out lowers both.
+  `CheckInvariant(includeSemantics: true)` still threads the level explicitly
+  for hermetic per-test coverage.
+
+A hand-built fixture that trips the semantic level is referencing locals it does
+not declare; give the `IrFunction` its local table rather than lowering the
+level. Do not derive the local table from the body — that makes every fixture
+pass by construction and retires the invariant while appearing to keep it.
+
+Per-pass validation fires inside `IrPasses.Run`/`PipelineRunner`, so a test that
+calls `pass.Run(...)` directly never reaches it. Roughly a dozen test files
+still build an `IrFunction` with an empty local table and reference slots in it.
+They are unaffected today, but **converting one to `IrPasses.Run` will fail
+it** — correctly, because the fixture is malformed. Declare the locals; do not
+route around the check.
 
 ### Area trait: targeting a functional slice
 
@@ -252,6 +302,14 @@ failures being fixed first: a gate's job is to make *new* breakage attributable,
 and waiting for green is what let the current backlog accumulate. Open failures
 are pinned in `eng/decompiler-gate-known-red.txt`, one fully qualified test name
 per line, each preceded by its issue and the date it was pinned.
+
+That list is a record of *open, filed* failures, not an escape hatch. Do not add
+an entry to make your own change go green, and do not skip a gate test to green
+it — the checker treats a test that neither passed nor failed as a coverage hole
+and fails the job. A new failure means either a regression to fix or a diff to
+docket in the owning gate with a rationale. Adding a pin requires an issue and a
+date, and the checker fails the job when a pinned test starts passing, so retire
+pins as fixes land.
 
 `eng/check-decompiler-gate.cs` decides the job's pass/fail from the run report,
 and treats drift in **both** directions as an error:
