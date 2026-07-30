@@ -1,0 +1,32 @@
+# Decompiler gate: pinned known-red tests
+#
+# Tests listed here are known to fail and are allowed to fail in the pre-merge
+# `decompiler-gates` CI job. Everything else in `--gate pre-merge` must pass.
+#
+# This list is a ratchet in both directions. `eng/check-decompiler-gate.cs`
+# fails the job when a test fails that is NOT listed here (new breakage) and
+# also when a test listed here PASSES (the fix landed; retire the pin). A pin is
+# a dated debt with an owner, not a permanent exemption.
+#
+# Format: one fully qualified `Namespace.Class.Method` per line. Precede each
+# entry with the issue that tracks it and the date it was pinned.
+#
+# ---------------------------------------------------------------------------
+# #3489 — pinned 2026-07-29. The declaration formatter @-escapes unnamed
+# keyword-typed tuple elements, so `(int, int)` renders as `(@int, @int)` and
+# CfgSampleClass.TupleRest no longer recompiles (CS0246). Root-caused; the fix
+# is in the declaration formatter, not the decompiler.
+ILInspector.Decompiler.Tests.FidelityGateTests.PinnedFixesStayExact
+#
+# #3490 — pinned 2026-07-29. MakeConsumerWithTwoLeadingArgs shows a spurious
+# stloc/ldloc pair on the raised path. Real, and already docketed in the lowered
+# gate (LoweredFidelityGateTests.cs) against #3272; the raised docket needs the
+# same entry, or ExpressionInliningPass needs to remove both spill temps.
+ILInspector.Decompiler.Tests.FidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket
+#
+# #3491 — pinned 2026-07-29. Five of the six diffs are Roslyn local-function
+# name-mangling ordinals (`g__Name|N_K`), which encode source member position
+# and cannot match after reconstruction — no decompiler can pass that
+# comparison. The sixth (ManualConstantOnlyComparisonFactory) is a real
+# stack-slot/temporary reshape whose five siblings are already docketed.
+ILInspector.Decompiler.Tests.LoweredFidelityGateTests.NoNewFidelityDiffsBeyondKnownDocket

@@ -384,6 +384,23 @@ public class PackageCommand
                 return 0;
             }
 
+            if (options.ListVersionsWithFeed)
+            {
+                var versionFeeds = await PackageExtractor.GetVersionListingsWithSourceAsync(
+                    context.HttpClient, normalizedName, options.IncludePrerelease,
+                    options.IncludeUnlisted, options.Limit, logger.Log, options.SourceOptions);
+                if (versionFeeds == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found.");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(options, "--versions-with-feed", versionFeeds.Count, out var feedExit))
+                    return feedExit;
+                OutputFormatter.WriteVersionFeedTable(versionFeeds, options, Console.Out);
+                return 0;
+            }
+
             if (options.IncludeUnlisted)
             {
                 var listings = await PackageExtractor.GetVersionListingsAsync(

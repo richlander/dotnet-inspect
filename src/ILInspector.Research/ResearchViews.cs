@@ -384,6 +384,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
@@ -507,6 +513,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)

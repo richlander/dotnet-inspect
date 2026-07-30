@@ -145,22 +145,47 @@ public class PrintedRangeMapTests
     [Theory]
     [InlineData(nameof(AllocSampleClass.SumList))]
     [InlineData(nameof(AllocSampleClass.SumEnumerable))]
-    public void RangeText_StartsAtTheStatementOnItsOwnLine(string methodName)
+    public void RangeText_SitsAtTheExactColumnItClaims(string methodName)
     {
-        // Catches an off-by-N start: the recorded slice, once its leading indent
-        // is dropped, must be what the line at that position actually reads.
+        // Catches an off-by-N start. A statement's slice is its whole line, but an
+        // expression's is a fragment of one, so "the slice equals the line" is no
+        // longer the invariant; "the slice is at the column it claims" is, and it
+        // is the stronger check — it pins the column a caret will be drawn at,
+        // which equality of trimmed text would not.
         var (output, ranges) = Print(methodName);
         var lines = output.Replace("\r\n", "\n").Split('\n');
 
         foreach (var range in ranges)
         {
             var (start, end) = Offsets(range, output.Length);
-            string slice = output[start..end].TrimStart();
-            if (slice.Length == 0)
+            string firstSliceLine = output[start..end].Replace("\r\n", "\n").Split('\n')[0];
+            if (firstSliceLine.Trim().Length == 0)
                 continue;
+
             Assert.True(ranges.TryGetLine(range.Node, out int line));
-            string firstSliceLine = slice.Replace("\r\n", "\n").Split('\n')[0];
-            Assert.Equal(lines[line].TrimStart(), firstSliceLine);
+            int lineStart = output.LastIndexOf('\n', Math.Max(0, start - 1)) + 1;
+            int column = start - lineStart;
+
+            Assert.InRange(column, 0, lines[line].Length);
+            Assert.True(
+                column + firstSliceLine.Length <= lines[line].Length,
+                $"{range.Node.GetType().Name} claims past the end of line {line}");
+            Assert.Equal(firstSliceLine, lines[line].Substring(column, firstSliceLine.Length));
+
+            // The check above derives the column from the same offset it verifies,
+            // so a uniform shift would move both together and slip through. This
+            // does not: a range that begins or ends inside an identifier is
+            // off-by-something no matter how self-consistent its arithmetic is.
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+            string slice = output[start..end];
+            if (IsWordChar(slice[0]) && start > 0)
+                Assert.False(
+                    IsWordChar(output[start - 1]),
+                    $"{range.Node.GetType().Name} starts inside an identifier: ...{output[Math.Max(0, start - 8)..end]}");
+            if (IsWordChar(slice[^1]) && end < output.Length)
+                Assert.False(
+                    IsWordChar(output[end]),
+                    $"{range.Node.GetType().Name} ends inside an identifier: {output[start..Math.Min(output.Length, end + 8)]}...");
         }
     }
 
@@ -190,19 +215,195 @@ public class PrintedRangeMapTests
     }
 
     [Fact]
-    public void EnumerationOrder_IsEmissionCompletion_SoAncestorsFollowDescendants()
+    public void EnumerationOrder_IsPostOrder_SoAncestorsFollowDescendants()
     {
         // The documented contract. Ordering by start position is deliberately not
         // promised, so this pins what is promised instead.
-        var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
+        //
+        // Pointed at a fixture whose recorded expressions are all leaves, this
+        // only ever compares an expression against its enclosing statement, which
+        // holds for a reason unrelated to expression nesting. Nested is used so a
+        // recorded expression sits inside another recorded expression.
+        var (_, ranges) = Print(typeof(PrintedRangeExpressionFixture), nameof(PrintedRangeExpressionFixture.Nested));
 
         var position = new Dictionary<IrNode, int>();
         for (int i = 0; i < ranges.Count; i++)
             position[ranges[i].Node] = i;
 
+        int nestedPairs = 0;
         foreach (var (node, _) in ranges)
-            if (NearestRecordedAncestor(node, ranges) is { } ancestor)
-                Assert.True(position[node] < position[ancestor]);
+        {
+            if (NearestRecordedAncestor(node, ranges) is not { } ancestor)
+                continue;
+            if (node is IrExpression && ancestor is IrExpression)
+                nestedPairs++;
+            Assert.True(position[node] < position[ancestor]);
+        }
+
+        // Without this the assertion above can pass vacuously, which is exactly
+        // how parent-first recording of nested expressions went unnoticed.
+        Assert.True(nestedPairs > 0);
+    }
+
+    [Fact]
+    public void EnumerationOrder_RecordsAStatementsBodyBeforeItsCondition()
+    {
+        // Pins the *known inversion*, so that "siblings enumerate in child
+        // order" cannot quietly be believed again. The printer recurses into
+        // the block while composing the statement and records the condition
+        // only afterwards, so the then-block subtree enumerates entirely before
+        // the condition. Measured over 41,952 methods this inverts 20,145 of
+        // 222,205 sibling checks, 17,480 of them IfStatement.
+        //
+        // Two earlier sweeps reported zero violations here because a Block
+        // records no range of its own: comparing only those children that are
+        // themselves recorded never compares condition against body. Subtree
+        // extents are therefore what this compares.
+        var (_, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.GuardedReturn));
+
+        var position = new Dictionary<IrNode, int>();
+        for (int i = 0; i < ranges.Count; i++)
+            position[ranges[i].Node] = i;
+
+        var branch = Assert.Single(ranges.Select(r => r.Node).OfType<IfStatement>().Distinct());
+        var condition = Extent(branch.Condition, position);
+        var body = Extent(branch.Then, position);
+
+        Assert.True(condition.Hi >= 0, "the condition records no range at all");
+        Assert.True(body.Hi >= 0, "the body records no range at all");
+
+        // The whole body precedes the whole condition. If this ever fails, the
+        // ordering changed and the contract on PrintedRangeMap must change with it.
+        Assert.True(
+            body.Hi < condition.Lo,
+            $"expected body [{body.Lo}..{body.Hi}] entirely before condition [{condition.Lo}..{condition.Hi}]");
+    }
+
+    [Fact]
+    public void EnumerationOrder_IsPostOrderAcrossWholeSubtrees_NotJustRecordedChildren()
+    {
+        // Descendants-before-ancestors is the one thing enumeration promises, so
+        // it is checked over subtree extents rather than only over directly
+        // recorded children -- the weaker form is what hid the sibling defect.
+        var (_, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.GuardedReturn));
+
+        var position = new Dictionary<IrNode, int>();
+        for (int i = 0; i < ranges.Count; i++)
+            position[ranges[i].Node] = i;
+
+        int checks = 0;
+        foreach (var (node, _) in ranges)
+        {
+            foreach (var child in node.Children)
+            {
+                if (child is null)
+                    continue;
+                var sub = Extent(child, position);
+                if (sub.Hi < 0)
+                    continue;
+                checks++;
+                Assert.True(sub.Hi < position[node], $"{node.GetType().Name} precedes its own descendant");
+            }
+        }
+
+        Assert.True(checks > 0);
+    }
+
+    static (int Lo, int Hi) Extent(IrNode? node, Dictionary<IrNode, int> position)
+    {
+        if (node is null)
+            return (int.MaxValue, -1);
+
+        int lo = int.MaxValue, hi = -1;
+        if (position.TryGetValue(node, out int self))
+            (lo, hi) = (self, self);
+
+        foreach (var child in node.Children)
+        {
+            var sub = Extent(child, position);
+            if (sub.Hi < 0)
+                continue;
+            lo = Math.Min(lo, sub.Lo);
+            hi = Math.Max(hi, sub.Hi);
+        }
+
+        return (lo, hi);
+    }
+
+    [Fact]
+    public void ReformattedStatement_ClaimsNothing_RatherThanTheLiteralThatSurvivedTheRewrap()
+    {
+        // Uniqueness within a statement is not ownership. Emission re-breaks a
+        // too-wide fluent chain one call per line after its links were composed,
+        // so `f.Link()` no longer occurs contiguously at its own site -- while
+        // the string literal spelling it does. Searching the whole statement,
+        // the literal is then the only match, and the link claims characters
+        // inside a string: precise, confident, and wrong.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.Rewrapped));
+
+        // The rewrap has to actually happen, or this proves nothing.
+        Assert.Contains("\n", output.Trim(), StringComparison.Ordinal);
+
+        int literal = output.IndexOf("\"f.Link()\"", StringComparison.Ordinal);
+        Assert.True(literal >= 0);
+        int literalEnd = literal + "\"f.Link()\"".Length;
+
+        foreach (var range in ranges)
+        {
+            var (start, end) = Offsets(range, output.Length);
+            bool insideLiteral = start >= literal && end <= literalEnd;
+            bool isTheLiteralItself = start == literal && end == literalEnd;
+            Assert.False(insideLiteral && !isTheLiteralItself);
+        }
+    }
+
+    [Fact]
+    public void Ambiguity_IsJudgedWithinTheParent_NotAcrossTheWholeStatement()
+    {
+        // `Wrap(x) + x` spells `x` twice, so judged against the whole statement
+        // the argument inside `Wrap(...)` looks ambiguous and claims nothing.
+        // Within its parent's characters it is the only `x`, and composition
+        // order cannot confuse it with a sibling it does not live inside. The
+        // narrower window is what makes short spellings -- locals, arguments,
+        // small constants -- reachable at all.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.UniqueWithinItsParent));
+
+        var call = Assert.Single(ranges, r => r.Node is Call);
+        var (callStart, callEnd) = Offsets(call, output.Length);
+
+        var argument = Assert.Single(
+            ranges,
+            r => r.Node is LoadArgument && Offsets(r, output.Length).Start >= callStart
+                 && Offsets(r, output.Length).End <= callEnd);
+
+        var (start, end) = Offsets(argument, output.Length);
+        Assert.Equal("x", output[start..end]);
+    }
+
+    [Fact]
+    public void TargetTypedNew_ClaimsItsOwnCharacters_NotTheWholeDeclaration()
+    {
+        // `new()` is composed by the target-typed shortener rather than returned
+        // through Expression(), so it was never captured and claimed nothing --
+        // leaving a caret to underline the whole declaration. That is the first
+        // example in #3328.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.TargetTyped));
+
+        Assert.Contains("new()", output, StringComparison.Ordinal);
+
+        var creation = Assert.Single(ranges, r => r.Node is NewObject);
+        var (start, end) = Offsets(creation, output.Length);
+        Assert.Equal("new()", output[start..end]);
     }
 
     [Fact]
@@ -211,6 +412,55 @@ public class PrintedRangeMapTests
         Assert.Empty(PrintedRangeMap.Empty);
         Assert.Equal("", PrintedRangeMap.Empty.Output);
         Assert.False(PrintedRangeMap.Empty.TryGetLine(new Return(null), out _));
+    }
+
+    [Fact]
+    public void Expression_ClaimsExactlyItsOwnCharacters_NotTheWholeStatement()
+    {
+        // The reason this work exists. Only the allocation allocates, but until an
+        // expression owned characters of its own, the tightest thing anything
+        // could point at was the statement -- so a caret under
+        // `sink.Add(new object());` claimed the call allocates, which is false.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.AddOne));
+
+        var allocation = Assert.Single(ranges, r => r.Node is NewObject);
+        var (start, end) = Offsets(allocation, output.Length);
+        Assert.Equal("new object()", output[start..end]);
+
+        // Strictly inside the statement, and strictly smaller: a range equal to
+        // its statement would pass a containment check while claiming nothing new.
+        var statement = Assert.Single(ranges, r => r.Node is ExpressionStatement);
+        var (stmtStart, stmtEnd) = Offsets(statement, output.Length);
+        Assert.InRange(start, stmtStart, stmtEnd);
+        Assert.InRange(end, start, stmtEnd);
+        Assert.True(end - start < stmtEnd - stmtStart, "the expression claimed its whole statement");
+        Assert.Contains("sink.Add(new object());", output);
+    }
+
+    [Fact]
+    public void RepeatedExpression_ClaimsNothing_RatherThanGuessWhichOccurrenceIsWhich()
+    {
+        // `x + x` prints both operands identically, and composition order does not
+        // say which characters belong to which node. Recording either one would be
+        // a coin flip that reads as certainty, so neither is recorded and the
+        // consumer falls back to the statement -- exactly what it had before.
+        var (output, ranges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.TwiceTheSame));
+
+        Assert.Contains("x + x", output);
+        Assert.DoesNotContain(ranges, r => r.Node is LoadArgument);
+
+        // The gate is about ambiguity, not about arguments being unrecordable:
+        // the same node kind, printed once, does claim its characters.
+        var (singleOutput, singleRanges) = Print(
+            typeof(PrintedRangeExpressionFixture),
+            nameof(PrintedRangeExpressionFixture.OnlyOnce));
+        var argument = Assert.Single(singleRanges, r => r.Node is LoadArgument);
+        var (argStart, argEnd) = Offsets(argument, singleOutput.Length);
+        Assert.Equal("x", singleOutput[argStart..argEnd]);
     }
 
     static IrNode? NearestRecordedAncestor(IrNode node, PrintedRangeMap ranges)
@@ -233,4 +483,132 @@ public sealed class PrintedRangeChainFixture
     public PrintedRangeChainFixture(string name) => Name = name;
 
     public string Name { get; }
+}
+
+/// <summary>
+/// Statements whose interesting part is smaller than the statement. See
+/// <see cref="PrintedRangeMapTests.Expression_ClaimsExactlyItsOwnCharacters_NotTheWholeStatement"/>
+/// and <see cref="PrintedRangeMapTests.RepeatedExpression_ClaimsNothing_RatherThanGuessWhichOccurrenceIsWhich"/>.
+/// </summary>
+public static class PrintedRangeExpressionFixture
+{
+    /// <summary>The allocation is one call argument, not the whole statement.</summary>
+    public static void AddOne(List<object> sink) => sink.Add(new object());
+
+    /// <summary>Both operands print as the same characters.</summary>
+    public static int TwiceTheSame(int x) => x + x;
+
+    /// <summary>The same node kind as above, printed once, so it is unambiguous.</summary>
+    public static int OnlyOnce(int x) => x + 1;
+
+    /// <summary>
+    /// A target-typed <c>new()</c>, whose spelling the printer composes directly
+    /// rather than returning through the expression printer. Shaped as a local
+    /// declaration because that is where the shortener applies -- and it is the
+    /// exact <c>List&lt;object&gt; sink = new();</c> line from #3328.
+    /// </summary>
+    public static int TargetTyped()
+    {
+        List<object> sink = new();
+        sink.Add(1);
+        return sink.Count;
+    }
+
+    /// <summary>
+    /// Two operands that print differently, so both claim characters and their
+    /// relative order in the map is observable. <c>TwiceTheSame</c> cannot serve
+    /// here: identical spellings claim nothing.
+    /// </summary>
+    public static int TwoDistinctOperands(int x, int y) => x + y;
+
+    /// <summary>
+    /// The same ambiguity as <c>TwiceTheSame</c>, but on a line other than the
+    /// first. A one-line fixture cannot tell "fell back to the ancestor's line"
+    /// apart from "hard-coded line 0", so a test asserting the fallback needs
+    /// the answer not to be zero.
+    /// </summary>
+    public static int TwiceTheSameOnALaterLine(int x)
+    {
+        int y = x + 1;
+        return y + y;
+    }
+
+    /// <summary>
+    /// A structured statement, so the enumeration contract is exercised against
+    /// something with a <c>Block</c> child. Every other fixture here is a single
+    /// expression-bodied statement, which is precisely why the printer recording
+    /// a body before its condition went unnoticed: with no branch in any fixture,
+    /// no test ever compared a condition subtree against a body subtree.
+    /// </summary>
+    public static int GuardedReturn(int x)
+    {
+        if (x > 10)
+        {
+            return x + 1;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// A spelling that repeats across the statement but occurs once inside the
+    /// operand that contains it. Searching the whole statement, both copies of
+    /// <c>x</c> make the inner one ambiguous and it claims nothing; searching
+    /// only its parent's characters, it is unique and claims them.
+    /// </summary>
+    public static int UniqueWithinItsParent(int x) => Wrap(x) + x;
+
+    /// <summary>
+    /// A recorded expression nested inside another recorded expression, so the
+    /// enumeration-order contract is exercised against something other than a
+    /// statement. Pointed at a fixture of only leaf expressions, the order test
+    /// compares an expression against its enclosing <em>statement</em> -- which
+    /// holds trivially, and passed even while nested expressions were recorded
+    /// parent-first.
+    /// </summary>
+    public static int Nested(int x) => Wrap(Wrap(x) + 1);
+
+    static int Wrap(int v) => v;
+
+    /// <summary>
+    /// A fluent chain long enough to exceed the printer's width budget, whose
+    /// argument is a string literal spelling one of the chain's own links.
+    /// Emission re-breaks the chain one call per line <em>after</em> the links
+    /// were composed, so a link's captured spelling no longer occurs at its own
+    /// site while the literal's copy survives -- the shape that let a node claim
+    /// characters inside a string.
+    /// </summary>
+    public static ChainLink Rewrapped(ChainLink f) =>
+        f.Link()
+         .WithText("f.Link()")
+         .AppendMeasuredValueNumberOne(1)
+         .AppendMeasuredValueNumberTwo(2)
+         .AppendMeasuredValueNumberThree(3)
+         .AppendMeasuredValueNumberFour(4)
+         .AppendMeasuredValueNumberFive(5);
+}
+
+/// <summary>Chain receiver for <see cref="PrintedRangeExpressionFixture.Rewrapped"/>.</summary>
+public sealed class ChainLink
+{
+    /// <summary>The link whose spelling the literal below repeats.</summary>
+    public ChainLink Link() => this;
+
+    /// <summary>Carries the literal that repeats a link's spelling.</summary>
+    public ChainLink WithText(string text) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberOne(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberTwo(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberThree(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberFour(int v) => this;
+
+    /// <summary>Pads the chain past the width budget.</summary>
+    public ChainLink AppendMeasuredValueNumberFive(int v) => this;
 }
