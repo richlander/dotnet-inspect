@@ -117,14 +117,21 @@ public enum IlBodyDiffNormalization
     /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
     /// </para>
     /// <para>
-    /// Four checks are deliberately <em>not</em> gated, because they are
-    /// redundant fast paths rather than rules: the length floor, the leading
-    /// <c>&lt;</c> pre-check, and the <c>__</c> pre-check in
-    /// <c>Normalize</c>, and the empty-span check in
-    /// <c>IsCanonicalOrdinal</c>. Each is subsumed by a check that follows it,
-    /// so neutering one changes no observable behavior and no test can
-    /// distinguish it. They are listed here so that a future reader does not
-    /// mistake their absence from the gate list for an ungated property.
+    /// Four checks are deliberately <em>not</em> gated, and fall into two
+    /// kinds. The length floor and the marker bounds check in
+    /// <c>TryNormalizeName</c> are <em>bounds guards</em>: neutering either
+    /// makes the scan index past the end, so their failure mode is an
+    /// exception, not a collapse. They cannot mask a difference, and a test
+    /// that pinned them would be pinning an <c>IndexOutOfRangeException</c>.
+    /// The <c>__</c> pre-check in <c>Normalize</c> and the closing-angle check
+    /// in <c>TryNormalizeName</c> are <em>redundant fast paths</em>: each is
+    /// subsumed by a later check — the grammar re-derives <c>__</c> at the
+    /// marker, and a name with no closing angle leaves the marker on the
+    /// leading <c>&lt;</c>, which no marker accepts — so neutering either
+    /// changes no observable behavior and no test can distinguish it. The
+    /// empty-span check in <c>IsCanonicalOrdinal</c> is redundant in the same
+    /// way, subsumed by the parse. These are listed so that a future reader
+    /// does not mistake their absence from the gate list for an oversight.
     /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
@@ -1144,15 +1151,19 @@ public static class IlBodyDiff
 
         static string Normalize(string value, SynthesizedMemberKind kind, int depth)
         {
-            // Cheap rejects, subsumed by the grammar below rather than adding
-            // to it. The shortest recognized form is `<>9__0_0`, every form
-            // opens with '<', which C# cannot spell, and every form carries
-            // '__'. `TryNormalizeName` declines each of these on its own, so
-            // no test distinguishes their presence — they exist to skip the
-            // scan on the overwhelming majority of names, not to reject
-            // anything the grammar would otherwise accept. Widening one is
-            // therefore safe; narrowing one is not, since a form the grammar
-            // accepts must be able to reach it.
+            // Two cheap rejects plus a bounds guard. The length floor keeps
+            // the indexing below in bounds — the shortest recognized form,
+            // `<>9__0_0`, is exactly its 8 characters — so neutering it
+            // throws rather than admitting anything. The `__` pre-check is
+            // subsumed by the grammar, which re-derives it at the marker, so
+            // no test distinguishes its presence; it exists to skip the scan
+            // on the overwhelming majority of names.
+            //
+            // The leading `<` check is NOT redundant. It anchors the form to
+            // the start of the name, which is what keeps `x!<Run>b__103_0`
+            // and `x!<Run>b__128_0` — two names that differ before the
+            // synthesized part — from collapsing. It is gated by that case in
+            // `PreservesEveryOtherNameComponent`.
             if (value.Length < MinNameLength
                 || value[0] != '<'
                 || !value.Contains("__", StringComparison.Ordinal))
@@ -1196,10 +1207,15 @@ public static class IlBodyDiff
             // The enclosing name may itself be synthesized (a lambda inside a
             // lambda, or one inside top-level statements' `<Main>$`), so match
             // the '>' that closes this name rather than the first one.
+            // Subsumed by the marker check below: with no closing angle,
+            // `marker` lands on the leading '<', which no marker accepts. Kept
+            // as an explicit statement of the form's shape.
             int close = FindClosingAngle(value);
             if (close < 0)
                 return false;
 
+            // `marker + 2` is a bounds guard for the three reads that follow,
+            // not a rejection rule; neutering it indexes past the end.
             int marker = close + 1;
             if (marker + 2 >= value.Length
                 || value[marker] is not ('9' or 'b' or 'g')
