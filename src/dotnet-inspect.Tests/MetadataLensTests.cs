@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -21,15 +22,19 @@ public partial class CommandExecutionTests
     private const string MetadataHeadingPrefix = "## " + MetadataSectionNames.Prefix;
 
     /// <summary>
-    /// The registered section set is derived from <see cref="MetadataTableProjector.ProjectedTables"/>,
-    /// not restated. This asserts <em>set equality</em> so both failure directions are caught: a
-    /// table added to the projector without a section, and a section left behind by a table the
-    /// projector dropped. Without the equality a stale entry would pass unnoticed.
+    /// The registered section set is derived from
+    /// <see cref="MetadataTableProjector.ProjectedTables"/> and
+    /// <see cref="MetadataHeapCoordinate.Heaps"/>, not restated. This asserts <em>set equality</em>
+    /// so both failure directions are caught: a table or heap gaining no section, and a section
+    /// left behind by one that was dropped. Without the equality a stale entry would pass
+    /// unnoticed.
     /// </summary>
     [Fact]
     public void MetadataLens_RegisteredSections_EqualProjectedTables()
     {
-        var expected = new[] { MetadataSectionNames.Image }
+        var expected = new[] { MetadataSectionNames.Image, MetadataSectionNames.Heap }
+            .Concat(MetadataHeapCoordinate.Heaps.Select(
+                h => MetadataSectionNames.Prefix + MetadataHeapCoordinate.StreamName(h)))
             .Concat(MetadataTableProjector.ProjectedTables.Select(t => MetadataSectionNames.Prefix + t))
             .ToHashSet(StringComparer.Ordinal);
 
@@ -500,6 +505,477 @@ public partial class CommandExecutionTests
         static string Normalize(string output) => string.Join(
             '\n',
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')));
+    }
+
+    // ---- --heap coordinate carrier and heap listings (#3467) ------------------------------
+
+    /// <summary>
+    /// The coordinate carrier resolves one heap value and renders it under the section name.
+    ///
+    /// Also the honesty check for the two discoverability gates below: the section really does
+    /// produce output when a coordinate is given, so their absence assertions measure gating
+    /// rather than a section that never renders.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_HeapCoordinate_RendersTheValueAtThatAddress()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", "#Strings:1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
+        Assert.Contains("| #Strings | 1 |", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A coordinate is a coordinate however it is spelled: the ECMA-335 stream name and the
+    /// HeapKind member name, hex and decimal, all address the same entry. Asserted by rendering
+    /// the same value four ways rather than by unit-testing the parser, so the equivalence holds
+    /// through the command surface and not just inside it.
+    /// </summary>
+    [Theory]
+    [InlineData("#Strings:1")]
+    [InlineData("String:1")]
+    [InlineData("Strings:0x1")]
+    [InlineData("#Strings:0x01")]
+    public async Task MetadataLens_HeapCoordinate_AcceptsEverySpelling(string coordinate)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", coordinate, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("#Strings\t1\t", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The acceptance property of #3467: the coordinate-scoped section is discoverable exactly
+    /// when its coordinate exists. Both directions are asserted in one test because either alone
+    /// passes trivially — a section that is never listed satisfies the first, and one that is
+    /// always listed satisfies the second.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_HeapSection_IsDiscoverableOnlyWithItsCoordinate()
+    {
+        var (withoutExit, withoutOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, withoutExit);
+        Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
+
+        var (withExit, withOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--heap", "#Strings:1", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, withExit);
+        Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(withOutput));
+    }
+
+    /// <summary>
+    /// Naming the coordinate section without a coordinate is an error, not an empty section: the
+    /// caller asked for something specific that cannot exist, and silently rendering nothing would
+    /// read as "this assembly has no heaps".
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_HeapSection_WithoutCoordinate_IsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Heap, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--heap", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reaching the coordinate section through the <c>@Metadata</c> door without a coordinate is
+    /// not an error — a category selection asks for whatever applies — so the rest of the family
+    /// still renders. This is the negative case that keeps the rejection above from being a blanket
+    /// refusal.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_CategoryDoor_WithoutHeapCoordinate_StillRenders()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionCategoryNames.Metadata, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Metadata: Image", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(MetadataSectionNames.Heap, output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A malformed coordinate is rejected before any assembly is read, and the diagnostic names
+    /// the half that is wrong rather than the whole coordinate.
+    /// </summary>
+    [Theory]
+    [InlineData("#Strings", "not a heap reference")]
+    [InlineData("#Nope:1", "unknown heap")]
+    [InlineData("#Strings:zz", "not a heap address")]
+    // Reported by adversarial review of #3497: NumberStyles.AllowHexSpecifier on a signed int
+    // wraps, so this parsed as -2147483648, reached the heap read, and rendered a malformed cell
+    // while still exiting 0. Asserted through the command surface because the exit code was the
+    // part that was wrong.
+    [InlineData("#Strings:0x80000000", "not a heap address")]
+    public async Task MetadataLens_MalformedHeapCoordinate_NamesTheHalfThatIsWrong(
+        string coordinate, string expected)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", coordinate, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(expected, error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A string-heap listing renders the values rows point at, and says so. The caveat is asserted
+    /// because it is the load-bearing half: without it a referenced-values listing reads as a walk
+    /// of the heap, which SRM cannot do and this does not claim to.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_StringHeapListing_MarksItselfReferencedOnly()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.String),
+            "--rows", "5", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
+        Assert.Contains("not a walk of the heap", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The GUID heap is the one heap that can be listed completely, because its entries are
+    /// fixed-size records. The entry count is asserted against the heap size the image scan
+    /// reports, so a listing that silently stopped short would fail.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_GuidHeapListing_ListsEveryEntry()
+    {
+        using var session = AssemblyInspectionSession.Open(TestAssemblyPath);
+        var overview = session.MetadataImage();
+        Assert.NotNull(overview);
+        int expected = overview!.Heaps.Single(h => h.Heap == HeapKind.Guid).MaxAddress;
+        Assert.True(expected > 0, "The test assembly must store at least one GUID for this gate to mean anything.");
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.Guid),
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(expected.ToString(), output.Trim());
+    }
+
+    /// <summary>
+    /// The user-string heap lists nothing and says why. This is the case a listing must not
+    /// fake: no table column points into #US, so an empty table here is a blind spot, and rendering
+    /// it without the explanation would report a populated heap as empty.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_UserStringHeapListing_ExplainsWhyItIsEmpty()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.UserString), "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Metadata: #US", output, StringComparison.Ordinal);
+        Assert.Contains("ldstr", output, StringComparison.Ordinal);
+        Assert.Contains("cannot be walked", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The heap listings join the disclosure gate: they are the largest amplification surface in
+    /// the projection, so no verbosity and no <c>-S @All</c> may render one.
+    /// </summary>
+    [Theory]
+    [InlineData("-v:q")]
+    [InlineData("-v:d")]
+    public async Task MetadataLens_NoVerbosity_RendersAnyHeapListing(string verbosity)
+    {
+        foreach (var args in new[]
+                 {
+                     new[] { "library", TestAssemblyPath, verbosity, "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", "@All", "--tips", "q" },
+                 })
+        {
+            var (exit, output, _) = await RunAppAsync(args);
+
+            Assert.Equal(0, exit);
+            foreach (var heap in MetadataHeapCoordinate.Heaps)
+                Assert.DoesNotContain("## " + MetadataSectionNames.ForHeap(heap), output, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// A well-formed coordinate that does not resolve is an error, not a successful render
+    /// containing a malformed cell. Reported by adversarial review of #3497, which observed exit 0
+    /// with a <c>!malformed</c> row — and, worse, <c>-D</c> still advertising the section.
+    ///
+    /// The distinction the product draws: a bad heap reference inside a projected table row is a
+    /// fact about the image and renders as <c>!malformed</c>; a coordinate is the caller's own
+    /// input naming one thing that does not exist. <c>--il-offset</c> already exits 1 here.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_UnresolvableHeapCoordinate_IsAnErrorNotAMalformedRow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", "#Strings:999999999", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("#Strings", error, StringComparison.Ordinal);
+        Assert.Contains("999999999", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
+
+        // Discovery must not advertise a section the coordinate cannot produce.
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, discoverExit);
+        Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(discoverOutput));
+    }
+
+    /// <summary>
+    /// A cached <c>-D</c> catalog must not short-circuit coordinate resolution. Reported by
+    /// adversarial review of #3497: the cache <em>write</em> sites were guarded by
+    /// <c>HasHeapCoordinate</c> but the <em>read</em> sites were not, so a warm cache returned a
+    /// stale catalog and exit 0 — silently skipping the resolution that would have rejected the
+    /// coordinate. Priming twice is what makes this a cache-hit test rather than a cold-path one.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_CachedDiscovery_DoesNotBypassHeapCoordinateResolution()
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            var (primeExit, _, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "-D", "--tsv", "--tips", "q");
+            Assert.Equal(0, primeExit);
+        }
+
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("999999999", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The point of #3468: a hex table index addresses the same section as its name. A reader who
+    /// has a raw index in hand — from a spec table, a token dump, or another tool — should not
+    /// have to translate it before selecting.
+    ///
+    /// The rendered heading must be the <em>canonical</em> one. The alias rewrites the input, so
+    /// there is exactly one section and one spelling of it in the output; a hex alias registered
+    /// as its own section would have produced a second heading that sorted and counted
+    /// independently.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_HexTableSelection_RendersTheCanonicalSection()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## " + MetadataSectionNames.ForTable(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef), output, StringComparison.Ordinal);
+        Assert.DoesNotContain("0x02", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hex and name are the same selector, not merely two selectors that both work: identical
+    /// output, and identical <c>--count</c>. Comparing whole documents is what would catch an
+    /// alias that reached the right rows through a different section identity.
+    ///
+    /// The lowercase and uppercase prefixes are here because section matching is case-insensitive
+    /// everywhere else in this CLI, so the alias must be too — a case-sensitive prefix check would
+    /// make <c>metadata: 0x02</c> the one spelling that silently stopped working. Adversarial
+    /// review of #3510 found that gap by mutation.
+    /// </summary>
+    [Theory]
+    [InlineData("Metadata: 0x02")]
+    [InlineData("Metadata: 0x2")]
+    [InlineData("Metadata: 0X02")]
+    [InlineData("metadata: 0x02")]
+    [InlineData("METADATA: 0x2")]
+    public async Task MetadataLens_HexTableSpellings_AreTheNameSelector(string hex)
+    {
+        var (hexExit, hexOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", hex, "--rows", "5", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--rows", "5", "--tips", "q");
+
+        Assert.Equal(0, hexExit);
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+
+        var (hexCount, hexCountOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", hex, "--count", "--tips", "q");
+        var (nameCount, nameCountOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--count", "--tips", "q");
+
+        Assert.Equal(0, hexCount);
+        Assert.Equal(nameCount, hexCount);
+        Assert.Equal(nameCountOutput, hexCountOutput);
+    }
+
+    /// <summary>
+    /// Selecting both spellings at once selects one section, not two. This is the property that a
+    /// second registered section would break while every single-spelling test above still passed.
+    ///
+    /// The hex-alone precondition is what keeps this non-vacuous: without it, an implementation
+    /// that simply ignored the hex selector would also produce one heading and pass. Mutation
+    /// testing found exactly that hole.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BothTableSpellings_SelectOneSection()
+    {
+        var (aloneExit, aloneOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+        Assert.Equal(0, aloneExit);
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, output.Split('\n').Count(l => l.StartsWith("## ", StringComparison.Ordinal)));
+        Assert.Equal(aloneOutput, output);
+    }
+
+    /// <summary>
+    /// A bad hex index fails the whole run even alongside a selector that does match — a
+    /// deliberate divergence from the unknown-<em>name</em> rule, which tolerates a miss when
+    /// something else matched.
+    ///
+    /// The tolerance rule exists for names that may exist in one inspected assembly and not
+    /// another. A hex index outside the projection is not that: no image can ever supply it, so
+    /// tolerating it would silently drop a selector the caller definitely got wrong. This matches
+    /// the <c>--heap</c> coordinate rule, where input that names nothing is exit 1.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BadHexTable_FailsEvenBesideAMatchingSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Metadata: 0x99", "-S", "Metadata: TypeDef", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Metadata: 0x99", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## ", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Discovery answers in canonical names only. The hex form is an input alias, so advertising
+    /// it would double the catalog and imply two sections exist. <c>-D</c> on a hex selector still
+    /// works — it is the same selector — and returns exactly the name form's answer.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Discovery_AnswersInCanonicalNamesOnly()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(DiscoveryNames(output), n => n.Contains("0x", StringComparison.OrdinalIgnoreCase));
+
+        var (hexExit, hexOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, hexExit);
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
+    /// <summary>
+    /// A hex index the projection does not cover is rejected with a diagnostic that names what is
+    /// available, and exits 1 — the same treatment a coordinate that names nothing gets. Silently
+    /// rendering nothing would read as "this table is empty in this image", which is a different
+    /// and wrong claim.
+    ///
+    /// <c>0x02000015</c> is the close negative: it is a well-formed metadata <em>token</em>, whose
+    /// high byte is the table this test's sibling accepts. A token addresses a row, not a table,
+    /// so it must not resolve.
+    ///
+    /// The cases whose value <em>fits</em> in a byte are the ones that matter. Adversarial review
+    /// of #3510 found that a numeric-range check alone accepted <c>0x00000001</c> — a Module row
+    /// token — as table <c>0x01</c>, TypeRef, because 1 fits in a byte. <c>0x02000015</c> was
+    /// being rejected for overflowing, not for being a token, so it never covered the rule it was
+    /// written for. Width is now checked textually: a table index is one byte, hence one or two
+    /// hex digits, so <c>0x0002</c> is not a table index either.
+    /// </summary>
+    [Theory]
+    [InlineData("Metadata: 0x99")]
+    [InlineData("Metadata: 0x03")]
+    [InlineData("Metadata: 0x02000015")]
+    [InlineData("Metadata: 0x00000001")]
+    [InlineData("Metadata: 0x02000002")]
+    [InlineData("Metadata: 0x80000002")]
+    [InlineData("Metadata: 0x0002")]
+    [InlineData("Metadata: 0x002")]
+    [InlineData("Metadata: 0x")]
+    [InlineData("Metadata: 0xzz")]
+    [InlineData("metadata: 0x99")]
+    public async Task MetadataLens_UnprojectedHexTable_IsRejected(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", selector, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(selector, error, StringComparison.Ordinal);
+        Assert.Contains("0x02 TypeDef", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## ", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hex must carry its <c>0x</c>. A bare <c>02</c> is a table <em>name</em> position, and
+    /// inferring a radix would let one spelling mean two things; the rule matches
+    /// <c>--heap</c>'s address rule. It fails as an unknown section name, not as a bad index.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BareDigits_AreNotATableIndex()
+    {
+        var (exit, _, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 02", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+    }
+
+    /// <summary>
+    /// The alias must be resolved before <em>every</em> reader of a selector, including the static
+    /// <c>-D --schema</c> path that returns early without loading the assembly at all.
+    ///
+    /// Reported by adversarial review of #3510: the normalizer originally sat below that early
+    /// return, so <c>-D "Metadata: 0x02" --schema</c> answered "not found" while the
+    /// effective-discovery path — which runs later — resolved the same selector. The gate above
+    /// missed it precisely because it supplied an input source and so took the later path.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_StaticSchemaDiscovery_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--schema", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--schema", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
+    /// <summary>
+    /// The same early return is also taken when no input source is given at all, so the alias has
+    /// to hold on a selector that is never matched against a real image.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_DiscoveryWithoutAnAssembly_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
     }
 
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
