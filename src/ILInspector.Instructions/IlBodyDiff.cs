@@ -94,6 +94,21 @@ public enum IlBodyDiffNormalization
     /// are types rather than members. Each of these costs a false positive,
     /// never a masked difference.
     /// </para>
+    /// <para>
+    /// Every property claimed above is enforced by a gate in
+    /// <c>IlBodyDiffNormalizationTests</c>, each of which asserts the two
+    /// names differ <em>without</em> the option as well as agreeing (or still
+    /// differing) with it, so none can pass vacuously:
+    /// <c>ToleratesContainingMethodRenumbering</c> and
+    /// <c>ToleratesRenumberingOfALambdaCacheField</c> for what is related,
+    /// <c>PreservesEveryOtherNameComponent</c> for the components that stay
+    /// significant and the anchoring, <c>RejectsAFieldFormOnAMethod</c> and
+    /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence,
+    /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
+    /// ordinal spelling, <c>LeavesTypeOperandsAlone</c> and
+    /// <c>PreservesSynthesizedLikeStringLiterals</c> for the scope, and
+    /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
+    /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
 }
@@ -831,6 +846,15 @@ public static class IlBodyDiff
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
         {
             var member = reader.GetMemberReference(handle);
+
+            // Same check as the direct member-reference path. A method
+            // specification can name a member reference that is actually a
+            // field, and without this the generic-instantiation path would
+            // normalize a method-form name on a field. Gated by
+            // IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_RejectsAMethodFormBehindAMethodSpecificationOnAField.
+            if (member.GetKind() != MemberReferenceKind.Method)
+                throw new BadImageFormatException("Expected method member reference.");
+
             var signature = GuardedProviderDecode.TryMemberRefMethod(
                 reader,
                 member,
@@ -1164,7 +1188,9 @@ public static class IlBodyDiff
             // Roslyn emits the cache form `<>9__N_M` only as a field and the
             // lambda and local-function forms only as methods. Holding names to
             // that correspondence keeps a *method* named `<>9__1_0` — which no
-            // C# compiler emits — comparing literally.
+            // C# compiler emits — comparing literally. Gated by
+            // IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_RejectsAFieldFormOnAMethod
+            // and ..._RejectsAMethodFormOnAField.
             var markerKind = value[marker] == '9' ? SynthesizedMemberKind.Field : SynthesizedMemberKind.Method;
             if (kind != markerKind)
                 return false;
@@ -1242,6 +1268,13 @@ public static class IlBodyDiff
         /// two names that no compiler produced and that nothing else relates.
         /// Requiring the canonical encoding costs at most a false positive on
         /// such a name, which is the safe direction.
+        /// <para>
+        /// Gated by
+        /// <c>IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent</c>
+        /// (leading zeros in either index, and an ordinal wider than
+        /// <see cref="int"/>) and
+        /// <c>..._RejectsANonCanonicalCacheFieldOrdinal</c> for the field form.
+        /// </para>
         /// </remarks>
         static bool IsCanonicalOrdinal(string value, int start, int end)
         {

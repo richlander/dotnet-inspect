@@ -490,6 +490,102 @@ public class IlBodyDiffNormalizationTests
             BuildCallImage("Same", "Library.Probe", newMemberName),
             normalization);
 
+    /// <summary>
+    /// The kind check must hold on <em>every</em> member-reference path, not
+    /// only the direct ones. A <c>MethodSpecification</c> can name a
+    /// <c>MemberReference</c> that is actually a field — malformed, but a
+    /// shape untrusted metadata can carry — and the generic-instantiation
+    /// formatter reaches the name through its own code path. Without a kind
+    /// check there, a method-form name on a field normalizes and two
+    /// unrelated members collapse.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_RejectsAMethodFormBehindAMethodSpecificationOnAField()
+    {
+        Assert.False(CompareImages(
+            BuildMethodSpecificationOverFieldReferenceImage("Same", "<Run>b__103_0"),
+            BuildMethodSpecificationOverFieldReferenceImage("Same", "<Run>b__128_0"),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// Builds a body whose call target is a <c>MethodSpecification</c> naming
+    /// a <c>MemberReference</c> that carries a <em>field</em> signature.
+    /// </summary>
+    static byte[] BuildMethodSpecificationOverFieldReferenceImage(string assemblyName, string memberName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var reference = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Library.Probe"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var type = metadata.AddTypeReference(
+            reference,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Probe"));
+        var fieldReference = metadata.AddMemberReference(
+            type,
+            metadata.GetOrAddString(memberName),
+            metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 }));
+        var spec = metadata.AddMethodSpecification(
+            fieldReference,
+            metadata.GetOrAddBlob(new byte[] { 0x0a, 0x01, 0x08 }));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+        encoder.Call(spec);
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(encoder);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static IlBodyDiffResult CompareFieldNames(
         string oldMemberName,
         string newMemberName,
