@@ -4162,14 +4162,19 @@ public partial class CommandExecutionTests
         Assert.Equal(2, jsonlOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
 
         // The window is absolute, so it names rows 2 and 3 of the section rather than the first
-        // two, and the header survives it.
+        // two, and the header survives it. Derive that expectation from the unwindowed render so
+        // the assertion pins the windowing semantics rather than this package's field list.
+        var (fullTsvExit, fullTsvOutput, _) = await RunAppAsync(
+            "package", Package, "-S", "Package Info", "--tsv", "--tips", "q");
+        Assert.Equal(0, fullTsvExit);
+        var fullTsvLines = fullTsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(fullTsvLines.Length > 3, "The section must have at least three data rows for the window to exclude one.");
+
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "package", Package, "-S", "Package Info", "--rows", "2..3", "--tsv", "--tips", "q");
         Assert.Equal(0, tsvExit);
         var tsvLines = tsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(3, tsvLines.Length);
-        Assert.StartsWith("Built\t", tsvLines[1], StringComparison.Ordinal);
-        Assert.StartsWith("Content\t", tsvLines[2], StringComparison.Ordinal);
+        Assert.Equal<string>([fullTsvLines[0], fullTsvLines[2], fullTsvLines[3]], tsvLines);
     }
 
     [Fact]
