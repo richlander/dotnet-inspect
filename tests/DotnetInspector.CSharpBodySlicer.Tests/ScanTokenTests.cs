@@ -768,8 +768,12 @@ public class ScanTokenTests
         // would again describe the intended input rather than the scanned one.
         // The tail is read back the same way. Its alphabet holds no whitespace, so the line's
         // tokens cover it exactly and concatenating them reconstructs what the scanner consumed.
-        var openersScanned = new HashSet<string>();
-        var tailsScanned = new HashSet<string>();
+        //
+        // The two are recorded as a PAIR rather than as two sets, because separate sets pin only
+        // the margins: substituting a fixed tail for one opener alone kept both margins complete
+        // and stopped the multi-dollar opener ever meeting the tail that reaches the short-brace
+        // branch (adversarial review, GPT).
+        var scannedPairs = new HashSet<(string Opener, string Tail)>();
 
         foreach (string opener in openers)
         {
@@ -780,9 +784,9 @@ public class ScanTokenTests
                 var opened = tokens.Single(t => t.Line == 2);
                 var first = tokens.First(t => t.Line == 3);
 
-                openersScanned.Add(opened.TextIn(lines[2]).ToString().TrimStart());
-                tailsScanned.Add(string.Concat(
-                    tokens.Where(t => t.Line == 3).Select(t => t.TextIn(lines[3]).ToString())));
+                scannedPairs.Add((
+                    opened.TextIn(lines[2]).ToString().TrimStart(),
+                    string.Concat(tokens.Where(t => t.Line == 3).Select(t => t.TextIn(lines[3]).ToString()))));
 
                 Assert.Equal(
                     (ScanTokenKind.StringLiteral, 1, 1),
@@ -790,8 +794,9 @@ public class ScanTokenTests
             }
         }
 
-        Assert.Equal(openers.Order(), openersScanned.Order());
-        Assert.Equal(tails.Order(), tailsScanned.Order());
+        Assert.Equal(
+            (from opener in openers from tail in tails select (opener, tail)).Order(),
+            scannedPairs.Order());
     }
 
     /// <summary>
