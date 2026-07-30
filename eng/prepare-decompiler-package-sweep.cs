@@ -386,8 +386,27 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
     return;
 }
 
-HttpClientFactory.Initialize();
-NuGetCache.Initialize("dotnet-inspect");
+// The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
+// honored here so a caller can point this sweep at a cache of its own. Without them the
+// sweep reaches the developer's shared caches and the network unconditionally, which is
+// why its two central properties -- that the pin binds, and that the copies land where
+// told -- could only ever be evidenced by hand-run probes (#3560). This is not a test
+// backdoor: it is one program catching up to a convention the rest of the tool follows,
+// with the CLI's meanings unchanged. An isolated session skips the shared NuGet cache
+// and, absent an explicit directory, gets its own. Reading them costs nothing when they
+// are unset, which is the case for every real sweep.
+bool offline = string.Equals(
+    Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1", StringComparison.Ordinal);
+string? sessionName = Environment.GetEnvironmentVariable("DOTNET_INSPECT_ISOLATED");
+if (string.IsNullOrWhiteSpace(sessionName))
+    sessionName = null;
+bool isolated = sessionName != null;
+string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");
+if (isolated && cacheBasePath == null)
+    cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
+
+HttpClientFactory.Initialize(offline);
+NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
 
 // Counted where a package reaches the outcome its mode expects, not where it fails
 // to. An incident counter has to be remembered at every failure site and silently

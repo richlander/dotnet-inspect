@@ -1,0 +1,520 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using DotnetInspector.Packages;
+using Xunit;
+
+namespace ILInspector.Decompiler.Tests;
+
+/// <summary>
+/// The two properties the EVIL pool's version pin exists to provide, run rather than read.
+///
+/// <para><see cref="EvilPoolPinTests"/> gates the pin as a <em>file</em> -- its shape, its
+/// encoding, the bounds on reading it, the words the sweep refuses it in. None of that
+/// runs a sweep, so neither of the properties the pinning work was done for was watched by
+/// anything (#3560):</para>
+///
+/// <list type="bullet">
+/// <item>the sweep pools the exact bytes <c>nuget-top-packages.lock.json</c> names, and
+/// fails rather than pool anything else;</item>
+/// <item>the assembly copies put those bytes at the right path inside the output
+/// directory, without writing through whatever is already there, and every package whose
+/// copy fails is counted as failed rather than dropping out of the pool and out of the
+/// total owed together.</item>
+/// </list>
+///
+/// <para>Both were evidenced only by probes run by hand and recorded on #3434, which no
+/// future change re-runs. That mattered: the two most serious defects sixteen rounds of
+/// review found were both here. A pin that described the <em>request</em> rather than the
+/// bytes let a poisoned cache entry satisfy it, and <c>File.Copy</c> wrote an assembly
+/// through a symlink planted at the destination while the sweep exited 0. Every case below
+/// is one of those probes, kept.</para>
+///
+/// <para>These run a real sweep and are still hermetic. The sweep resolves its inputs from
+/// the repository root above its working directory, so a directory holding a
+/// <c>dotnet-inspect.slnx</c> and a <c>docs/data</c> feeds a real run a one-package list
+/// and pin of this suite's choosing -- no product path override is involved. It is pointed
+/// at a scratch cache holding one synthetic package and told to stay offline, so it reads
+/// no shared cache and opens no socket. Offline is what keeps that honest: a case that
+/// stopped being served from the seeded cache would reach for the network and fail here
+/// rather than quietly passing on whatever the machine happened to have.</para>
+/// </summary>
+[Trait("Area", "Corpus")]
+public class EvilPoolSweepGateTests
+{
+    const string FixturePackage = "sweep.fixture";
+    const string FixtureVersion = "1.0.0";
+    const string FixtureTfm = "net8.0";
+    const string FixtureAssembly = "Sweep.Fixture.dll";
+
+    /// <summary>
+    /// A sweep whose pin matches the cache pools those bytes, at the path the manifest
+    /// says, and leaves nothing behind.
+    ///
+    /// <para>This is the case every other one below is a deviation from. It is also what
+    /// stops those cases passing for the wrong reason: a harness that could not produce a
+    /// successful sweep at all would report every refusal as correct.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepPoolsTheBytesThePinNames()
+    {
+        using var world = SweepWorld.Create();
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a pin naming the cached bytes"));
+
+        string pooled = Path.Combine(
+            world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
+        Assert.True(File.Exists(pooled), $"the sweep exited 0 without pooling '{pooled}'");
+        Assert.Equal(world.FixtureSha256, Sha256Of(pooled));
+
+        // The pool is only reproducible if what the sweep reports is what it wrote.
+        Assert.Equal(pooled, File.ReadAllText(world.PooledListPath).Trim());
+        var manifested = JsonNode.Parse(File.ReadAllText(world.ManifestPath))!;
+        var entry = manifested["Packages"]!.AsArray()[0]!;
+        Assert.Equal("selected", entry["Status"]!.GetValue<string>());
+        Assert.Equal(world.FixtureSha256, entry["Sha256"]!.GetValue<string>());
+
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// Bytes the pin does not name are refused, and are not left in the pool.
+    ///
+    /// <para>The defect this replays: the pin recorded a version and a TFM, which describe
+    /// what the sweep <em>asks</em> the cache for, and the cache is a directory anything
+    /// can write to. Answering with a different assembly satisfied both. Swapping the
+    /// cached file for other bytes here is exactly that -- the request is untouched and
+    /// only the answer changes -- so only a check over the bytes themselves can refuse
+    /// it.</para>
+    ///
+    /// <para>Refusing is half of it. A rejected assembly left in the output directory
+    /// would be pooled by everything downstream, which reads the directory.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesBytesThePinDoesNotName()
+    {
+        using var world = SweepWorld.Create();
+        byte[] impostor = [.. world.FixtureBytes, 0];
+        File.WriteAllBytes(world.CachedAssemblyPath, impostor);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a cache answering with other bytes"));
+        Assert.Contains(world.FixtureSha256, sweep.Output + sweep.Errors, StringComparison.Ordinal);
+        Assert.Contains(Sha256Of(impostor), sweep.Output + sweep.Errors, StringComparison.Ordinal);
+
+        Assert.Empty(PooledAssemblies(world.OutputDirectory));
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A pin naming a TFM the package does not carry is refused.
+    ///
+    /// <para>Gated because this check was silently off for a year of the pin's life: the
+    /// comparison was guarded by <c>pin.Tfm is not null</c>, so a null TFM matched
+    /// anything. A pin that binds the version but not the framework pools a different
+    /// assembly out of the same package.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesATfmThePinDoesNotName()
+    {
+        using var world = SweepWorld.Create(tfm: "net10.0");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pin naming a TFM the package lacks"));
+        Assert.Contains("net10.0", sweep.Output + sweep.Errors, StringComparison.Ordinal);
+        Assert.Empty(PooledAssemblies(world.OutputDirectory));
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A pin naming a version that is not there is refused rather than served by whatever
+    /// is.
+    ///
+    /// <para>The version in the pin is the coordinate the sweep acquires at, so this is
+    /// the property that a pinned pool is a pinned pool: asked for a version the cache
+    /// does not hold, a sweep must come up short rather than fall back to the version it
+    /// does hold. Falling back is how the pool drifted before it was pinned.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesAVersionThePinDoesNotName()
+    {
+        using var world = SweepWorld.Create(version: "9.9.9");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pin naming an absent version"));
+        Assert.Empty(PooledAssemblies(world.OutputDirectory));
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// Something planted at a destination is replaced, not written through.
+    ///
+    /// <para>This is the round-sixteen defect, kept. The three metadata writes had been
+    /// hardened and the ninety-one assembly copies had not, so a bare
+    /// <c>File.Copy(overwrite: true)</c> opened the destination, followed a symlink at it,
+    /// and turned a file outside the output directory into a copy of a .NET assembly at
+    /// exit 0. Nothing downstream could notice: the hash is taken over the destination,
+    /// and reading back through the same link returns the bytes that were written.</para>
+    ///
+    /// <para>So the assertion is not about the sweep's exit code -- the sweep is entitled
+    /// to succeed here, and does. It is that the file outside the output directory still
+    /// holds its own bytes, and that what the sweep pooled is a real file rather than a
+    /// link to somewhere else.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepReplacesWhatIsPlantedAtItsDestinationRatherThanWritingThroughIt()
+    {
+        using var world = SweepWorld.Create();
+
+        string outsider = Path.Combine(world.Scratch, "outside.txt");
+        const string Sentinel = "bytes that belong to someone else";
+        File.WriteAllText(outsider, Sentinel);
+
+        string destination = Path.Combine(
+            world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (!TryPlantSymbolicLink(destination, outsider))
+            return;
+
+        var sweep = world.Run();
+
+        Assert.Equal(Sentinel, File.ReadAllText(outsider));
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a symlink planted at the destination"));
+
+        // Replaced, so the pooled path is the assembly itself rather than a way back out
+        // to the file above -- which would read as correct while pooling nothing.
+        Assert.Null(new FileInfo(destination).LinkTarget);
+        Assert.Equal(world.FixtureSha256, Sha256Of(destination));
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A package whose copy fails is counted as failed.
+    ///
+    /// <para>The family that produced findings in four consecutive review rounds was a
+    /// package dropping out of the pool and out of the total owed at the same time, so the
+    /// two cancelled and a short pool exited 0. A copy that cannot be written is the last
+    /// place that can happen, and the one furthest from the pin, which is why an
+    /// unwritable destination is the case here.</para>
+    ///
+    /// <para>The temporary matters as much as the exit code. Writes go to a fresh sibling
+    /// and are renamed onto the destination, so a failure that leaves the sibling behind
+    /// leaves a partial assembly in the output directory for a later run to hash.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepCountsAPackageWhoseCopyFailedAsFailed()
+    {
+        using var world = SweepWorld.Create();
+
+        string destinationDirectory = Path.Combine(
+            world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion);
+        Directory.CreateDirectory(destinationDirectory);
+        if (!TryMakeUnwritable(destinationDirectory))
+            return;
+
+        try
+        {
+            var sweep = world.Run();
+
+            Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a destination that cannot be written"));
+            Assert.Empty(PooledAssemblies(world.OutputDirectory));
+
+            // Reported as this package failing, not as a pool that was simply smaller.
+            var manifested = JsonNode.Parse(File.ReadAllText(world.ManifestPath))!;
+            Assert.Equal(0, manifested["SelectedPackageCount"]!.GetValue<int>());
+            Assert.NotEqual("selected", manifested["Packages"]!.AsArray()[0]!["Status"]!.GetValue<string>());
+        }
+        finally
+        {
+            RestoreWritable(destinationDirectory);
+        }
+
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
+        Directory.Exists(Path.Combine(outputDirectory, "packages"))
+            ? Directory.GetFiles(Path.Combine(outputDirectory, "packages"), "*.dll", SearchOption.AllDirectories)
+            : [];
+
+    static string Sha256Of(string path) => Sha256Of(File.ReadAllBytes(path));
+
+    static string Sha256Of(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    /// <summary>
+    /// Plants a symlink, or returns false where the platform will not make one. Returning
+    /// false drops the case rather than weakening it: on Windows an unprivileged process
+    /// cannot create a symlink, and a case that quietly asserted something else would be
+    /// worse than a case that did not run.
+    /// </summary>
+    static bool TryPlantSymbolicLink(string path, string target)
+    {
+        try
+        {
+            File.CreateSymbolicLink(path, target);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Makes a directory refuse new files, or returns false where that cannot be arranged.
+    /// Unix mode bits are the only mechanism here; on Windows this case does not run.
+    /// </summary>
+    static bool TryMakeUnwritable(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        return true;
+    }
+
+    /// <summary>
+    /// Undoes <see cref="TryMakeUnwritable"/>, so the scratch directory can be deleted.
+    /// </summary>
+    static void RestoreWritable(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        File.SetUnixFileMode(
+            directory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    /// <summary>
+    /// A repository root, a package list, a pin, a cache holding one package, and an output
+    /// directory -- everything one sweep reads and writes, all of it scratch.
+    ///
+    /// <para>The cache is seeded through <see cref="NuGetCache.CommitPackage"/> rather than
+    /// by writing the directories directly. The layout of a committed package, including
+    /// the marker that makes it count as committed, belongs to the product; a harness that
+    /// laid it out itself would be a second implementation of it, and would keep passing
+    /// after the product's own layout moved.</para>
+    /// </summary>
+    sealed class SweepWorld : IDisposable
+    {
+        SweepWorld(string scratch, string cacheDirectory, byte[] fixtureBytes)
+        {
+            Scratch = scratch;
+            CacheDirectory = cacheDirectory;
+            FixtureBytes = fixtureBytes;
+            FixtureSha256 = Sha256Of(fixtureBytes);
+        }
+
+        public string Scratch { get; }
+
+        public string CacheDirectory { get; }
+
+        public byte[] FixtureBytes { get; }
+
+        /// <summary>The hash of the assembly the pin names, and the only correct pool.</summary>
+        public string FixtureSha256 { get; }
+
+        public string FakeRoot => Path.Combine(Scratch, "root");
+
+        public string OutputDirectory => Path.Combine(Scratch, "pool");
+
+        public string ManifestPath => Path.Combine(OutputDirectory, "manifest.json");
+
+        public string PooledListPath => Path.Combine(OutputDirectory, "assemblies.txt");
+
+        /// <summary>
+        /// The fixture assembly as the cache holds it. Overwriting this is how a case
+        /// makes the cache answer with bytes the pin does not name.
+        /// </summary>
+        public string CachedAssemblyPath => Path.Combine(
+            CacheDirectory,
+            "package-content-v2",
+            FixturePackage,
+            FixtureVersion,
+            "lib",
+            FixtureTfm,
+            FixtureAssembly);
+
+        /// <summary>
+        /// Builds the world. <paramref name="version"/> and <paramref name="tfm"/> are what
+        /// the <em>pin</em> claims; the package in the cache is always the real one, so a
+        /// case that changes them is changing the pin alone.
+        /// </summary>
+        public static SweepWorld Create(string? version = null, string? tfm = null)
+        {
+            string scratch = Directory.CreateTempSubdirectory("evil-sweep-gate").FullName;
+            try
+            {
+                // An assembly the build already produced, so the fixture is a real PE file
+                // rather than something shaped like one.
+                byte[] bytes = File.ReadAllBytes(typeof(EvilPoolSweepGateTests).Assembly.Location);
+                string cacheDirectory = Path.Combine(scratch, "cache");
+                var world = new SweepWorld(scratch, cacheDirectory, bytes);
+
+                world.SeedCache();
+                world.WriteInputs(version ?? FixtureVersion, tfm ?? FixtureTfm);
+                return world;
+            }
+            catch
+            {
+                Directory.Delete(scratch, recursive: true);
+                throw;
+            }
+        }
+
+        void SeedCache()
+        {
+            string staged = Path.Combine(Scratch, "staged");
+            Directory.CreateDirectory(Path.Combine(staged, "lib", FixtureTfm));
+            File.WriteAllBytes(Path.Combine(staged, "lib", FixtureTfm, FixtureAssembly), FixtureBytes);
+            File.WriteAllText(
+                Path.Combine(staged, $"{FixturePackage}.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package><metadata>
+                  <id>{FixturePackage}</id><version>{FixtureVersion}</version>
+                  <authors>{nameof(EvilPoolSweepGateTests)}</authors>
+                  <description>A synthetic package that exists only to be pooled.</description>
+                </metadata></package>
+                """);
+
+            // Points this process's cache at the scratch directory only so that the commit
+            // below lands there. The sweep is told the same directory by environment, and
+            // resolves it with this same code, so the two cannot disagree about where it is.
+            NuGetCache.Initialize("dotnet-inspect", CacheDirectory, skipNuGetCache: true);
+            NuGetCache.CommitPackage(staged, null, FixturePackage, FixtureVersion);
+        }
+
+        void WriteInputs(string pinnedVersion, string pinnedTfm)
+        {
+            string data = Path.Combine(FakeRoot, "docs", "data");
+            Directory.CreateDirectory(data);
+
+            // What makes this directory a repository root, and so what makes the sweep read
+            // the two files beside it instead of the committed ones.
+            File.WriteAllText(Path.Combine(FakeRoot, "dotnet-inspect.slnx"), "");
+
+            var list = new JsonArray(
+                new JsonObject
+                {
+                    ["rank"] = 1,
+                    ["package"] = FixturePackage,
+                    ["downloads"] = 1,
+                });
+            var pin = new JsonObject
+            {
+                ["schemaVersion"] = 1,
+                ["packages"] = new JsonArray(
+                    new JsonObject
+                    {
+                        ["package"] = FixturePackage,
+                        ["version"] = pinnedVersion,
+                        ["tfm"] = pinnedTfm,
+                        ["status"] = "pinned",
+                        ["detail"] = null,
+                        ["sha256"] = Sha256Of(FixtureBytes),
+                    }),
+            };
+
+            var indented = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(Path.Combine(data, "nuget-top-packages.json"), list.ToJsonString(indented));
+            File.WriteAllText(Path.Combine(data, "nuget-top-packages.lock.json"), pin.ToJsonString(indented));
+        }
+
+        /// <summary>
+        /// Runs the sweep over this world's inputs, offline and against this world's cache.
+        ///
+        /// <para>Offline is not decoration. It is what makes a green result mean the seeded
+        /// cache answered: without it, a case that stopped reaching the fixture would go to
+        /// nuget.org and could pass on a real package, and the suite would be gating the
+        /// network instead of the pin.</para>
+        /// </summary>
+        public (int ExitCode, string Output, string Errors) Run()
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
+                    ? host
+                    : "dotnet",
+                WorkingDirectory = FakeRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add(Path.Combine(
+                AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+                "eng",
+                "prepare-decompiler-package-sweep.cs"));
+            startInfo.ArgumentList.Add("--");
+            startInfo.ArgumentList.Add(OutputDirectory);
+            startInfo.ArgumentList.Add("1");
+            startInfo.ArgumentList.Add("1");
+
+            startInfo.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+            startInfo.Environment["DOTNET_INSPECT_ISOLATED"] = "evil-sweep-gate";
+            startInfo.Environment["DOTNET_INSPECT_CACHE_DIR"] = CacheDirectory;
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("could not start the sweep");
+
+            var output = process.StandardOutput.ReadToEndAsync();
+            var failures = process.StandardError.ReadToEndAsync();
+
+            // Bounded, because a hang here would otherwise be reported by CI killing the
+            // job, which says nothing about which case hung. Minutes rather than seconds
+            // because a cold `dotnet run` of a file-based app builds it first.
+            if (!process.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
+            {
+                process.Kill(entireProcessTree: true);
+                Assert.Fail("the sweep did not exit within five minutes");
+            }
+
+            return (process.ExitCode, output.GetAwaiter().GetResult(), failures.GetAwaiter().GetResult());
+        }
+
+        /// <summary>
+        /// Reports a sweep in full when its exit code was not the expected one. A bare
+        /// "expected 1, got 0" over a subprocess sends the reader back to reproduce it by
+        /// hand, which is what these cases exist to stop.
+        /// </summary>
+        public string Explain((int ExitCode, string Output, string Errors) sweep, string what) =>
+            $"the sweep exited {sweep.ExitCode} over {what}.\n"
+            + $"stdout:\n{sweep.Output}\nstderr:\n{sweep.Errors}";
+
+        /// <summary>
+        /// No half-written assembly is left in the output directory. A write goes to a
+        /// fresh sibling and is renamed onto the destination, so a leftover sibling is a
+        /// partial file that a later sweep would find, hash, and disagree with the pin
+        /// about -- reported as the pin failing rather than as the run that made it.
+        /// </summary>
+        public void AssertNoTemporaryLeftBehind()
+        {
+            if (!Directory.Exists(OutputDirectory))
+                return;
+
+            Assert.Empty(Directory.GetFiles(OutputDirectory, "*.tmp", SearchOption.AllDirectories));
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Scratch, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A scratch directory that outlives the run is not a result.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+}
