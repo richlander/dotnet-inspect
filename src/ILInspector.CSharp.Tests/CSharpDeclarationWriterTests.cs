@@ -1234,22 +1234,42 @@ public sealed class CSharpDeclarationWriterTests
     /// whose previous non-whitespace character is the <c>c</c> of <c>static</c> (#3489).
     /// </summary>
     [Fact]
-    public void MemberDeclaration_ResolvesWhitespaceBeforeParenByPrecedingToken()
+    public void MemberDeclaration_ClassifiesParenGroupsByTrailingContext()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
 
-        // Preceded by the member name -> parameter list, so the keyword parameter escapes.
+        // Ends the declaration -> parameter list, so the keyword parameter escapes.
         Assert.Equal(
             "public void M (int @event)",
             CSharpDeclarationWriter.RenderMemberDeclaration(
                 type, new ApiMember { Name = "M", Kind = "method", Signature = "void M (int event)" }));
 
-        // Preceded by a modifier keyword -> tuple return, left alone, while the real
+        // Followed by the member name -> tuple return, left alone, while the real
         // parameter list is still escaped. Both halves must hold at once.
         Assert.Equal(
             "public static (int, int) Pair(int @event)",
             CSharpDeclarationWriter.RenderMemberDeclaration(
                 type, new ApiMember { Name = "Pair", Kind = "method", Signature = "static (int, int) Pair(int event)" }));
+
+        // A generic member's '>' precedes the space, and an escaped member name is not a
+        // keyword: neither is decidable from the preceding token, both are from trailing
+        // context.
+        Assert.Equal(
+            "public void M<T> (T @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "void M<T> (T event)" }));
+
+        Assert.Equal(
+            "public void @event (int @class)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "event", Kind = "method", Signature = "void event (int class)" }));
+
+        // A modifier run that is not itself a reserved keyword must not turn the tuple
+        // return into a parameter list.
+        Assert.Equal(
+            "public partial (int, int) M(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type, new ApiMember { Name = "M", Kind = "method", Signature = "partial (int, int) M(int event)" }));
     }
 
     [Theory]
@@ -1264,6 +1284,14 @@ public sealed class CSharpDeclarationWriterTests
         "public static implicit operator int(Samples.Tuples value)")]
     [InlineData("op_Addition", "Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)",
         "public static Samples.Tuples operator +(Samples.Tuples left, Samples.Tuples right)")]
+    // A parameter or return type may itself be named op_*: the member occurrence is the
+    // one followed by the parameter list, not the last textual one.
+    [InlineData("op_Implicit", "Samples.Converter op_Implicit(op_Implicit value)",
+        "public static implicit operator Samples.Converter(op_Implicit value)")]
+    [InlineData("op_Implicit", "op_Implicit op_Implicit(Samples.Tuples value)",
+        "public static implicit operator op_Implicit(Samples.Tuples value)")]
+    [InlineData("op_Addition", "op_Addition op_Addition(op_Addition left, op_Addition right)",
+        "public static op_Addition operator +(op_Addition left, op_Addition right)")]
     public void MemberDeclaration_FormatsOperatorsWithTupleReturns(string name, string signature, string expected)
     {
         var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
