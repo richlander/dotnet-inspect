@@ -84,6 +84,16 @@ public sealed class ForwardedTypeAliases
         {
         }
 
+        /// <summary>
+        /// The highest version at which a file answering to this spelling was found to say
+        /// <em>nothing</em> about the type, or null when none was. A reference at or below it
+        /// cannot be trusted, because binding rolls it forward onto that silent file. See the
+        /// contradiction loop in <see cref="ForTarget"/> for how it is measured and
+        /// <see cref="VerdictFor(AssemblyReferenceSpelling, EvidenceIdentity)"/> for how it is
+        /// enforced.
+        /// </summary>
+        internal Version? SilentCeiling { get; init; }
+
         /// <summary>This identity widened to also account for <paramref name="version"/>.</summary>
         internal EvidenceIdentity Observing(Version version)
             => ObservedVersions.Contains(version)
@@ -93,6 +103,12 @@ public sealed class ForwardedTypeAliases
                     Version = version > Version ? version : Version,
                     ObservedVersions = ObservedVersions.Add(version),
                 };
+
+        /// <summary>This identity also accounting for a silent file at <paramref name="version"/>.</summary>
+        internal EvidenceIdentity SilencedAt(Version version)
+            => SilentCeiling is { } ceiling && ceiling >= version
+                ? this
+                : this with { SilentCeiling = version };
 
         /// <summary>
         /// Whether a reference naming <paramref name="version"/> is one this evidence answers for.
@@ -409,6 +425,15 @@ public sealed class ForwardedTypeAliases
         if (!evidence.AnswersForVersion(reference.Version))
             return ReferenceVerdict.Contradicted;
 
+        // A file answering to this spelling was read and said nothing about the type. Binding rolls
+        // a reference forward, so every reference at or below that file's version may land on it,
+        // and a caller that lands there is not a caller of the target — its call throws
+        // TypeLoadException rather than reaching the definition. Above it there is no reach and no
+        // refusal. Measured with a four-deployment runtime control; see the contradiction loop in
+        // ForTarget for the matrix and for why one ceiling replaced a spelling-wide poison.
+        if (evidence.SilentCeiling is { } silent && reference.Version <= silent)
+            return ReferenceVerdict.Contradicted;
+
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
             ? PublicKeyTokenOf(reference.PublicKeyOrToken.AsSpan())
             : reference.PublicKeyOrToken.AsSpan();
@@ -589,8 +614,20 @@ public sealed class ForwardedTypeAliases
             StringComparer.OrdinalIgnoreCase);
         foreach (string path in paths)
         {
-            if (IdentityOf(path) is not { } claimed)
-                continue;
+            switch (IdentityOf(path, out var claimed))
+            {
+                // A file we could not read may be anything, including the same-identity silent twin
+                // that refutes one of the facades below. Nothing distinguishes those two cases from
+                // here, so the whole answer declines rather than resting on evidence that may have
+                // been refuted by a file we failed to open (found in review of 9ec17514). This
+                // degrades to the pre-#3419 answer — no forwarder awareness — rather than to a
+                // wrong one, and it never fires for a file that is merely not an assembly.
+                case ClaimantRead.Unreadable:
+                    return None;
+
+                case ClaimantRead.NotAnAssembly:
+                    continue;
+            }
 
             if (!census.TryGetValue(claimed.Name, out var claimants))
                 census[claimed.Name] = claimants = [];
@@ -628,7 +665,7 @@ public sealed class ForwardedTypeAliases
             // Falling through to the census then meant that LOSING the authoritative identity
             // STRENGTHENED the result, admitting a rival the readable path refuses — information
             // loss must never widen an answer (executed in review of 7572838c).
-            if (IdentityOf(targetAssemblyPath) is { } supplied)
+            if (IdentityOf(targetAssemblyPath, out var supplied) == ClaimantRead.Claimed)
             {
                 targetAssemblyName = supplied.Name;
                 targetIdentity = supplied.Identity;
@@ -805,23 +842,42 @@ public sealed class ForwardedTypeAliases
         // nothing on any of the three, which makes it the strongest form of the attack rather than
         // the weakest — it is exactly the case where nothing can tell the two files apart.
         //
-        // Silence includes a file the walk could not read, or did not reach within the hop limit:
-        // an unconfirmed claimant is not a confirmed forwarder. Refusing costs an alias and never
-        // invents one, which is the standing polarity for everything on the definer side.
+        // Silence here is silence about the type in a file the walk actually read and probed. A
+        // file it could not read fails `IdentityOf`, never enters the census, and so is never a
+        // claimant at all — see AnUnreadableClaimantIsNotSilence for why that is a gap rather than
+        // a guarantee. The hop limit, by contrast, cannot leave a claimant unprobed: a spelling's
+        // claimants are queued TOGETHER, at hop 0 from the seeds and otherwise as a set when an
+        // edge names the spelling, and a spelling only reaches `targetsByRaw` by producing an
+        // edge — which means it was probed, which means every claimant of it was probed in the
+        // same hop. (An earlier draft of this comment asserted both the opposite of the first and
+        // a wrong reason for the second; corrected in review of 9ec17514.)
         //
-        // Two limits keep this from refusing more than it should:
+        // The refusal is a VERSION CEILING, not a spelling-wide poison, because binding reaches a
+        // silent file in exactly one direction. Measured on Windows with one caller binary
+        // referencing v2.0.0.0 and four deployments of one file name (review of 9ec17514):
         //
-        // Duplication is not contradiction. Two files of one identity that BOTH forward the type
-        // agree, and either one a caller binds to reaches the target — which is ordinary when a
-        // facade appears in two directories of one scope, so refusing there would drop real
-        // callers (pinned by TwoSiblingsThatBothForwardDoNotContradictEachOther).
+        //     v1 forwards  -> FileNotFoundException   (a v2 reference does not roll BACK to v1)
+        //     v1 silent    -> FileNotFoundException   (so an older silent file takes nothing)
+        //     v2 forwards  -> result=target           (the control: the harness does bind)
+        //     v3 silent    -> TypeLoadException       (a v2 reference DOES roll FORWARD to v3)
         //
-        // A version the spelling does not answer for is not a contradiction either. A caller
-        // naming v1 is already refused for a v2 file, so a silent v2 sibling takes nothing from
-        // the v1 forwarder — and poisoning on it would undo the version ceiling from review of
-        // 37a4444b, whose whole point was that v1 callers keep working. `AnswersForVersion` is the
-        // caller-side admission rule itself rather than a second copy of it, so the two cannot
-        // disagree about which versions are at stake.
+        // So a silent claimant at version C refutes every reference at or below C and none above
+        // it. Both halves were raised as blocking defects in the same review, in opposite
+        // directions, against a predicate that asked whether the FORWARDER answered for the silent
+        // file's version: that admitted the v3 case (fabricating a caller whose call throws) and
+        // refused the v1 case (dropping callers that could never reach the older file). Neither is
+        // a version question about the forwarder; both are one question about the silent file.
+        //
+        // Carrying it as a ceiling on the evidence rather than a sentinel also means the chain side
+        // needs nothing new: a facade's own reference to the hop it forwards through is checked by
+        // the same VerdictFor, so an intermediate hop with a silent twin withdraws every spelling
+        // that routes through it (pinned by
+        // AContradictionAtAnIntermediateHopRefusesTheSpellingThatLeadsThroughIt).
+        //
+        // Duplication is still not contradiction: two files of one identity that BOTH forward the
+        // type agree, and either one a caller binds to reaches the target — ordinary when a facade
+        // appears in two directories of one scope, so refusing there would drop real callers
+        // (pinned by TwoSiblingsThatBothForwardDoNotContradictEachOther).
         foreach (string spelling in targetsByRaw.Keys)
         {
             if (!tokensBySpelling.TryGetValue(spelling, out var vouching))
@@ -829,16 +885,13 @@ public sealed class ForwardedTypeAliases
 
             foreach (var claimant in census.TryGetValue(spelling, out var claimants) ? claimants : [])
             {
-                if (forwardingPaths.Contains(claimant.Path)
-                    || !vouching.AnswersForVersion(claimant.Identity.Version))
-                {
+                if (forwardingPaths.Contains(claimant.Path))
                     continue;
-                }
 
-                tokensBySpelling[spelling] =
-                    new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
-                break;
+                vouching = vouching.SilencedAt(claimant.Identity.Version);
             }
+
+            tokensBySpelling[spelling] = vouching;
         }
 
         // Verify the definer side of every edge. Until now only the caller's reference to a facade
@@ -996,7 +1049,8 @@ public sealed class ForwardedTypeAliases
     /// readable managed assembly. Read on its own because the census needs the claimed identity of
     /// every candidate without paying for its <c>ExportedType</c> table.
     /// </summary>
-    static string? AssemblyNameOf(string path) => IdentityOf(path)?.Name;
+    static string? AssemblyNameOf(string path)
+        => IdentityOf(path, out var claimed) == ClaimantRead.Claimed ? claimed.Name : null;
 
     /// <summary>
     /// <paramref name="forwarding"/> confirmed against every file claiming
@@ -1055,35 +1109,55 @@ public sealed class ForwardedTypeAliases
     }
 
     /// <summary>
-    /// The name and <c>AssemblyDef</c> identity an assembly claims for itself, or null when the
-    /// file is not a readable managed assembly.
+    /// Why a path did not become a claimant. A file that is not a managed assembly is not evidence
+    /// and skipping it is right; a file that could not be <em>read</em> is unknown, and skipping
+    /// that is unsound — it may be the same-identity silent twin that refutes a facade, so dropping
+    /// it silently admits callers whose call would throw (found in review of <c>9ec17514</c>).
     /// </summary>
-    static (string Name, EvidenceIdentity Identity)? IdentityOf(string path)
+    enum ClaimantRead
     {
+        Claimed,
+        NotAnAssembly,
+        Unreadable,
+    }
+
+    /// <summary>
+    /// The name and <c>AssemblyDef</c> identity an assembly claims for itself.
+    /// </summary>
+    static ClaimantRead IdentityOf(string path, out (string Name, EvidenceIdentity Identity) claimed)
+    {
+        claimed = default;
         try
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
-                return null;
+                return ClaimantRead.NotAnAssembly;
 
             var reader = peReader.GetMetadataReader();
             if (!reader.IsAssembly)
-                return null;
+                return ClaimantRead.NotAnAssembly;
 
             var definition = reader.GetAssemblyDefinition();
-            return (
+            claimed = (
                 reader.GetString(definition.Name),
                 new EvidenceIdentity(
                     PublicKeyTokenOf(reader.GetBlobContent(definition.PublicKey).AsSpan()),
                     definition.Culture.IsNil ? "" : reader.GetString(definition.Culture),
                     definition.Version));
+            return ClaimantRead.Claimed;
         }
-        catch (Exception ex) when (ex is BadImageFormatException
-                                      or IOException
-                                      or UnauthorizedAccessException)
+        catch (BadImageFormatException)
         {
-            return null;
+            // The bytes were read and are not a loadable assembly. The runtime would refuse this
+            // file too, so it can never be the twin a caller binds to — that is knowledge, not the
+            // absence of it, and it must not trigger the decline below.
+            return ClaimantRead.NotAnAssembly;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The bytes were never seen. Anything could be in this file.
+            return ClaimantRead.Unreadable;
         }
     }
 
