@@ -155,9 +155,22 @@ public class CallerScopeResolverTests
         {
             File.Copy(typeof(CallerScopeResolverTests).Assembly.Location, Path.Combine(directory, "abc.dll"));
 
-            // The positive control: case is the one difference canonicalization exists to absorb,
-            // so a rule that declined everything would pass the assertion below for free.
-            Assert.Equal("abc.dll", CallerScopeResolver.MatchedEntry(directory, "ABC.DLL", files: true));
+            // The positive control, and it has to be chosen per volume. Case is the one difference
+            // canonicalization exists to absorb, so on a case-insensitive volume folding `ABC.DLL`
+            // onto the spelling on disk is proof the rule is not simply declining everything. On a
+            // case-sensitive volume there is nothing to fold — `ABC.DLL` names a file that does not
+            // exist, and returning it unchanged is the right answer — so the control there is that
+            // two spellings which really are two files stay two.
+            if (IsCaseSensitive(directory))
+            {
+                File.Copy(typeof(CallerScopeResolverTests).Assembly.Location, Path.Combine(directory, "ABC.DLL"));
+                Assert.Equal("abc.dll", CallerScopeResolver.MatchedEntry(directory, "abc.dll", files: true));
+                Assert.Equal("ABC.DLL", CallerScopeResolver.MatchedEntry(directory, "ABC.DLL", files: true));
+            }
+            else
+            {
+                Assert.Equal("abc.dll", CallerScopeResolver.MatchedEntry(directory, "ABC.DLL", files: true));
+            }
 
             Assert.Equal("ab<.dll", CallerScopeResolver.MatchedEntry(directory, "ab<.dll", files: true));
             Assert.Equal("ab?.dll", CallerScopeResolver.MatchedEntry(directory, "ab?.dll", files: true));
