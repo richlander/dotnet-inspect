@@ -118,14 +118,21 @@ jobs:
             # transitive closure, which an enumerated list cannot track without
             # rotting. Under-triggering silently disables the gate on exactly
             # the changes it exists to catch; over-triggering costs a parallel
-            # job that never blocks the hot lane. Prefer the cheap error.
+            # job that never blocks the hot lane. Prefer the cheap error. The
+            # documentation-extension arm covers only `*.md`, deliberately: a
+            # `.txt` or `.jsonl` under these trees can be a corpus or baseline
+            # fixture, and excluding it by extension would silently un-gate it.
+            # `global.json` and `nuget.config` select the SDK and package
+            # inputs, which select the compiler, which selects the IL compared.
             case "$file" in
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
-              *.md|*.txt) ;;
+              eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
+              *.md) ;;
               src/*) DECOMPILER=true ;;
               tests/*) DECOMPILER=true ;;
               tools/*) DECOMPILER=true ;;
+              global.json|nuget.config|NuGet.config|NuGet.Config) DECOMPILER=true ;;
               *.props|*.targets|*.slnx) DECOMPILER=true ;;
               .github/workflows/ci.yml) DECOMPILER=true ;;
             esac
@@ -456,7 +463,9 @@ jobs:
       - name: Compare against pinned known-red
         run: |
           dotnet run eng/check-decompiler-gate.cs -- \
-            "$RUNNER_TEMP/decompiler-gates.xml" eng/decompiler-gate-known-red.txt
+            "$RUNNER_TEMP/decompiler-gates.xml" \
+            eng/decompiler-gate-known-red.txt \
+            eng/decompiler-gate-expected-classes.txt
 
       - name: Upload gate report
         if: always()

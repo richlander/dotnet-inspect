@@ -25,7 +25,9 @@ namespace ILInspector.Decompiler.Tests;
 internal static class Program
 {
     // Presets over the Speed/Area traits. Order matches --gate list output.
-    private static readonly IReadOnlyList<GatePreset> Presets =
+    // internal so GateExpectedClassesTests can assert the pre-merge preset and
+    // eng/decompiler-gate-expected-classes.txt name the same classes.
+    internal static readonly IReadOnlyList<GatePreset> Presets =
     [
         new("all", "Every test, including all slow gates (default with no --gate)."),
         new("fast", "Skip every slow gate (fast unit lane; matches the PR CI test job).", "-trait-", "Speed=Slow"),

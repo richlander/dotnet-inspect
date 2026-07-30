@@ -239,7 +239,9 @@ the hot `test` lane, and runs `--gate pre-merge`:
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -xml /tmp/gates.xml
 dotnet run eng/check-decompiler-gate.cs -- \
-  /tmp/gates.xml eng/decompiler-gate-known-red.txt
+  /tmp/gates.xml \
+  eng/decompiler-gate-known-red.txt \
+  eng/decompiler-gate-expected-classes.txt
 ```
 
 The gate runs **red**. Turning it on was not made conditional on the open
@@ -257,6 +259,8 @@ and treats drift in **both** directions as an error:
 | a pinned test that passed | the fix landed; retire the pin |
 | a pinned test that never ran | dead pin — the test was renamed or deleted |
 | a gate test that neither passed nor failed | coverage silently disappeared |
+| an expected class with nothing executed | the report is incomplete |
+| a `<test>` with no usable name | the report is malformed |
 | no report, or a report with zero tests | a crashed or empty run is not a pass |
 
 Only `Pass` counts as passing. A skipped gate test is neither passing nor
@@ -265,17 +269,33 @@ skip would report an exact match, and a pinned skip would look like a landed
 fix, prompting removal of the pin that was the last thing naming the test.
 Skipping is not an approved way to green this job.
 
-The stale-pin check is what keeps the list a ratchet rather than a growing
+`eng/decompiler-gate-expected-classes.txt` is what stops an *incomplete* report
+from passing. Judging only the tests a report happens to contain is not enough:
+a preset that stopped selecting a class, a renamed class, or a run killed after
+emitting some results would each yield a smaller report whose failing set still
+matched the pin list exactly. The checker therefore requires every listed class
+to have executed something.
+
+That inventory is only worth its accuracy, so it is not maintained by hand
+against the preset. `GateExpectedClassesTests` asserts set equality between the
+file and the `pre-merge` preset's `-class` arguments, in both directions, so a
+class added to the preset without being added to the file fails and so does a
+stale entry. That test is in the fast lane deliberately — it must run on PRs
+that never trigger the slow gates.
+
+The stale-pin check is what keeps the pin list a ratchet rather than a growing
 exemption set: a pin that outlives its failure silently un-gates the test it
-names. Pass `--partial` to suppress only the dead-pin check when deliberately
-running a subset locally.
+names. Pass `--partial` to suppress the dead-pin and expected-class checks when
+deliberately running a subset locally.
 
 The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
-build files, minus documentation. A fidelity result is a whole-pipeline
-observation, so its real input set is the test project's transitive closure,
-which an enumerated project list cannot track without rotting. Under-triggering
-silently disables the gate on exactly the changes it exists to catch;
-over-triggering costs a parallel job that never blocks the hot lane.
+build files including `global.json` and `nuget.config`, minus `*.md`. A fidelity
+result is a whole-pipeline observation, so its real input set is the test
+project's transitive closure, which an enumerated project list cannot track
+without rotting. Under-triggering silently disables the gate on exactly the
+changes it exists to catch; over-triggering costs a parallel job that never
+blocks the hot lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl`
+under those trees can be a corpus or baseline fixture.
 
 A job-level timeout would cancel the job, and a cancelled job runs no further
 steps and satisfies no `failure()` condition — the same silent-cancellation
