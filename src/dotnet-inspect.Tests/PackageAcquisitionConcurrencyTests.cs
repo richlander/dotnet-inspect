@@ -691,6 +691,39 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_OneSourceRefusesAndAnotherAnswers_SucceedsWithoutBlamingTheRefusal()
+    {
+        const string PackageName = "gamma.available";
+        const string Version = "1.0.0";
+        var sources = new NuGetSourceOptions
+        {
+            Sources =
+            [
+                "https://refusing.example/v3/index.json",
+                "https://serving.example/v3/index.json",
+            ],
+        };
+
+        // A recorded failure is advisory, not fatal. Configuring a private feed that 401s
+        // alongside a public one that answers is the ordinary case, so a refusal from one
+        // source must not fail, or annotate, a lookup another source satisfied.
+        var handler = new RefusesOnePackageHandler(
+            PackageName,
+            CreatePackageArchive(PackageName, Version));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+            client,
+            PackageName,
+            sourceOptions: sources,
+            version: Version);
+
+        Assert.True(outcome.IsSuccess);
+        Assert.Null(outcome.ErrorMessage);
+        Assert.Equal(PackageName, outcome.Result!.PackageName);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_RedirectTargetMissingDoesNotBlameTheWrappersRefusedSource()
     {
         const string WrapperPackage = "alpha.wrapper";
