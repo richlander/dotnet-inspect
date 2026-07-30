@@ -155,10 +155,16 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// <para>
     /// Inserting bytes in the middle of `.text` moves everything after the
     /// insertion point, and the fixture repairs only what `MetadataReader`
-    /// traverses. Anything else in that section addressed by RVA is left pointing
-    /// at its old home: the PE entry point, and the import table. Review of this
-    /// file found them, against a claim that every unrepaired field had its
-    /// premise gated — it did not.
+    /// traverses. Everything else pointing into that section past the cut is left
+    /// aimed at its old home: the PE entry point, the import directory and the
+    /// whole chain it addresses, the relocation entry covering the entry stub's
+    /// operand, and the strong-name signature placeholder. Eight in all.
+    /// </para>
+    /// <para>
+    /// Successive reviews found them a few at a time, each against a claim that
+    /// the previous list was complete. The list is not maintained here any more:
+    /// the structures are walked, and what the walkers cover is itself asserted
+    /// by <see cref="HostileImage_HasOnlyTheRvaBearingStructuresTheWalkersKnow"/>.
     /// </para>
     /// <para>
     /// They are not repaired because this is a metadata fixture and nothing here
@@ -171,10 +177,18 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// version asked only whether an RVA sat past the insertion point in the
     /// baseline; review showed it stayed green after the entry point was
     /// *repaired*, because it never looked at the patched image at all. It would
-    /// also have misfiled `.reloc`, whose RVA is past the insertion point and yet
-    /// entirely correct, since only its raw pointer moves. Position in the
-    /// baseline does not determine staleness; disagreement between the two images
-    /// does.
+    /// also have misfiled the base relocation *directory*, whose RVA is past the
+    /// insertion point and yet correct, since only `.reloc`'s raw pointer moves.
+    /// Position in the baseline does not determine staleness; disagreement
+    /// between the two images does.
+    /// </para>
+    /// <para>
+    /// RVAs are not only declared in headers. The relocation block inside
+    /// `.reloc` encodes one of its own, pointing at the entry stub's operand, and
+    /// a version of this test that walked only the optional header reported the
+    /// image clean while that target hung over the moved stub — and said in this
+    /// comment that `.reloc` was "entirely correct", which was true of the
+    /// directory and false of what it points at. Section content is walked too.
     /// </para>
     /// </summary>
     [Fact]
@@ -216,12 +230,19 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
             {
                 "AddressOfEntryPoint 0x220A should be 0x280A",
                 "ImportTable 0x21B8 should be 0x27B8",
+                "BaseRelocation[0] 0x220C should be 0x280C",
+                "Import[0].LookupTable 0x21E0 should be 0x27E0",
+                "Import[0].Name 0x21FA should be 0x27FA",
+                "Import[0].Lookup[0].HintName 0x21EC should be 0x27EC",
+                "Import[0].Address[0].HintName 0x21EC should be 0x27EC",
+                "Cli.StrongNameSignature 0x2138 should be 0x2738",
             },
             stale);
     }
 
     /// <summary>
-    /// Every RVA in the optional header, paired across the two images.
+    /// Every RVA the image declares — optional header and section content alike —
+    /// paired across the two images.
     /// <para>
     /// The directories are read out of the image rather than named one by one.
     /// Two reviewers, independently, defeated a hand-written list: one by
@@ -232,6 +253,11 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// never seen — including a sixteenth, past the names below — is still
     /// classified.
     /// </para>
+    /// <para>
+    /// The relocation targets are here because "every RVA in the header" was a
+    /// third narrower claim than the one the test makes. `.reloc` encodes a
+    /// target of its own, and it went unexamined until review found it stale.
+    /// </para>
     /// </summary>
     static IEnumerable<(string Name, int Before, int After)> RvaFields(byte[] baseline, byte[] patched)
     {
@@ -240,13 +266,229 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
             OptionalHeader(baseline).AddressOfEntryPoint,
             OptionalHeader(patched).AddressOfEntryPoint);
 
-        (string Name, int Rva)[] before = DataDirectories(baseline);
-        (string Name, int Rva)[] after = DataDirectories(patched);
+        foreach (var pair in Pair(DataDirectories(baseline), DataDirectories(patched)))
+            yield return pair;
 
+        foreach (var pair in Pair(RelocationTargets(baseline), RelocationTargets(patched)))
+            yield return pair;
+
+        foreach (var pair in ImportTargets(baseline, patched))
+            yield return pair;
+
+        foreach (var pair in Pair(CliHeaderTargets(baseline), CliHeaderTargets(patched)))
+            yield return pair;
+    }
+
+    static IEnumerable<(string Name, int Before, int After)> Pair(
+        (string Name, int Rva)[] before, (string Name, int Rva)[] after)
+    {
         Assert.Equal(before.Length, after.Length);
 
         for (int i = 0; i < before.Length; i++)
+        {
+            Assert.Equal(before[i].Name, after[i].Name);
             yield return (before[i].Name, before[i].Rva, after[i].Rva);
+        }
+    }
+
+    /// <summary>
+    /// The RVAs encoded inside the base relocation blocks.
+    /// <para>
+    /// Each block is a page RVA, a byte count covering the header and its
+    /// entries, then 16-bit entries whose top four bits are the relocation type
+    /// and whose low twelve are an offset into that page. Type 0 is padding to a
+    /// 32-bit boundary and addresses nothing, so it is skipped rather than
+    /// reported as a target of the page itself.
+    /// </para>
+    /// </summary>
+    static (string Name, int Rva)[] RelocationTargets(byte[] image)
+    {
+        PEHeaders headers = Headers(image);
+        DirectoryEntry directory = headers.PEHeader!.BaseRelocationTableDirectory;
+
+        if (directory.RelativeVirtualAddress == 0)
+            return [];
+
+        var targets = new List<(string, int)>();
+        int cursor = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+        int end = cursor + directory.Size;
+
+        while (cursor + 8 <= end)
+        {
+            int pageRva = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(cursor, 4));
+            int blockSize = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(cursor + 4, 4));
+
+            Assert.InRange(blockSize, 8, end - cursor);
+
+            for (int entry = cursor + 8; entry + 2 <= cursor + blockSize; entry += 2)
+            {
+                ushort fixup = BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(entry, 2));
+
+                if ((fixup >> 12) != 0)
+                    targets.Add(($"BaseRelocation[{targets.Count}]", pageRva + (fixup & 0xFFF)));
+            }
+
+            cursor += blockSize;
+        }
+
+        return [.. targets];
+    }
+
+    /// <summary>
+    /// The RVAs encoded inside the import directory: each descriptor's lookup
+    /// table, name string, and address table, and every hint/name pointer in the
+    /// two thunk arrays.
+    /// <para>
+    /// Unlike the other walkers this one cannot follow the patched image's own
+    /// pointers, because the directory pointing at these structures is itself one
+    /// of the things the expansion breaks — following it lands in version
+    /// padding, where the first "RVA" read is `0x41414141`. So each structure is
+    /// located in the baseline and its field re-read at the offset the expansion
+    /// moved that byte to. The content is intact and unmodified; only what points
+    /// at it is stale, which is the distinction this test exists to record.
+    /// </para>
+    /// <para>
+    /// Entries with the ordinal flag set carry an ordinal rather than an RVA and
+    /// address nothing, so they are skipped. This fixture is PE32, where a thunk
+    /// is four bytes; <see cref="HostileImage_IsPe32AsTheseWalkersAssume"/> pins
+    /// that rather than letting a PE32+ image be walked with the wrong stride.
+    /// </para>
+    /// </summary>
+    static IEnumerable<(string Name, int Before, int After)> ImportTargets(byte[] baseline, byte[] patched)
+    {
+        PEHeaders headers = Headers(baseline);
+        DirectoryEntry directory = headers.PEHeader!.ImportTableDirectory;
+
+        if (directory.RelativeVirtualAddress == 0)
+            yield break;
+
+        int insertionPoint = InsertionPointOf(baseline);
+        int descriptor = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+        int end = descriptor + directory.Size;
+
+        for (int i = 0; descriptor + 20 <= end; i++, descriptor += 20)
+        {
+            int lookupTable = ReadRva(baseline, descriptor);
+            int addressTable = ReadRva(baseline, descriptor + 16);
+
+            if (lookupTable == 0 && addressTable == 0 && ReadRva(baseline, descriptor + 12) == 0)
+                break;
+
+            foreach (var field in new[]
+            {
+                ($"Import[{i}].LookupTable", descriptor),
+                ($"Import[{i}].Name", descriptor + 12),
+                ($"Import[{i}].AddressTable", descriptor + 16),
+            })
+            {
+                if (ReadRva(baseline, field.Item2) != 0)
+                    yield return Sited(field.Item1, field.Item2);
+            }
+
+            foreach (var thunk in Thunks($"Import[{i}].Lookup", lookupTable))
+                yield return thunk;
+
+            foreach (var thunk in Thunks($"Import[{i}].Address", addressTable))
+                yield return thunk;
+        }
+
+        IEnumerable<(string, int, int)> Thunks(string label, int tableRva)
+        {
+            if (tableRva == 0)
+                yield break;
+
+            int site = FileOffsetOf(headers, tableRva);
+
+            for (int slot = 0; ; slot++, site += 4)
+            {
+                int entry = ReadRva(baseline, site);
+
+                if (entry == 0)
+                    yield break;
+
+                // The high bit means the import is by ordinal, which is a number
+                // rather than a pointer into the image.
+                if ((entry & unchecked((int)0x80000000)) == 0)
+                    yield return Sited($"{label}[{slot}].HintName", site);
+            }
+        }
+
+        (string, int, int) Sited(string label, int site)
+            => (label,
+                ReadRva(baseline, site),
+                ReadRva(patched, site < insertionPoint ? site : site + OversizedVersionFixture.Expansion));
+    }
+
+    /// <summary>
+    /// The RVAs in the CLI header. Its metadata pointer is what the fixture is
+    /// built around, so a walk that skipped this structure would leave the one
+    /// thing SRM follows unclassified.
+    /// </summary>
+    static (string Name, int Rva)[] CliHeaderTargets(byte[] image)
+    {
+        PEHeaders headers = Headers(image);
+        DirectoryEntry directory = headers.PEHeader!.CorHeaderTableDirectory;
+
+        if (directory.RelativeVirtualAddress == 0)
+            return [];
+
+        int header = FileOffsetOf(headers, directory.RelativeVirtualAddress);
+
+        (string Name, int Offset)[] fields =
+        [
+            ("Cli.MetaData", 8),
+            ("Cli.Resources", 24),
+            ("Cli.StrongNameSignature", 32),
+            ("Cli.CodeManagerTable", 40),
+            ("Cli.VTableFixups", 48),
+            ("Cli.ExportAddressTableJumps", 56),
+            ("Cli.ManagedNativeHeader", 64),
+        ];
+
+        return [.. fields
+            .Select(f => (f.Name, Rva: ReadRva(image, header + f.Offset)))
+            .Where(f => f.Rva != 0)];
+    }
+
+    static int ReadRva(byte[] image, int offset)
+        => BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(offset, 4));
+
+    /// <summary>
+    /// <see cref="ImportTargets"/> walks four-byte thunks and
+    /// <see cref="DataDirectories"/> locates the directory count at the PE32
+    /// offset. Both are wrong for a PE32+ image, so this fails rather than
+    /// letting them read the wrong bytes and report a clean walk.
+    /// </summary>
+    [Fact]
+    public void HostileImage_IsPe32AsTheseWalkersAssume()
+    {
+        Assert.Equal(PEMagic.PE32, OptionalHeader(fixture.Baseline).Magic);
+        Assert.Equal(PEMagic.PE32, OptionalHeader(fixture.Bytes).Magic);
+    }
+
+    /// <summary>
+    /// Pins which RVA-bearing structures this image actually contains.
+    /// <para>
+    /// <see cref="HostileImage_BreaksOnlyTheRvasItIsKnownToBreak"/> walks the
+    /// optional header, the relocation blocks, the import directory, and the CLI
+    /// header. A directory it does not know how to walk would still have its own
+    /// RVA classified and its *contents* silently skipped — which is exactly how
+    /// the relocation target went unnoticed until review found it. So the set of
+    /// present directories is asserted here: a fixture that gains a debug
+    /// directory, a TLS block, or a delay-import table fails until someone
+    /// teaches the walker about it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_HasOnlyTheRvaBearingStructuresTheWalkersKnow()
+    {
+        string[] present = [.. DataDirectories(fixture.Bytes)
+            .Where(d => d.Rva != 0)
+            .Select(d => d.Name)];
+
+        Assert.Equal(
+            new[] { "ImportTable", "BaseRelocationTable", "ImportAddressTable", "CorHeaderTable" },
+            present);
     }
 
     /// <summary>
