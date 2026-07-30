@@ -662,7 +662,12 @@ public sealed class ForwardedTypeAliases
 
         for (int hop = 0; hop <= MaxHops && frontier.Count > 0; hop++)
         {
-            var next = new List<string>();
+            // A set, because one file's rows and the files claiming what they point at multiply:
+            // every row enqueued every claimant of its target, so a file carrying many rows for one
+            // type queued rows × claimants entries before the next hop deduplicated them. Row
+            // counts and scope size are both attacker-controlled, so that product is unbounded work
+            // on hostile input (executed in review of 57187942).
+            var next = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string path in frontier)
             {
                 if (!probed.Add(path))
@@ -688,7 +693,7 @@ public sealed class ForwardedTypeAliases
                 }
             }
 
-            frontier = next;
+            frontier = [.. next];
         }
 
         // Now that every claimed identity is known, fold the edges together. Two files claiming one

@@ -1764,6 +1764,87 @@ public class ForwardedTypeAliasesTests
         File.WriteAllBytes(Path.Combine(directory, name + ".dll"), SerializePE(metadata));
     }
 
+    /// <summary>
+    /// A file's forwarder rows and the files claiming what they point at multiply: every row
+    /// enqueued every claimant of its target, so one file carrying many rows for one type queued
+    /// rows × claimants entries before anything deduplicated them. Metadata row counts and scope
+    /// size are both attacker-controlled, so that product is unbounded work on hostile input.
+    ///
+    /// <para>Measured as allocation against a one-row control over the same fixture, so the file
+    /// reads both cases share cancel out and what remains is the frontier itself.</para>
+    /// </summary>
+    [Fact]
+    public void DuplicateForwarderRowsDoNotMultiplyTheNextFrontier()
+    {
+        var seeds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Contoso.Facade" };
+
+        long control = FrontierCost(rows: 1, claimants: 200, seeds);
+        long duplicated = FrontierCost(rows: 2000, claimants: 200, seeds);
+
+        Assert.True(
+            duplicated - control < 2_000_000,
+            $"one row allocated {control:N0} bytes; 2,000 duplicate rows allocated {duplicated:N0}");
+    }
+
+    /// <summary>
+    /// Bytes allocated resolving a fixture whose single facade carries <paramref name="rows"/>
+    /// forwarder rows for one type, against <paramref name="claimants"/> files all claiming the
+    /// assembly those rows point at.
+    /// </summary>
+    static long FrontierCost(int rows, int claimants, IReadOnlySet<string> seeds)
+    {
+        string directory = NewTempDirectory();
+        WriteRepeatedForwarder(directory, "Contoso.Facade", "Contoso.Hop", "Contoso", "Widget", rows);
+
+        for (int i = 0; i < claimants; i++)
+        {
+            File.WriteAllBytes(
+                Path.Combine(directory, $"Hop{i}.dll"),
+                SerializePE(NewAssembly("Contoso.Hop", publicKey: null)));
+        }
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var paths = Directory.GetFiles(directory, "*.dll");
+
+        // Warmed first, so the measurement below is the walk and not one-time JIT.
+        ForwardedTypeAliases.ForTarget(target, targetAssemblyPath: null, paths, seeds);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ForwardedTypeAliases.ForTarget(target, targetAssemblyPath: null, paths, seeds);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
+    /// <summary>Writes a facade carrying one type's forwarder row a given number of times.</summary>
+    static void WriteRepeatedForwarder(
+        string directory,
+        string name,
+        string target,
+        string ns,
+        string typeName,
+        int rows)
+    {
+        var metadata = NewAssembly(name);
+        var reference = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(target),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+
+        for (int i = 0; i < rows; i++)
+        {
+            metadata.AddExportedType(
+                (TypeAttributes)0x00200000,
+                metadata.GetOrAddString(ns),
+                metadata.GetOrAddString(typeName),
+                reference,
+                typeDefinitionId: 0);
+        }
+
+        File.WriteAllBytes(Path.Combine(directory, name + ".dll"), SerializePE(metadata));
+    }
+
     /// <summary>Writes an assembly that declares the named type rather than forwarding it.</summary>
     static void WriteDefiner(string directory, string name, string ns, string typeName, string fileName)
     {
@@ -1789,7 +1870,8 @@ public class ForwardedTypeAliasesTests
         return [.. hash.Skip(hash.Length - 8).Reverse()];
     }
 
-    static string NewTempDirectory()    {
+    static string NewTempDirectory()
+    {
         string directory = Path.Combine(Path.GetTempPath(), "fwd-alias-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(directory);
         return directory;
