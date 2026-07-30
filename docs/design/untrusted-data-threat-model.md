@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Eleven ways a weaker formulation fails, all reproduced. They are a regression
+Fifteen ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -185,8 +185,26 @@ previous formulation, so passing them is not evidence that the invariant holds.
   presents two agreeing selectors to one reader and two disagreeing ones to
   another. The descriptor wins at the host, so we reported `a+b` while Azure
   served `a b`. A literal `+` is refused; `%2B` is unambiguous and stays accepted.
+- Azure reads `version` against `versionType`, which defaults to `branch`, so a
+  branch and a tag of one name are two different contents behind one spelling
+  and one cache identity. Measured against a live repository: `main` as a branch
+  returned 200 and as a tag 404. Only `versionType=commit` with a commit hash is
+  attributable, which is exactly what `Microsoft.SourceLink.AzureRepos.Git` and
+  `Microsoft.SourceLink.AzureDevOpsServer.Git` generate.
+- `versionOptions=previousChange` and `firstParent` serve a different commit's
+  content under an unchanged `version`, so the reported revision would not be the
+  one fetched. Both are refused.
+- The Azure path was matched at `/_apis/git/repositories/{repo}` without
+  requiring the `items` endpoint, so endpoints that ignore `version` entirely
+  were attributed to an attacker-chosen revision. The repository-metadata
+  endpoint returned byte-identical content for every revision supplied. The path
+  must now end at `items`.
+- Query parameters are allow-listed rather than deny-listed. Azure's Items API
+  takes several parameters that change which content is returned, and it grows
+  while this reader does not, so an unrecognized name may select content the
+  reported origin does not describe.
 
-Gates. `SourceLinkProvenanceTests` covers all eleven as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all fifteen as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

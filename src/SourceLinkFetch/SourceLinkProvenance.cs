@@ -325,9 +325,10 @@ public static class SourceLinkProvenance
 
         int apis = Array.IndexOf(segments, "_apis");
         if (apis < 0 ||
-            segments.Length < apis + 4 ||
+            segments.Length != apis + 5 ||
             !string.Equals(segments[apis + 1], "git", StringComparison.Ordinal) ||
-            !string.Equals(segments[apis + 2], "repositories", StringComparison.Ordinal))
+            !string.Equals(segments[apis + 2], "repositories", StringComparison.Ordinal) ||
+            !string.Equals(segments[apis + 4], "items", StringComparison.Ordinal))
         {
             rejection = $"'{host}' path '{uri.AbsolutePath}' is not a Git items path";
             return false;
@@ -342,6 +343,18 @@ public static class SourceLinkProvenance
 
         string repository = segments[apis + 3];
 
+        // Every parameter must be one this reader has reasoned about. Azure's Items API takes
+        // several that change which content is returned, and an unrecognized one cannot be assumed
+        // inert: the reported origin would then describe less than the URL selects. This is an
+        // allow list rather than a deny list because the API grows and we do not.
+        if (!TryCheckKnownQueryParameters(uri.Query, out string unknown))
+        {
+            rejection =
+                $"'{host}' URL carries the unrecognized query parameter '{unknown}', which may " +
+                "select content the reported origin does not describe";
+            return false;
+        }
+
         // Azure's Items API accepts the revision two ways: the flat 'version' parameter and the
         // 'versionDescriptor.version' member, and the descriptor takes precedence when both are
         // present. Reading only 'version' therefore reports the losing selector -- a URL carrying
@@ -351,34 +364,61 @@ public static class SourceLinkProvenance
         // Both spellings are read. A descriptor-only URL is attributable to the descriptor; a URL
         // carrying both is attributable only when they agree, because agreeing selectors have one
         // reading and disagreeing ones are the bug this exists to catch.
-        string? flat = ReadSingleQueryValue(uri.Query, "version", out string flatRejection);
-        if (flat is null && flatRejection.Length != 0)
+        if (!TryReadAgreedSelector(uri.Query, host, "version", out string? revision, out rejection))
         {
-            rejection = $"'{host}' URL {flatRejection}";
             return false;
         }
 
-        string? descriptor = ReadSingleQueryValue(
-            uri.Query, "versionDescriptor.version", out string descriptorRejection);
-        if (descriptor is null && descriptorRejection.Length != 0)
-        {
-            rejection = $"'{host}' URL {descriptorRejection}";
-            return false;
-        }
-
-        if (flat is not null && descriptor is not null &&
-            !string.Equals(flat, descriptor, StringComparison.Ordinal))
-        {
-            rejection =
-                $"'{host}' URL names revision '{flat}' as 'version' and '{descriptor}' as " +
-                "'versionDescriptor.version', and the descriptor is the one the host honours";
-            return false;
-        }
-
-        string? revision = descriptor ?? flat;
         if (revision is null)
         {
             rejection = $"'{host}' URL names no 'version' or 'versionDescriptor.version'";
+            return false;
+        }
+
+        // 'version' alone does not say what it selects. Azure reads it against 'versionType',
+        // which defaults to 'branch', so a branch and a tag of one name are two different contents
+        // behind one spelling -- and behind one cache identity. Measured against a live
+        // repository: 'main' as a branch returned 200 and as a tag returned 404.
+        //
+        // Only an immutable selector is attributable, so 'versionType' must say 'commit' and the
+        // version must be a commit hash. This is what SourceLink itself generates -- both
+        // Microsoft.SourceLink.AzureRepos.Git and .AzureDevOpsServer.Git emit
+        // '?api-version=1.0&versionType=commit&version={sha}&path=/*' -- so requiring it does not
+        // refuse a map any supported generator produces.
+        if (!TryReadAgreedSelector(uri.Query, host, "versionType", out string? versionType, out rejection))
+        {
+            return false;
+        }
+
+        if (!string.Equals(versionType, "commit", StringComparison.OrdinalIgnoreCase))
+        {
+            rejection =
+                $"'{host}' URL selects revision '{revision}' as " +
+                $"'{versionType ?? "branch"}', which is a moving ref rather than a commit";
+            return false;
+        }
+
+        if (!IsCommitHash(revision))
+        {
+            rejection =
+                $"'{host}' URL selects revision '{revision}' as a commit, but it is not a " +
+                "commit hash";
+            return false;
+        }
+
+        // 'versionOptions' moves the selection off the named commit: 'previousChange' and
+        // 'firstParent' both serve a different commit's content under the same 'version'.
+        if (!TryReadAgreedSelector(uri.Query, host, "versionOptions", out string? versionOptions, out rejection))
+        {
+            return false;
+        }
+
+        if (versionOptions is not null &&
+            !string.Equals(versionOptions, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            rejection =
+                $"'{host}' URL sets 'versionOptions' to '{versionOptions}', which selects a " +
+                "commit other than the one named";
             return false;
         }
 
@@ -413,6 +453,113 @@ public static class SourceLinkProvenance
             }
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Reads one Azure version selector, which the Items API accepts in a flat spelling
+    /// (<c>version</c>) and a descriptor spelling (<c>versionDescriptor.version</c>).
+    /// </summary>
+    /// <remarks>
+    /// The descriptor takes precedence at the host, so reading only the flat spelling reports the
+    /// losing selector — a URL carrying both would report one revision while fetching the other.
+    /// Confirmed against the live API: <c>version=A&amp;versionDescriptor.version=B</c> returns
+    /// B's <c>commitId</c>. Both are read; a descriptor-only URL is attributable to the
+    /// descriptor; a URL carrying both is attributable only when they agree, because agreeing
+    /// selectors have one reading and disagreeing ones are the bug this exists to catch.
+    /// </remarks>
+    private static bool TryReadAgreedSelector(
+        string query,
+        string host,
+        string name,
+        out string? value,
+        out string rejection)
+    {
+        value = null;
+
+        string? flat = ReadSingleQueryValue(query, name, out string flatRejection);
+        if (flat is null && flatRejection.Length != 0)
+        {
+            rejection = $"'{host}' URL {flatRejection}";
+            return false;
+        }
+
+        string descriptorName = $"versionDescriptor.{name}";
+        string? descriptor = ReadSingleQueryValue(query, descriptorName, out string descriptorRejection);
+        if (descriptor is null && descriptorRejection.Length != 0)
+        {
+            rejection = $"'{host}' URL {descriptorRejection}";
+            return false;
+        }
+
+        if (flat is not null && descriptor is not null &&
+            !string.Equals(flat, descriptor, StringComparison.Ordinal))
+        {
+            rejection =
+                $"'{host}' URL gives '{name}' as '{flat}' and '{descriptorName}' as " +
+                $"'{descriptor}', and the descriptor is the one the host honours";
+            return false;
+        }
+
+        value = descriptor ?? flat;
+        rejection = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Every query parameter Azure's Items API takes that this reader has reasoned about. An
+    /// unrecognized parameter is refused rather than ignored: the API grows and we do not, so an
+    /// unknown name may select content the reported origin does not describe.
+    /// </summary>
+    private static readonly string[] KnownAzureQueryParameters =
+    [
+        "api-version",
+        "path",
+        "scopePath",
+        "version",
+        "versionType",
+        "versionOptions",
+        "versionDescriptor.version",
+        "versionDescriptor.versionType",
+        "versionDescriptor.versionOptions",
+    ];
+
+    private static bool TryCheckKnownQueryParameters(string query, out string unknown)
+    {
+        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+
+        foreach (Range range in pairs.Split('&'))
+        {
+            ReadOnlySpan<char> pair = pairs[range];
+            if (pair.IsEmpty)
+            {
+                continue;
+            }
+
+            int equals = pair.IndexOf('=');
+            ReadOnlySpan<char> name = equals < 0 ? pair : pair[..equals];
+
+            bool known = false;
+            foreach (string candidate in KnownAzureQueryParameters)
+            {
+                // Case-insensitively, so that a parameter differing only in case is recognized
+                // here and refused by the reader that owns its spelling, rather than slipping
+                // past as an unknown name with a different message.
+                if (name.Equals(candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    known = true;
+                    break;
+                }
+            }
+
+            if (!known)
+            {
+                unknown = name.ToString();
+                return false;
+            }
+        }
+
+        unknown = "";
         return true;
     }
 

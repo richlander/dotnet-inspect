@@ -252,15 +252,15 @@ public class SourceLinkProvenanceTests
     public void AnAzureDevOpsMap_ReportsItsOrganizationProjectAndRepository()
     {
         var result = Determine(
-            """
-            {"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version=deadbeef&path=/*"}}
+            $$$"""
+            {"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?api-version=1.0&versionType=commit&version={{{Sha}}}&path=/*"}}
             """,
             "/_/src/A.cs",
             "/_/src/B.cs");
 
         Assert.True(result.IsEstablished, result.Reason);
         Assert.Equal("https://dev.azure.com/contoso/widgets/_git/core", result.Origin!.Value.RepositoryUrl);
-        Assert.Equal("deadbeef", result.Origin!.Value.Revision);
+        Assert.Equal(Sha, result.Origin!.Value.Revision);
     }
 
     /// <summary>
@@ -271,10 +271,10 @@ public class SourceLinkProvenanceTests
     public void AnAzureDevOpsMapAtTwoVersions_ReportsNoRepository()
     {
         var result = Determine(
-            """
+            $$$"""
             {"documents":{
-              "/_/src/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?version=deadbeef&path=/*",
-              "/_/gen/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?version=feedface&path=/*"}}
+              "/_/src/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&path=/*",
+              "/_/gen/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{OtherSha}}}&path=/*"}}
             """,
             "/_/src/A.cs",
             "/_/gen/B.cs");
@@ -368,30 +368,124 @@ public class SourceLinkProvenanceTests
     /// decoder — so a value carrying one is not attributable. Without this, the two selectors in
     /// <c>version=a%2Bb&amp;versionDescriptor.version=a+b</c> agree under percent decoding and
     /// disagree under form decoding, and the descriptor is the one the host honours: we would
-    /// report <c>a+b</c> while Azure serves <c>a b</c>. <c>%2B</c> alone stays accepted, because
-    /// both decoders read it as a plus.
+    /// report <c>a+b</c> while Azure serves <c>a b</c>.
     /// </summary>
+    /// <remarks>
+    /// The last row is what keeps this from being satisfied by refusing everything. <c>%2B</c> is
+    /// unambiguous — both decoders read it as a plus — so it must get past this rule and be
+    /// refused further on, for not being a commit hash. A fix that refused any plus-bearing value,
+    /// encoded or not, would stop at the wrong reason and fail that row.
+    /// </remarks>
     [Theory]
-    [InlineData("version=a%2Bb&versionDescriptor.version=a+b", false)]
-    [InlineData("version=a+b", false)]
-    [InlineData("versionDescriptor.version=a+b", false)]
-    [InlineData("version=a%2Bb&versionDescriptor.version=a%2Bb", true)]
+    [InlineData("version=a%2Bb&versionDescriptor.version=a+b", "literal '+'")]
+    [InlineData("version=a+b", "literal '+'")]
+    [InlineData("versionDescriptor.version=a+b", "literal '+'")]
+    [InlineData("version=a%2Bb&versionDescriptor.version=a%2Bb", "is not a commit hash")]
     public void AVersionValueWhoseDecodingIsParserDependent_IsNotAttributable(
+        string query, string reason)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains(reason, result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>version</c> alone does not say what it selects. Azure reads it against
+    /// <c>versionType</c>, which defaults to <c>branch</c>, so a branch and a tag of one name are
+    /// two different contents behind one spelling — and, before this, behind one cache identity.
+    /// Measured against a live repository: <c>main</c> as a branch returned 200 and as a tag 404.
+    /// Only an immutable selector is attributable.
+    /// </summary>
+    /// <remarks>
+    /// Requiring <c>versionType=commit</c> refuses no map a supported generator produces. Both
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> and <c>Microsoft.SourceLink.AzureDevOpsServer.Git</c>
+    /// emit <c>?api-version=1.0&amp;versionType=commit&amp;version={sha}&amp;path=/*</c>, which the
+    /// last row pins as the accept case.
+    /// </remarks>
+    [Theory]
+    [InlineData("versionType=branch&version=main", false)]
+    [InlineData("versionType=tag&version=main", false)]
+    [InlineData("version=main", false)]
+    [InlineData("versionType=commit&version=main", false)]
+    // A ref may be named with hex characters, so a branch can be named after a real commit hash.
+    // Requiring the hash alone would report that hash while Azure served the branch's content,
+    // because versionType=branch makes the branch win.
+    [InlineData("versionType=branch&version=$SHA", false)]
+    [InlineData("versionDescriptor.versionType=tag&version=$SHA", false)]
+    [InlineData("versionType=commit&versionDescriptor.versionType=branch&version=$SHA", false)]
+    [InlineData("api-version=1.0&versionType=commit&version=$SHA", true)]
+    public void AnAzureRevisionThatIsNotAnImmutableCommit_IsNotAttributable(
         string query, bool established)
     {
         var result = Determine(
-            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query.Replace("$SHA", Sha, StringComparison.Ordinal)}}}&path=/*"}}""",
             "/_/A.cs");
 
         Assert.Equal(established, result.IsEstablished);
-        if (established)
-        {
-            Assert.Equal("a+b", result.Origin!.Value.Revision);
-        }
-        else
-        {
-            Assert.Contains("literal '+'", result.Reason, StringComparison.Ordinal);
-        }
+    }
+
+    /// <summary>
+    /// <c>versionOptions</c> moves the selection off the named commit: <c>previousChange</c> and
+    /// <c>firstParent</c> each serve a different commit's content under an unchanged
+    /// <c>version</c>, so the reported revision would not be the one fetched.
+    /// </summary>
+    [Theory]
+    [InlineData("versionOptions=previousChange", false)]
+    [InlineData("versionOptions=firstParent", false)]
+    [InlineData("versionDescriptor.versionOptions=previousChange", false)]
+    [InlineData("versionOptions=none", true)]
+    public void AnAzureVersionOptionThatMovesOffTheNamedCommit_IsNotAttributable(
+        string query, bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// The Azure path must end at the <c>items</c> endpoint. Matching only
+    /// <c>/_apis/git/repositories/{repo}</c> attributed endpoints that ignore <c>version</c>
+    /// entirely — the repository-metadata endpoint returned byte-identical content for every
+    /// revision supplied, so any revision could be reported for content that has none.
+    /// </summary>
+    [Theory]
+    [InlineData("/contoso/widgets/_apis/git/repositories/core", false)]
+    [InlineData("/contoso/widgets/_apis/git/repositories/core/pullRequests/1", false)]
+    [InlineData("/contoso/widgets/_apis/git/repositories/core/items/extra", false)]
+    [InlineData("/contoso/widgets/_apis/git/repositories/core/items", true)]
+    public void AnAzureUrlThatIsNotTheItemsEndpoint_IsNotAttributable(string path, bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com{{{path}}}?versionType=commit&version={{{Sha}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// Query parameters are allow-listed. Azure's Items API takes several that change which
+    /// content is returned, and it grows while this reader does not, so a name nobody has reasoned
+    /// about cannot be assumed inert — it may select content the reported origin does not
+    /// describe.
+    /// </summary>
+    [Theory]
+    [InlineData("futureSelector=evil", false)]
+    [InlineData("resolveLfs=true", false)]
+    [InlineData("scopePath=/src", true)]
+    [InlineData("api-version=7.1", true)]
+    public void AnAzureQueryParameterNobodyHasReasonedAbout_IsNotAttributable(
+        string extra, bool established)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&path=/*&{{{extra}}}"}}""",
+            "/_/A.cs");
+
+        Assert.Equal(established, result.IsEstablished);
     }
 
     /// <summary>
@@ -438,14 +532,19 @@ public class SourceLinkProvenanceTests
     /// while fetching the other.
     /// </summary>
     [Theory]
-    [InlineData("version=aaaa&versionDescriptor.version=bbbb", null)]
-    [InlineData("versionDescriptor.version=bbbb", "bbbb")]
-    [InlineData("version=aaaa&versionDescriptor.version=aaaa", "aaaa")]
-    [InlineData("version=aaaa", "aaaa")]
+    [InlineData("version=$SHA&versionDescriptor.version=$OTHER", null)]
+    [InlineData("versionDescriptor.version=$OTHER", "$OTHER")]
+    [InlineData("version=$SHA&versionDescriptor.version=$SHA", "$SHA")]
+    [InlineData("version=$SHA", "$SHA")]
     public void TheAzureRevision_IsTheSelectorTheHostHonours(string query, string? expected)
     {
+        query = query.Replace("$SHA", Sha, StringComparison.Ordinal)
+            .Replace("$OTHER", OtherSha, StringComparison.Ordinal);
+        expected = expected?.Replace("$SHA", Sha, StringComparison.Ordinal)
+            .Replace("$OTHER", OtherSha, StringComparison.Ordinal);
+
         var result = Determine(
-            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&{{{query}}}&path=/*"}}""",
             "/_/A.cs");
 
         if (expected is null)
