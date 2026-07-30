@@ -384,9 +384,9 @@ public class IlBodyDiffNormalizationTests
 
         Assert.False(CompareMemberNames(
             "<<In#er>b__5_0>b__103_0",
-            "<<In##er>b__5_0>b__103_0",
+            "<<In#er>b__#_0>b__103_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "A literal placeholder in a nested containing name must survive the recursion as evidence.");
+            "A literal placeholder in a nested containing name must not let the recursion's placeholder collide either.");
     }
 
     /// <summary>
