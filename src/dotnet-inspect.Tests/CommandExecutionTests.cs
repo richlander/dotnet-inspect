@@ -4675,9 +4675,12 @@ public partial class CommandExecutionTests
         // which gate fired -- an earlier version of this test used `find` and passed even with the
         // splitter replaced by a plain comma split. `package` has no catch-all, so only the
         // parse-time gate can produce a clean error here. Parse-time rejection also precedes any
-        // network call, so this does not hit NuGet.
+        // network call, so this does not hit NuGet -- the package name is deliberately one that
+        // does not exist, which makes that structural rather than incidental: if the parse-time
+        // gate ever stopped firing, this would fail with "Package ... not found" instead, which is
+        // a different message rather than a hang.
         var (exit, _, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--columns", columns, "--table");
+            "package", "No.Such.Package.Xyz123", "--columns", columns, "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
@@ -4691,9 +4694,10 @@ public partial class CommandExecutionTests
         // `--columns Type --columns Type` is the same request as `--columns Type,Type` and must
         // fail the same way. This pins that the validator reads the merged token rather than one
         // occurrence in isolation, which would let the duplicate through. Uses `package` for the
-        // same reason as above: it distinguishes the parse-time gate from the second gate.
+        // same reason as above: it distinguishes the parse-time gate from the second gate, and the
+        // nonexistent package name keeps it off the network.
         var (exit, _, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--columns", "Type", "--columns", "Type", "--table");
+            "package", "No.Such.Package.Xyz123", "--columns", "Type", "--columns", "Type", "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains("Duplicate --columns entry: Type", error, StringComparison.Ordinal);
@@ -4727,13 +4731,15 @@ public partial class CommandExecutionTests
         // This asserts on the *absence* of a stack trace, because exit 1 and a message on stderr
         // were already true of the crashing form -- the stack trace was the whole defect.
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--fields", "Authors,Authors", "--table");
+            "package", "No.Such.Package.Xyz123", "--fields", "Authors,Authors", "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains("Duplicate --fields entry: Authors", error, StringComparison.Ordinal);
         Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
         Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Newtonsoft", output, StringComparison.Ordinal);
+        // Rejection precedes package resolution, so the name is never looked up.
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.Trim());
     }
 
     [Fact]

@@ -175,12 +175,15 @@ public class SharedOptions
             if (result.Tokens.Count == 0)
                 return;
 
-            // The last token is the value the command will actually use: repeated occurrences are
-            // merged into one comma-separated token by ArgumentPreprocessor before parsing, so
-            // `--columns Type --columns Kind` arrives here as a single "Type,Kind" -- verified by
-            // it rendering both columns. Reading the same token ParseColumns/ParseFields will read,
-            // through the same splitter, is what keeps this check from disagreeing with runtime
-            // about what was requested (it covers ';' and '=' forms for the same reason).
+            // The last token is the value the command will actually use. Repeated occurrences never
+            // reach here as separate tokens: ArgumentPreprocessor.MergeRepeatedListOption collapses
+            // them into one ';'-joined token before parsing, so `--columns Type --columns Type`
+            // arrives as "Type;Type". That is why splitting on ';' as well as ',' is load-bearing
+            // rather than cosmetic -- a comma-only split would miss every duplicate spread across
+            // repeated occurrences, which is exactly the form a scripted caller produces.
+            //
+            // Reading the same token through the same splitter ParseColumns/ParseFields use is what
+            // keeps this check from disagreeing with runtime about what was requested.
             var names = ParseCommaSeparatedList(result.Tokens[^1].Value);
             if (names is null)
                 return;
