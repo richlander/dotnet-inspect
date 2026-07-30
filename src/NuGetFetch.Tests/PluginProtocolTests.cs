@@ -233,13 +233,38 @@ public sealed class PluginProtocolTests : IDisposable
         Assert.Null(credential);
     }
 
+    [Fact]
+    public async Task AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation()
+    {
+        // Well-formed JSON carrying the right property names with the wrong types is a distinct
+        // case from the unparseable noise above: it survives JsonDocument.Parse, so the guard for
+        // that path never sees it. Reading such a field as a string throws
+        // InvalidOperationException, which is not a JsonException, so an unguarded read escapes
+        // the read loop, and the loop's finally faults every pending request. That would take the
+        // plugin down for the life of the process on one malformed line.
+        FakePlugin plugin = CreatePlugin(
+            "mistyped",
+            username: "u",
+            password: "p",
+            preamble: """emit '{"RequestId":123,"Type":"Response","Method":"GetAuthenticationCredentials"}'""");
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"), false, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+        Assert.Equal("u", credential.Username);
+        Assert.Equal("p", credential.Password);
+    }
+
     private FakePlugin CreatePlugin(
         string name,
         string username,
         string password,
         string claims = "Authentication",
         string responseCode = "Success",
-        string? authenticationTypes = null)
+        string? authenticationTypes = null,
+        string? preamble = null)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
         // backslash in the emitted script.
@@ -257,6 +282,7 @@ public sealed class PluginProtocolTests : IDisposable
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.
         string body = """
+            __PREAMBLE__
             # Open with our own handshake, as a real plugin does. The host must answer it.
             emit '{"RequestId":"fake-handshake","Type":"Request","Method":"Handshake","Payload":{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}}'
 
@@ -281,7 +307,8 @@ public sealed class PluginProtocolTests : IDisposable
             done
             """
             .Replace("__CLAIMS__", Quoted(claims))
-            .Replace("__CREDENTIAL__", credentialPayload);
+            .Replace("__CREDENTIAL__", credentialPayload)
+            .Replace("__PREAMBLE__", preamble ?? string.Empty);
 
         return CreateRawPlugin(name, body);
     }

@@ -302,6 +302,30 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Reads a protocol header field, requiring it to actually be a string.
+    /// </summary>
+    /// <remarks>
+    /// The value comes from another process, so its JSON type cannot be assumed. Calling
+    /// <see cref="JsonElement.GetString"/> on a number or object throws
+    /// <see cref="InvalidOperationException"/>, which is not a <see cref="JsonException"/> and so
+    /// would escape the caller's parse guard, end the read loop, and fail every pending request
+    /// for the life of the process. Checking the kind keeps a malformed message as cheap as any
+    /// other non-protocol noise: it is ignored.
+    /// </remarks>
+    private static bool TryReadString(JsonElement root, string name, out string value)
+    {
+        if (root.TryGetProperty(name, out JsonElement element)
+            && element.ValueKind == JsonValueKind.String)
+        {
+            value = element.GetString() ?? string.Empty;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
     private void HandleLine(string line)
     {
         string requestId;
@@ -315,16 +339,12 @@ internal sealed class PluginConnection : IAsyncDisposable
             JsonElement root = document.RootElement;
 
             if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("RequestId", out JsonElement idElement)
-                || !root.TryGetProperty("Type", out JsonElement typeElement)
-                || !root.TryGetProperty("Method", out JsonElement methodElement))
+                || !TryReadString(root, "RequestId", out requestId)
+                || !TryReadString(root, "Type", out type)
+                || !TryReadString(root, "Method", out method))
             {
                 return;
             }
-
-            requestId = idElement.GetString() ?? string.Empty;
-            type = typeElement.GetString() ?? string.Empty;
-            method = methodElement.GetString() ?? string.Empty;
 
             // Clone: the element must outlive the JsonDocument it was parsed from.
             payload = root.TryGetProperty("Payload", out JsonElement payloadElement)
