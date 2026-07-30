@@ -48,18 +48,31 @@ the local phase belongs to the Markout PR.
 
 ## Setting up the local loop
 
-Markout source is checked out as a git worktree at `.worktrees/markout`, which
-is git-ignored (`.gitignore`, `.worktrees/`). Refresh it before starting; a
-stale worktree is the most common cause of confusing local failures.
+Markout source is a **peer checkout**, a sibling directory of this repository's
+worktree — not a directory inside it. Point at the Markout worktree carrying
+the change; if that is the branch's own PR worktree, the reference is
+read-only in practice, and a defect the adopter finds gets fixed on that branch
+where it belongs.
 
-Replace the Markout `PackageReference` with **two** project references:
+Do **not** nest the checkout under this repository (for example at
+`.worktrees/markout`). Nesting is the intuitive arrangement and it does not
+work — see the footgun below.
+
+Replace the Markout `PackageReference` with **two** project references, written
+as **absolute paths**:
 
 ```xml
-<ProjectReference Include="..\..\.worktrees\markout\src\Markout\Markout.csproj" />
-<ProjectReference Include="..\..\.worktrees\markout\src\Markout.SourceGeneration\Markout.SourceGeneration.csproj"
+<ProjectReference Include="/home/you/git/markout/src/Markout/Markout.csproj" />
+<ProjectReference Include="/home/you/git/markout/src/Markout.SourceGeneration/Markout.SourceGeneration.csproj"
                   OutputItemType="Analyzer"
                   ReferenceOutputAssembly="false" />
 ```
+
+Absolute, deliberately. A relative path looks like something that could be
+committed; an absolute one names a directory that exists on exactly one
+machine, so the edit advertises what it is every time anyone reads the file.
+That matters because these lines are tracked while the thing they point at is
+not — see the footgun below.
 
 Three projects reference the package, and each one that must move needs both
 lines:
@@ -72,6 +85,28 @@ lines:
 separate package with its own version.
 
 ## Footguns
+
+**A nested checkout inherits this repository's build configuration.** Putting
+Markout source inside the tree — `.worktrees/markout` is the obvious spot — is
+the arrangement that fails, and it fails at restore, before any of the
+interesting problems below can be reached. Two mechanisms, neither fixable from
+the Markout side:
+
+- Markout has no `Directory.Packages.props`. MSBuild walks up from the project
+  directory, finds *this* repository's, and switches central package management
+  on for projects that pin their versions inline.
+- NuGet configuration **merges** up the directory tree rather than stopping at
+  the first file found, so Markout's projects acquire this repository's feeds.
+
+```text
+error NU1008: The following PackageReference items cannot define a value for
+Version: Microsoft.CodeAnalysis.Analyzers, Microsoft.CodeAnalysis.CSharp.
+error NU1507: There are 2 package sources defined in your configuration.
+```
+
+Both name Markout project files while being caused entirely by their location,
+which is what makes the failure hard to read. A peer checkout has neither
+problem: nothing above it belongs to this repository.
 
 **The source generator does not arrive with the library.** This is the reason
 two project references are needed rather than one. `Markout.csproj` references
@@ -110,10 +145,18 @@ is to raise the pin in `Directory.Packages.props`. Do that as its own change,
 not as scaffolding to be reverted with the project references: it is a real
 dependency change that outlives the local phase.
 
-**The edit is tracked; the thing it points at is not.** `.worktrees/` is
-git-ignored, but the `.csproj` files are not. The one artifact that can be
-committed by accident is the one with no safety net. Check for stray project
-references before every commit during the local phase.
+**The edit is tracked; the thing it points at is not.** The Markout checkout is
+outside this repository entirely, but the `.csproj` files are tracked. The one
+artifact that can be committed by accident is the one with no safety net, and
+nothing in the build will object — the branch stays green on the machine that
+has the directory. Writing the reference as an absolute path is the cheap
+mitigation: a reviewer or `git diff` reader sees a home directory and knows
+immediately. Check for stray project references before every commit during the
+local phase:
+
+```bash
+git diff --cached -G'ProjectReference.*Markout' --stat
+```
 
 **The package version is not where you left it.** dotnet-inspect pins a Markout
 version that can be well behind Markout's `main`. Returning to
