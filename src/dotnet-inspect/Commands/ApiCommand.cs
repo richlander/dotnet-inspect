@@ -110,7 +110,8 @@ public class ApiCommand
             options.Select,
             knownSections,
             singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap());
+            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -293,7 +294,7 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
             return;
 
@@ -1006,7 +1007,7 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);

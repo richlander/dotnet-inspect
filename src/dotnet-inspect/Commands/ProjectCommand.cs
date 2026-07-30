@@ -37,7 +37,8 @@ public class ProjectCommand
             options.Select,
             ProjectSectionNames,
             infoSections: [],
-            ProjectCategoryMap());
+            ProjectCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
 

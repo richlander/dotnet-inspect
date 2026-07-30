@@ -385,7 +385,8 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
-            bool hasExplicitSelect = select is { Length: > 0 };
+            var selectDefault = opts.ParseSelectDefault(parseResult);
+            bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
@@ -447,6 +448,7 @@ public static class InspectionCommandDefinitions
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
+                SelectDefault = selectDefault,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),

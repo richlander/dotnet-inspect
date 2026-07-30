@@ -100,8 +100,14 @@ public static class SelectResolver
     public static bool IsInfoSelector(string[]? select)
         => select?.Any(value => value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase)) == true;
 
-    public static bool IsActiveInfoSelector(string[]? select, HashSet<string>? includeSections)
-        => IsInfoSelector(select) && includeSections is { Count: > 0 };
+    /// <summary>
+    /// Whether the default preset is in effect and actually resolved to something, either because
+    /// the caller passed bare <c>-S</c> (<paramref name="selectDefault"/>) or because they spelled
+    /// the <c>@Default</c> pole. The two are separate inputs because only the pole is a selector
+    /// value; the pole disjunct goes away with the pole itself.
+    /// </summary>
+    public static bool IsActiveInfoSelector(bool selectDefault, string[]? select, HashSet<string>? includeSections)
+        => (selectDefault || IsInfoSelector(select)) && includeSections is { Count: > 0 };
 
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
@@ -160,20 +166,31 @@ public static class SelectResolver
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
     /// Returns matched sections and any unresolved values with suggestions.
     /// </summary>
+    /// <param name="selectDefault">
+    /// Bare <c>-S</c>: contributes <paramref name="infoSections"/> to the match set without any
+    /// selector value standing for it. Kept out of <paramref name="select"/> so the marker is not
+    /// spellable, and resolved here rather than through a <c>@Default</c> category entry so it
+    /// works the same on pipelines that publish no poles. See #3547.
+    /// </param>
     public static SelectResult ResolveSelectAsSections(
         string[]? select,
         string[] knownSections,
         string[]? infoSections = null,
-        IReadOnlyDictionary<string, string[]>? categories = null)
+        IReadOnlyDictionary<string, string[]>? categories = null,
+        bool selectDefault = false)
     {
-        if (select is not { Length: > 0 })
+        if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
 
         categories ??= BuildFallbackCategories(knownSections, infoSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
-        foreach (var value in select)
+        if (selectDefault)
+            foreach (var section in infoSections ?? [])
+                matched.Add(section);
+
+        foreach (var value in select ?? [])
         {
             if (value.StartsWith('@'))
             {

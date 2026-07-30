@@ -27,7 +27,8 @@ public class DiffCommand
     {
         var pipeline = DiffSections.CreatePipeline();
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
         if (selectResult.Sections != null)
@@ -2060,6 +2061,13 @@ public record DiffOptions
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }

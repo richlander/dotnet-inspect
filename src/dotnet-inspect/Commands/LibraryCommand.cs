@@ -75,21 +75,21 @@ public class LibraryCommand
             }
         }
 
-        // Bare -S (a lone @Default preset — i.e. `-S` with no value) selects the network-free
-        // "fixed" overview: only sections whose declared growth class is Fixed and whose cost is
-        // NetworkFree, so the rendered set is structurally identical for every package (absence
-        // means "not applicable", never "too long for this package"). This still includes the
-        // symbol-dependent fact tables (Symbols, Signals) because they read an embedded, adjacent,
-        // or already-cached PDB without touching the network. Drop the preset marker and flag the
-        // fixed overview; keep display verbosity at Normal so the cache-only PDB read stays enabled
-        // (never downgrading a higher verbosity the user asked for, in which case the normal
-        // curated ladder applies instead of the fixed overview).
-        if (options.Discover == null
-            && options.Select is { Length: 1 }
-            && SelectResolver.IsInfoSelector(options.Select))
+        // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
+        // class is Fixed and whose cost is NetworkFree, so the rendered set is structurally
+        // identical for every package (absence means "not applicable", never "too long for this
+        // package"). This still includes the symbol-dependent fact tables (Symbols, Signals)
+        // because they read an embedded, adjacent, or already-cached PDB without touching the
+        // network. Consume the marker so it never resolves as a section set; keep display verbosity
+        // at Normal so the cache-only PDB read stays enabled (never downgrading a higher verbosity
+        // the user asked for, in which case the normal curated ladder applies instead of the fixed
+        // overview). Combined with an explicit selector the explicit selection wins and the marker
+        // is dropped, which is what it has always done - it used to emit a spurious "@Default not
+        // found" warning on the way. See #3547.
+        if (options.Discover == null && options.SelectDefault)
         {
-            options = options with { Select = null };
-            if (options.Verbosity == Verbosity.Minimal)
+            options = options with { SelectDefault = false };
+            if (options.Select is null && options.Verbosity == Verbosity.Minimal)
                 options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
@@ -124,7 +124,8 @@ public class LibraryCommand
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
