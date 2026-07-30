@@ -951,7 +951,9 @@ public class ApiCommand
                 Console.Error.WriteLine(error);
                 return 1;
             }
-            sink.WriteLine(raw.TrimEnd());
+            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
+            // it with LF too so --bare stays byte-stable for machine consumers.
+            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
             return 0;
         }
 
@@ -1011,7 +1013,7 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
                 }
-                sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);

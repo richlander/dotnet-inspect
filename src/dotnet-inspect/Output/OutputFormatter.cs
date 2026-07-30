@@ -141,6 +141,27 @@ public static class OutputFormatter
         output.WriteLine(ApplyRowLimit(markdown, rows));
 
     /// <summary>
+    /// Writes <paramref name="payload"/> followed by a single LF, for payloads whose interior is
+    /// already LF on every platform.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TextWriter.WriteLine(string)"/> terminates with the writer's <c>NewLine</c>,
+    /// which is CRLF on Windows for <see cref="Console.Out"/>. Using it on an LF-interior payload
+    /// yields a document that is LF throughout except for its last line, which is the mixed-ending
+    /// shape this method exists to avoid.
+    ///
+    /// This is deliberately *not* the terminator used by <see cref="WriteLimitedMarkdown"/>: those
+    /// callers still receive CRLF interiors from the string-returning <c>MarkoutSerializer</c>
+    /// overloads, so switching only their terminator would introduce the very mixing described
+    /// above. Interior and terminator have to move together, tracked in #3596.
+    /// </remarks>
+    public static void WriteLfLine(TextWriter output, string payload)
+    {
+        output.Write(payload);
+        output.Write('\n');
+    }
+
+    /// <summary>
     /// Writes version/feed rows in whichever format the caller selected.
     /// </summary>
     /// <remarks>
@@ -381,7 +402,13 @@ public static class OutputFormatter
         MarkoutWriterOptions writerOpts,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+        // Serialize through an LF writer rather than the string-returning overload, which inherits
+        // Environment.NewLine. The metadata half appended below is LF on every platform, and
+        // MarkdownSectionOrderer rejoins on whichever ending it detects — so a CRLF shell here
+        // would both mix endings and normalize the metadata sections back to CRLF.
+        var shell = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(auditView, shell, InspectionContext.Default, writerOpts);
+        var markdown = shell.ToString();
 
         if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
         {
