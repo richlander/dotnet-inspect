@@ -94,6 +94,14 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
+        catch (DotnetInspector.CommandLine.PrefixResolutionException ex)
+        {
+            // --package-prefix expansion needs the network, so unlike the row window it
+            // cannot be settled at parse time. This is its primary path, not a defensive
+            // one, and its message quotes the prefix the user supplied.
+            CommandError.Write(ex);
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             return 1;
@@ -105,6 +113,10 @@ public static class CommandLineBuilder
         }
     }
 
+    // The default handler prints a raw stack trace for every escaping exception, including
+    // ones the tool raises deliberately to report a user-facing failure. Disabling it lets
+    // those reach the handlers above, which own the `Error:` contract and keep a general
+    // handler for genuinely unexpected exceptions.
     private static readonly InvocationConfiguration ExceptionsReachTheCliErrorContract = new()
     {
         EnableDefaultExceptionHandler = false,

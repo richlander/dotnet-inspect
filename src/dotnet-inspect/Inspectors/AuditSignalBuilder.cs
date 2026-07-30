@@ -28,28 +28,90 @@ internal static class AuditSignalBuilder
         DirectDependencySelection DirectDependencies,
         DependencySignalSummary DependencySignals);
 
+    /// <summary>
+    /// Signals derived from classified methods (unsafe public signatures, async kind) read
+    /// <see cref="LibraryInspection.ClassifiedMethodInspection"/>. That data is supplied by the
+    /// declared <c>ScannerClassifiedMethods</c> prerequisite on this scanner's registration, not
+    /// by a scan performed here.
+    /// </summary>
     public static void PopulateLibraryAudit(string assemblyPath, LibraryInspection inspection, VerboseLogger logger)
     {
-        List<AuditSignal> signals = [];
         AssemblyAuditMetadata? metadata = null;
-        int? pInvokeMethodCount = null;
 
         try
         {
             using var session = AssemblyInspectionSession.Open(assemblyPath);
             metadata = session.AuditMetadata();
-            pInvokeMethodCount = metadata.PInvokeMethodCount;
-
-            // Reuse the same session for the classified-methods scan rather than re-opening the file.
-            if (inspection.ClassifiedMethodInspection is null)
-                LibraryMetadataService.ScanClassifiedMethods(session, assemblyPath, inspection, logger);
         }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning audit metadata in {assemblyPath}: {ex.Message}");
         }
 
-        var context = new LibrarySignalContext(inspection, metadata, pInvokeMethodCount);
+        ApplyLibraryAudit(inspection, metadata);
+    }
+
+    /// <inheritdoc cref="PopulateLibraryAudit(string, LibraryInspection, VerboseLogger)"/>
+    public static void PopulateLibraryAudit(
+        AssemblyInspectionSession session,
+        string assemblyPath,
+        LibraryInspection inspection,
+        VerboseLogger logger)
+    {
+        AssemblyAuditMetadata? metadata = null;
+
+        try
+        {
+            metadata = session.AuditMetadata();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Error scanning audit metadata in {assemblyPath}: {ex.Message}");
+        }
+
+        ApplyLibraryAudit(inspection, metadata);
+    }
+
+    /// <summary>
+    /// Recomputes audit signals after a later pass has added evidence, reusing the metadata the
+    /// audit scanner already captured. Falls back to a full populate when no scanner captured any
+    /// — an unopenable assembly, or a caller that bypassed the scanner registry — so this is safe
+    /// to call unconditionally.
+    /// </summary>
+    public static void RefreshLibraryAudit(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        if (inspection.AuditMetadata is null)
+        {
+            PopulateLibraryAudit(path, inspection, logger);
+            return;
+        }
+
+        RefreshLibraryAuditSignals(inspection);
+    }
+
+    private static void ApplyLibraryAudit(LibraryInspection inspection, AssemblyAuditMetadata? metadata)
+    {
+        inspection.AuditMetadata = metadata;
+        RefreshLibraryAuditSignals(inspection);
+    }
+
+    /// <summary>
+    /// Recomputes audit signals from already-captured metadata plus the current model, without
+    /// reopening the assembly.
+    ///
+    /// The source-audit and integrity passes run after the scanners and add evidence that signals
+    /// depend on, so signals have to be recomputed once each pass lands. Only the model-derived
+    /// half of the computation changes; reopening the assembly to redo the other half wasted up to
+    /// three extra opens and reintroduced the window the shared session closes, since those opens
+    /// happen after the scanner context is disposed.
+    ///
+    /// Gated by <c>AuditSignalRefresh_DoesNotReopenTheAssembly</c>.
+    /// </summary>
+    public static void RefreshLibraryAuditSignals(LibraryInspection inspection)
+    {
+        List<AuditSignal> signals = [];
+        var metadata = inspection.AuditMetadata;
+        var context = new LibrarySignalContext(inspection, metadata, metadata?.PInvokeMethodCount);
         AddLibrarySignals(signals, in context);
 
         inspection.AuditSignals = signals;

@@ -201,6 +201,16 @@ public sealed class SectionPipeline<TModel>
         .ToHashSet(StringComparer.Ordinal)!;
 
     /// <summary>
+    /// Section names paired with the scanner key each declares, for sections that declare one.
+    /// Exposed so a test can derive the sections affected by a scanner property — for example
+    /// "which sections depend on a scanner that declares prerequisites" — from the registration
+    /// rather than restating a literal list that would drift.
+    /// </summary>
+    public IEnumerable<(string Name, string ScannerKey)> ScannerBoundSections => _entries
+        .Where(e => e.ScannerKey != null)
+        .Select(e => (e.Name, e.ScannerKey!));
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.

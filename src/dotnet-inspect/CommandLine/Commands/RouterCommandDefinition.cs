@@ -156,7 +156,8 @@ public static class RouterCommandDefinition
 
             var hasVersionQuery = ContainsOption(tokens, "--version")
                 || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions");
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 

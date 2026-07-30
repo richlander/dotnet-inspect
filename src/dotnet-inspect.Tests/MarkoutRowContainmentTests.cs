@@ -375,7 +375,6 @@ public class MarkoutRowContainmentTests
         "PInvokeMethodRow.DeclaringType",
         "PInvokeMethodRow.Signature",
         "PackageDependenciesView.Title",
-        "PackageSearchResultView.Description",
         "PackageSearchResultView.Title",
         "PackageSearchRow.Description",
         "PackageSearchRow.Downloads",

@@ -67,6 +67,20 @@ try
 
     // Initialize library configuration
     DotnetInspector.Core.HttpClientFactory.Initialize(offline);
+
+    // Credential plugins are how a private feed is read without a password stored in nuget.config,
+    // and NuGet ranks them as the most secure of the credential mechanisms. Discovery is only a
+    // PATH and directory scan; no plugin process starts unless a source actually answers 401.
+    if (!offline)
+    {
+        var credentialProvider = new NuGetFetch.Plugins.PluginCredentialProvider();
+
+        if (credentialProvider.HasPlugins)
+        {
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+                inner => new NuGetFetch.Plugins.PluginAuthenticationHandler(credentialProvider, inner));
+        }
+    }
     NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
     // The IR invariant check is armed by default so any host that runs the
     // decompiler pipeline validates it (#3267). The shipped tool is the one
