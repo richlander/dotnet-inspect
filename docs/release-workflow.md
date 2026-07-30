@@ -69,9 +69,11 @@ artifacts:
   `src/dotnet-inspect/dotnet-inspect.csproj`, packed via the `None Include`
   entry beside it), so it is the first thing a consumer of the published
   package reads.
-- Every `skills/**/SKILL.md` is embedded into the tool binary as a resource and
-  served by `dotnet-inspect skill`, so the published tool teaches agents
-  whatever those files said at build time.
+- Every shipped `SKILL.md` is embedded into the tool binary as an
+  `EmbeddedResource` and served by `dotnet-inspect skill`, so the published tool
+  teaches agents whatever those files said at build time. The embeds are
+  enumerated one line per skill in `src/dotnet-inspect/dotnet-inspect.csproj`,
+  not globbed.
 
 A change to `VersionPrefix` is therefore a documentation checkpoint. Consult
 both before dispatching, and expect to update them:
@@ -83,6 +85,14 @@ both before dispatching, and expect to update them:
   and is a new capability discoverable from the skill that owns it? A skill's
   YAML frontmatter `description:` is the single source of truth for the
   generated listing, so a stale description ships as a stale listing.
+- **Does every skill added since the last release appear in both places?** A
+  skill needs an `EmbeddedResource` line in
+  `src/dotnet-inspect/dotnet-inspect.csproj` *and* an entry in
+  `SkillCommand.Skills`. Nothing enforces this: every test in
+  `SkillCommandTests` iterates `SkillCommand.Skills`, so a skill directory that
+  was never registered is invisible to the suite and ships as nothing at all,
+  with a green build. Compare `skills/*/SKILL.md` on disk against both lists by
+  hand, and confirm with `dotnet-inspect skill list`.
 - Record the outcome either way. If neither needed a change, say so; silence
   reads the same as an unchecked box.
 
