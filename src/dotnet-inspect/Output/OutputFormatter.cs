@@ -547,12 +547,20 @@ public static class OutputFormatter
     /// because column selection is.
     /// <para>
     /// This is the second gate, not the first. <c>SharedOptions</c> attaches the same check to the
-    /// <c>--columns</c>/<c>--fields</c> options themselves, so a duplicate is normally rejected at
-    /// parse time as a clean one-line error. That matters because a throw from inside the
-    /// invocation pipeline is only reported cleanly by commands that happen to catch it: <c>find</c>
-    /// does, <c>package</c> does not, and there it would surface as an unhandled-exception stack
-    /// trace. This check remains because <c>BuildProjection</c> is reachable from callers that do
-    /// not come through those options, and a duplicate must not reach a writer either way.
+    /// <c>--columns</c>/<c>--fields</c> options themselves, so a duplicate arriving from the command
+    /// line is rejected at parse time as a clean one-line error. That matters because a throw from
+    /// inside the invocation pipeline is only reported cleanly by commands that happen to catch it:
+    /// <c>find</c> does, <c>package</c> does not, and there it surfaced as an unhandled-exception
+    /// stack trace (dotnet-inspect#3494 review).
+    /// </para>
+    /// <para>
+    /// Every product caller of <c>BuildProjection</c> currently passes <c>Columns</c>/<c>Fields</c>
+    /// sourced from those validated options, so this check is unreachable from the CLI today. It
+    /// stays because <c>OutputFormatter</c> is in-process infrastructure that callers can drive
+    /// directly -- <c>FindCommandTests</c> already does -- and because a future option reaching
+    /// <c>BuildProjection</c> without a parse-time validator would otherwise emit a duplicate key
+    /// rather than fail. It is defense in depth, not the enforcing gate; the parse-time validator
+    /// is, and <c>DuplicateProjection_IsRejectedByCommandsThatDoNotCatchIt</c> pins it.
     /// </para>
     /// </remarks>
     private static void RejectDuplicates(string[]? names, string flag)

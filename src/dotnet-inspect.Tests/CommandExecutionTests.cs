@@ -4659,6 +4659,61 @@ public partial class CommandExecutionTests
         Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("Type;Type")]
+    [InlineData("Type, Type")]
+    [InlineData("Type,TYPE")]
+    public async Task DuplicateProjection_IsRejectedInEverySpellingTheParserAccepts(string columns)
+    {
+        // The duplicate check must split the value the same way ParseColumns does, or a duplicate
+        // written in a spelling the check does not understand escapes the parse-time gate. --columns
+        // accepts semicolons as well as commas, tolerates surrounding whitespace, and matches
+        // case-insensitively, so each of these is the same request as "Type,Type".
+        //
+        // This runs against `package` deliberately. `find` has a catch-all that reports the second
+        // gate's throw with the same "Error: Duplicate ..." text, so asserting there cannot tell
+        // which gate fired -- an earlier version of this test used `find` and passed even with the
+        // splitter replaced by a plain comma split. `package` has no catch-all, so only the
+        // parse-time gate can produce a clean error here. Parse-time rejection also precedes any
+        // network call, so this does not hit NuGet.
+        var (exit, _, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--columns", columns, "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DuplicateProjection_IsRejectedAcrossRepeatedOccurrences()
+    {
+        // Repeated occurrences are merged into one comma-separated value before parsing, so
+        // `--columns Type --columns Type` is the same request as `--columns Type,Type` and must
+        // fail the same way. This pins that the validator reads the merged token rather than one
+        // occurrence in isolation, which would let the duplicate through. Uses `package` for the
+        // same reason as above: it distinguishes the parse-time gate from the second gate.
+        var (exit, _, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--columns", "Type", "--columns", "Type", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Duplicate --columns entry: Type", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_DistinctColumnsAcrossRepeatedOccurrences_AreStillAccepted()
+    {
+        // The negative case for the above: merging is real, so both names must survive it. Without
+        // this, a check that rejected every repeated occurrence would pass the duplicate test while
+        // breaking a valid request.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", "Type", "--columns", "Kind", "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task DuplicateProjection_IsRejectedByCommandsThatDoNotCatchIt()
     {
