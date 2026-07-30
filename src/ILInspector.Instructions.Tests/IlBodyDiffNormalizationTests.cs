@@ -223,7 +223,6 @@ public class IlBodyDiffNormalizationTests
     /// unit renumbers the containing method.
     /// </summary>
     [Theory]
-    [InlineData("<>9__103_0", "<>9__128_0")]                          // lambda cache field
     [InlineData("<Run>b__103_0", "<Run>b__128_0")]                    // lambda method
     [InlineData("<Run>g__Local|103_0", "<Run>g__Local|128_0")]        // local function
     [InlineData("<.ctor>b__103_0", "<.ctor>b__128_0")]                // lambda in a constructor
@@ -237,6 +236,68 @@ public class IlBodyDiffNormalizationTests
         Assert.True(CompareMemberNames(
             oldName,
             newName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// The cache-field half of #3503. <c>&lt;&gt;9__N_M</c> is a field, so it
+    /// reaches the formatter through the field paths rather than the call
+    /// paths and needs its own gate — the ``StatementBodyLambdaInsideIf`` row
+    /// diffed on exactly this name.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_ToleratesRenumberingOfALambdaCacheField()
+    {
+        Assert.False(CompareFieldNames("<>9__103_0", "<>9__128_0").IsExact);
+        Assert.True(CompareFieldNames(
+            "<>9__103_0",
+            "<>9__128_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// Roslyn emits the cache form only as a field and the lambda and
+    /// local-function forms only as methods. A name that carries one form on
+    /// the other metadata table did not come from C#, so relating its ordinals
+    /// would equate two members that nothing else relates.
+    /// </summary>
+    [Theory]
+    [InlineData("<>9__103_0", "<>9__128_0")]                    // cache form on a method
+    public void NormalizeSynthesizedMemberOrdinals_RejectsAFieldFormOnAMethod(
+        string oldName,
+        string newName)
+    {
+        Assert.False(CompareMemberNames(
+            oldName,
+            newName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <inheritdoc cref="NormalizeSynthesizedMemberOrdinals_RejectsAFieldFormOnAMethod"/>
+    [Theory]
+    [InlineData("<Run>b__103_0", "<Run>b__128_0")]              // lambda form on a field
+    [InlineData("<Run>g__Local|103_0", "<Run>g__Local|128_0")]  // local-function form on a field
+    public void NormalizeSynthesizedMemberOrdinals_RejectsAMethodFormOnAField(
+        string oldName,
+        string newName)
+    {
+        Assert.False(CompareFieldNames(
+            oldName,
+            newName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// The cache form's ordinals must be canonical too. Checked separately
+    /// from the method forms because <c>&lt;&gt;9__N_M</c> only ever reaches
+    /// the field paths.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_RejectsANonCanonicalCacheFieldOrdinal()
+    {
+        Assert.False(CompareFieldNames(
+            "<>9__0103_0",
+            "<>9__0128_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
     }
 
@@ -276,6 +337,11 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<>b__103_0", "<>b__128_0")]                      // empty containing method with a lambda marker
     [InlineData("<Run>g__|103_0", "<Run>g__|128_0")]              // empty local function name
     [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]    // state machine of an async lambda: a type name
+    [InlineData("<Run>b__0103_0", "<Run>b__0128_0")]              // leading zero: not how Roslyn spells an ordinal
+    [InlineData("<Run>b__103_00", "<Run>b__128_00")]              // leading zero in the per-method index
+    [InlineData(
+        "<Run>b__000000000000000000000000000103_0",
+        "<Run>b__000000000000000000000000000128_0")]              // ordinal wider than `int`
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)
@@ -424,6 +490,15 @@ public class IlBodyDiffNormalizationTests
             BuildCallImage("Same", "Library.Probe", newMemberName),
             normalization);
 
+    static IlBodyDiffResult CompareFieldNames(
+        string oldMemberName,
+        string newMemberName,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        => CompareImages(
+            BuildFieldImage("Same", "Library.Probe", oldMemberName),
+            BuildFieldImage("Same", "Library.Probe", newMemberName),
+            normalization);
+
     static IlBodyDiffResult CompareDeclaringTypeNames(
         string oldTypeName,
         string newTypeName,
@@ -471,6 +546,26 @@ public class IlBodyDiffNormalizationTests
         string? referenceAssemblyName = null,
         string? memberName = null,
         string? typeName = null)
+        => BuildMemberImage(assemblyName, referenceAssemblyName, memberName, typeName, asField: false);
+
+    /// <summary>
+    /// The field counterpart of <see cref="BuildCallImage"/>: the body loads a
+    /// static field through a <c>MemberReference</c> rather than calling a
+    /// method, so a name reaches the formatter as a <em>field</em> name.
+    /// </summary>
+    static byte[] BuildFieldImage(
+        string assemblyName,
+        string? referenceAssemblyName = null,
+        string? memberName = null,
+        string? typeName = null)
+        => BuildMemberImage(assemblyName, referenceAssemblyName, memberName, typeName, asField: true);
+
+    static byte[] BuildMemberImage(
+        string assemblyName,
+        string? referenceAssemblyName,
+        string? memberName,
+        string? typeName,
+        bool asField)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -489,7 +584,9 @@ public class IlBodyDiffNormalizationTests
         EntityHandle target;
         if (referenceAssemblyName is null)
         {
-            target = MetadataTokens.MethodDefinitionHandle(1);
+            target = asField
+                ? MetadataTokens.FieldDefinitionHandle(1)
+                : MetadataTokens.MethodDefinitionHandle(1);
         }
         else
         {
@@ -508,7 +605,9 @@ public class IlBodyDiffNormalizationTests
             target = metadata.AddMemberReference(
                 type,
                 metadata.GetOrAddString(memberName ?? (selfReference ? "Caller" : "Target")),
-                metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
+                metadata.GetOrAddBlob(asField
+                    ? new byte[] { 0x06, 0x08 }
+                    : new byte[] { 0x00, 0x00, 0x01 }));
         }
 
         metadata.AddTypeDefinition(
@@ -528,7 +627,17 @@ public class IlBodyDiffNormalizationTests
 
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
-        encoder.Call(target);
+        if (asField)
+        {
+            encoder.OpCode(ILOpCode.Ldsfld);
+            encoder.Token(target);
+            encoder.OpCode(ILOpCode.Pop);
+        }
+        else
+        {
+            encoder.Call(target);
+        }
+
         encoder.OpCode(ILOpCode.Ret);
         var methodBodies = new BlobBuilder();
         int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(encoder);

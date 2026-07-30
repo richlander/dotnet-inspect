@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -74,7 +75,12 @@ public enum IlBodyDiffNormalization
     /// must be one of the three forms. A synthesized-looking <em>substring</em>
     /// is never rewritten, so names that arrive from a producer other than C#
     /// (<c>x!&lt;Run&gt;b__1_0</c>, <c>&lt;Run&gt;b__1_0!suffix</c>) keep
-    /// comparing literally.
+    /// comparing literally. The form must also match the member's metadata
+    /// table — the cache form is accepted only on a field and the lambda and
+    /// local-function forms only on a method — and both indices must be
+    /// spelled the way Roslyn spells them, as canonical non-negative
+    /// <see cref="int"/> values, so <c>&lt;Run&gt;b__0103_0</c> and a
+    /// 30-digit ordinal are not recognized either.
     /// </para>
     /// <para>
     /// Known limitation, deliberately not addressed: overloads share a
@@ -765,7 +771,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name)), genericArgs: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name), SynthesizedMemberKind.Method), genericArgs: null);
         }
 
         string FormatMemberReference(MemberReferenceHandle handle)
@@ -783,7 +789,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name)), genericArgs: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Method), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
@@ -819,7 +825,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name)), genericArgs);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name), SynthesizedMemberKind.Method), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
@@ -834,7 +840,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name)), genericArgs);
+            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Method), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
@@ -848,7 +854,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name))}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name), SynthesizedMemberKind.Field)}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -865,7 +871,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
-            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name))}";
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Field)}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
@@ -1031,10 +1037,22 @@ public static class IlBodyDiff
         /// <see cref="SignatureIdentityProvider"/>.
         /// </para>
         /// </remarks>
-        string NormalizeMemberName(string name)
+        string NormalizeMemberName(string name, SynthesizedMemberKind kind)
             => (normalization & IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals) != 0
-                ? SynthesizedOrdinals.Normalize(name)
+                ? SynthesizedOrdinals.Normalize(name, kind)
                 : name;
+    }
+
+    /// <summary>
+    /// Which metadata table a member name came from. Roslyn emits the lambda
+    /// cache form <c>&lt;&gt;9__N_M</c> only as a field and the lambda and
+    /// local-function forms only as methods, so the normalizer needs the kind
+    /// to hold names to that correspondence.
+    /// </summary>
+    internal enum SynthesizedMemberKind
+    {
+        Field,
+        Method,
     }
 
     /// <summary>
@@ -1080,10 +1098,10 @@ public static class IlBodyDiff
         /// <c>&lt;Run&gt;b__103_0</c>), rewriting only the containing-method
         /// ordinal. Any other name is returned unchanged.
         /// </summary>
-        public static string Normalize(string value)
-            => Normalize(value, depth: 0);
+        public static string Normalize(string value, SynthesizedMemberKind kind)
+            => Normalize(value, kind, depth: 0);
 
-        static string Normalize(string value, int depth)
+        static string Normalize(string value, SynthesizedMemberKind kind, int depth)
         {
             // Every recognized form opens with '<', which C# cannot spell, and
             // carries the '__' separator. Both checks are cheap rejects.
@@ -1094,7 +1112,7 @@ public static class IlBodyDiff
                 return value;
             }
 
-            return TryNormalizeName(value, depth, out string replacement) ? replacement : value;
+            return TryNormalizeName(value, kind, depth, out string replacement) ? replacement : value;
         }
 
         /// <summary>
@@ -1123,7 +1141,7 @@ public static class IlBodyDiff
         /// (see docs/design/untrusted-data-threat-model.md).
         /// </para>
         /// </remarks>
-        static bool TryNormalizeName(string value, int depth, out string replacement)
+        static bool TryNormalizeName(string value, SynthesizedMemberKind kind, int depth, out string replacement)
         {
             replacement = "";
 
@@ -1142,6 +1160,14 @@ public static class IlBodyDiff
             {
                 return false;
             }
+
+            // Roslyn emits the cache form `<>9__N_M` only as a field and the
+            // lambda and local-function forms only as methods. Holding names to
+            // that correspondence keeps a *method* named `<>9__1_0` — which no
+            // C# compiler emits — comparing literally.
+            var markerKind = value[marker] == '9' ? SynthesizedMemberKind.Field : SynthesizedMemberKind.Method;
+            if (kind != markerKind)
+                return false;
 
             // Roslyn omits the containing-method name only for the lambda
             // cache field `<>9__N_M`; the lambda and local-function forms
@@ -1172,7 +1198,7 @@ public static class IlBodyDiff
             // is what separates a closure name from an identifier that merely
             // ends in digits, and it stays significant so a lambda bound to the
             // wrong slot still differs.
-            if (digitsEnd == digitsStart
+            if (!IsCanonicalOrdinal(value, digitsStart, digitsEnd)
                 || digitsEnd >= value.Length
                 || value[digitsEnd] != '_')
             {
@@ -1187,20 +1213,51 @@ public static class IlBodyDiff
             while (lambdaEnd < value.Length && char.IsAsciiDigit(value[lambdaEnd]))
                 lambdaEnd++;
 
-            if (lambdaEnd == lambdaStart || lambdaEnd != value.Length)
+            if (lambdaEnd != value.Length || !IsCanonicalOrdinal(value, lambdaStart, lambdaEnd))
                 return false;
 
             // The enclosing name carries its own ordinal when it is itself a
             // closure, so normalize it under the same grammar. Recursing rather
             // than rescanning is what keeps an authored enclosing method named
-            // `b__1_0` distinct from one named `b__2_0`.
+            // `b__1_0` distinct from one named `b__2_0`. A containing name is
+            // always a method, whatever kind the outer member is.
             string inner = value[1..close];
             string normalizedInner = depth < MaxNestingDepth
-                ? Normalize(inner, depth + 1)
+                ? Normalize(inner, SynthesizedMemberKind.Method, depth + 1)
                 : inner;
 
             replacement = $"<{normalizedInner}{value[close..digitsStart]}{Placeholder}{value[digitsEnd..]}";
             return true;
+        }
+
+        /// <summary>
+        /// Reports whether <c>value[start..end]</c> is an ordinal exactly as
+        /// Roslyn spells one.
+        /// </summary>
+        /// <remarks>
+        /// Roslyn formats these indices with an invariant <see cref="int"/>
+        /// conversion, so <c>0103</c> and a 30-digit run are not forms it can
+        /// emit. Accepting them would let <c>&lt;Run&gt;b__0103_0</c> and
+        /// <c>&lt;Run&gt;b__0128_0</c> collapse — a masked difference between
+        /// two names that no compiler produced and that nothing else relates.
+        /// Requiring the canonical encoding costs at most a false positive on
+        /// such a name, which is the safe direction.
+        /// </remarks>
+        static bool IsCanonicalOrdinal(string value, int start, int end)
+        {
+            int length = end - start;
+            if (length == 0)
+                return false;
+
+            // "0" is canonical; "0" followed by anything is not.
+            if (length > 1 && value[start] == '0')
+                return false;
+
+            return int.TryParse(
+                value.AsSpan(start, length),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out _);
         }
 
         /// <summary>
