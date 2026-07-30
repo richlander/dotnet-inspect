@@ -1118,7 +1118,7 @@ public static class IlBodyDiff
                 // Out of scan budget: abandon the whole string rather than
                 // return it half-rewritten. Declining can only cost a false
                 // positive, never a masked difference.
-                if (budget <= 0)
+                if (budget < 0)
                     return value;
 
                 if (!TryNormalizeName(value, i, depth, ref budget, out string replacement, out int end))
@@ -1131,7 +1131,11 @@ public static class IlBodyDiff
                 i = end - 1;
             }
 
-            if (builder is null)
+            // The budget can also run out on the last candidate in the string,
+            // after which the loop simply ends and the check above is never
+            // reached again. Re-check here so an exhausted scan always declines
+            // the whole string, whatever position exhausted it.
+            if (builder is null || budget < 0)
                 return value;
 
             builder.Append(value, copied, value.Length - copied);
@@ -1168,8 +1172,12 @@ public static class IlBodyDiff
             if (value[marker] == 'g')
             {
                 // Local function: the ordinal follows the '|' that terminates
-                // the local's own name, which cannot contain '|'.
-                int bar = value.IndexOf('|', digitsStart);
+                // the local's own name, which cannot contain '|'. This search
+                // runs to the end of the string when there is no '|', so it is
+                // charged to the same budget as the angle scan; leaving it
+                // uncharged keeps the quadratic behavior the budget exists to
+                // bound.
+                int bar = FindLocalFunctionSeparator(value, digitsStart, ref budget);
                 if (bar < 0)
                     return false;
                 digitsStart = bar + 1;
@@ -1221,6 +1229,25 @@ public static class IlBodyDiff
                 Placeholder.ToString());
             end = digitsEnd;
             return true;
+        }
+
+        /// <summary>
+        /// Returns the index of the <c>|</c> at or after <paramref name="start"/>
+        /// that terminates a local function's own name, or -1 when there is
+        /// none or when <paramref name="budget"/> runs out.
+        /// </summary>
+        static int FindLocalFunctionSeparator(string value, int start, ref int budget)
+        {
+            for (int i = start; i < value.Length; i++)
+            {
+                if (--budget < 0)
+                    return -1;
+
+                if (value[i] == '|')
+                    return i;
+            }
+
+            return -1;
         }
 
         /// <summary>

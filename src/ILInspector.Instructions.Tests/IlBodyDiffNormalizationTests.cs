@@ -390,6 +390,53 @@ public class IlBodyDiffNormalizationTests
     static string Buried(int unbalanced, int ordinal)
         => new string('<', unbalanced) + $"<Run>b__{ordinal}_0";
 
+    /// <summary>
+    /// The local function form searches forward for the <c>|</c> that
+    /// terminates the local's own name, and that search runs to the end of the
+    /// string when there is none. Charging it to the same budget as the angle
+    /// scan is what stops a name built from <c>&lt;&gt;g__.</c> repeats from
+    /// costing O(n²): those repeats close their angles immediately, so the
+    /// angle scan alone never notices them.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_ChargesTheLocalFunctionSeparatorScan()
+    {
+        Assert.False(CompareMemberNames(
+            LocalFunctionFiller(repeats: 200, ordinal: 103),
+            LocalFunctionFiller(repeats: 200, ordinal: 128),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "A separator search that runs to the end of the string must consume the scan budget.");
+    }
+
+    /// <summary>
+    /// Budget exhaustion has to decline the whole name however it is reached.
+    /// When it happens on the last candidate in the string the scan loop just
+    /// ends, so the in-loop check never runs again; without a check after the
+    /// loop the leading closure name would stay rewritten and two names that
+    /// differ only past the exhaustion point would compare equal. These
+    /// constants were found by searching for an input the two behaviors
+    /// disagree on.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_DeclinesWhenTheBudgetRunsOutOnTheLastCandidate()
+    {
+        Assert.False(CompareMemberNames(
+            LocalFunctionFiller(repeats: 22, ordinal: 103, trailing: 353),
+            LocalFunctionFiller(repeats: 22, ordinal: 128, trailing: 353),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "A budget exhausted on the last candidate must decline the whole name, not leave it half-rewritten.");
+    }
+
+    /// <summary>
+    /// A closure name followed by <paramref name="repeats"/> local-function
+    /// prefixes that never supply a <c>|</c>, then <paramref name="trailing"/>
+    /// characters containing no <c>&lt;</c>.
+    /// </summary>
+    static string LocalFunctionFiller(int repeats, int ordinal, int trailing = 0)
+        => $"<Run>b__{ordinal}_0"
+            + string.Concat(Enumerable.Repeat("<>g__.", repeats))
+            + new string('A', trailing);
+
     [Fact]
     public void Compare_RejectsUndefinedOptions()
     {
