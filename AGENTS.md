@@ -341,6 +341,13 @@ round:
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
   report its parent's changes as its own.
+- **An upper slice reports no checks at all, and that is not pending.** CI here
+  runs only on PRs targeting `main` (`.github/workflows/ci.yml`), so a slice
+  aimed at its parent gets no runs and `gh pr checks` says "no checks reported".
+  Do not wait for them; nothing will arrive until the slice retargets `main`,
+  where the check becomes binding. Until then its evidence is the validation you
+  ran locally plus the bottom slice's CI — so say what you ran, and do not
+  report an unrun slice as green.
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -367,8 +374,8 @@ escalate: default to more review, not less.
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| More than trivial, but not high risk | A single review, always with **MAI-Code**. |
-| High risk — the default for any substantial change | Two reviews from two different models. |
+| More than trivial, but not high risk | A single review round, always with **MAI-Code**. |
+| High risk — the default for any substantial change | Two review rounds from two different models. |
 
 High risk means subtle correctness, security, or compatibility risk, or a large
 or uncertain blast radius.
