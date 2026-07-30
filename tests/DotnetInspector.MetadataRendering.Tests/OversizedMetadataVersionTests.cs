@@ -93,47 +93,138 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     }
 
     /// <summary>
-    /// Gates the repairs `MetadataReader` does not check for us.
-    /// <para>
-    /// Widening the version field grows the section that holds it, so the
-    /// containing section's raw size, every later section's raw pointer, and the
-    /// optional header's <c>SizeOfCode</c> all have to grow with it. SRM reads
-    /// none of those, so omitting any of them leaves the rest of this class
-    /// green while the image carries headers that contradict each other — review
-    /// of this file demonstrated exactly that, twice. Anything a fixture claims
-    /// to maintain but nothing checks is a claim that will eventually stop being
-    /// true.
-    /// </para>
-    /// <para>
     /// Self-consistency is not enough on its own, and neither is any one
     /// relationship. Every gate here was first written narrowly and then beaten
     /// by a change that kept the relationship it checked intact:
     /// <c>SizeOfCode</c> still equals the code sections' raw sizes when neither
     /// grew, and every offset still lines up when a section grows by one byte
     /// short of a file-alignment unit. What survives is a set of assertions that
-    /// no single coherent-looking edit satisfies at once — the optional header's
-    /// size fields against the section table, metadata inside its own section,
-    /// and sections aligned and disjoint on disk.
-    /// </para>
+    /// no single coherent-looking edit satisfies at once.
     /// <para>
-    /// Every invariant is asserted against a compiler-produced assembly first,
-    /// so each is anchored in what real toolchains emit rather than being a rule
-    /// invented for the fixture's convenience. The set is not a general PE
-    /// validator and does not try to be. What it does claim is narrower and
-    /// checkable: every repair
+    /// The set is not a general PE validator and does not try to be — the image
+    /// is deliberately not loadable, and
+    /// <see cref="HostileImage_BreaksOnlyTheRvasItIsKnownToBreak"/> says exactly
+    /// how. What it claims is narrower and checkable: every repair
     /// <see cref="OversizedVersionFixture"/> makes is gated by something —
     /// `MetadataReader` itself for the stream offsets and the virtual size, a
-    /// test here for the rest — and every field the builder deliberately leaves
-    /// alone has the premise that makes leaving it alone correct gated too.
+    /// test here for the rest — and everything the expansion knowingly breaks is
+    /// enumerated rather than assumed harmless.
+    /// </para>
+    /// <para>
+    /// Layout invariants are anchored against compiler-produced assemblies, and
+    /// the anchor is 2,432 shipped images rather than the handful that first
+    /// seemed enough; see <see cref="OversizedVersionFixture.Baseline"/> for why
+    /// header sizes are no longer anchored that way at all.
+    /// </para>
+    /// </summary>
+    /// Gates the repairs `MetadataReader` does not check for us, by comparing the
+    /// patched image against the conforming one it was cut from.
+    /// <para>
+    /// Widening the version field grows the section that holds it, so
+    /// <c>SizeOfCode</c> grows by exactly the expansion while
+    /// <c>SizeOfInitializedData</c> and <c>SizeOfImage</c> must not move at all.
+    /// SRM reads none of the three, so omitting any of the repairs leaves the
+    /// rest of this class green while the image carries headers that contradict
+    /// each other — review of this file demonstrated exactly that, twice.
+    /// </para>
+    /// <para>
+    /// An earlier version asserted a general PE rule instead: that each field
+    /// equals the sum of the matching sections' raw sizes. Review disproved it
+    /// for <c>SizeOfInitializedData</c>, and a scan of 2,432 shipped assemblies
+    /// confirmed 69 counter-examples, all native. The rule held for every image
+    /// this fixture happened to be anchored against, which is exactly how an
+    /// invented law survives review. Comparing against the fixture's own baseline
+    /// asserts what the edit did rather than what PE law is presumed to say, and
+    /// is both stronger here and true everywhere.
     /// </para>
     /// </summary>
     [Fact]
-    public void HostileImage_KeepsOptionalHeaderSizesConsistentWithItsSectionTable()
+    public void HostileImage_ChangesExactlyTheHeaderSizesTheExpansionShould()
     {
-        AssertOptionalHeaderSizesMatchTheSectionTable(SelfImage);
+        PEHeader baseline = OptionalHeader(fixture.Baseline);
+        PEHeader patched = OptionalHeader(fixture.Bytes);
 
-        AssertOptionalHeaderSizesMatchTheSectionTable(fixture.Bytes);
+        Assert.Equal(baseline.SizeOfCode + OversizedVersionFixture.Expansion, patched.SizeOfCode);
+        Assert.Equal(baseline.SizeOfInitializedData, patched.SizeOfInitializedData);
+        Assert.Equal(baseline.SizeOfImage, patched.SizeOfImage);
     }
+
+    /// <summary>
+    /// Records what the expansion knowingly breaks, so that the set cannot grow
+    /// unnoticed.
+    /// <para>
+    /// Inserting bytes in the middle of `.text` moves everything after the
+    /// insertion point, and the fixture repairs only what `MetadataReader`
+    /// traverses. Anything else in that section addressed by RVA is left
+    /// pointing at its old home: the PE entry point, and the import table. Review
+    /// of this file found them, against a claim that every unrepaired field had
+    /// its premise gated — it did not.
+    /// </para>
+    /// <para>
+    /// They are not repaired because this is a metadata fixture and nothing here
+    /// loads or executes the image; SRM reaches metadata through the CLI header,
+    /// which sits before the insertion point and stays valid. But "we know what
+    /// we broke" is only true while the list is checked, so this test pins it. If
+    /// `ManagedPEBuilder` ever emits another `.text` directory past the metadata
+    /// root, this fails and forces the choice to be made again rather than
+    /// inherited.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void HostileImage_BreaksOnlyTheRvasItIsKnownToBreak()
+    {
+        PEHeaders baseline = Headers(fixture.Baseline);
+        PEHeader header = baseline.PEHeader!;
+        int insertionRva = RvaOf(baseline, InsertionPointOf(fixture.Baseline));
+
+        var stale = new List<string>();
+        void Check(string name, int rva)
+        {
+            if (rva > insertionRva)
+                stale.Add(name);
+        }
+
+        Check("AddressOfEntryPoint", header.AddressOfEntryPoint);
+        Check("ExportTable", header.ExportTableDirectory.RelativeVirtualAddress);
+        Check("ImportTable", header.ImportTableDirectory.RelativeVirtualAddress);
+        Check("ImportAddressTable", header.ImportAddressTableDirectory.RelativeVirtualAddress);
+        Check("CorHeaderTable", header.CorHeaderTableDirectory.RelativeVirtualAddress);
+        Check("DebugTable", header.DebugTableDirectory.RelativeVirtualAddress);
+        Check("LoadConfigTable", header.LoadConfigTableDirectory.RelativeVirtualAddress);
+        Check("ResourceTable", header.ResourceTableDirectory.RelativeVirtualAddress);
+
+        Assert.Equal(new[] { "AddressOfEntryPoint", "ImportTable" }, stale);
+    }
+
+    /// <summary>
+    /// The file offset the expansion is inserted at: the end of the baseline's
+    /// version field, which is where <see cref="OversizedVersionFixture"/> cuts.
+    /// </summary>
+    static int InsertionPointOf(byte[] image)
+    {
+        PEHeaders headers = Headers(image);
+        int root = headers.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(root + 12, 4));
+
+        return root + 16 + versionLength;
+    }
+
+    static int RvaOf(PEHeaders headers, int fileOffset)
+    {
+        SectionHeader owner = Assert.Single(
+            headers.SectionHeaders.Where(s => fileOffset >= s.PointerToRawData
+                && fileOffset < s.PointerToRawData + s.SizeOfRawData));
+
+        return owner.VirtualAddress + (fileOffset - owner.PointerToRawData);
+    }
+
+    static PEHeaders Headers(byte[] image)
+    {
+        using var peReader = new PEReader(new MemoryStream(image, writable: false));
+        return peReader.PEHeaders;
+    }
+
+    static PEHeader OptionalHeader(byte[] image) => Headers(image).PEHeader!;
 
     /// <summary>
     /// The metadata a PE declares must lie inside the section that holds it.
@@ -219,34 +310,14 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
                 | SectionCharacteristics.ContainsUninitializedData));
     }
 
-    /// <summary>A compiler-produced assembly, used to anchor each invariant.</summary>
+    /// <summary>
+    /// A compiler-produced assembly, used to anchor the layout invariants. Those
+    /// are anchored on real output because they are claims about PE layout in
+    /// general; the header-size assertions are not, because that turned out to be
+    /// a claim the sample could not support.
+    /// </summary>
     static byte[] SelfImage
         => File.ReadAllBytes(typeof(OversizedMetadataVersionTests).Assembly.Location);
-
-    static void AssertOptionalHeaderSizesMatchTheSectionTable(byte[] image)
-    {
-        using var peReader = new PEReader(new MemoryStream(image, writable: false));
-        PEHeaders headers = peReader.PEHeaders;
-        PEHeader header = headers.PEHeader!;
-
-        Assert.Equal(SumOfRawSizes(headers, SectionCharacteristics.ContainsCode), header.SizeOfCode);
-        Assert.Equal(
-            SumOfRawSizes(headers, SectionCharacteristics.ContainsInitializedData),
-            header.SizeOfInitializedData);
-
-        int end = headers.SectionHeaders
-            .Max(static s => s.VirtualAddress + s.VirtualSize);
-
-        Assert.Equal(AlignUp(end, header.SectionAlignment), header.SizeOfImage);
-    }
-
-    static int SumOfRawSizes(PEHeaders headers, SectionCharacteristics characteristic)
-        => headers.SectionHeaders
-            .Where(s => (s.SectionCharacteristics & characteristic) != 0)
-            .Sum(static s => s.SizeOfRawData);
-
-    static int AlignUp(int value, int alignment)
-        => checked((value + alignment - 1) / alignment * alignment);
 
     static void AssertMetadataFitsItsSection(byte[] image)
     {
@@ -378,7 +449,7 @@ public sealed class OversizedVersionFixture : IDisposable
     /// now catches it, and this guard stops it being reached by accident.
     /// </para>
     /// </summary>
-    const int Expansion = 1536;
+    public const int Expansion = 1536;
 
     /// <summary>
     /// The widest a neutralized stamp may render: `MetadataImageInspector`'s
@@ -389,7 +460,8 @@ public sealed class OversizedVersionFixture : IDisposable
 
     public OversizedVersionFixture()
     {
-        Bytes = ExpandMetadataVersion(BuildBaselineImage(), Expansion);
+        Baseline = BuildBaselineImage();
+        Bytes = ExpandMetadataVersion(Baseline, Expansion);
         Path = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), $"mdi-oversized-version-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(Path, Bytes);
@@ -397,6 +469,22 @@ public sealed class OversizedVersionFixture : IDisposable
 
     /// <summary>The hostile image.</summary>
     public byte[] Bytes { get; }
+
+    /// <summary>
+    /// The conforming image the hostile one was cut from.
+    /// <para>
+    /// Header assertions compare against this rather than against a general PE
+    /// rule. The difference matters: review of this file established that
+    /// <c>SizeOfInitializedData</c> is not the sum of the initialized sections'
+    /// raw sizes in general — 69 of 2,432 shipped assemblies disagree, all of
+    /// them native — so a test asserting that formula would have been asserting
+    /// something false and passing only by luck of the sample. What the fixture
+    /// can honestly claim is what its own edit did to its own image, and that is
+    /// what <see cref="OversizedMetadataVersionTests.HostileImage_ChangesExactlyTheHeaderSizesTheExpansionShould"/>
+    /// checks.
+    /// </para>
+    /// </summary>
+    public byte[] Baseline { get; }
 
     /// <summary>The same image on disk, for the commands that take a path.</summary>
     public string Path { get; }
