@@ -192,13 +192,14 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// </para>
     /// <para>
     /// The scope, precisely: every RVA *reachable from a structure the image
-    /// declares* — the optional header, the relocation blocks, the import
-    /// directory and its thunks, and the CLI header. It is not every four-byte
-    /// value in the file. Review raised that gap by writing a plausible RVA into
-    /// section padding and observing that nothing failed, which is correct and is
-    /// not fixed here: no structure points at those bytes, so nothing in the
-    /// image says they are an address rather than data, and a scan for values
-    /// that merely *look* like RVAs would be a guess that reports padding, string
+    /// declares* — the optional header's scalar address fields, the section
+    /// table, the data directories, the relocation blocks, the import directory
+    /// and its thunks, and the CLI header. It is not every four-byte value in the
+    /// file. Review raised that gap by writing a plausible RVA into section
+    /// padding and observing that nothing failed, which is correct and is not
+    /// fixed here: no structure points at those bytes, so nothing in the image
+    /// says they are an address rather than data, and a scan for values that
+    /// merely *look* like RVAs would be a guess that reports padding, string
     /// bytes, and IL as findings. The reachable-set claim is kept honest from the
     /// other end instead —
     /// <see cref="HostileImage_HasOnlyTheRvaBearingStructuresTheWalkersKnow"/>
@@ -257,8 +258,9 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 
     /// <summary>
     /// Every RVA reachable from a structure the image declares — the optional
-    /// header, the relocation blocks, the import directory, and the CLI header —
-    /// paired across the two images.
+    /// header's scalar address fields, the section table, the data directories,
+    /// the relocation blocks, the import directory and its thunks, and the CLI
+    /// header — paired across the two images.
     /// <para>
     /// The directories are read out of the image rather than named one by one.
     /// Two reviewers, independently, defeated a hand-written list: one by
