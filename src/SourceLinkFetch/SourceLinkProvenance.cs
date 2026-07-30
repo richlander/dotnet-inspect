@@ -211,9 +211,19 @@ public static class SourceLinkProvenance
 
         if (uri.UserInfo.Length != 0)
         {
+            // Two separate reasons, and only the second is load-bearing.
+            //
             // "https://raw.githubusercontent.com@evil.example/..." parses with Host 'evil.example'
-            // and UserInfo 'raw.githubusercontent.com'. The host check below already rejects that
-            // one, but user info in a source URL is never legitimate and reads as the host.
+            // and UserInfo 'raw.githubusercontent.com'. The host allow list below already rejects
+            // that, because Uri takes the authority after the last '@' -- user info can never
+            // redirect the fetch past the host check.
+            //
+            // What user info does change is what the host serves. A credential makes the response
+            // depend on the identity presented rather than on the public path the URL names, so
+            // "https://token@raw.githubusercontent.com/dotnet/runtime/{sha}/a.cs" may return bytes
+            // that github.com/dotnet/runtime does not show for that revision. Reported provenance
+            // has to describe where the content actually comes from, and an authenticated response
+            // is not established by the public identity in the URL. Hence: not attributable.
             rejection = "it carries user information before the host";
             return false;
         }

@@ -112,6 +112,17 @@ public class SourceLinkMapConformanceTests
             """{"documents":{"/_/*":"https://host/A/pinned.cs"}}""",
             "/_/src/Foo.cs",
             null),
+
+        // "Absolute paths will be checked before a wildcard path with a matching base." The two
+        // keys tie on length once the wildcard is stripped, so only the exactness rule separates
+        // them. The URLs are spelled so that the exact one sorts ordinally *after* the wildcard's:
+        // the comparator falls through to an ordinal URL comparison to stay total, and a pair
+        // whose exact URL sorted first would reach the right answer without the exactness rule.
+        new(
+            "an exact key beats the wildcard key with the same base",
+            """{"documents":{"/_/a.cs":"https://host/zzz-exact.cs","/_/a.cs*":"https://host/aaa-prefix/*"}}""",
+            "/_/a.cs",
+            "https://host/zzz-exact.cs"),
     ];
 
     public static TheoryData<string, string, string, string?> SpecifiedResolutions()
@@ -153,6 +164,7 @@ public class SourceLinkMapConformanceTests
         "a url template with two wildcards is dropped",
         "a url wildcard is substituted wherever it appears",
         "a wildcard key paired with a constant url is dropped",
+        "an exact key beats the wildcard key with the same base",
     ];
 
     /// <summary>
@@ -350,15 +362,30 @@ public class SourceLinkMapConformanceTests
     /// An exact key and the wildcard key with the same base tie on length once the wildcard is
     /// stripped. The reference consumer states the intent — "absolute paths will be checked before
     /// a wildcard path with a matching base" — but orders by length alone, so it does not achieve
-    /// it. Both spellings are asserted, because a tie broken by enumeration order passes one.
+    /// it.
     /// </summary>
+    /// <remarks>
+    /// Both document orders are asserted, because a tie broken by enumeration order passes one of
+    /// them. Both URL orderings are asserted for the same reason one layer down: the comparator
+    /// falls through to an ordinal comparison of the URLs to stay total, so a pair whose exact URL
+    /// happens to sort first reaches the right answer even with the exactness rule deleted. The
+    /// second row spells the exact URL so that it sorts <em>after</em> the wildcard's, leaving
+    /// exactness as the only thing that can decide it.
+    /// </remarks>
     [Theory]
-    [InlineData("""{"documents":{"/_/a.cs*":"https://host/prefix/*","/_/a.cs":"https://host/exact.cs"}}""")]
-    [InlineData("""{"documents":{"/_/a.cs":"https://host/exact.cs","/_/a.cs*":"https://host/prefix/*"}}""")]
-    public void AnExactKey_BeatsTheWildcardKeyWithTheSameBase(string map)
+    [InlineData("https://host/exact.cs", "https://host/prefix/*")]
+    [InlineData("https://host/zzz-exact.cs", "https://host/aaa-prefix/*")]
+    public void AnExactKey_BeatsTheWildcardKeyWithTheSameBase(string exactUrl, string prefixUrl)
     {
-        Assert.Equal("https://host/exact.cs", SLF.SourceLinkResolver.Parse(map).ResolveUrl("/_/a.cs"));
-        Assert.Equal("https://host/exact.cs", SourceDocumentPath.Resolve("/_/a.cs", map).ResolvedUrl);
+        // Both document orders, because a tie broken by enumeration order passes one of them.
+        string exactFirst = $$$"""{"documents":{"/_/a.cs":"{{{exactUrl}}}","/_/a.cs*":"{{{prefixUrl}}}"}}""";
+        string prefixFirst = $$$"""{"documents":{"/_/a.cs*":"{{{prefixUrl}}}","/_/a.cs":"{{{exactUrl}}}"}}""";
+
+        foreach (string map in (string[])[exactFirst, prefixFirst])
+        {
+            Assert.Equal(exactUrl, SLF.SourceLinkResolver.Parse(map).ResolveUrl("/_/a.cs"));
+            Assert.Equal(exactUrl, SourceDocumentPath.Resolve("/_/a.cs", map).ResolvedUrl);
+        }
     }
 
     /// <summary>

@@ -169,6 +169,24 @@ public class SourceLinkProvenanceTests
         Assert.False(result.IsEstablished);
     }
 
+    /// <summary>
+    /// The host allow list already rejects a spoofed authority, because <see cref="Uri"/> takes
+    /// the authority after the last <c>@</c>. What the user-info rejection decides on its own is
+    /// this case: a credential presented to a host that <em>is</em> on the allow list. The
+    /// response then depends on the identity presented rather than on the public path the URL
+    /// names, so the public repository does not establish the bytes fetched.
+    /// </summary>
+    [Fact]
+    public void ACredentialPresentedToAnAllowedHost_IsNotAttributedToThePublicRepository()
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://token@raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("user information", result.Reason, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("http://raw.githubusercontent.com/dotnet/runtime/aaaa/*", "not https")]
     [InlineData("https://example.invalid/dotnet/runtime/aaaa/*", "not a recognized source host")]
