@@ -325,6 +325,22 @@ public sealed class PluginAuthenticationHandlerTests
 
         Assert.Equal(1, transport.Attempts - beforeRepeat);
         Assert.Equal(callsBeforeRepeat, source.Calls);
+
+        // Second control, on the property the cache key is actually named for. A single global
+        // credential slot would satisfy every assertion above, so reach a *different* authority
+        // and require that nothing is offered to it on the first attempt: the token just cached
+        // for pkgs.dev.azure.com must not travel to another host. This is the same-origin
+        // guarantee, observed from the handler's side.
+        var otherHost = new Uri("https://nuget.pkg.github.com/org-b/index.json");
+        transport.Log.Clear();
+
+        using (HttpResponseMessage foreign = await client.GetAsync(otherHost, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, foreign.StatusCode);
+        }
+
+        Assert.Null(transport.Log[0].Authorization);
+        Assert.NotNull(transport.Log[1].Authorization);
     }
 
     /// <summary>Hands back a distinct credential per Azure DevOps organization, keyed on the URL path.</summary>
@@ -351,13 +367,24 @@ public sealed class PluginAuthenticationHandlerTests
 
         public int Attempts => _attempts;
 
+        /// <summary>Every attempt in order, so a test can inspect what was offered and when.</summary>
+        public List<(Uri Uri, string? Authorization)> Log { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _attempts);
 
-            string org = request.RequestUri!.Segments[1].Trim('/');
+            Uri uri = request.RequestUri!;
+            string? offered = request.Headers.Authorization?.Parameter;
+
+            lock (Log)
+            {
+                Log.Add((uri, offered));
+            }
+
+            string org = uri.Segments[1].Trim('/');
             string expected = Convert.ToBase64String(Encoding.UTF8.GetBytes($"user:token-{org}"));
-            bool ok = string.Equals(request.Headers.Authorization?.Parameter, expected, StringComparison.Ordinal);
+            bool ok = string.Equals(offered, expected, StringComparison.Ordinal);
 
             return Task.FromResult(new HttpResponseMessage(ok ? HttpStatusCode.OK : HttpStatusCode.Unauthorized));
         }
