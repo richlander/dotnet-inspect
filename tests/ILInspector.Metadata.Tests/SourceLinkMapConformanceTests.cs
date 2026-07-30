@@ -504,9 +504,11 @@ public class SourceLinkMapConformanceTests
     /// correspondence gap was visible to the user as a clean attribution. Provenance therefore
     /// refuses a <c>raw.githubusercontent.com</c> URL carrying a query at all, and the last
     /// assertions here pin that split: the matcher still accepts the shape, and provenance
-    /// declines to attribute it. Issue #3599 stays open only for hosts whose query semantics this
-    /// reader does not know — which, by the host allow list, are hosts it does not attribute
-    /// anyway.
+    /// declines to attribute it. A later round found the Azure spelling of the same defect — a
+    /// substitution in <c>api-version</c>, which varies the request without varying the file — so
+    /// provenance now also requires the substituted text to land in the component that selects
+    /// content. Issue #3599 stays open for the <em>resolution</em> half: such a map still fetches
+    /// and displays that one file, now unattributed.
     /// </para>
     /// </remarks>
     [Fact]

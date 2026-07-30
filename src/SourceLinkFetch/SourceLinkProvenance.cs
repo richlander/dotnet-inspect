@@ -129,16 +129,24 @@ public static class SourceLinkProvenance
                 continue;
             }
 
-            string? url = resolver.ResolveUrl(documentPath);
-            if (url is null)
+            if (!resolver.TryResolve(documentPath, out SourceLinkResolution resolution))
             {
                 // The document is not fetched, so it makes no claim about where source comes from.
                 continue;
             }
 
+            string url = resolution.Url;
             resolvedCount++;
 
             if (!TryReadOrigin(url, out SourceLinkOrigin origin, out string rejection))
+            {
+                return new SourceLinkProvenanceResult(
+                    null,
+                    $"a resolved source URL has no attributable origin: {rejection}");
+            }
+
+            if (!TryCheckSubstitutionSelectsContent(
+                    url, origin, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
             {
                 return new SourceLinkProvenanceResult(
                     null,
@@ -218,6 +226,175 @@ public static class SourceLinkProvenance
         string[] segments = new Uri(resolvedUrl).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         string path = string.Join('/', segments[3..]);
         return $"https://github.com/{origin.Organization}/{origin.Repository}/blob/{origin.Revision}/{path}";
+    }
+
+    /// <summary>
+    /// Requires the text substituted for the key's wildcard to land in the component that
+    /// actually selects content on the origin's host.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Agreement on the origin tuple is not enough on its own, and neither is the matcher's
+    /// two-probe check. That check compares request <em>text</em>, so it is satisfied by any
+    /// varying component, including one the host does not read. When the varying component is
+    /// inert, every document resolves to a distinct URL that fetches the <em>same</em> file, and
+    /// the origin reported is genuinely where that file is served from — so both existing checks
+    /// pass and the user is shown one file as the source of every document under a clean
+    /// attribution.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c>, with <c>path=/README.md</c> fixed: <c>api-version</c> of
+    /// <c>1.0</c>, <c>7.1</c>, <c>1.0-preview</c> and <c>5.0</c> all return the same content,
+    /// SHA-256 <c>0129277c5fd5e35a…</c>. So <c>{"*": ".../items?api-version=*&amp;…&amp;path=/README.md"}</c>
+    /// attributed cleanly while serving one file for every document. The allow list says each
+    /// parameter is <em>understood</em>; it does not say each one <em>selects</em>, and this is
+    /// the rule that says which ones do.
+    /// </para>
+    /// <para>
+    /// This runs per document rather than across documents, because an assembly with a single
+    /// document offers nothing to compare and the defect is present there just the same.
+    /// </para>
+    /// <para>
+    /// Offsets index the resolved URL's raw text, and the substitution site is reported by the
+    /// matcher rather than searched for: the escaped remainder can also occur in the map's own
+    /// literal text, so searching could find a lookalike and clear a substitution that landed
+    /// somewhere inert. The substituted run cannot escape the component it lands in, because
+    /// <c>EscapePathSegments</c> percent-encodes every character that would end one —
+    /// <c>?</c>, <c>&amp;</c> and <c>#</c> — leaving only <c>/</c>, which is legal inside both a
+    /// path and a query value.
+    /// </para>
+    /// <para>
+    /// Gated by <c>SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable</c>,
+    /// whose accept rows are the shapes <c>Microsoft.SourceLink.GitHub</c> and
+    /// <c>Microsoft.SourceLink.AzureRepos.Git</c> generate — <c>{sha}/*</c> in the path and
+    /// <c>path=/*</c> in the query respectively.
+    /// </para>
+    /// </remarks>
+    internal static bool TryCheckSubstitutionSelectsContent(
+        string url,
+        in SourceLinkOrigin origin,
+        int offset,
+        int length,
+        out string rejection)
+    {
+        rejection = "";
+
+        // A wildcard-free key resolves one document to one fixed URL. Nothing varies with the
+        // document, so there is no question of what the variation selects.
+        if (offset < 0)
+        {
+            return true;
+        }
+
+        int end = offset + length;
+        int authorityEnd = AuthorityEnd(url);
+        int queryStart = url.IndexOf('?', StringComparison.Ordinal);
+        int fragmentStart = url.IndexOf('#', StringComparison.Ordinal);
+        int pathEnd = queryStart >= 0 ? queryStart : (fragmentStart >= 0 ? fragmentStart : url.Length);
+
+        if (string.Equals(origin.Host, GitHubRawHost, StringComparison.Ordinal))
+        {
+            // This host serves the path, so the path is the only place a substitution can select
+            // anything. The query is already refused outright for this host, which leaves the
+            // authority: a map may spell the host itself with the wildcard, and a document that
+            // happens to spell 'raw' would reach here with a path that is the same for every
+            // document it does resolve.
+            if (offset < authorityEnd || end > pathEnd)
+            {
+                rejection =
+                    $"'{origin.Host}' selects content by path, and the document text is " +
+                    "substituted outside it, so every document resolves to the same file";
+                return false;
+            }
+
+            return true;
+        }
+
+        // Azure DevOps serves the file named by 'path' or 'scopePath'; every other parameter it
+        // accepts describes the request rather than choosing the file. A substitution anywhere
+        // else -- in the route, the repository segment, 'api-version', or a version selector that
+        // the immutability rules already pin to one commit -- leaves the served file fixed.
+        if (queryStart >= 0
+            && (TrySpanOfQueryValue(url, queryStart, pathEnd, "path", out int valueStart, out int valueEnd)
+                || TrySpanOfQueryValue(url, queryStart, pathEnd, "scopePath", out valueStart, out valueEnd))
+            && offset >= valueStart
+            && end <= valueEnd)
+        {
+            return true;
+        }
+
+        rejection =
+            $"'{origin.Host}' selects content by the 'path' or 'scopePath' parameter, and the " +
+            "document text is substituted outside it, so every document resolves to the same file";
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the index just past the URL's authority in its raw text, so that offsets into the
+    /// unparsed string can be classified without depending on canonicalization.
+    /// </summary>
+    private static int AuthorityEnd(string url)
+    {
+        int schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
+        if (schemeEnd < 0)
+        {
+            return 0;
+        }
+
+        int authorityStart = schemeEnd + 3;
+        int authorityEnd = url.IndexOfAny(['/', '?', '#'], authorityStart);
+        return authorityEnd < 0 ? url.Length : authorityEnd;
+    }
+
+    /// <summary>
+    /// Finds the span of a named query parameter's value in the URL's raw text.
+    /// </summary>
+    /// <remarks>
+    /// The caller has already refused a repeated parameter, so the first match is the only match.
+    /// The span is measured in the raw string rather than a parsed collection because it is
+    /// compared against a substitution offset into that same string.
+    /// </remarks>
+    private static bool TrySpanOfQueryValue(
+        string url, int queryStart, int queryEnd, string name, out int valueStart, out int valueEnd)
+    {
+        valueStart = valueEnd = -1;
+
+        int limit = queryEnd;
+        int fragmentStart = url.IndexOf('#', StringComparison.Ordinal);
+        if (fragmentStart >= 0 && fragmentStart > queryStart && fragmentStart < limit)
+        {
+            limit = fragmentStart;
+        }
+        else if (limit <= queryStart)
+        {
+            limit = fragmentStart >= 0 && fragmentStart > queryStart ? fragmentStart : url.Length;
+        }
+
+        int i = queryStart + 1;
+        while (i < limit)
+        {
+            int amp = url.IndexOf('&', i);
+            int pairEnd = amp < 0 || amp > limit ? limit : amp;
+            int eq = url.IndexOf('=', i);
+
+            if (eq >= 0 && eq < pairEnd
+                && url.AsSpan(i, eq - i).Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                valueStart = eq + 1;
+                valueEnd = pairEnd;
+                return true;
+            }
+
+            if (amp < 0 || amp >= limit)
+            {
+                break;
+            }
+
+            i = amp + 1;
+        }
+
+        return false;
     }
 
     /// <summary>

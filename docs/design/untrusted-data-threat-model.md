@@ -221,20 +221,25 @@ one that was here, and it had gone stale by two.
   refused by the host grammar instead: `raw.githubusercontent.com` URLs may not
   carry a query, which loses nothing, since that generator builds its URL by pure
   path concatenation and never appends one.
-- A wildcard confined to the **query** changes the request text without changing
-  what the host serves, on a host that ignores the query. `{"*":
-  ".../{sha}/fixed.cs?ignored=*"}` gives every document its own URL — so the
-  two-probe check, which compares request text, is satisfied — while every one of
-  them fetches `fixed.cs`, and the reported origin is genuinely where `fixed.cs`
-  is served from, so the agreement check is satisfied too. One file is then shown
-  as the source of every document under a clean attribution. Measured against
-  `raw.githubusercontent.com`: no query, `?ignored=A.cs`, `?ignored=B.cs` and
-  `?path=/other.cs` all return the same 33400 bytes with the same SHA-256. This
-  cannot be refused by the host-agnostic matcher, because the identical shape is
-  the *generated* Azure Repos form where `path=` does select the file. It is
-  refused by the host grammar instead: `raw.githubusercontent.com` URLs may not
-  carry a query, which loses nothing, since that generator builds its URL by pure
-  path concatenation and never appends one.
+- A substitution can land in a component the host does not select on, which
+  varies the request text while leaving the served file fixed. The Azure
+  spelling is
+  `{"*": ".../items?api-version=*&versionType=commit&version={sha}&path=/README.md"}`:
+  every document gets its own URL, so the two-probe check passes; `path=` never
+  moves, so every one fetches `README.md`; and the origin reported is genuinely
+  where `README.md` is served from, so agreement passes too. Measured against
+  `dev.azure.com/dnceng-public/public`, repository `dotnet-public-wiki`:
+  `api-version` of `1.0`, `7.1`, `1.0-preview` and `5.0` all return the same
+  content, SHA-256 `0129277c5fd5e35a…`. The allow list said each parameter was
+  *understood*, never that each one *selects*. Provenance now requires the
+  substituted text to land in the content-selecting component — the path for
+  `raw.githubusercontent.com`, the `path` or `scopePath` value for Azure DevOps
+  — which also refuses a substitution in the route, in the repository segment,
+  and in `version`. One reviewer cleared `api-version` on the grounds that Azure
+  answers a file-like value with 400; another defeated that by naming the PDB's
+  documents `1.0` and `7.1`, which the threat model treats as attacker-chosen.
+  Gated by
+  `SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable`.
 - The two content selectors are each allow-listed, and their *combination* was
   never considered. `path` names an item and `scopePath` a collection, and the
   host refuses to be asked for both rather than preferring one: measured,
@@ -325,7 +330,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all nineteen as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all twenty as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason. Where a refusal has more than one possible
 cause, the test asserts the *reason* and not merely that the URL was refused: an

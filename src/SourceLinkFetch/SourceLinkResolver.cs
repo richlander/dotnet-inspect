@@ -23,7 +23,23 @@ namespace SourceLinkFetch;
 /// it exactly. Both can produce an empty <paramref name="Remainder"/>, so a caller deriving a
 /// display path cannot tell them apart without this.
 /// </param>
-public readonly record struct SourceLinkResolution(string Remainder, string Url, bool IsPrefixMatch);
+/// <param name="SubstitutionOffset">
+/// The index in <paramref name="Url"/> where the substituted document text begins, or -1 when
+/// nothing was substituted. The substituted run is <see cref="SubstitutionLength"/> characters
+/// long. This is reported rather than searched for, because the escaped remainder can also occur
+/// in the map's own literal text, and a caller deciding whether the document chose the content
+/// needs the site the substitution actually happened at, not one that looks like it.
+/// </param>
+/// <param name="SubstitutionLength">
+/// The length of the substituted run in <paramref name="Url"/>, or 0 when nothing was
+/// substituted.
+/// </param>
+public readonly record struct SourceLinkResolution(
+    string Remainder,
+    string Url,
+    bool IsPrefixMatch,
+    int SubstitutionOffset,
+    int SubstitutionLength);
 
 /// <summary>
 /// Parses a SourceLink map and maps PDB document paths to source URLs.
@@ -231,15 +247,16 @@ public partial class SourceLinkResolver
                     continue;
 
                 string remainder = path[entry.PathPrefix.Length..];
+                string substituted = SubstituteUrl(entry, remainder, out int offset, out int length);
                 resolution = new SourceLinkResolution(
-                    remainder, SubstituteUrl(entry, remainder), IsPrefixMatch: true);
+                    remainder, substituted, IsPrefixMatch: true, offset, length);
                 return true;
             }
 
             if (string.Equals(path, entry.PathPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 resolution = new SourceLinkResolution(
-                    string.Empty, entry.UrlPrefix, IsPrefixMatch: false);
+                    string.Empty, entry.UrlPrefix, IsPrefixMatch: false, -1, 0);
                 return true;
             }
         }
@@ -247,13 +264,21 @@ public partial class SourceLinkResolver
         return false;
     }
 
-    private static string SubstituteUrl(Entry entry, string remainder)
+    private static string SubstituteUrl(Entry entry, string remainder, out int offset, out int length)
     {
         // Rule 4: the wildcard may sit anywhere in the URL, so the substitution is
         // prefix + path + suffix rather than an append to the end.
-        return entry.UrlSuffix is null
-            ? entry.UrlPrefix
-            : entry.UrlPrefix + EscapePathSegments(remainder) + entry.UrlSuffix;
+        if (entry.UrlSuffix is null)
+        {
+            offset = -1;
+            length = 0;
+            return entry.UrlPrefix;
+        }
+
+        string escaped = EscapePathSegments(remainder);
+        offset = entry.UrlPrefix.Length;
+        length = escaped.Length;
+        return entry.UrlPrefix + escaped + entry.UrlSuffix;
     }
 
     /// <summary>
@@ -470,15 +495,17 @@ public partial class SourceLinkResolver
     /// issue #3599.
     /// </para>
     /// <para>
-    /// That selector now exists for <c>raw.githubusercontent.com</c>, whose grammar refuses a URL
-    /// carrying a query at all, so a map may still point every document at one file on that host
-    /// but can no longer report an origin while doing so. An earlier version of this note said
+    /// That selector now exists on the provenance side, for both hosts this reader knows:
+    /// <c>raw.githubusercontent.com</c> refuses a query outright, and every host requires the
+    /// substituted document text to land in the component that actually selects content. So a map
+    /// may still point every document at one file, but it can no longer report an origin while
+    /// doing so. An earlier version of this note said
     /// provenance stayed correct in that case, because the origin it reports is genuinely where
     /// the content is served from. That is true of the origin and beside the point for the user,
     /// who was shown one file as the source of every document under a clean attribution — review
-    /// found it exactly that way. What is left to #3599 is hosts whose query semantics this
-    /// reader does not know, and by the host allow list those are hosts it does not attribute
-    /// anyway.
+    /// found it exactly that way, once per host, in consecutive rounds. What is left to
+    /// #3599 is the <em>resolution</em> half: such a map still fetches and displays that one
+    /// file, now unattributed.
     /// </para>
     /// <para>
     /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is

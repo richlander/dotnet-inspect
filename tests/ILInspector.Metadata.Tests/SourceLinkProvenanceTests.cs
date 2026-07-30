@@ -24,6 +24,9 @@ namespace ILInspector.Metadata.Tests;
 public class SourceLinkProvenanceTests
 {
     private const string Sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private const string AzureRepositories =
+        "https://dev.azure.com/org/project/_apis/git/repositories/";
+    private const string AzureItems = AzureRepositories + "repo/items?";
     private const string OtherSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     private static SLF.SourceLinkProvenanceResult Determine(string map, params string[] documents)
@@ -471,6 +474,75 @@ public class SourceLinkProvenanceTests
             "/_/A.cs");
 
         Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// The document text must be substituted into the component that selects content, because a
+    /// substitution the host does not read leaves every document fetching the same file.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in review as the Azure spelling of the GitHub defect above:
+    /// <c>{"*": ".../items?api-version=*&amp;versionType=commit&amp;version={sha}&amp;path=/README.md"}</c>
+    /// gives every document a distinct URL, so the matcher's two-probe check is satisfied, while
+    /// <c>path=</c> stays fixed so every one of them fetches <c>README.md</c> — and the origin
+    /// reported is genuinely where <c>README.md</c> is served from, so agreement is satisfied too.
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c>: <c>api-version</c> of <c>1.0</c>, <c>7.1</c>,
+    /// <c>1.0-preview</c> and <c>5.0</c> all return the same content, SHA-256
+    /// <c>0129277c5fd5e35a…</c>.
+    /// </para>
+    /// <para>
+    /// The allow list of query parameters says each name is <em>understood</em>. It never said
+    /// each one <em>selects</em>, and nothing else did either — that is the gap this closes. The
+    /// same reasoning refuses a substitution in the route, in the repository segment, and in
+    /// <c>version</c>, each of which varies the request text while leaving the served file fixed.
+    /// </para>
+    /// <para>
+    /// The accept rows are the shapes the two generators emit, so a refusal that reached them
+    /// would fail here rather than being discovered against a real assembly.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // The reported shape: the wildcard varies a parameter the host does not select on.
+    [InlineData(AzureItems + "api-version=*&versionType=commit&version=" + Sha + "&path=/README.md", false)]
+    // The same defect in the other inert positions.
+    [InlineData(AzureRepositories + "*/items?api-version=1.0&versionType=commit&version=" + Sha + "&path=/README.md", false)]
+    [InlineData(AzureItems + "api-version=1.0&versionType=commit&version=*&path=/README.md", false)]
+    // The generated Azure Repos shape, and its scopePath twin, so the rows above are refused for
+    // the position of the substitution and not for something incidental.
+    [InlineData(AzureItems + "api-version=1.0&versionType=commit&version=" + Sha + "&path=/*", true)]
+    [InlineData(AzureItems + "api-version=1.0&versionType=commit&version=" + Sha + "&scopePath=/*", true)]
+    public void ASubstitutionThatSelectsNoContent_IsNotAttributable(string url, bool established)
+    {
+        var result = Determine($$$"""{"documents":{"/_/*":"{{{url}}}"}}""", "/_/README.md");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// The Azure defect stated as the behaviour rather than the refusal, and with a single
+    /// document, because an assembly declaring one document offers no second URL to compare
+    /// against and the defect is present there just the same.
+    /// </summary>
+    [Fact]
+    public void AnAzureMapWhoseWildcardSelectsNothing_IsRefusedEvenForOneDocument()
+    {
+        const string Map =
+            $$$"""{"documents":{"*":"{{{AzureItems}}}api-version=*&versionType=commit&version={{{Sha}}}&path=/README.md"}}""";
+
+        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        Assert.True(resolver.TryResolve("1.0", out var a));
+        Assert.True(resolver.TryResolve("7.1", out var b));
+
+        // The two-probe check passes: the request texts really are different.
+        Assert.NotEqual(a.Url, b.Url);
+
+        // And the part the host selects on is identical, so both fetch one file.
+        Assert.Equal(a.Url[a.Url.IndexOf("&path=", StringComparison.Ordinal)..], b.Url[b.Url.IndexOf("&path=", StringComparison.Ordinal)..]);
+
+        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0", "7.1"]).IsEstablished);
+        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0"]).IsEstablished);
     }
 
     /// <summary>
