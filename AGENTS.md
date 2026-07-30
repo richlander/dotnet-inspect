@@ -351,13 +351,14 @@ round:
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
   report its parent's changes as its own.
-- **An upper slice reports no checks at all, and that is not pending.** CI here
-  runs only on PRs targeting `main` (`.github/workflows/ci.yml`), so a slice
-  aimed at its parent gets no runs and `gh pr checks` says "no checks reported".
-  Do not wait for them; nothing will arrive until the slice retargets `main`,
-  where the check becomes binding. Until then its evidence is the validation you
-  ran locally plus the bottom slice's CI — so say what you ran, and do not
-  report an unrun slice as green.
+- **No checks reported is terminal, not pending.** A slice can report no checks
+  at all — `gh pr checks` prints "no checks reported" while the PR is
+  MERGEABLE/CLEAN. Whether a given base branch schedules runs is not something
+  to assume in either direction: read what the PR actually reports, and if
+  nothing is reported, do not wait for runs that may never come. In that state
+  the slice's evidence is the validation you ran locally plus the bottom slice's
+  CI, so say what you ran, and never report an unrun slice as green. Re-check
+  after the slice retargets `main`, where anything newly scheduled does gate.
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
