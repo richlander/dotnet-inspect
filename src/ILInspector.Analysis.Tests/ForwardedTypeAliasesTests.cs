@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
 
 using ILInspector.Analysis;
 
@@ -2371,10 +2372,14 @@ public class ForwardedTypeAliasesTests
     /// <para>Named separately from
     /// <see cref="AnUnreadableClaimantOfAnotherNameLeavesAGoodAliasStanding"/> because the two are
     /// the same code path taking opposite branches, and without this the scoping added in review of
-    /// <c>0450561f</c> could be widened to every name without a test noticing.</para>
+    /// <c>0450561f</c> could be widened to every name without a test noticing. This one holds the
+    /// <em>unsigned</em> target, where the rival matches on an empty token;
+    /// <see cref="AnUnreadableClaimantDeclinesOnlyForTheTargetsOwnIdentity"/> holds the
+    /// strong-named target, where a rival can share the name and still be a different
+    /// publisher.</para>
     /// </summary>
     [Fact]
-    public void AnUnreadableClaimantOfTheTargetsOwnNameDeclinesTheAnswer()
+    public void AnUnreadableClaimantOfTheTargetsOwnIdentityDeclinesTheAnswer()
     {
         string directory = NewTempDirectory();
         try
@@ -2403,6 +2408,137 @@ public class ForwardedTypeAliasesTests
             WriteUnprobableClaimant(
                 directory, "Contoso.Target", publicKey: null,
                 fileName: "Target.rival", version: new Version(1, 0, 0, 0));
+
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The decline above turns on the target's <em>identity</em>, not on its name. A file that
+    /// merely shares the target's simple name under a different public key token is a file no
+    /// reference to the target can bind to, so it refutes nothing — declining for it erased every
+    /// good alias in the scope on no evidence at all.
+    ///
+    /// <para>Both round-19 reviewers found this independently (executed in review of
+    /// <c>d8aa7b47</c>). The census had already read the identity; the branch was comparing the
+    /// name and throwing the identity away.</para>
+    ///
+    /// <para>The two cases are one <see cref="Theory"/> on purpose. They are the same code path
+    /// taking opposite branches over a single fixture, so the same-identity case is the positive
+    /// control for the different-identity one: a rival that declines proves the fixture can reach
+    /// the decline at all, which is what stops the negative case from passing vacuously.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AnUnreadableClaimantDeclinesOnlyForTheTargetsOwnIdentity(bool sameIdentity)
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            byte[] targetKey = [.. Enumerable.Repeat((byte)0xA1, 16)];
+            byte[] rivalKey = [.. Enumerable.Repeat((byte)0xB2, 16)];
+
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: targetKey, version: new Version(1, 0, 0, 0));
+            WriteForwarder(
+                directory, "Contoso.Good", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Good",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(targetKey));
+
+            using var caller = BuildCallerNaming("Contoso.Good", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null));
+
+            // The control: without the rival, the facade is a genuine alias.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // A second file claiming the target's NAME that the probe cannot read, answering to the
+            // target's own identity or to a different publisher's.
+            WriteUnprobableClaimant(
+                directory, "Contoso.Target", publicKey: sameIdentity ? targetKey : rivalKey,
+                fileName: "Target.rival", version: new Version(1, 0, 0, 0));
+
+            Assert.Equal(
+                sameIdentity
+                    ? CallerScopeTypeFilter.TypeReferenceState.DoesNotName
+                    : CallerScopeTypeFilter.TypeReferenceState.Names,
+                Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A newer <em>unsigned</em> silent twin refutes an older exact-match caller, because binding
+    /// rolls an unsigned reference forward exactly as it does a strong-named one. Raised in review
+    /// of <c>d8aa7b47</c> as a drop, on the reading that
+    /// <see cref="ForwardedTypeAliases"/>'s unsigned strictness means unsigned references never
+    /// roll forward; that reading confuses two different questions, and this test exists so the
+    /// distinction is pinned rather than re-argued.
+    ///
+    /// <para>The unsigned strictness lives in <c>AnswersForVersion</c> and is about which versions
+    /// a spelling's <em>evidence</em> vouches for. <c>RefutedCeiling</c> is about which file a
+    /// <em>reference</em> can land on, which is a fact about the loader. Measured again on Windows
+    /// with one unsigned caller binary referencing <c>Contoso.Facade v1.0.0.0</c> and two
+    /// deployments of that file name:</para>
+    ///
+    /// <code>
+    ///     v1.0.0.0 forwarding -> RESULT: target        (the control: the harness does bind)
+    ///     v2.0.0.0 silent     -> TypeLoadException: Could not load type 'Contoso.Widget' from
+    ///                            assembly 'Contoso.Facade, Version=2.0.0.0, Culture=neutral,
+    ///                            PublicKeyToken=null'
+    /// </code>
+    ///
+    /// <para>So the v1 caller can land on the v2 file, its call throws, and it is not a caller of
+    /// the target. Reporting it would be a fabrication, which is the direction that matters here.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ANewerUnsignedSilentTwinStillRefutesAnExactMatchCaller()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target");
+            WriteForwarder(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Facade.v1",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null));
+
+            // The control: the exact-match caller is a genuine alias while nothing contradicts it.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            WriteNonForwarder(
+                directory, "Contoso.Facade", publicKey: null,
+                fileName: "Facade.v2", version: new Version(2, 0, 0, 0));
 
             Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Classify());
         }
@@ -2812,6 +2948,64 @@ public class ForwardedTypeAliasesTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// The gate named by <see cref="ForwardedTypeAliases.Includes(string)"/>'s doc comment. That
+    /// overload cannot see a withdrawal — a canonical bucket holds a verified spelling and a
+    /// withdrawn one at once — so a matching decision made through it reports a caller whose
+    /// reference was refused. Nothing on the product path uses it today; this fails if that
+    /// changes, rather than leaving the doc comment asserting a property nothing enforces.
+    ///
+    /// <para>Raised in review of <c>d8aa7b47</c> as an API-shape hazard rather than a live defect:
+    /// the one product call site is the two-argument overload, reached through
+    /// <see cref="ForwardedTypeAliases.DenotesSameType"/>. Tests are excluded because asserting
+    /// bucket membership itself is what the single-argument overload is for.</para>
+    ///
+    /// <para>The scan is non-vacuous by construction: it asserts it examined product sources that
+    /// mention the type at all, so a broken root walk or a moved directory fails here instead of
+    /// passing on an empty file set.</para>
+    /// </summary>
+    [Fact]
+    public void NoProductCodeMatchesOnTheWithdrawalBlindIncludesOverload()
+    {
+        string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
+
+        var productSources = Directory
+            .EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains(".Tests", StringComparison.OrdinalIgnoreCase))
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .ToList();
+
+        // A call with one argument: no comma before the closing parenthesis. The declaration itself
+        // carries no leading dot and so is not matched.
+        var singleArgument = new Regex(@"\.Includes\(\s*[^,()]*\)", RegexOptions.CultureInvariant);
+
+        var offenders = new List<string>();
+        int mentioning = 0;
+        foreach (string path in productSources)
+        {
+            string text = File.ReadAllText(path);
+            if (text.Contains(nameof(ForwardedTypeAliases), StringComparison.Ordinal))
+                mentioning++;
+
+            foreach (Match match in singleArgument.Matches(text))
+                offenders.Add($"{Path.GetRelativePath(sourceRoot, path)}: {match.Value}");
+        }
+
+        Assert.True(mentioning > 0, $"scanned {productSources.Count} product sources and none mentioned the type");
+        Assert.Empty(offenders);
+    }
+
+    static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not find repository root containing dotnet-inspect.slnx.");
     }
 
     /// <summary>

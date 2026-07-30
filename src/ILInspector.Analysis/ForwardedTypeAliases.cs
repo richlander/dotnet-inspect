@@ -466,7 +466,6 @@ public sealed class ForwardedTypeAliases
         // half.
         if (evidence.RefutedCeiling is { } refuted && reference.Version <= refuted)
             return ReferenceVerdict.Contradicted;
-
         // And the other end of the band. The route that reaches the target is carried by a file at
         // this version; a reference above it rolls forward onto a file that carries some other
         // route, or none. See the reachability fold in ForTarget, which is where the bound is
@@ -514,6 +513,16 @@ public sealed class ForwardedTypeAliases
     /// identity verification beside them was case-insensitive, so a reference that differed only
     /// in case verified and was then refused by the lookup, dropping a genuine caller (found in
     /// review of <c>984454a3</c>).</para>
+    ///
+    /// <para><b>This overload cannot see a withdrawal.</b> Canonicalization collapses the five
+    /// core-library facade spellings onto one name, so a bucket can hold a verified spelling and a
+    /// withdrawn one at once and this test answers <c>true</c> for both — see
+    /// <see cref="Includes(string, string)"/>, which is the overload every matching decision must
+    /// use. Nothing on the product path calls this one, and
+    /// <c>ForwardedTypeAliasesTests.NoProductCodeMatchesOnTheWithdrawalBlindIncludesOverload</c>
+    /// is the gate that keeps it that way; raised in review of <c>d8aa7b47</c>. It remains for
+    /// tests that are asserting bucket membership itself rather than whether a candidate
+    /// matches.</para>
     /// </summary>
     public bool Includes(string assembly) => _aliases.Contains(assembly);
 
@@ -654,9 +663,11 @@ public sealed class ForwardedTypeAliases
             StringComparer.OrdinalIgnoreCase);
 
         // The census's own paths and the identity each one claims, so the walk can tell a claimant
-        // it failed to re-read from an ordinary non-assembly file it is walking past, and can name
-        // the spelling that claimant speaks for. Ordinal: these are file paths.
-        var claimantPaths = new Dictionary<string, string>(StringComparer.Ordinal);
+        // it failed to re-read from an ordinary non-assembly file it is walking past, can name the
+        // spelling that claimant speaks for, and can ask whether it is the TARGET's identity rather
+        // than merely the target's name. Ordinal: these are file paths.
+        var claimantPaths = new Dictionary<string, (string Name, EvidenceIdentity Identity)>(
+            StringComparer.Ordinal);
         foreach (string path in paths)
         {
             switch (IdentityOf(path, out var claimed))
@@ -690,7 +701,7 @@ public sealed class ForwardedTypeAliases
             // Indexer, not Add: the same file may be supplied twice, and the census above already
             // deduplicates claimants by path. Throwing here would turn a duplicated scope entry
             // into a crash.
-            claimantPaths[path] = claimed.Name;
+            claimantPaths[path] = (claimed.Name, claimed.Identity);
         }
 
         var frontier = seedSpellings is null
@@ -805,15 +816,31 @@ public sealed class ForwardedTypeAliases
                     // it (executed in review of 0450561f). Poisoning the spelling reaches exactly
                     // as far as the doubt does: a caller naming it is refused, and every edge
                     // pointing at it fails verification, which the fold above propagates up the
-                    // chain. A file claiming the TARGET's own name is the one case that has to
-                    // decline outright — the target's identity is what every terminal hop is
-                    // checked against, so there is nothing left to answer with.
-                    if (claimantPaths.TryGetValue(path, out string? unreadable))
+                    // chain. A file answering to the TARGET's own IDENTITY is the one case that
+                    // has to decline outright — the target's identity is what every terminal hop
+                    // is checked against, so there is nothing left to answer with.
+                    //
+                    // IDENTITY, not name. Matching on the simple name alone declined the whole
+                    // answer for any unreadable file that merely shared the target's name while
+                    // carrying a different public key token — a file no reference to the target
+                    // can bind to, so a file that refutes nothing. Both round-19 reviewers found
+                    // this independently (executed in review of d8aa7b47). The census already read
+                    // the identity; this branch was throwing it away. A target whose own identity
+                    // is unknown still declines, because then nothing distinguishes the two.
+                    if (claimantPaths.TryGetValue(path, out var unreadable))
                     {
-                        if (string.Equals(unreadable, targetAssemblyName, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(unreadable.Name, targetAssemblyName, StringComparison.OrdinalIgnoreCase)
+                            && (targetIdentity is not { } known
+                                || (unreadable.Identity.Token.AsSpan().SequenceEqual(known.Token)
+                                    && string.Equals(
+                                        unreadable.Identity.Culture,
+                                        known.Culture,
+                                        StringComparison.OrdinalIgnoreCase))))
+                        {
                             return None;
+                        }
 
-                        unreadableSpellings.Add(unreadable);
+                        unreadableSpellings.Add(unreadable.Name);
                     }
 
                     continue;
