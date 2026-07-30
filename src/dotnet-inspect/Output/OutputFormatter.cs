@@ -248,6 +248,13 @@ public static class OutputFormatter
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// Renders one package section as tabular output (TSV/JSONL/pretty table). The caller has
+    /// already narrowed <paramref name="options"/> to a single section, so the rendered text is a
+    /// single table and <c>--rows</c> windows it exactly as it windows every other tabular section.
+    /// Forwarding <c>options.Rows</c> is what keeps this path agreeing with <c>--count</c>, which
+    /// windows the same section through <see cref="FormatResult"/> (#3457).
+    /// </summary>
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
@@ -255,7 +262,8 @@ public static class OutputFormatter
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(result);
         WriteTable(Console.Out, showHeader,
-            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
+            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
+            options.Rows);
     }
 
     /// <summary>
