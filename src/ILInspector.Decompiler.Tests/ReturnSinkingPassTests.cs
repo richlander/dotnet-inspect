@@ -404,12 +404,31 @@ public class ReturnSinkingPassTests
         // accepts a `StoreLocal; Break` pair as a tail and Apply detaches the
         // Break, so misclassifying this arm as falling through would rewrite the
         // loop `break` into a method `return`.
-        var function = RaisedSample(nameof(ReturnSinkBreakSamples.CatchArmBreaksOutOfLoop), typeof(ReturnSinkBreakSamples));
+        AssertBreakSurvives(nameof(ReturnSinkBreakSamples.CatchArmBreaksOutOfLoop));
+    }
+
+    // The same misclassification on the non-catch paths. The try-body and
+    // finally-protected-body cases were wrong on main: the arm's `break` was
+    // detached and its store became a `return`, silently deleting a loop exit.
+    // Both fail without the fall-through guard. The if/else case already
+    // printed correctly on main -- Roslyn's lowering does not present that
+    // shape to the pass -- so it pins the uniform arm rule rather than
+    // witnessing a repaired regression.
+    [Theory]
+    [InlineData(nameof(ReturnSinkBreakSamples.TryBodyBreaksOutOfLoop))]
+    [InlineData(nameof(ReturnSinkBreakSamples.FinallyProtectedBodyBreaksOutOfLoop))]
+    [InlineData(nameof(ReturnSinkBreakSamples.IfElseArmBreaksOutOfLoop))]
+    public void ArmBreakingOutOfLoop_KeepsTheBreakAndTheAccumulator(string methodName) =>
+        AssertBreakSurvives(methodName);
+
+    static void AssertBreakSurvives(string methodName)
+    {
+        var function = RaisedSample(methodName, typeof(ReturnSinkBreakSamples));
 
         string? output = CSharpPrinter.Print(function).Output;
         Assert.NotNull(output);
         Assert.Contains("break;", output);
-        // The accumulator survives: the loop's trailing `return V` is untouched.
+        // The accumulator survives: the trailing `return V` is left untouched.
         Assert.Contains(function.Descendants.OfType<Return>(), r => r.Value is LoadLocal);
     }
 

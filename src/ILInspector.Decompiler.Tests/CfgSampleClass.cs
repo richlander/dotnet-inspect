@@ -6306,4 +6306,78 @@ public static class ReturnSinkBreakSamples
         System.Console.WriteLine("ended");
         return -1;
     }
+
+    public static int TryBodyBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                if (x == 1)
+                {
+                    accumulator = 1;
+                }
+                else
+                {
+                    accumulator = 2;
+                    break;
+                }
+            }
+            catch
+            {
+                accumulator = 3;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+
+    public static int FinallyProtectedBodyBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                if (x == 1)
+                {
+                    accumulator = 1;
+                }
+                else
+                {
+                    accumulator = 2;
+                    break;
+                }
+            }
+            finally
+            {
+                System.Console.WriteLine("cleanup");
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+
+    public static int IfElseArmBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            if (x == 1)
+            {
+                accumulator = 1;
+            }
+            else
+            {
+                accumulator = 2;
+                break;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
 }
