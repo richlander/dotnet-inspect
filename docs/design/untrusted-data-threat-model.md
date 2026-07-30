@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Seven ways a weaker formulation fails, all reproduced. They are a regression
+Nine ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -163,8 +163,20 @@ previous formulation, so passing them is not evidence that the invariant holds.
   match reports `legit` while a case-insensitive host may serve `evil`. A
   parameter differing from the expected spelling only by case is not
   attributable.
+- Azure's Items API accepts the revision as the flat `version` parameter and as
+  `versionDescriptor.version`, and the **descriptor takes precedence**. Reading
+  only `version` reported the losing selector, so a URL carrying both named one
+  revision while fetching the other. Confirmed against the live API. Both
+  spellings are read; disagreeing selectors are not attributable.
+- The cache identity must be an unambiguous serialization of the origin tuple.
+  Azure DevOps repository names and Git ref names may both contain `/` and `@`
+  (`git check-ref-format` accepts `branch@tip`), so a delimiter-joined key let
+  repository `repo@branch` at revision `tip` and repository `repo` at revision
+  `branch@tip` collide. The identity is length-prefixed. This key selects a
+  persistent source index, so a collision serves one repository's source for
+  another's assembly.
 
-Gates. `SourceLinkProvenanceTests` covers all seven as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all nine as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

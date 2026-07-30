@@ -359,6 +359,75 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// The identity is a cache key for a persistent source index, so two distinct origins sharing
+    /// one identity serve one repository's source for another's assembly. Azure DevOps repository
+    /// names and Git ref names may both contain <c>/</c> and <c>@</c> — <c>git check-ref-format</c>
+    /// accepts <c>branch@tip</c> — so any delimiter-joined key is ambiguous. Varying only the owner
+    /// does not exercise this; the parts have to be able to eat each other's delimiters.
+    /// </summary>
+    [Theory]
+    [InlineData("repo@branch", "tip", "repo", "branch@tip")]
+    [InlineData("a/b", "c", "a", "b/c")]
+    [InlineData("repo", "a|b", "repo|a", "b")]
+    [InlineData("repo", "4:x", "repo4", ":x")]
+    public void TwoOriginsDifferingOnlyInWhereADelimiterFalls_DoNotShareOneIdentity(
+        string leftRepository, string leftRevision, string rightRepository, string rightRevision)
+    {
+        var left = new SLF.SourceLinkOrigin("h", "org", leftRepository, leftRevision, "u");
+        var right = new SLF.SourceLinkOrigin("h", "org", rightRepository, rightRevision, "u");
+
+        Assert.NotEqual(left, right);
+        Assert.NotEqual(left.Identity, right.Identity);
+    }
+
+    /// <summary>
+    /// Azure's Items API accepts the revision as the flat <c>version</c> parameter and as
+    /// <c>versionDescriptor.version</c>, and the descriptor is the one the host honours. Reading
+    /// only <c>version</c> reported the losing selector, so a URL carrying both named one revision
+    /// while fetching the other.
+    /// </summary>
+    [Theory]
+    [InlineData("version=aaaa&versionDescriptor.version=bbbb", null)]
+    [InlineData("versionDescriptor.version=bbbb", "bbbb")]
+    [InlineData("version=aaaa&versionDescriptor.version=aaaa", "aaaa")]
+    [InlineData("version=aaaa", "aaaa")]
+    public void TheAzureRevision_IsTheSelectorTheHostHonours(string query, string? expected)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        if (expected is null)
+        {
+            Assert.False(result.IsEstablished);
+            Assert.Contains("versionDescriptor.version", result.Reason, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.True(result.IsEstablished, result.Reason);
+            Assert.Equal(expected, result.Origin!.Value.Revision);
+        }
+    }
+
+    /// <summary>
+    /// A SourceLink payload that is present but blank is not the same as an assembly that ships no
+    /// SourceLink. Returning the empty resolver for it recreates the success-shaped emptiness the
+    /// repository's failure-visibility rule forbids: a truncated or blanked-out map would be
+    /// indistinguishable from absence.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n")]
+    public void APresentButBlankMap_SaysSoRatherThanLookingLikeNoSourceLink(string payload)
+    {
+        var present = SLF.SourceLinkResolver.Parse(payload);
+
+        Assert.NotNull(present.ParseError);
+        Assert.Null(SLF.SourceLinkResolver.Parse(null).ParseError);
+    }
+
+    /// <summary>
     /// Whenever provenance is not established there is a stated reason, so "no repository" is
     /// always reported as a decision rather than as absence.
     /// </summary>

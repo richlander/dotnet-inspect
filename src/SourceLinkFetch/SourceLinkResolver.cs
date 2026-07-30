@@ -160,7 +160,11 @@ public class SourceLinkResolver
     /// </summary>
     public static SourceLinkResolver Parse(string? sourceLinkJson)
     {
-        if (string.IsNullOrWhiteSpace(sourceLinkJson))
+        // Only absence is Empty. A payload that is present and says nothing -- blank, truncated,
+        // or blanked out -- falls through to the parser, which rejects it and reports why. Widening
+        // this test to IsNullOrWhiteSpace would make such a map indistinguishable from an assembly
+        // that ships no SourceLink at all.
+        if (sourceLinkJson is null)
             return Empty;
 
         Dictionary<string, string?> mappings;

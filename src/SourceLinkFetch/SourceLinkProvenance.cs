@@ -1,3 +1,4 @@
+using System.Text;
 using System.Reflection.Metadata;
 
 namespace SourceLinkFetch;
@@ -28,7 +29,24 @@ public readonly record struct SourceLinkOrigin(
     /// <em>and</em> the repository it was served from, because a commit hash alone is shared by
     /// every fork that contains that commit.
     /// </summary>
-    public string Identity => $"{Host}/{Organization}/{Repository}@{Revision}";
+    /// <remarks>
+    /// Length-prefixed rather than delimiter-joined. Azure DevOps repository names and Git ref
+    /// names may both contain <c>/</c> and <c>@</c> (<c>git check-ref-format</c> accepts
+    /// <c>branch@tip</c>), so a joined form is ambiguous: repository <c>repo@branch</c> at
+    /// revision <c>tip</c> and repository <c>repo</c> at revision <c>branch@tip</c> would produce
+    /// one string. This key selects a persistent source index, so a collision serves one
+    /// repository's source for another's assembly.
+    /// </remarks>
+    public string Identity
+    {
+        get
+        {
+            var builder = new StringBuilder();
+            foreach (string part in (string[])[Host, Organization, Repository, Revision])
+                builder.Append(part.Length).Append(':').Append(part).Append('|');
+            return builder.ToString();
+        }
+    }
 }
 
 /// <summary>
@@ -323,10 +341,44 @@ public static class SourceLinkProvenance
         }
 
         string repository = segments[apis + 3];
-        string? revision = ReadSingleQueryValue(uri.Query, "version", out string queryRejection);
+
+        // Azure's Items API accepts the revision two ways: the flat 'version' parameter and the
+        // 'versionDescriptor.version' member, and the descriptor takes precedence when both are
+        // present. Reading only 'version' therefore reports the losing selector -- a URL carrying
+        // both reports one revision while fetching the other. Confirmed against the live API:
+        // 'version=A&versionDescriptor.version=B' returns B's commitId.
+        //
+        // Both spellings are read. A descriptor-only URL is attributable to the descriptor; a URL
+        // carrying both is attributable only when they agree, because agreeing selectors have one
+        // reading and disagreeing ones are the bug this exists to catch.
+        string? flat = ReadSingleQueryValue(uri.Query, "version", out string flatRejection);
+        if (flat is null && flatRejection.Length != 0)
+        {
+            rejection = $"'{host}' URL {flatRejection}";
+            return false;
+        }
+
+        string? descriptor = ReadSingleQueryValue(
+            uri.Query, "versionDescriptor.version", out string descriptorRejection);
+        if (descriptor is null && descriptorRejection.Length != 0)
+        {
+            rejection = $"'{host}' URL {descriptorRejection}";
+            return false;
+        }
+
+        if (flat is not null && descriptor is not null &&
+            !string.Equals(flat, descriptor, StringComparison.Ordinal))
+        {
+            rejection =
+                $"'{host}' URL names revision '{flat}' as 'version' and '{descriptor}' as " +
+                "'versionDescriptor.version', and the descriptor is the one the host honours";
+            return false;
+        }
+
+        string? revision = descriptor ?? flat;
         if (revision is null)
         {
-            rejection = $"'{host}' URL {queryRejection}";
+            rejection = $"'{host}' URL names no 'version' or 'versionDescriptor.version'";
             return false;
         }
 
@@ -410,7 +462,10 @@ public static class SourceLinkProvenance
 
         if (found is null || found.Length == 0)
         {
-            rejection = $"names no '{name}'";
+            // Absent, so nothing is rejected. An empty rejection means "not present"; a non-empty
+            // one means "present and unusable", and callers reading more than one selector need
+            // to tell those apart.
+            rejection = "";
             return null;
         }
 

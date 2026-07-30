@@ -417,7 +417,7 @@ internal static class LibraryMetadataService
             }
         }
 
-        inspection.Builder = InferBuilder(inspection, pdbContext.Provenance().Origin);
+        inspection.Builder = InferBuilder(inspection);
     }
 
     /// <summary>
@@ -457,17 +457,19 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
-    /// Infers who built the assembly based on symbol availability and SourceLink.
+    /// Infers who built the assembly from symbol availability.
     /// </summary>
-    /// <param name="origin">
-    /// The established SourceLink origin, or null when provenance could not be established. This
-    /// is read instead of the SourceLink JSON text: the map is attacker-controlled, so a substring
-    /// test over it let any package claim a Microsoft origin by naming one anywhere in the map --
-    /// in a key, in a query parameter, or in an entry no document matches.
-    /// </param>
-    public static string? InferBuilder(
-        LibraryInspection inspection,
-        SourceLinkFetch.SourceLinkOrigin? origin)
+    /// <remarks>
+    /// Deliberately does <em>not</em> consult SourceLink provenance. Establishing that an
+    /// assembly's source is served from <c>dotnet/*</c> says where the source came from, not who
+    /// produced the binary, and both the map and the <c>Company</c> attribute are supplied by the
+    /// artifact under inspection. <c>raw.githubusercontent.com</c> serves any commit reachable in
+    /// a repository, including the head of an outside contributor's unmerged pull request against
+    /// <c>dotnet/runtime</c>, so a correctly established <c>dotnet</c> origin is consistent with an
+    /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
+    /// publisher; a self-declared source URL is not.
+    /// </remarks>
+    public static string? InferBuilder(LibraryInspection inspection)
     {
         var company = inspection.AssemblyInfo?.Company;
         bool isMicrosoftAssembly = company?.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) == true;
@@ -478,12 +480,6 @@ internal static class LibraryMetadataService
         }
 
         if (inspection.SymbolServer == "msdl.microsoft.com" && inspection.HasSourceLink)
-        {
-            return "Microsoft";
-        }
-
-        if (origin is { } established
-            && established.Organization.Equals("dotnet", StringComparison.OrdinalIgnoreCase))
         {
             return "Microsoft";
         }
