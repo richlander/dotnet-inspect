@@ -101,13 +101,16 @@ public class SourceLinkProvenanceTests
     [Fact]
     public void TheThreatModelsCase_OfDotSegmentsInTheMapping_ReportsWhereContentIsReallyServedFrom()
     {
-        const string map =
-            """{"documents":{"/_/*":"https://raw.githubusercontent.com/dotnet/runtime/x/../../attacker/evil/main/*"}}""";
+        // Canonicalization pops 'dotnet/runtime/<sha>' and lands on 'attacker/evil/<sha>'. The
+        // revision after traversal is a commit hash, so the origin is established and can be
+        // compared against what the raw mapping text says.
+        string map =
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/../../../attacker/evil/{{{Sha}}}/*"}}""";
 
         var result = Determine(map, "/_/A.cs");
 
         Assert.True(result.IsEstablished, result.Reason);
-        Assert.Equal("https://github.com/dotnet/attacker", result.Origin!.Value.RepositoryUrl);
+        Assert.Equal("https://github.com/attacker/evil", result.Origin!.Value.RepositoryUrl);
         Assert.NotEqual("https://github.com/dotnet/runtime", result.Origin!.Value.RepositoryUrl);
     }
 
@@ -123,13 +126,21 @@ public class SourceLinkProvenanceTests
         string map =
             $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/dotnet/runtime/{{{Sha}}}/*"}}""";
 
+        // The traversal lands on a commit hash, so both documents yield an established origin and
+        // the disagreement between them is what has to be caught.
         var result = Determine(
             map,
             "/_/src/A.cs",
-            "/_/../../../attacker/evil/main/Program.cs");
+            $"/_/../../../attacker/evil/{Sha}/Program.cs");
 
         Assert.False(result.IsEstablished);
         Assert.Contains("more than one origin", result.Reason, StringComparison.Ordinal);
+
+        // The same vector landing on a branch name is caught one step earlier, by the revision
+        // boundary rule, rather than reported.
+        var onABranch = Determine(map, "/_/src/A.cs", "/_/../../../attacker/evil/main/Program.cs");
+
+        Assert.False(onABranch.IsEstablished);
     }
 
     /// <summary>
@@ -270,6 +281,66 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains("more than one origin", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>raw.githubusercontent.com</c> serves branch names, and a branch may contain <c>/</c>, so
+    /// <c>.../owner/repo/feature/auth/File.cs</c> reads equally well as revision <c>feature</c>
+    /// with path <c>auth/File.cs</c> or as revision <c>feature/auth</c> with path <c>File.cs</c>.
+    /// Nothing in the URL says which. Reading the third segment as the revision made two different
+    /// branches report one revision — a false provenance claim, and a colliding cache identity
+    /// that would serve one branch's source for the other.
+    /// </summary>
+    [Theory]
+    [InlineData("feature/auth")]
+    [InlineData("feature/login")]
+    [InlineData("main")]
+    [InlineData("aaaaaaa")]
+    public void ARevisionThatIsNotACommitHash_IsNotAttributable(string reference)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{reference}}}/*"}}""",
+            "/_/File.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("is not a commit hash", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The two branches that previously collided must not produce one identity.
+    /// </summary>
+    [Fact]
+    public void TwoBranchesSharingAFirstSegment_DoNotShareOneIdentity()
+    {
+        string Map(string reference) =>
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{reference}}}/*"}}""";
+
+        var auth = Determine(Map("feature/auth"), "/_/File.cs");
+        var login = Determine(Map("feature/login"), "/_/File.cs");
+
+        Assert.NotEqual(
+            auth.Origin?.Identity ?? "auth-unestablished",
+            login.Origin?.Identity ?? "login-unestablished");
+    }
+
+    /// <summary>
+    /// Whether a host matches query parameter names case-insensitively is not stated by the URL,
+    /// so <c>?VERSION=evil&amp;version=legit</c> has two readings. Matching case-sensitively picks
+    /// <c>legit</c> and reports it, while a case-insensitive host may serve <c>evil</c> — the
+    /// reported origin would then not be where content is fetched from.
+    /// </summary>
+    [Theory]
+    [InlineData("VERSION=evil&version=legit")]
+    [InlineData("version=legit&VERSION=evil")]
+    [InlineData("Version=legit")]
+    public void AVersionParameterSpelledInAnotherCase_IsNotAttributable(string query)
+    {
+        var result = Determine(
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?{{{query}}}&path=/*"}}""",
+            "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("case-insensitively is not stated", result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>

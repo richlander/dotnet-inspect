@@ -127,7 +127,7 @@ text, and never off the mapping prefix alone. Agreement is required on the whole
 `raw.githubusercontent.com` serves any revision reachable in a repository,
 including the head of an unmerged pull request.
 
-Five ways a weaker formulation fails, all reproduced. They are a regression
+Seven ways a weaker formulation fails, all reproduced. They are a regression
 floor, not a specification of what to block: each was found only by attacking a
 previous formulation, so passing them is not evidence that the invariant holds.
 
@@ -151,8 +151,20 @@ previous formulation, so passing them is not evidence that the invariant holds.
   additionally rejected on its own account, because a credential presented to an
   allowed host makes the response depend on the identity presented rather than
   on the public path the URL names.
+- `raw.githubusercontent.com` serves branch names, and a branch may contain `/`,
+  so `.../owner/repo/feature/auth/File.cs` reads equally well as revision
+  `feature` with path `auth/File.cs` or as revision `feature/auth` with path
+  `File.cs`. Nothing in the URL says which. Taking the third path segment made
+  `feature/auth` and `feature/login` report one revision and one cache identity.
+  The revision must therefore be a full commit hash, which cannot contain `/`,
+  or the URL is not attributable.
+- Whether a host matches query parameter names case-insensitively is not stated
+  by the URL, so `?VERSION=evil&version=legit` has two readings. A case-sensitive
+  match reports `legit` while a case-insensitive host may serve `evil`. A
+  parameter differing from the expected spelling only by case is not
+  attributable.
 
-Gates. `SourceLinkProvenanceTests` covers all five as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all seven as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason.
 `SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`

@@ -251,6 +251,26 @@ public static class SourceLinkProvenance
                 return false;
             }
 
+            // The ref and the path are separated by a '/' that is also legal inside a ref: this
+            // host serves branch names, and a branch may contain '/'. So
+            // ".../owner/repo/feature/auth/File.cs" reads equally well as ref "feature" with path
+            // "auth/File.cs" or as ref "feature/auth" with path "File.cs", and nothing in the URL
+            // says which. Taking segment 2 makes two different branches report one revision, which
+            // is a false provenance claim and a colliding cache identity.
+            //
+            // A commit hash cannot contain '/', so requiring one makes the boundary determinable.
+            // Anything else is not attributable rather than guessed -- "when that cannot be
+            // established, report no repository". This costs abbreviated hashes and branch-based
+            // maps; the SDK emits a full commit hash, and a moving ref would not identify a
+            // revision anyway.
+            if (!IsCommitHash(segments[2]))
+            {
+                rejection =
+                    $"'{host}' revision '{segments[2]}' is not a commit hash, so the boundary " +
+                    "between the revision and the file path is not determinable";
+                return false;
+            }
+
             origin = new SourceLinkOrigin(
                 host,
                 segments[0],
@@ -321,10 +341,41 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
+    /// A full Git object name: 40 hex characters for SHA-1, 64 for SHA-256. Abbreviations are
+    /// deliberately not accepted — an abbreviation is a prefix, so two of them can name one
+    /// revision while comparing unequal, and one of them can become ambiguous as a repository
+    /// grows.
+    /// </summary>
+    private static bool IsCommitHash(string value)
+    {
+        if (value.Length is not (40 or 64))
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            if (!char.IsAsciiHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Reads exactly one value for <paramref name="name"/>. A repeated parameter is rejected
     /// rather than resolved, for the same reason a duplicated JSON key is: two readers of one
     /// query string can disagree about which value wins.
     /// </summary>
+    /// <remarks>
+    /// Parameter names are matched case-insensitively but accepted only in the exact spelling
+    /// <paramref name="name"/> gives. Whether a host treats <c>VERSION</c> as <c>version</c> is
+    /// not stated by the URL, so <c>?VERSION=a&amp;version=b</c> has two readings and neither is
+    /// established. Matching case-sensitively would silently pick <c>b</c> while a
+    /// case-insensitive server may serve <c>a</c>.
+    /// </remarks>
     private static string? ReadSingleQueryValue(string query, string name, out string rejection)
     {
         ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
@@ -334,9 +385,17 @@ public static class SourceLinkProvenance
         {
             ReadOnlySpan<char> pair = pairs[range];
             int equals = pair.IndexOf('=');
-            if (equals < 0 || !pair[..equals].SequenceEqual(name))
+            if (equals < 0 || !pair[..equals].Equals(name, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
+            }
+
+            if (!pair[..equals].SequenceEqual(name))
+            {
+                rejection =
+                    $"spells the '{name}' parameter as '{pair[..equals]}', and whether the host " +
+                    "matches parameter names case-insensitively is not stated by the URL";
+                return null;
             }
 
             string value = Uri.UnescapeDataString(pair[(equals + 1)..].ToString());
