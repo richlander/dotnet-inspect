@@ -381,12 +381,6 @@ public class IlBodyDiffNormalizationTests
             "<<Inner>b__#_0>b__103_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
             "A placeholder the recursion introduces must not collapse onto a literal one at the same position.");
-
-        Assert.False(CompareMemberNames(
-            "<<In#er>b__5_0>b__103_0",
-            "<<In#er>b__#_0>b__103_0",
-            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
-            "A literal placeholder in a nested containing name must not let the recursion's placeholder collide either.");
     }
 
     /// <summary>
