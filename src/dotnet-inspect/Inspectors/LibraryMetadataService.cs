@@ -657,7 +657,11 @@ internal static class LibraryMetadataService
         var builder = new StringBuilder(name.Length);
         foreach (var c in name)
         {
-            if (char.IsControl(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+            var category = char.GetUnicodeCategory(c);
+            if (char.IsControl(c)
+                || category == UnicodeCategory.Format
+                || category == UnicodeCategory.LineSeparator
+                || category == UnicodeCategory.ParagraphSeparator)
             {
                 builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:X4}");
             }
@@ -701,8 +705,22 @@ internal static class LibraryMetadataService
 
         foreach (var rune in name.EnumerateRunes())
         {
-            if (!Rune.IsControl(rune) && Rune.GetUnicodeCategory(rune) != UnicodeCategory.Format)
+            var category = Rune.GetUnicodeCategory(rune);
+            if (!Rune.IsControl(rune)
+                && category != UnicodeCategory.Format
+                && category != UnicodeCategory.LineSeparator
+                && category != UnicodeCategory.ParagraphSeparator)
+            {
                 continue;
+            }
+
+            // U+2028 and U+2029 are line and paragraph separators: not Control, not Format, and
+            // not rejected by the edge-whitespace check when they sit mid-name. They are the same
+            // failure as the Format characters below, one category further along -- a renderer or
+            // log processor that honours them breaks "Ab<U+2028>Cd" across two lines, so the tree
+            // shows a node that does not exist and the name displayed is not the name resolved.
+            // char.IsControl does not cover them either, and neither does U+0085's Control
+            // classification, so they need naming explicitly.
 
             // Format characters are invisible: a zero-width space or a bidi override renders as
             // nothing, or reorders what follows it, so the name shown in the reference tree is not

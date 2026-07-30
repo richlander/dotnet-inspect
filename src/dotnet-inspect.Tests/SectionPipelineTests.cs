@@ -1,3 +1,4 @@
+using System.Globalization;
 using DotnetInspector.Output;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -3191,6 +3192,13 @@ public class SectionPipelineTests
     // Surrogate for both halves and accepts a name that renders as nothing.
     [InlineData("Valid\U000E0020Dependency")]
     [InlineData("System.Text.Json\U000E0041")]
+    // Line and paragraph separators are neither Control nor Format, and mid-name they sit where
+    // the edge-whitespace rule cannot see them, so all three earlier rules accepted them. A
+    // consumer that honours U+2028 breaks the name across two lines, which is the same failure
+    // the Format rule above exists to stop: the name displayed is not the name resolved, and the
+    // second half reads as a dependency that does not exist.
+    [InlineData("Ab\u2028Cd")]
+    [InlineData("Ab\u2029Cd")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -3207,6 +3215,20 @@ public class SectionPipelineTests
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(new string('A', 257)));
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(new string('A', 256)));
+    }
+
+    /// <summary>
+    /// Negative control for the separator rule. Rejecting every Unicode separator would also
+    /// "fix" the rows above, so the ordinary ASCII space -- which is a Separator too, and which
+    /// real assembly names in the close-negative set below carry -- has to stay accepted for the
+    /// rule to mean what it claims. Only the LINE and PARAGRAPH separators forge a line.
+    /// </summary>
+    [Fact]
+    public void InteriorSpaceInAssemblyReferenceName_StaysAccepted()
+    {
+        Assert.Equal(UnicodeCategory.SpaceSeparator, char.GetUnicodeCategory(' '));
+        Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName("Ab Cd"));
+        Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName("Ab\u2028Cd"));
     }
 
     // Close negatives: real assembly names, including ones with dots, digits, dashes, unicode and
