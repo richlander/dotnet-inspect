@@ -361,6 +361,35 @@ public class IlBodyDiffNormalizationTests
     }
 
     /// <summary>
+    /// The escape runs once on the whole name, not once per level: the
+    /// recursion calls the private overload deliberately. That is what makes
+    /// the separation total rather than merely top-level — a literal
+    /// <c>#</c> anywhere, including inside a containing name several levels
+    /// down, is doubled before any level is parsed, while every placeholder a
+    /// level introduces is a lone <c>#</c> bounded by <c>_</c>. Gated apart
+    /// from
+    /// <see cref="NormalizeSynthesizedMemberOrdinals_DoesNotCollideWithALiteralPlaceholder"/>
+    /// so that neither can stand in for the other: that test's first assertion
+    /// fails on a missing escape at depth 0 and would otherwise hide whether
+    /// the nested case is checked at all.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_DoesNotCollideWithALiteralPlaceholderWhileNested()
+    {
+        Assert.False(CompareMemberNames(
+            "<<Inner>b__5_0>b__103_0",
+            "<<Inner>b__#_0>b__103_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "A placeholder the recursion introduces must not collapse onto a literal one at the same position.");
+
+        Assert.False(CompareMemberNames(
+            "<<In#er>b__5_0>b__103_0",
+            "<<In##er>b__5_0>b__103_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "A literal placeholder in a nested containing name must survive the recursion as evidence.");
+    }
+
+    /// <summary>
     /// The cache form's ordinals must be canonical too. Checked separately
     /// from the method forms because <c>&lt;&gt;9__N_M</c> only ever reaches
     /// the field paths.
