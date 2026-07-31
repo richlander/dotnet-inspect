@@ -29,7 +29,7 @@ public class VisualEncoderTests
             }
 
             string original = new Rune(cp).ToString();
-            string encoded = new InertString(original, TextPolicy.Field).ToString();
+            string encoded = new InertString(TextPolicy.Field, original).ToString();
 
             Assert.True(
                 VisualEncoder.TryDecode(encoded, out string? decoded),
@@ -44,7 +44,7 @@ public class VisualEncoderTests
         for (int cp = 0xD800; cp <= 0xDFFF; cp++)
         {
             string original = ((char)cp).ToString();
-            string encoded = new InertString(original, TextPolicy.Field).ToString();
+            string encoded = new InertString(TextPolicy.Field, original).ToString();
 
             Assert.NotEqual(original, encoded);
             Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded), encoded);
@@ -65,7 +65,7 @@ public class VisualEncoderTests
 
         foreach (string original in Strings(alphabet, 3))
         {
-            string encoded = new InertString(original, TextPolicy.Field).ToString();
+            string encoded = new InertString(TextPolicy.Field, original).ToString();
 
             Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded), encoded);
             Assert.Equal(original, decoded);
@@ -86,8 +86,8 @@ public class VisualEncoderTests
         // U+13430 EGYPTIAN HIEROGLYPH VERTICAL JOINER is Cf and lives above the BMP. \uXXXX
         // cannot express it, so an encoder built on four hex digits returns it untouched while
         // reporting success.
-        Assert.Equal(@"A\U00013430B", new InertString("A\U00013430B", TextPolicy.Field).ToString());
-        Assert.False(InertString.IsPermitted("A\U00013430B", TextPolicy.Field, out var violation));
+        Assert.Equal(@"A\U00013430B", new InertString(TextPolicy.Field, "A\U00013430B").ToString());
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, "A\U00013430B", out var violation));
         Assert.Equal(0x13430, violation!.Value.Scalar);
         Assert.Equal(UnicodeCategory.Format, violation.Value.Category);
     }
@@ -101,15 +101,15 @@ public class VisualEncoderTests
         {
             Rune scalar = new(cp);
 
-            if (!TextPolicy.IsNonGraphic(scalar))
+            if (!ScalarPolicies.IsNonGraphic(scalar))
             {
                 continue;
             }
 
             encodedCount++;
             string original = scalar.ToString();
-            Assert.NotEqual(original, new InertString(original, TextPolicy.Field).ToString());
-            Assert.False(InertString.IsPermitted(original, TextPolicy.Field));
+            Assert.NotEqual(original, new InertString(TextPolicy.Field, original).ToString());
+            Assert.False(InertString.IsPermitted(TextPolicy.Field, original));
         }
 
         // Pinned so a narrowing of the category rule fails here rather than quietly shrinking.
@@ -123,13 +123,13 @@ public class VisualEncoderTests
         // both halves of a pair are Cs. Only an unpaired surrogate is a hazard.
         foreach (string text in new[] { "\U0001F600", "\U0001F468\u200D\U0001F469", "\U00020BB7" })
         {
-            string encoded = new InertString(text, TextPolicy.Field).ToString();
+            string encoded = new InertString(TextPolicy.Field, text).ToString();
             Assert.DoesNotContain(@"\uD8", encoded, StringComparison.Ordinal);
             Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded));
             Assert.Equal(text, decoded);
         }
 
-        Assert.Equal("\U0001F600", new InertString("\U0001F600", TextPolicy.Field).ToString());
+        Assert.Equal("\U0001F600", new InertString(TextPolicy.Field, "\U0001F600").ToString());
     }
 
     [Fact]
@@ -147,8 +147,8 @@ public class VisualEncoderTests
         foreach (int cp in rustc.Concat(bidiControlOnly))
         {
             Rune scalar = new(cp);
-            Assert.True(TextPolicy.IsNonGraphic(scalar), $"U+{cp:X4}");
-            Assert.False(InertString.IsPermitted(scalar.ToString(), TextPolicy.Field));
+            Assert.True(ScalarPolicies.IsNonGraphic(scalar), $"U+{cp:X4}");
+            Assert.False(InertString.IsPermitted(TextPolicy.Field, scalar.ToString()));
         }
 
         Assert.Equal(9, rustc.Length);
@@ -162,24 +162,24 @@ public class VisualEncoderTests
         // deliberately excludes; the divergence is recorded in the spec and resolved upward.
         foreach (int cp in new[] { 0x200C, 0x200D, 0x2060, 0x00AD, 0xFEFF })
         {
-            Assert.True(TextPolicy.IsNonGraphic(new Rune(cp)), $"U+{cp:X4}");
+            Assert.True(ScalarPolicies.IsNonGraphic(new Rune(cp)), $"U+{cp:X4}");
         }
     }
 
     [Fact]
     public void Spelling_MatchesCaretNotation()
     {
-        Assert.Equal(@"\^[", new InertString("\u001B", TextPolicy.Field).ToString());
-        Assert.Equal(@"\^@", new InertString("\u0000", TextPolicy.Field).ToString());
-        Assert.Equal(@"\^?", new InertString("\u007F", TextPolicy.Field).ToString());
-        Assert.Equal(@"\\", new InertString("\\", TextPolicy.Field).ToString());
-        Assert.Equal(@"\u202E", new InertString("\u202E", TextPolicy.Field).ToString());
+        Assert.Equal(@"\^[", new InertString(TextPolicy.Field, "\u001B").ToString());
+        Assert.Equal(@"\^@", new InertString(TextPolicy.Field, "\u0000").ToString());
+        Assert.Equal(@"\^?", new InertString(TextPolicy.Field, "\u007F").ToString());
+        Assert.Equal(@"\\", new InertString(TextPolicy.Field, "\\").ToString());
+        Assert.Equal(@"\u202E", new InertString(TextPolicy.Field, "\u202E").ToString());
 
         // The collision the backslash introducer exists to prevent: U+001E is 0x1E + 0x40 = '^',
         // so a caret-introduced spelling gives RS and a literal caret the same output.
         Assert.NotEqual(
-            new InertString("\u001E", TextPolicy.Field).ToString(),
-            new InertString("^", TextPolicy.Field).ToString());
+            new InertString(TextPolicy.Field, "\u001E").ToString(),
+            new InertString(TextPolicy.Field, "^").ToString());
     }
 
     [Fact]
@@ -193,8 +193,8 @@ public class VisualEncoderTests
             "Ünïcödé", "日本語", "emoji \U0001F600", "a\u0301",
         })
         {
-            Assert.Equal(text, new InertString(text, TextPolicy.Field).ToString());
-            Assert.True(InertString.IsPermitted(text, TextPolicy.Field));
+            Assert.Equal(text, new InertString(TextPolicy.Field, text).ToString());
+            Assert.True(InertString.IsPermitted(TextPolicy.Field, text));
         }
     }
 
@@ -205,8 +205,8 @@ public class VisualEncoderTests
         // them is a hazard, and a check derived from "would Encode change this" rejects them all.
         const string path = @"C:\Users\rich\.nuget\packages";
 
-        Assert.True(InertString.IsPermitted(path, TextPolicy.Field));
-        Assert.NotEqual(path, new InertString(path, TextPolicy.Field).ToString());
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, path));
+        Assert.NotEqual(path, new InertString(TextPolicy.Field, path).ToString());
     }
 
     [Fact]
@@ -214,42 +214,60 @@ public class VisualEncoderTests
     {
         const string multiline = "line one\nline two\tindented";
 
-        Assert.True(InertString.IsPermitted(multiline, TextPolicy.Prose));
-        Assert.Equal(multiline, new InertString(multiline, TextPolicy.Prose).ToString());
+        Assert.True(InertString.IsPermitted(TextPolicy.Prose, multiline));
+        Assert.Equal(multiline, new InertString(TextPolicy.Prose, multiline).ToString());
 
-        Assert.False(InertString.IsPermitted(multiline, TextPolicy.Field));
-        Assert.Equal(@"line one\^Jline two\^Iindented", new InertString(multiline, TextPolicy.Field).ToString());
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, multiline));
+        Assert.Equal(@"line one\^Jline two\^Iindented", new InertString(TextPolicy.Field, multiline).ToString());
 
         // No sink may exempt a bidi control, whatever else it exempts.
-        Assert.False(InertString.IsPermitted("\u202E", TextPolicy.Prose));
+        Assert.False(InertString.IsPermitted(TextPolicy.Prose, "\u202E"));
     }
 
+    /// <summary>
+    /// The stated limit of every <see cref="TextPolicy"/>, and the reason the set does not try to
+    /// grow one that closes it.
+    /// </summary>
+    /// <remarks>
+    /// Recorded as a test so the boundary is a measured fact rather than an assumption a reader
+    /// has to make, and so that anyone tempted to add an allow-shaped member finds the argument
+    /// against it here.
+    /// </remarks>
     [Fact]
-    public void Policy_AllowShaped_CatchesAHomoglyphThatNoCategoryRuleCan()
+    public void NoTextPolicy_CatchesAHomoglyph_BecauseEveryOneIsDenyShaped()
     {
-        // The attack the whole split exists for. Cyrillic е U+0435 and Latin e U+0065 are the
-        // same glyph, both category Ll, and neither is a hazard — so a deny-shaped policy
-        // renders the typosquat raw and the substitution stays invisible.
+        // Cyrillic е U+0435 and Latin e U+0065 are the same glyph, both category Ll, and neither
+        // is a hazard. A deny-shaped rule renders the typosquat raw and the substitution stays
+        // invisible -- correctly, because refusing every non-Latin letter would break most of the
+        // world's text.
         const string hijacked = "N\u0435wtonsoft.Json";
 
-        Assert.True(InertString.IsPermitted(hijacked, TextPolicy.Field));
-        Assert.Equal(hijacked, new InertString(hijacked, TextPolicy.Field).ToString());
+        foreach (TextPolicy policy in Enum.GetValues<TextPolicy>())
+        {
+            Assert.True(InertString.IsPermitted(policy, hijacked));
+            Assert.Equal(hijacked, new InertString(policy, hijacked).ToString());
+        }
 
-        // An allow list over the published grammar catches it, and the speller — which never
-        // learns why — spells it without needing a hazard set of its own.
-        static bool PackageId(Rune scalar)
-            => scalar.Value is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z')
-                or (>= '0' and <= '9') or '.' or '-' or '_';
+        // An allow list over the published grammar would catch it, and that is exactly the shape
+        // this library stopped offering. Encoding cannot serve it: the spelling an allow-shaped
+        // rule would produce, \u0435, is itself outside the grammar, so the repaired value fails
+        // the same check that rejected the original. The operation such a rule wants is
+        // rejection, which is a different answer than "here is a safe rendering" and belongs in
+        // a different API.
+        const string spelled = @"N\u0435wtonsoft.Json";
 
-        Assert.False(InertString.IsPermitted(hijacked, PackageId, out var violation));
-        Assert.Equal(0x0435, violation!.Value.Scalar);
-        Assert.Equal(@"N\u0435wtonsoft.Json", new InertString(hijacked, PackageId).ToString());
+        static bool PackageId(char c)
+            => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
+                or '.' or '-' or '_';
+
+        Assert.Contains(hijacked, c => !PackageId(c));
+        Assert.Contains(spelled, c => !PackageId(c));
     }
 
     [Fact]
     public void Legend_NamesEveryFormTheOutputContains()
     {
-        InertString value = new InertString("a\u001B\u007F\u202E\U00013430\\b", TextPolicy.Field);
+        InertString value = new InertString(TextPolicy.Field, "a\u001B\u007F\u202E\U00013430\\b");
         string encoded = value.ToString();
         VisualForm forms = value.Forms;
 
@@ -273,7 +291,7 @@ public class VisualEncoderTests
     [Fact]
     public void Legend_IsEmptyWhenNothingWasEncoded()
     {
-        VisualForm forms = new InertString("ordinary text", TextPolicy.Field).Forms;
+        VisualForm forms = new InertString(TextPolicy.Field, "ordinary text").Forms;
 
         Assert.Equal(VisualForm.None, forms);
         Assert.Empty(VisualEncoder.DescribeLegend(forms));
@@ -323,7 +341,7 @@ public class VisualEncoderTests
     [Fact]
     public void Violation_NamesTheActualCodeUnitForAnUnpairedSurrogate()
     {
-        Assert.False(InertString.IsPermitted("ab\uD800cd", TextPolicy.Field, out ScalarViolation? violation));
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, "ab\uD800cd", out ScalarViolation? violation));
 
         // Rune cannot hold a lone surrogate, so reporting through it named U+FFFD here --
         // one wrong answer, identically, for all 2048 values whose identity is the finding.
@@ -337,9 +355,9 @@ public class VisualEncoderTests
     public void Violation_AgreesWithTheSpellingTheEncoderChooses()
     {
         const string input = "ab\uDFFFcd";
-        Assert.False(InertString.IsPermitted(input, TextPolicy.Field, out ScalarViolation? violation));
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, input, out ScalarViolation? violation));
 
-        string encoded = new InertString(input, TextPolicy.Field).ToString();
+        string encoded = new InertString(TextPolicy.Field, input).ToString();
 
         Assert.Contains(
             string.Create(CultureInfo.InvariantCulture, $"\\u{violation!.Value.Scalar:X4}"),
@@ -366,5 +384,82 @@ public class VisualEncoderTests
         // so the canonicality check must not reach this far.
         Assert.True(VisualEncoder.TryDecode(@"\u0041", out string? decoded));
         Assert.Equal("A", decoded);
+    }
+
+    /// <summary>
+    /// The decoder accepts exactly one spelling per scalar, which is what the repair in
+    /// <c>EnsurePermitted</c> rests on.
+    /// </summary>
+    /// <remarks>
+    /// A second accepted spelling is not leniency. <c>EnsurePermitted</c> decodes a value and
+    /// re-encodes it under the policy in force, so if two inputs decode to the same text they
+    /// converge on one output, and a value that survived one repair unchanged can change under
+    /// the next. Each case below was accepted before this test existed.
+    /// </remarks>
+    [Theory]
+    [InlineData(@"\u00ad", "lowercase BMP hex; AppendBmpHex emits X4, never x4")]
+    [InlineData(@"\U0001f600", "lowercase astral hex; AppendSpelling emits X8")]
+    [InlineData(@"\uD83D\uDE00", "a surrogate pair as two escapes; the scalar spells as \\U0001F600")]
+    public void Decode_RefusesANonCanonicalSpelling(string encoded, string why)
+    {
+        Assert.False(VisualEncoder.TryDecode(encoded, out _), why);
+    }
+
+    /// <summary>
+    /// The canonical spelling of each of those is still accepted, so the refusals above are
+    /// about spelling rather than about the scalar.
+    /// </summary>
+    [Theory]
+    [InlineData(@"\u00AD", "\u00ad")]
+    [InlineData(@"\U0001F600", "\U0001F600")]
+    public void Decode_AcceptsTheCanonicalSpelling(string encoded, string expected)
+    {
+        Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded));
+        Assert.Equal(expected, decoded);
+    }
+
+    /// <summary>
+    /// A <em>lone</em> surrogate escape stays legal, which is why the pair above is refused
+    /// there rather than by banning the surrogate range outright.
+    /// </summary>
+    /// <remarks>
+    /// The obvious fix for the pair case -- reject every <c>\uXXXX</c> in D800-DFFF -- breaks
+    /// this, and this is a form <see cref="VisualEncoder.Encode"/> genuinely emits: an unpaired
+    /// surrogate is not a scalar, so it has no other representation at all. Encoder output that
+    /// its own decoder refuses would make the transform non-invertible on exactly the input
+    /// class that most needs it.
+    /// </remarks>
+    [Fact]
+    public void Decode_AcceptsALoneSurrogateEscape_BecauseEncodeEmitsOne()
+    {
+        InertString encoded = VisualEncoder.Encode(TextPolicy.Field, "a\uD83Db");
+
+        Assert.Equal(@"a\uD83Db", encoded.ToString());
+        Assert.True(VisualEncoder.TryDecode(encoded.ToString(), out string? decoded));
+        Assert.Equal("a\uD83Db", decoded);
+    }
+
+    /// <summary>
+    /// A raw unpaired surrogate in decoder input is refused, because <c>Encode</c> spells one as
+    /// <c>\uXXXX</c> and accepting both would be a second spelling again.
+    /// </summary>
+    [Fact]
+    public void Decode_RefusesARawUnpairedSurrogate()
+    {
+        Assert.False(VisualEncoder.TryDecode("a\uD83Db", out _));
+    }
+
+    /// <summary>
+    /// A raw surrogate <em>pair</em> passes through, because a graphic astral scalar is
+    /// permitted and <c>Encode</c> leaves it alone.
+    /// </summary>
+    [Fact]
+    public void Decode_AcceptsARawSurrogatePair()
+    {
+        const string emoji = "a\U0001F600b";
+
+        Assert.Equal(emoji, VisualEncoder.Encode(TextPolicy.Field, emoji).ToString());
+        Assert.True(VisualEncoder.TryDecode(emoji, out string? decoded));
+        Assert.Equal(emoji, decoded);
     }
 }

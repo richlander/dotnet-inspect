@@ -29,8 +29,8 @@ namespace InertText.Encoder;
 public static class VisualEncoder
 {
     /// <summary>
-    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, visually spelling every
-    /// scalar the policy refuses.
+    /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, visually spelling
+    /// every scalar that kind of text may not show.
     /// </summary>
     /// <remarks>
     /// Returns the currency type rather than a <see cref="string"/> and a form set, because the
@@ -40,21 +40,22 @@ public static class VisualEncoder
     /// remove. <see cref="InertString"/>'s constructor forwards here, so the two spellings cannot
     /// diverge.
     ///
-    /// A literal backslash is always rewritten, whatever <paramref name="permits"/> says, because
+    /// A literal backslash is always rewritten, whatever <paramref name="policy"/> permits, because
     /// it introduces every other spelling and the transform would not otherwise invert. An
     /// unpaired surrogate is likewise always encoded: it is not a scalar at all, so no policy is
     /// consulted for it.
     /// </remarks>
+    /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
     /// <param name="value">The text to encode.</param>
-    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
     /// <returns>
     /// The encoded text as an <see cref="InertString"/>, which carries the spellings that were
     /// emitted. Text that needed no encoding is returned as the original instance.
     /// </returns>
-    public static InertString Encode(string value, ScalarPolicy permits)
+    public static InertString Encode(TextPolicy policy, string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(permits);
+
+        ScalarPolicy permits = ScalarPolicies.For(policy);
 
         VisualForm formsUsed = VisualForm.None;
         StringBuilder? builder = null;
@@ -112,13 +113,36 @@ public static class VisualEncoder
         value = null;
         StringBuilder builder = new(encoded.Length);
 
+        // Where a \uXXXX that decoded to a high surrogate ended, so the \u arm below can tell a
+        // surrogate *pair* spelled as two escapes from two independently unpaired ones.
+        int highSurrogateEscapeEnd = -1;
+
         for (int i = 0; i < encoded.Length; i++)
         {
             if (encoded[i] != '\\')
             {
+                if (char.IsHighSurrogate(encoded[i])
+                    && i + 1 < encoded.Length
+                    && char.IsLowSurrogate(encoded[i + 1]))
+                {
+                    // A raw astral scalar, which Encode passes through whenever the policy
+                    // permits it: an emoji is So, and So is graphic.
+                    builder.Append(encoded[i]).Append(encoded[++i]);
+                    continue;
+                }
+
+                if (char.IsSurrogate(encoded[i]))
+                {
+                    // Encode never emits a raw unpaired surrogate; it spells one as \uXXXX.
+                    // Accepting it here would give that input two encodings.
+                    return false;
+                }
+
                 builder.Append(encoded[i]);
                 continue;
             }
+
+            int escapeStart = i;
 
             if (++i == encoded.Length)
             {
@@ -167,8 +191,19 @@ public static class VisualEncoder
                         return false;
                     }
 
-                    builder.Append((char)bmp);
+                    if (char.IsLowSurrogate((char)bmp) && escapeStart == highSurrogateEscapeEnd)
+                    {
+                        // \uD83D\uDE00 would otherwise land a well-formed pair in the builder and
+                        // re-encode as \U0001F600, giving that astral scalar two spellings. The
+                        // lone-surrogate case below stays legal precisely because this one does
+                        // not: a pair is representable as \U, an unpaired half is not
+                        // representable any other way at all.
+                        return false;
+                    }
+
                     i += 4;
+                    highSurrogateEscapeEnd = char.IsHighSurrogate((char)bmp) ? i + 1 : -1;
+                    builder.Append((char)bmp);
                     break;
                 case 'U':
                     if (!TryReadHex(encoded, i + 1, 8, out uint astral)
@@ -189,10 +224,11 @@ public static class VisualEncoder
             }
         }
 
-        // An unpaired surrogate decoded from a \uXXXX arm is deliberately accepted. Cs is one of
-        // the encoded categories, so Encode emits exactly this form for an unpaired surrogate,
-        // and rejecting it here would make the encoder non-invertible on the one input class
-        // that cannot be represented any other way.
+        // An *unpaired* surrogate decoded from a \uXXXX arm is deliberately accepted. Cs is one
+        // of the encoded categories, so Encode emits exactly this form for an unpaired surrogate,
+        // and rejecting it here would make the encoder non-invertible on the one input class that
+        // cannot be represented any other way. Two escapes forming a pair are rejected in that
+        // arm, which is what keeps accepting the lone case injective.
         value = builder.ToString();
         return true;
     }
@@ -290,15 +326,36 @@ public static class VisualEncoder
         return scalar;
     }
 
+    // Uppercase only, and hand-rolled for that reason: uint.TryParse with HexNumber accepts
+    // "00ad" as readily as "00AD", which would give U+00AD two spellings when AppendBmpHex only
+    // ever emits the second. Injectivity is what EnsurePermitted's repair rests on, so a second
+    // accepted spelling is a defect rather than leniency.
     private static bool TryReadHex(string text, int start, int length, out uint value)
     {
         value = 0;
 
-        return start + length <= text.Length
-            && uint.TryParse(
-                text.AsSpan(start, length),
-                NumberStyles.HexNumber,
-                CultureInfo.InvariantCulture,
-                out value);
+        if (start + length > text.Length)
+        {
+            return false;
+        }
+
+        for (int i = start; i < start + length; i++)
+        {
+            uint digit = text[i] switch
+            {
+                >= '0' and <= '9' => (uint)(text[i] - '0'),
+                >= 'A' and <= 'F' => (uint)(text[i] - 'A' + 10),
+                _ => uint.MaxValue,
+            };
+
+            if (digit == uint.MaxValue)
+            {
+                return false;
+            }
+
+            value = (value << 4) | digit;
+        }
+
+        return true;
     }
 }
