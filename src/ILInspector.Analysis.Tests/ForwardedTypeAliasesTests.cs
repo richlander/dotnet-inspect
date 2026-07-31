@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Text.RegularExpressions;
 
 using ILInspector.Analysis;
 
@@ -2978,23 +2977,40 @@ public class ForwardedTypeAliasesTests
     ///
     /// <para>The enforcement is two-layered, and the first layer is the one that matters. These
     /// were <c>Includes</c> overloads, so the only thing between the safe member and the blind one
-    /// was an argument a caller could drop silently, and the scan had to reconstruct an argument
-    /// count from text. Round-20 review executed that regex against real call shapes and evaded it
-    /// twice — <c>x.Includes(Foo())</c> and <c>x.Includes&lt;T&gt;(item)</c> both slipped through,
-    /// while a mention in a comment or string matched falsely. Renaming the blind member made the
-    /// accident a <em>compile error</em>, and left this scan matching one distinctive identifier
-    /// with a leading dot, which needs no argument counting and no paren balancing.</para>
+    /// was an argument a caller could drop silently. Renaming the blind member made that accident a
+    /// <em>compile error</em>; this scan covers deliberate use.</para>
     ///
-    /// <para>Non-vacuity is asserted directly rather than assumed: the pattern is first run against
-    /// a known call-shaped string, so a typo that matches nothing fails here instead of passing
-    /// silently. The scan also asserts it examined product sources that mention the type at all,
-    /// so a broken root walk or a moved directory fails rather than passing on an empty set. The
-    /// declaration and the <c>cref</c> references carry no leading dot and so are not matched.</para>
+    /// <para>It pins OCCURRENCES rather than matching a call shape, because three rounds of trying
+    /// to recognize a call from text all failed. A regex for a one-argument call was evaded by
+    /// <c>Includes(Foo())</c> and <c>Includes&lt;T&gt;(x)</c> (round 20); its replacement required a
+    /// leading dot and was then evaded three separate ways in round 21 — by an unqualified call
+    /// from inside the class, which needs no receiver; by a call split across lines; and by
+    /// <c>aliases . IncludesIgnoringWithdrawals(x)</c>, since C# allows whitespace around the dot.
+    /// All were real compiling call sites that the gate reported clean. So this counts every
+    /// non-comment line mentioning the member and requires the set to be exactly the declaration:
+    /// a call site is an extra line however it is spelled, with a receiver or without, on one line
+    /// or split across several, with or without space around the dot. All four evasions are
+    /// executed mutants against this version.</para>
+    ///
+    /// <para>This gate is defence in depth, not the only line. Round-21 review demonstrated the
+    /// misuse and reported that
+    /// <see cref="PrefilterRefusesASpellingItWithdrewEvenWhenAVerifiedSiblingSharesItsBucket"/>
+    /// fails on it independently — the withdrawal-blind answer is wrong behaviour, and a behaviour
+    /// test sees it whatever the call looks like. Confirmed here. That is why the failure of this
+    /// scan is an API-shape signal rather than the thing standing between the bug and a user.</para>
+    ///
+    /// <para>Comment lines are excluded by their leading marker rather than by parsing, so a
+    /// mention inside a string literal, or in a trailing comment on a line of code, counts. That
+    /// direction is deliberate — it fails loudly and is trivially checked, where the alternative
+    /// silently drops the code after a <c>//</c> that happened to sit inside a string. Non-vacuity
+    /// is asserted directly: the declaration must be found, so a rename or a moved file fails here
+    /// instead of passing on an empty set.</para>
     /// </summary>
     [Fact]
     public void NoProductCodeUsesTheWithdrawalBlindMembershipTest()
     {
         string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
+        const string Member = nameof(ForwardedTypeAliases.IncludesIgnoringWithdrawals);
 
         var productSources = Directory
             .EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
@@ -3002,28 +3018,29 @@ public class ForwardedTypeAliasesTests
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .ToList();
 
-        var callSite = new Regex(
-            @"\." + nameof(ForwardedTypeAliases.IncludesIgnoringWithdrawals) + @"\s*\(",
-            RegexOptions.CultureInvariant);
-
-        // The pattern's own control: it must match a call and must not match the declaration.
-        Assert.Matches(callSite, "aliases.IncludesIgnoringWithdrawals(\"Contoso.Facade\")");
-        Assert.DoesNotMatch(callSite, "public bool IncludesIgnoringWithdrawals(string assembly)");
-
-        var offenders = new List<string>();
-        int mentioning = 0;
+        var occurrences = new List<string>();
         foreach (string path in productSources)
         {
-            string text = File.ReadAllText(path);
-            if (text.Contains(nameof(ForwardedTypeAliases), StringComparison.Ordinal))
-                mentioning++;
+            foreach (string line in File.ReadAllLines(path))
+            {
+                string trimmed = line.Trim();
+                if (!trimmed.Contains(Member, StringComparison.Ordinal))
+                    continue;
 
-            foreach (Match match in callSite.Matches(text))
-                offenders.Add($"{Path.GetRelativePath(sourceRoot, path)}: {match.Value}");
+                if (trimmed.StartsWith("//", StringComparison.Ordinal)
+                    || trimmed.StartsWith('*'))
+                {
+                    continue;
+                }
+
+                occurrences.Add($"{Path.GetRelativePath(sourceRoot, path)}: {trimmed}");
+            }
         }
 
-        Assert.True(mentioning > 0, $"scanned {productSources.Count} product sources and none mentioned the type");
-        Assert.Empty(offenders);
+        Assert.Equal(
+            [$"{Path.Combine("ILInspector.Analysis", "ForwardedTypeAliases.cs")}: "
+                + $"public bool {Member}(string assembly) => _aliases.Contains(assembly);"],
+            occurrences);
     }
 
     /// <summary>
