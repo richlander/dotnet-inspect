@@ -1179,6 +1179,13 @@ static async Task<WriteOutcome> ReplaceOrReport(string path, Func<FileStream, Ta
     // directory can occupy first, and a write through a planted symlink lands wherever
     // that link points. CreateNew refuses to open anything that already exists, so the
     // sweep either makes this file itself or writes nothing.
+    //
+    // Reasoned, not gated, and marked as such. The destination half of this is gated --
+    // EvilPoolSweepGateTests plants a symlink at the destination and requires a real file
+    // afterwards -- but the temporary half is not, because the name is drawn inside this
+    // function and never leaves it, so nothing outside can occupy it except by racing a
+    // loop against the allocator. Treat the CreateNew above as load-bearing: it is the
+    // whole of the protection, and no test would notice it becoming Create.
     string temporary = path + $".{Path.GetRandomFileName()}.tmp";
     bool created = false;
     try

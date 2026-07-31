@@ -805,17 +805,40 @@ public class EvilPoolSweepGateTests
             + $"stdout:\n{sweep.Output}\nstderr:\n{sweep.Errors}";
 
         /// <summary>
-        /// No half-written assembly is left in the output directory. A write goes to a
-        /// fresh sibling and is renamed onto the destination, so a leftover sibling is a
-        /// partial file that a later sweep would find, hash, and disagree with the pin
-        /// about -- reported as the pin failing rather than as the run that made it.
+        /// The pool holds exactly what the sweep recorded pooling, and nothing else.
+        ///
+        /// <para>Which is the sweep's own claim, made at the point it deletes an assembly
+        /// that failed its pin: <em>"assemblies.txt is written from the in-memory list so
+        /// a stray file cannot enter the pool"</em>. A leftover write temporary is one way
+        /// to break it and a rejected assembly left in place is another, and both matter
+        /// for the same reason -- a file in <c>packages/</c> that nothing recorded is one a
+        /// later sweep finds, hashes, and disagrees with the pin about, reported as the pin
+        /// failing rather than as the run that made it.</para>
+        ///
+        /// <para>Asked as a set difference rather than by name. This used to glob
+        /// <c>*.tmp</c>, which is the product's naming convention restated in the harness:
+        /// a reviewer changed the sweep's temporary suffix to <c>.temp</c>, disabled the
+        /// cleanup, and watched the case stay green over a temporary genuinely left behind.
+        /// Nothing here now knows what a temporary is called, so nothing here goes stale
+        /// when that changes -- what it knows is that the pool and the record must agree,
+        /// and the record is the product's.</para>
         /// </summary>
         public void AssertNoTemporaryLeftBehind()
         {
             if (!Directory.Exists(OutputDirectory))
                 return;
 
-            Assert.Empty(Directory.GetFiles(OutputDirectory, "*.tmp", SearchOption.AllDirectories));
+            string pool = Path.Combine(OutputDirectory, "packages");
+            string[] present = Directory.Exists(pool)
+                ? [.. Directory.GetFiles(pool, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)]
+                : [];
+            string[] recorded = File.Exists(PooledListPath)
+                ? [.. File.ReadAllLines(PooledListPath)
+                    .Where(line => line.Length > 0)
+                    .Order(StringComparer.Ordinal)]
+                : [];
+
+            Assert.Equal(recorded, present);
         }
 
         public void Dispose()
