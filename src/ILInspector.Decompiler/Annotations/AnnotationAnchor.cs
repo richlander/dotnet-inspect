@@ -164,6 +164,9 @@ public static class AnnotationAnchor
                 continue;
             if (!TryGetPrintedLine(owner, printedRanges, out int ownerLine))
                 continue;
+            // A failure here zeroes the out parameters, so dropping this guard
+            // would not change a result -- length 0 is rejected by the trim
+            // either way. It stays because relying on that is a trap.
             if (!printedRanges.TryGetLineColumn(node, out int line, out int column, out int length))
                 continue;
             if (line != ownerLine || line >= lines.Length)

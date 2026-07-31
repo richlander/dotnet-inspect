@@ -248,6 +248,54 @@ public class AnnotationAnchorTests
         Assert.DoesNotContain(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
     }
 
+    [Fact]
+    public void CaretExtent_IsWithheldWhenTheTrimRejectsTheRange()
+    {
+        // The caller must honour a rejected trim rather than storing the raw
+        // range. The C# printer never emits a node as whitespace alone, so the
+        // rejection branch is unreachable through it; a hand-built range map is
+        // the only way to hold the caller to the helper's contract.
+        const int Offset = 7;
+        const string Output = "a   b\n";
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+        var allocation = new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true),
+            []);
+        allocation.SetSourceOffset(Offset);
+        var statement = new ExpressionStatement(allocation);
+        statement.SetSourceOffset(Offset);
+
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        var ranges = new PrintedRangeMap();
+        ranges.Record(statement, 0, 5);
+        // Narrower than the statement and carrying the same offset, so it wins
+        // "narrowest" -- but it covers only the three spaces between a and b.
+        ranges.Record(allocation, 1, 4);
+        ranges.Complete(Output);
+
+        Assert.True(ranges.TryGetLineColumn(allocation, out int line, out int column, out int length));
+        Assert.Equal(0, line);
+        Assert.Equal("   ", Output.Substring(column, length));
+
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+
+        Assert.DoesNotContain(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+    }
+
     [Theory]
     // Leading indent only — what a statement's own printed range looks like.
     [InlineData("    new object();", 0, 17, 4, 13)]
@@ -258,6 +306,10 @@ public class AnnotationAnchorTests
     [InlineData("    x   ", 0, 8, 4, 1)]
     // Already tight: trimming must not move an extent that names an expression.
     [InlineData("    new object();", 4, 12, 4, 12)]
+    // Non-space whitespace. The C# printer indents with spaces, so only a
+    // direct gate can hold the helper to char.IsWhiteSpace rather than ' '.
+    [InlineData("\tx\t", 0, 3, 1, 1)]
+    [InlineData("\u00a0x", 0, 2, 1, 1)]
     // Reaching exactly the last character, so a clamp that stopped one short
     // would silently drop it. 87,400 of the corpus's printed ranges end here.
     [InlineData("    new object();", 4, 13, 4, 13)]
