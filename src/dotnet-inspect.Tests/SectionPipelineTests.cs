@@ -1815,7 +1815,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void NoScannerBypassesTheDeclarationGateByOpeningTheBodyIndexDirectly()
+    public void NoSectionReachesTheBodyIndexExceptThroughTheGatedAccessor()
     {
         // The fourth route into this PR's defect class, raised by the GPT review of #3626 after
         // the first three were closed. RequireUnboundedDeclaration guards ctx.BodyIndex() and
@@ -1825,37 +1825,113 @@ public class SectionPipelineTests
         // unlike the ImmutableCollectionsMarshal route it is reachable from ordinary code -- so
         // it is a real drift path rather than deliberate subversion.
         //
-        // The enforcement uses this repository's own IL analysis over its own compiled assembly,
-        // which is the only way to see through a static call that no seam intercepts. Scanner
-        // bodies are lambdas compiled into closure types in DotnetInspector.Sections, so a
-        // scanner that opened an index directly would appear here as a caller in that namespace.
+        // The first version of this gate looked only for *direct* openers in the Sections
+        // namespace. GPT's confirmation pass tampered it correctly: a NetworkFree scanner that
+        // calls a LibraryMetadataService helper which opens an index passes such a check, and
+        // scanners already route their work through that class. So a direct-call gate proves
+        // almost nothing about the route it claims to close.
+        //
+        // What is actually asserted here is the useful property, one step stronger: *every* path
+        // from DotnetInspector.Sections to a body-index opener runs through the gated accessor.
+        // The walk is a reverse reachability over this assembly's call graph, seeded at the
+        // methods that open an index and cut at ScannerContext.BodyIndex/DrillMap -- the two
+        // members RequireUnboundedDeclaration guards. Anything in Sections still reachable after
+        // that cut has found a way to the expensive work that the cost declaration never sees.
+        //
+        // Cutting matters: without it this walk reports seven Sections members, and all seven are
+        // legitimate (the accessor itself, the four Unbounded scanner lambdas that use it, and
+        // their enclosing factory). Those are the sanctioned path, not violations.
+        //
+        // This uses the repository's own IL analysis over its own compiled assembly because no
+        // seam can intercept a static call.
         var index = ILInspector.Analysis.LibraryBodyIndex.Open(
             typeof(ScannerRegistry).Assembly.Location);
 
-        var openersInSections = index.DirectCalls
-            .Where(call => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
-                && call.Callee.Name is "Open" or "OpenFromPrefetchedImage")
-            .Select(call => call.Caller.DeclaringType)
-            .Where(type => type.Namespace.StartsWith("DotnetInspector.Sections", StringComparison.Ordinal))
-            .Select(type => type.Namespace + "." + type.Name)
+        static bool OpensAnIndex(ILInspector.Analysis.DirectCall call)
+            => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
+                && call.Callee.Name is "Open" or "OpenFromPrefetchedImage";
+
+        static bool IsGatedAccessor(ILInspector.Analysis.MethodIdentity method)
+            => method.DeclaringType.Name == "ScannerContext"
+                && method.Name is "BodyIndex" or "DrillMap";
+
+        // CalleeDefinitionToken is the intra-assembly MethodDef token a call targets, so keying
+        // the reverse edges on it links callee back to caller without cross-assembly collisions:
+        // a call that leaves this assembly carries a MemberRef token from a different table.
+        var methodsByToken = new Dictionary<int, ILInspector.Analysis.MethodIdentity>();
+        var callersByCallee = new Dictionary<int, HashSet<int>>();
+        foreach (var call in index.DirectCalls)
+        {
+            methodsByToken[call.Caller.MetadataToken] = call.Caller;
+            if (!callersByCallee.TryGetValue(call.CalleeDefinitionToken, out var callers))
+                callersByCallee[call.CalleeDefinitionToken] = callers = [];
+            callers.Add(call.Caller.MetadataToken);
+        }
+
+        var gateTokens = methodsByToken
+            .Where(entry => IsGatedAccessor(entry.Value))
+            .Select(entry => entry.Key)
+            .ToHashSet();
+
+        var openers = index.DirectCalls.Where(OpensAnIndex).Select(call => call.Caller).ToList();
+
+        var reached = new HashSet<int>();
+        var pending = new Queue<int>();
+        foreach (var opener in openers)
+        {
+            if (!gateTokens.Contains(opener.MetadataToken) && reached.Add(opener.MetadataToken))
+                pending.Enqueue(opener.MetadataToken);
+        }
+
+        var gatesOnAPath = new HashSet<int>();
+        while (pending.Count > 0)
+        {
+            if (!callersByCallee.TryGetValue(pending.Dequeue(), out var callers))
+                continue;
+
+            foreach (var caller in callers)
+            {
+                // Stop at the gated accessor rather than walking past it. Its callers reach the
+                // body index only by going through RequireUnboundedDeclaration, which is the
+                // whole point of the mechanism.
+                if (gateTokens.Contains(caller))
+                    gatesOnAPath.Add(caller);
+                else if (reached.Add(caller))
+                    pending.Enqueue(caller);
+            }
+        }
+
+        var ungatedSectionCallers = reached
+            .Where(methodsByToken.ContainsKey)
+            .Select(token => methodsByToken[token])
+            .Where(method => method.DeclaringType.Namespace.StartsWith(
+                "DotnetInspector.Sections", StringComparison.Ordinal))
+            .Select(method => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}")
             .Distinct()
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Empty(openersInSections);
+        Assert.Empty(ungatedSectionCallers);
 
-        // Non-vacuity: the query must actually be able to see openers. If the callee match broke
-        // -- a rename, a wrapper, an analysis change -- the assertion above would pass by finding
-        // nothing at all, which is the failure mode this whole PR keeps running into.
-        var openersAnywhere = index.DirectCalls
-            .Count(call => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
-                && call.Callee.Name is "Open" or "OpenFromPrefetchedImage");
+        // Three non-vacuity assertions, because every gate in this PR that lacked one turned out
+        // to be asserting nothing at all.
 
-        Assert.True(
-            openersAnywhere > 0,
-            "The query found no LibraryBodyIndex.Open callers at all, so it cannot be evidence " +
-            "that scanners do not open one. Sanctioned callers are the inspection session and " +
-            "the diff/timeline commands.");
+        // The walk must be able to see openers, or Assert.Empty passes by finding nothing.
+        Assert.NotEmpty(openers);
+
+        // Both gated members must still exist under these names. A rename would silently empty
+        // gateTokens, turning the cut into a no-op -- which happens to fail safe here, but would
+        // leave the message above describing a mechanism that no longer exists.
+        Assert.Equal(2, gateTokens.Count);
+
+        // And the cut must be load-bearing: the accessor has to actually sit on a path to an
+        // opener. If it stopped reaching one, cutting there would prove nothing about Sections.
+        Assert.NotEmpty(gatesOnAPath);
+
+        // Boundary, stated rather than implied: this walk sees only this assembly. A helper in
+        // ILInspector.Analysis that opens an index internally (LeakTriageAnalyzer.AnalyzeAssembly
+        // is the live example) is invisible here, as are reflection and interface dispatch that
+        // never resolves to a definition token. Those residual routes are unverified, not closed.
     }
 
     [Fact]
