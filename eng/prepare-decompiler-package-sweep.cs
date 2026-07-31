@@ -1200,7 +1200,11 @@ static async Task<WriteOutcome> ReplaceOrReport(string path, Func<FileStream, Ta
         // though -- something already sitting at that name is not this sweep's to
         // remove, and deleting whatever is found there would be a worse answer than
         // the failure being reported.
-        string fate = "none";
+        // Assumed left behind the moment it exists, and downgraded only by a delete that
+        // returned. Derived the other way round -- "none" until something says otherwise --
+        // a cleanup that stopped being called would report that no temporary was ever
+        // created, which is the one answer that makes the leak invisible.
+        string fate = created ? "left-behind" : "none";
         try
         {
             if (created)
@@ -1211,7 +1215,6 @@ static async Task<WriteOutcome> ReplaceOrReport(string path, Func<FileStream, Ta
         }
         catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
         {
-            fate = "left-behind";
         }
 
         return new WriteOutcome($"Could not write '{path}': {ex.Message}", fate);
