@@ -279,6 +279,36 @@ its spellings when spliced into a laxer sink, because composition making a value
 The cost is that the splice path is observable — the same source text can render
 differently depending on where it was encoded — which is a deliberate trade.
 
+### Asking whether a value suits your sink
+
+That repair is exposed as `EnsurePermitted(ScalarPolicy)`, because a sink that
+accepts an `InertString` has no other correct way to make one safe for itself.
+The obvious substitute is wrong: `new InertString(value.ToString(), policy)`
+hands already-encoded text back to the encoder, so the backslashes double on
+every pass — `a\u202Eb` becomes `a\\u202Eb`, then `a\\\\u202Eb`. Because
+`EnsurePermitted` decodes before re-spelling, repeating it is a no-op.
+
+What a sink must **not** use for this is `WasEncoded` or `Forms`. Those report
+what was *done* to a value, never what it *satisfies*, and as a conformance
+check they are wrong in both directions:
+
+| Value | `WasEncoded` | Satisfies `Field` |
+| ----- | ------------ | ----------------- |
+| `Prose`-encoded `"line1\nline2"` | `false` | **no** — it carries a raw line feed |
+| `Field`-encoded `"a\u202Eb"` | `true` | yes, and `Prose` too |
+
+Encoding makes a value *more* conformant, so the flag is close to
+anti-correlated with the property a sink cares about. The underlying reason is
+that conformance is a relation between a value and a policy rather than a
+property of the value, which is why it cannot be cached on one and why
+`EnsurePermitted` has to recompute it.
+
+Storing the producing policy on the value would not help either. Knowing which
+delegate produced a value says nothing about whether it is stricter than the
+delegate you are about to apply, short of sweeping every scalar to compare their
+permitted sets — so the value would carry an extra field and still pay for the
+scan.
+
 ## Testing
 
 Two shapes, because they fail differently.

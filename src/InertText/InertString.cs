@@ -53,7 +53,7 @@ namespace InertText;
 /// Note the "some": the type records that a policy was applied, not which one, because a value
 /// is routinely built for one sink and spliced into a message bound for another. That makes
 /// the useful invariant a property of composition rather than of storage — see
-/// <see cref="Conform"/>, which re-spells a spliced value under the policy actually in force.
+/// <see cref="EnsurePermitted"/>, which re-spells a spliced value under the policy in force.
 ///
 /// Conversion <em>to</em> <see cref="string"/> through <see cref="ToString"/> is unrestricted,
 /// which is safe here in a way it usually is not. The customary objection to a wrapper — that
@@ -140,6 +140,17 @@ public readonly struct InertString : IEquatable<InertString>
     public bool IsEmpty => Text.Length == 0;
 
     /// <summary>Whether any scalar was encoded on the way in.</summary>
+    /// <remarks>
+    /// Reports what was <em>done</em> to this value, never what it <em>satisfies</em>. It is not
+    /// a conformance check, and using it as one inverts the answer in both directions: text
+    /// encoded under <see cref="TextPolicy.Prose"/> can carry a raw line feed and report
+    /// <see langword="false"/> here while violating <see cref="TextPolicy.Field"/>, and text
+    /// encoded under <c>Field</c> reports <see langword="true"/> while satisfying every policy,
+    /// because the spellings it emits are plain ASCII.
+    ///
+    /// Conformance is a relation between a value and a policy rather than a property of the
+    /// value, so it cannot be cached on one. Ask <see cref="EnsurePermitted"/> instead.
+    /// </remarks>
     public bool WasEncoded => Forms != VisualForm.None;
 
     /// <summary>The encoded text.</summary>
@@ -208,7 +219,7 @@ public readonly struct InertString : IEquatable<InertString>
                 forms |= encodedSeparator.Forms;
             }
 
-            InertString conformed = Conform(value, permits);
+            InertString conformed = value.EnsurePermitted(permits);
             builder.Append(conformed.ToString());
             forms |= conformed.Forms;
             first = false;
@@ -228,6 +239,11 @@ public readonly struct InertString : IEquatable<InertString>
     /// rendering of it. This is deliberately not "would encoding change it": a
     /// backslash is permitted by any sane policy but is still rewritten, and a check derived
     /// from the encoder would reject every Windows path.
+    ///
+    /// Takes raw text rather than an <see cref="InertString"/> because the question it answers
+    /// is asked <em>before</em> treatment. A sink deciding whether text it already holds is safe
+    /// for it should call <see cref="EnsurePermitted"/> instead, which repairs rather than
+    /// reports.
     /// </remarks>
     public static bool IsPermitted(string value, ScalarPolicy permits)
         => IsPermitted(value, permits, out _);
@@ -275,7 +291,7 @@ public readonly struct InertString : IEquatable<InertString>
     }
 
     /// <summary>
-    /// Restates <paramref name="value"/> under <paramref name="permits"/>, re-encoding it if it
+    /// Returns this value restated under <paramref name="permits"/>, re-encoding it if it
     /// carries anything that policy refuses.
     /// </summary>
     /// <remarks>
@@ -285,6 +301,11 @@ public readonly struct InertString : IEquatable<InertString>
     /// exists to remove. Splicing such a value in unexamined would put a raw newline into a
     /// single-line message and report <see cref="VisualForm.None"/> for it, which is the log
     /// injection this library exists to prevent, with the type appearing to vouch for it.
+    ///
+    /// Public because a sink that accepts an <see cref="InertString"/> has no other correct way
+    /// to make one safe for itself. Re-encoding through <c>new InertString(value.ToString(), …)</c>
+    /// is the obvious substitute and is wrong: the text it re-encodes is already encoded, so the
+    /// backslashes double on every pass. This decodes first, and so is idempotent.
     ///
     /// This is the second thing invertibility buys. Because <c>VisualEncoder.TryDecode</c>
     /// recovers the original exactly, a mismatched piece can be taken back to its source text
@@ -296,13 +317,16 @@ public readonly struct InertString : IEquatable<InertString>
     /// splice path is observable — the same source text can render differently depending on
     /// where it was encoded — which is a deliberate trade, not an oversight.
     /// </remarks>
-    internal static InertString Conform(InertString value, ScalarPolicy permits)
+    /// <param name="permits">The policy of the sink about to receive this value.</param>
+    public InertString EnsurePermitted(ScalarPolicy permits)
     {
-        string text = value.ToString();
+        ArgumentNullException.ThrowIfNull(permits);
+
+        string text = Text;
 
         if (IsPermitted(text, permits))
         {
-            return value;
+            return this;
         }
 
         // Falling back to the encoded text when decoding fails cannot happen for a value this
@@ -392,11 +416,11 @@ public ref struct InertStringHandler
     /// Without this overload the generic case would run the encoder over text that has already
     /// been through it, doubling every backslash the first pass introduced. The value is still
     /// checked against this sink's policy, because being inert under some policy is not the
-    /// same as being inert under this one; see <see cref="InertString.Conform"/>.
+    /// same as being inert under this one; see <see cref="InertString.EnsurePermitted"/>.
     /// </remarks>
     public void AppendFormatted(InertString value)
     {
-        InertString conformed = InertString.Conform(value, _permits);
+        InertString conformed = value.EnsurePermitted(_permits);
         _builder.Append(conformed.ToString());
         _forms |= conformed.Forms;
     }
