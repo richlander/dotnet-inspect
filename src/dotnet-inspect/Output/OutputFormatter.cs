@@ -245,7 +245,7 @@ public static class OutputFormatter
         }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections);
         bool includeContext = ShouldRenderPackageContext(options);
         var view = new InspectionResultView(result, includeTitleVersion: false);
         var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
@@ -305,7 +305,7 @@ public static class OutputFormatter
         SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
     {
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        var selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
+        var selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         if (includeContext && includeSections is { Count: > 0 })
@@ -570,7 +570,7 @@ public static class OutputFormatter
         options.Verbosity == Verbosity.Quiet
         || (options.IncludeSections is { Count: > 0 }
             && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+            && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
             && !options.Count
             && !options.JsonOutput
             && !options.Tabular);
@@ -578,7 +578,7 @@ public static class OutputFormatter
     internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
         options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;

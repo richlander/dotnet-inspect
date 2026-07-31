@@ -143,7 +143,8 @@ public static class TypeOptionsParser
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         var select = opts.ParseSelect(parseResult);
-        bool hasExplicitSelect = select is { Length: > 0 };
+        var selectDefault = opts.ParseSelectDefault(parseResult);
+        bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
         // Performance Triage row filters (--top/--loop/--min-confidence/--triage-shape/--where/
         // --order-by) surface the Performance Triage section only when the user did not already
         // pick sections with -S. Otherwise an explicit selection like -S "Top Leverage" would
@@ -195,6 +196,7 @@ public static class TypeOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
+            SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),

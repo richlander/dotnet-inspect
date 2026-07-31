@@ -1534,6 +1534,28 @@ public partial class CommandExecutionTests
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]
+    public async Task ApiShim_BareSelect_ForwardsThePresetToTypeOptions()
+    {
+        // ApiCommand.ExecuteAsync's `_ =>` arm rebuilds a TypeOptions field by field for direct
+        // callers (the CLI always constructs TypeOptions/MemberOptions itself, so it never lands
+        // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
+        // for free; a dedicated flag has to be copied deliberately, and omitting it silently
+        // downgrades the shim from the bare-select preset to the default tree view.
+        var options = new ApiOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            SelectDefault = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Method Groups", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Api_PlatformLibrary_ListsTypes()
     {
         var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
@@ -7713,6 +7735,33 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("SourceLink availability", output);
     }
 
+    /// <summary>
+    /// Bare <c>-S</c> and the <c>@Default</c> pole are different requests, and on a pipeline that
+    /// still publishes the pole that difference is visible. Bare <c>-S</c> asks for the command's
+    /// default preset — the network-free fixed overview, which is broader than the Info sections
+    /// alone. <c>@Default</c> is a category, so it resolves to exactly its members. They used to
+    /// be indistinguishable because bare <c>-S</c> was encoded as the literal string
+    /// <c>"@Default"</c>, which is what let a hand-typed pole inherit preset-only behavior (#3547).
+    /// </summary>
+    [Fact]
+    public async Task LibraryCommand_BareSelect_IsNotTheSameRequestAsTheDefaultPole()
+    {
+        var (bareExit, bareOutput, _) = await RunAppAsync("library", "System.Text.Json", "-S");
+        var (poleExit, poleOutput, _) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
+
+        Assert.Equal(0, bareExit);
+        Assert.Equal(0, poleExit);
+
+        // The pole resolves to its category members and stops there.
+        Assert.Contains("## Library Info", poleOutput);
+        Assert.DoesNotContain("## Signals", poleOutput);
+        Assert.DoesNotContain("## Symbols", poleOutput);
+
+        // The preset reaches further, so the two cannot be collapsed.
+        Assert.Contains("## Signals", bareOutput);
+        Assert.Contains("## Symbols", bareOutput);
+    }
+
     [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
@@ -10904,15 +10953,111 @@ public partial class CommandExecutionTests
             Assert.Equal(1, allExit);
             Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            // @Default is still the internal encoding of bare -S, so it must not resolve as a
-            // category while bare -S keeps working.
+            // @Default is dropped by the same call, so it must not resolve on its own either.
+            // It used to, because bare -S was encoded as the literal string "@Default" and the
+            // command short-circuited on that encoding — which made a hand-typed pole
+            // indistinguishable from the marker and so silently exempt from the drop (#3547).
+            var (defaultExit, defaultOutput, defaultError) = await RunAppAsync("package", packagePath, "-S", "@Default");
+            Assert.Equal(1, defaultExit);
+            Assert.Contains("'@Default' not found", defaultError, StringComparison.Ordinal);
+            Assert.DoesNotContain("## Package Info", defaultOutput);
+
             var (comboExit, _, comboError) = await RunAppAsync("package", packagePath, "-S", "@Default,Manifest");
             Assert.Equal(0, comboExit);
             Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
 
-            var (bareExit, bareOutput, _) = await RunAppAsync("package", packagePath, "-S");
+            var (bareExit, bareOutput, bareError) = await RunAppAsync("package", packagePath, "-S");
             Assert.Equal(0, bareExit);
             Assert.Contains("## Package Info", bareOutput);
+            Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Bare <c>-S</c> is a request for the command's default preset, not a selector value, so it
+    /// never appears in diagnostics. It used to travel as the literal string <c>"@Default"</c>,
+    /// which meant that combining it with anything that contributes its own selector — here the
+    /// <c>--path</c> sugar, which appends the Files section — pushed the internal encoding through
+    /// resolution and leaked it as "Select value '@Default' not found" (#3547). The explicit
+    /// selection wins, as it always did; only the spurious warning is gone.
+    /// </summary>
+    [Fact]
+    public async Task Package_BareSelect_CombinedWithPathSugar_DoesNotLeakThePresetMarker()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "--path", "*.dll", "--paths");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+            Assert.Contains(".dll", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryMode_BareSelect_MatchesStandaloneLibraryBareSelect()
+    {
+        // The nested library view is constructed from the package options, so bare -S has to be
+        // carried across the boundary explicitly. Before #3547 it rode along inside Select as the
+        // "@Default" string and propagated for free; a dedicated flag does not, and dropping it
+        // silently downgrades the nested view to "no sections requested".
+        var (nestedExit, nestedOutput, _) = await RunAppAsync("package", "Markout", "--library", "-S");
+        var (standaloneExit, standaloneOutput, _) = await RunAppAsync("library", "Markout", "-S");
+
+        Assert.Equal(0, nestedExit);
+        Assert.Equal(0, standaloneExit);
+
+        static List<string> Headings(string output) => output
+            .Split('\n')
+            .Where(l => l.StartsWith("## ", StringComparison.Ordinal))
+            .Select(l => l.Trim())
+            .ToList();
+
+        Assert.NotEmpty(Headings(nestedOutput));
+        Assert.Equal(Headings(standaloneOutput), Headings(nestedOutput));
+    }
+
+    [Fact]
+    public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
+    {
+        // Both timeline sections grow with the version range, so there is no fixed/bounded subset
+        // for bare -S to mean. The refusal is preserved from before #3547; what changes is that
+        // the message no longer spells an internal marker at the user.
+        var (exit, _, error) = await RunAppAsync(
+            "timeline", "Markout@0.29.0..0.33.0", "Markout.MarkoutWriter", "-S");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+        Assert.Contains("Bare -S has no fixed sections for timeline", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_BareSelectWithDiscover_ListsSectionsRatherThanFailing()
+    {
+        // -S <name> -D has always listed the named section. Bare -S -D used to fail instead, but
+        // only because the marker was the string "@Default" and package drops the computed poles,
+        // so the discovery lookup missed. That is the same defect as gaps 2 and 3, so it clears
+        // with them rather than being a separate behavior decision.
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "-D");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+            Assert.Contains("| Package Info | section |", output, StringComparison.Ordinal);
         }
         finally
         {

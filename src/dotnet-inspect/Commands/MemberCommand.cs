@@ -109,7 +109,8 @@ public static class MemberCommand
                     options.Select,
                     actualPipeline.SelectableSectionNames,
                     actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap());
+                    actualPipeline.GetCategoryMap(),
+                    selectDefault: options.SelectDefault);
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
                 if (actualSelect.Sections != null)
@@ -490,7 +491,9 @@ public static class MemberCommand
             return false;
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
-        if (IsPureSelector(options.Select, SelectResolver.InfoSelector)
+        // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
+        if ((options.SelectDefault && options.Select is null)
+            || IsPureSelector(options.Select, SelectResolver.InfoSelector)
             || IsPureSelector(options.Select, SelectResolver.AllSelector))
             return false;
 
