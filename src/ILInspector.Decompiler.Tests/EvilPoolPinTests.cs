@@ -645,9 +645,14 @@ public class EvilPoolPinTests
     /// change. <c>no-library</c> entries have no assembly, so they must carry no hash --
     /// a hash there would describe a file that does not exist.</para>
     ///
-    /// <para>This test gates the file. That the sweep <em>verifies</em> the hash against
-    /// the assembly it pooled is gated by
-    /// <see cref="EvilPoolSweepGateTests.ASweepRefusesBytesThePinDoesNotName"/>.</para>
+    /// <para>This test gates the file. That the sweep <em>verifies</em> the hash at all is
+    /// gated by <see cref="EvilPoolSweepGateTests.ASweepRefusesBytesThePinDoesNotName"/>.
+    /// That it verifies it against the <em>pooled copy</em> rather than the cache entry it
+    /// copied from is not gated by anything: that case tampers with the cache, so both
+    /// files carry the same bytes and no black-box case can tell which was measured --
+    /// measured, hashing the source instead leaves all nine green. The sweep's reason for
+    /// hashing the destination is a TOCTOU window a cache writer can land in, which is
+    /// sound and unverified here.</para>
     /// </summary>
     [Fact]
     public void EveryPinnedPackageNamesTheBytesOfItsAssembly()

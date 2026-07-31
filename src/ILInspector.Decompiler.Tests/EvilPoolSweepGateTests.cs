@@ -37,14 +37,15 @@ namespace ILInspector.Decompiler.Tests;
 /// a one-package list and pin of this suite's choosing -- no product path override is
 /// involved. It is pointed at a scratch cache holding one synthetic package and told to
 /// stay offline, so <em>it</em> acquires over no network and reads no shared cache, and
-/// nothing it writes lands outside the scratch directory. Offline is what keeps that
-/// honest: a case that stopped being served from the seeded cache would reach for the
-/// network and fail here rather than quietly passing on whatever the machine happened to
-/// have.</para>
+/// nothing it pools or acquires comes from outside the scratch directory. Offline is what
+/// keeps that honest: a case that stopped being served from the seeded cache would reach
+/// for the network and fail here rather than quietly passing on whatever the machine
+/// happened to have.</para>
 ///
 /// <para>The claim stops there, deliberately. Each case launches the sweep with
 /// <c>dotnet run</c>, and a file-based app is restored and built before it runs, which
-/// reads the ordinary NuGet package cache and may go to the network to fill it. That is
+/// reads the ordinary NuGet package cache, writes to it and to the SDK's runfile
+/// directories, and may go to the network to fill them. That is
 /// true of every build in this repository and of the sweep runs in
 /// <see cref="EvilPoolPinTests"/>; it is not something these cases control, so they do
 /// not claim a process that opens no socket. What is gated is narrower and is the part
@@ -87,6 +88,13 @@ public class EvilPoolSweepGateTests
         Assert.Equal("selected", entry["Status"]!.GetValue<string>());
         Assert.Equal(world.FixtureSha256, entry["Sha256"]!.GetValue<string>());
 
+        // Where it landed, too. The manifest is how an operator finds the pooled file
+        // without walking the tree, and the path is the one recorded field nothing else
+        // here reads -- measured: replacing it with a literal left all nine cases green.
+        Assert.Equal(
+            Path.Combine("packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly),
+            entry["AssemblyPath"]!.GetValue<string>());
+
         world.AssertNoTemporaryLeftBehind();
     }
 
@@ -116,6 +124,14 @@ public class EvilPoolSweepGateTests
         Assert.Contains(world.FixtureSha256, sweep.Output + sweep.Errors, StringComparison.Ordinal);
         Assert.Contains(Sha256Of(impostor), sweep.Output + sweep.Errors, StringComparison.Ordinal);
 
+        // Which refusal, not merely that it refused. The label is what --refresh-pin acts
+        // on: pin-mismatch records nothing and leaves the existing pin standing, while
+        // library-unavailable rewrites the pin to no-library. Mislabelled, the tampered
+        // package this case plants is pinned out of the pool permanently and the evidence
+        // of the tamper goes with it -- measured: relabelling both pin-mismatch sites left
+        // all nine cases green, because exit code, prose and an empty pool are unchanged.
+        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
+
         Assert.Empty(PooledAssemblies(world.OutputDirectory));
         world.AssertNoTemporaryLeftBehind();
     }
@@ -137,6 +153,12 @@ public class EvilPoolSweepGateTests
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pin naming a TFM the package lacks"));
         Assert.Contains("net10.0", sweep.Output + sweep.Errors, StringComparison.Ordinal);
+
+        // The sweep's own word for a package that arrived and was refused, and the other
+        // of the two sites that produce it. See ASweepRefusesBytesThePinDoesNotName for
+        // what a wrong label costs.
+        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
+
         Assert.Empty(PooledAssemblies(world.OutputDirectory));
         world.AssertNoTemporaryLeftBehind();
     }
@@ -702,19 +724,19 @@ public class EvilPoolSweepGateTests
         /// The manifest's one row, having established that it is about the package this
         /// world asked for.
         ///
-        /// <para>Every read of the manifest goes through here, which is the point. A status
+        /// <para>Every read of a package row goes through here, which is the point. A status
         /// is a value, not a subject, so a row reporting the right outcome for some other
         /// package satisfies any reader that takes the value and never asks whose it is --
         /// measured: rewriting every recorded package name left all nine cases green, and
         /// after the check was added to the status reader alone it still left two of them
         /// green, because those two indexed the array themselves. One door, so a case
-        /// cannot get the value without the question having been put.</para>
+        /// cannot get the value without the question having been put. <see cref="ReportedManifest"/>
+        /// is the parse this is built on and reaches no row; a reader wanting one comes
+        /// here.</para>
         /// </summary>
         public JsonNode ReportedEntry((int ExitCode, string Output, string Errors) sweep)
         {
-            Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
-            var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
-            var packages = manifested["Packages"]!.AsArray();
+            var packages = ReportedManifest(sweep)["Packages"]!.AsArray();
             Assert.True(packages.Count == 1, Explain(sweep, $"a manifest holding {packages.Count} packages"));
 
             var recorded = packages[0]!["RequestedPackage"]?.GetValue<string>();
@@ -725,7 +747,11 @@ public class EvilPoolSweepGateTests
             return packages[0]!;
         }
 
-        /// <summary>The manifest as a whole, for the fields that are not the one row.</summary>
+        /// <summary>
+        /// The manifest as a whole, for the fields that are not a package row -- the
+        /// aggregates, which have no subject to ask about. Read a row through
+        /// <see cref="ReportedEntry"/> instead.
+        /// </summary>
         public JsonNode ReportedManifest((int ExitCode, string Output, string Errors) sweep)
         {
             Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
