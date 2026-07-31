@@ -568,7 +568,7 @@ public partial class CommandExecutionTests
             // reimplement the check here.
             if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
             {
-                Console.Error.WriteLine($"Error: {staleArgumentError}");
+                CommandError.Write(staleArgumentError!);
                 return 1;
             }
 
@@ -581,10 +581,13 @@ public partial class CommandExecutionTests
             {
                 foreach (var error in result.Errors)
                 {
+                    // CommandError composes the severity prefix and contains the
+                    // message, so a message that already carries one is unwrapped
+                    // rather than prefixed twice.
                     var message = error.Message.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
-                        ? error.Message
-                        : $"Error: {error.Message}";
-                    Console.Error.WriteLine(message);
+                        ? error.Message["Error:".Length..].TrimStart()
+                        : error.Message;
+                    CommandError.Write(message);
                 }
                 return 1;
             }
@@ -595,7 +598,7 @@ public partial class CommandExecutionTests
             catch (RowWindowValidationException ex)
             {
                 // Defensive: matches the Program.cs safety-net catch.
-                Console.Error.WriteLine($"Error: {ex.Message}");
+                CommandError.Write(ex.Message);
                 return 1;
             }
         });
@@ -1786,7 +1789,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
-        Assert.Contains("note: 1 field has no data: Library", error);
+        Assert.Contains("Note: 1 field has no data: Library", error);
     }
 
     [Fact]
@@ -5935,7 +5938,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
         Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 
@@ -5957,7 +5960,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
         Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 
@@ -6638,7 +6641,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.StartsWith("stable\tcanonical_signature", output);
-        Assert.Contains("warning: column 'Obsolete' not found in section 'Member Index'", error);
+        Assert.Contains("Warning: column 'Obsolete' not found in section 'Member Index'", error);
         Assert.Contains("Run -D \"Member Index\" to list available columns.", error);
     }
 
@@ -6652,7 +6655,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.StartsWith("signature", output);
-        Assert.Contains("warning: column 'Select' not found in section 'Methods'", error);
+        Assert.Contains("Warning: column 'Select' not found in section 'Methods'", error);
         Assert.Contains("Run -D \"Methods\" to list available columns.", error);
     }
 

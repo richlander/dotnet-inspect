@@ -351,7 +351,7 @@ public static class OutputFormatter
 
         if (inspection.UseDependenciesView)
         {
-            Console.Error.WriteLine("Tip: use 'depends --library' for dependency trees.");
+            CommandError.WriteLine("Tip: use 'depends --library' for dependency trees.");
             var view = AssemblyDependenciesView.FromInspection(inspection);
             MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
             return;
@@ -458,7 +458,7 @@ public static class OutputFormatter
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
-                    inspection, writerOpts.IncludeSections, format, writer, Console.Error,
+                    inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
                 options.Rows);
             return;

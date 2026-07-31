@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -130,7 +131,40 @@ public record ApiChange(
     string? OldValue = null,
     string? NewValue = null,
     ApiChangeCategory Category = ApiChangeCategory.Signature,
-    ApiChangeSubject? Subject = null);
+    ApiChangeSubject? Subject = null)
+{
+    /// <remarks>
+    /// Every positional property is redeclared, in constructor order, even
+    /// though only three need containment. A record that redeclares some of
+    /// them emits the compiler-generated ones first, which silently reorders
+    /// JSON keys, TSV columns, and the generated ToString. Redeclaring all of
+    /// them is what keeps that order the constructor's.
+    /// </remarks>
+    public ChangeKind Kind { get; init; } = Kind;
+
+    /// <inheritdoc cref="Kind"/>
+    public ChangeClassification Classification { get; init; } = Classification;
+
+    /// <summary>
+    /// The human-readable description, which embeds untrusted type and member
+    /// names. Containment happens here rather than at each of the eight sites
+    /// that compose a message, so a ninth cannot reopen the hole. Identity lives
+    /// in <see cref="Subject"/> and stays raw (issue #3319).
+    /// </summary>
+    public string Message { get; init; } = CSharpIdentifierCore.ContainComposedName(Message);
+
+    /// <inheritdoc cref="Message"/>
+    public string? OldValue { get; init; } = OldValue is null ? null : CSharpIdentifierCore.ContainComposedName(OldValue);
+
+    /// <inheritdoc cref="Message"/>
+    public string? NewValue { get; init; } = NewValue is null ? null : CSharpIdentifierCore.ContainComposedName(NewValue);
+
+    /// <inheritdoc cref="Kind"/>
+    public ApiChangeCategory Category { get; init; } = Category;
+
+    /// <inheritdoc cref="Kind"/>
+    public ApiChangeSubject? Subject { get; init; } = Subject;
+}
 
 /// <summary>
 /// Named, explicitly-requested classification exceptions -- mirrors

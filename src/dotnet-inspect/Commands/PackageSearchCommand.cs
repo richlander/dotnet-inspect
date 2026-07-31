@@ -34,7 +34,7 @@ public class PackageSearchCommand
             // succeeded: a partial answer must not read like a complete one.
             foreach (var failure in outcome.Failures)
             {
-                Console.Error.WriteLine($"Warning: could not search {failure}");
+                CommandError.WriteWarning($"could not search {failure}");
             }
 
             // A genuine zero-result search succeeded; an incomplete one did not.
@@ -61,7 +61,7 @@ public class PackageSearchCommand
 
             if (results.Count == 0)
             {
-                Console.Error.WriteLine($"No packages found for \"{options.Query}\".");
+                CommandError.WriteLine($"No packages found for \"{options.Query}\".");
                 return exitCode;
             }
 
@@ -80,7 +80,7 @@ public class PackageSearchCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }

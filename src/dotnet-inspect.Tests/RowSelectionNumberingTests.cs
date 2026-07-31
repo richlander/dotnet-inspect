@@ -132,7 +132,11 @@ public class RowSelectionNumberingTests
         var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.FromIndex(1), out var error);
 
         Assert.Null(selected);
-        Assert.Equal("Error: row 1 has no printable document.", error);
+
+        // The message is bare: the "Error: " prefix belongs to CommandError,
+        // which is also where the message is contained (issue #3319).
+        Assert.Equal(
+            "row 1 has no printable document.", error);
     }
 
     [Fact]
@@ -144,7 +148,8 @@ public class RowSelectionNumberingTests
         var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.Last, out var error);
 
         Assert.Null(selected);
-        Assert.Equal("Error: row 3 has no printable document.", error);
+        Assert.Equal(
+            "row 3 has no printable document.", error);
     }
 
     [Fact]
@@ -153,7 +158,8 @@ public class RowSelectionNumberingTests
         var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.FromIndex(9), out var error);
 
         Assert.Null(selected);
-        Assert.Equal("Error: row 9 is not in this section. Use --row 1 through 3, first, or last.", error);
+        Assert.Equal(
+            "row 9 is not in this section. Use --row 1 through 3, first, or last.", error);
     }
 
     [Fact]
@@ -162,7 +168,8 @@ public class RowSelectionNumberingTests
         var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), selector: null, out var error);
 
         Assert.Null(selected);
-        Assert.Equal("Error: selected section has 3 rows; use --row N|first|last to choose one row.", error);
+        Assert.Equal(
+            "selected section has 3 rows; use --row N|first|last to choose one row.", error);
     }
 
     [Fact]
@@ -243,6 +250,7 @@ public class RowSelectionNumberingTests
         var selected = ApiCommand.SelectPrintableRow([], RowSelector.First, out var error);
 
         Assert.Null(selected);
-        Assert.Equal("Error: selected section has no rows.", error);
+        Assert.Equal(
+            "selected section has no rows.", error);
     }
 }

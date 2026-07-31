@@ -209,7 +209,7 @@ public static class ProjectAssetsParser
         }
         catch (Exception ex)
         {
-            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
+            log?.Invoke($"Failed to parse project.assets.json: {ex.Message}");
         }
 
         return results;
@@ -259,7 +259,7 @@ public static class ProjectAssetsParser
         }
         catch (Exception ex)
         {
-            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
+            log?.Invoke($"Failed to parse project.assets.json: {ex.Message}");
         }
 
         return results
@@ -350,7 +350,7 @@ public static class ProjectAssetsParser
         }
         catch (Exception ex)
         {
-            log?.Invoke($"Warning: Failed to parse project.assets.json: {ex.Message}");
+            log?.Invoke($"Failed to parse project.assets.json: {ex.Message}");
         }
 
         return results
