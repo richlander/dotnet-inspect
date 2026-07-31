@@ -380,16 +380,19 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         derived.AddInterfaceImplementation(hostileInterfaceType);
         derived.CreateType();
 
-        // Hostile *type parameter* name. This is the Type Info section's
-        // "Type Parameters" row, which is a distinct channel from the ones
-        // above: it is contained by the renderer rather than at the producer
-        // (tp.DisplayName is raw in BuildTypeView), and the section renders
-        // whenever the view is not member detail, where the inline type
-        // parameter field is quiet-only. So it is both less guarded and more
-        // exposed than the inline twin it borrows its residual entry from.
+        // Hostile *type parameter* name, and a hostile *constraint* type name.
+        // These are the Type Info section's "Type Parameters" row, which is a
+        // distinct channel from the ones above, and the row is a mix rather than
+        // uniformly contained: the parameter half arrives through
+        // TypeParameter.DisplayName, which contains, while the constraint half is
+        // composed separately by CSharpDeclarationWriter.FormatConstraintList.
+        // The section also renders whenever the view is not member detail, where
+        // the inline type-parameter field is quiet-only, so it is more exposed
+        // than the inline twin it borrows its residual entry from.
         var generic = module.DefineType(
             "GenericType", TypeAttributes.Public | TypeAttributes.Class);
-        generic.DefineGenericParameters($"T{Hazard}INJECTED");
+        var typeParams = generic.DefineGenericParameters($"T{Hazard}INJECTED");
+        typeParams[0].SetInterfaceConstraints(hostileInterfaceType);
         generic.CreateType();
 
         ab.Save(path);

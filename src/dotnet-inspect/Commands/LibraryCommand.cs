@@ -64,7 +64,13 @@ public class LibraryCommand
         }
         finally
         {
-            Console.Error.Write(trace.Render());
+            // The trace interpolates untrusted text -- Target is argv, and resource details
+            // name paths and package entries -- so it goes to the stream the way every other
+            // stderr line does. Contained per line rather than per field: deciding which trace
+            // fields are untrusted is the enumeration issue #3319 abandoned, and a field added
+            // later would silently miss it.
+            foreach (var line in trace.RenderLines())
+                CommandError.WriteLine(line);
         }
     }
 

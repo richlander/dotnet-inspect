@@ -787,12 +787,24 @@ internal static class CSharpDeclarationWriter
     /// distinction when available; otherwise falls back to a token heuristic that
     /// cannot disambiguate a type literally named like a constraint keyword.
     /// </summary>
+    /// <remarks>
+    /// The result is contained before it is returned. A constraint entry is a type
+    /// name out of metadata, so it is untrusted, and keyword escaping is not
+    /// containment: it changes <c>class</c> to <c>@class</c> and leaves a bidi
+    /// override or a line terminator exactly where it was. Adversarial review of
+    /// issue #3319 found a hostile interface name reaching the terminal raw through
+    /// this list while the type parameter beside it was already contained, so the
+    /// rendered row was half guarded. Containment goes here rather than at the call
+    /// sites because this method is what composes the untrusted text into a single
+    /// display string, and its two callers would otherwise each have to remember.
+    /// </remarks>
     internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
     {
         var parts = typeParameter.StructuredConstraints is { } structured
             ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
             : typeParameter.Constraints.Select(SpellConstraint);
-        return EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames);
+        return CSharpIdentifierCore.ContainComposedName(
+            EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames));
     }
 
     // Fallback used only when structured constraint kinds are unavailable: a

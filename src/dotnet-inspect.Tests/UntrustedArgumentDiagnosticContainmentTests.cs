@@ -95,6 +95,15 @@ public class UntrustedArgumentDiagnosticContainmentTests
             // package name ended the label's line and forged a diagnostic under
             // it.
             data.Add("trace-mermaid", ["package", hostile, "--trace-mermaid"]);
+
+            // The --trace report is a composed multi-line diagnostic whose head
+            // line interpolates the target name. It reached stderr as one
+            // terminated string, so its writer had to recover line boundaries by
+            // splitting -- and a splitter cannot tell the composer's newline from
+            // the attacker's, which is how a target named "ev\nError: FORGED"
+            // printed a forged unindented line of its own. The trace now yields
+            // lines, so each is a unit the writer contains.
+            data.Add("trace", ["library", hostile, "--trace"]);
         }
 
         return data;
