@@ -568,14 +568,45 @@ work — and its obligations are exactly these:
 - **Available as a value, not only as a returned `string`.** The encoded result
   is offered as a distinct type, constructible only by applying a predicate. A
   sink that accepts only that type cannot be handed untreated text by accident,
-  which turns "is this path safe" from a call-graph trace into a type search.
-  There is no conversion *from* `string`. Conversion *to* `string` is
+  which turns "what does this sink accept" from a call-graph trace into a type
+  search. There is no conversion *from* `string`. Conversion *to* `string` is
   unrestricted, and is safe here in a way it usually is not: the customary
   objection is that `ToString` launders the wrapper, but that assumes the
   payload is dangerous and the wrapper is what restrains it. Here the payload
   is already inert, so losing the wrapper loses provenance, not protection.
+- **One-way as a value.** The value type holds the treated text and offers no
+  route back to what it was built from. The decoder is a separate type in a
+  separate namespace, so importing the namespace that supplies the value type
+  does not supply the decoder. Holding a value, then, is not the same as being
+  able to reverse it — and which of the two a file can do is legible in its
+  import list.
 
-That last obligation pays for itself immediately. Encoding on its own is
+These last two obligations are separate claims and are worth keeping apart. The
+first is about what a *sink* accepts, and it is answered by a type. The second
+is about what a *file* can do, and a type cannot answer it: if the decoder is a
+member of the value type, then every file holding a value is one member access
+away from the original, and a search for the type name finds mentions rather
+than capabilities. Splitting the namespace is what makes the second question
+answerable, and it is answerable by reading a file's imports rather than
+tracing its calls.
+
+This does not contradict the invertibility obligation above, but the two have
+to be stated precisely to avoid appearing to. The component must *ship* a
+decoder — splice repair below is unsatisfiable without one — and the value type
+may *use* it internally to conform a mismatched part. What it must not do is
+*expose* it, because that is what would let a holder recover the original. Ship
+it, use it, do not offer it.
+
+State the limit plainly: this is an audit boundary, not a capability barrier.
+Nothing stops a file from adding the import or writing the name out in full,
+and nothing should — the decoder is a legitimate operation with legitimate
+callers. What the boundary buys is that the reversing half cannot arrive
+unnoticed, which is the achievable goal. A test should enforce the value type's
+side of it by enumerating every public member of the value namespace that
+returns text and accounting for each one, so that adding a decode convenience
+is a test failure rather than a review question.
+
+That first obligation pays for itself immediately. Encoding on its own is
 transactional — a `string` goes in and a `string` comes out — so a treated
 value and an untreated one have the same type, and deciding whether a sink is
 safe means tracing every path that reaches it, again after every change.
