@@ -1257,7 +1257,9 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// A local declares at its store when that store is the local's first
     /// program-order reference and sits at statement level in the entry
-    /// block — the current emitter's merged-declaration shape.
+    /// block — the current emitter's merged-declaration shape — or, when the
+    /// portable PDB says the source declared the local inside a nested block,
+    /// at the first store in a block that dominates every later reference.
     /// </summary>
     void CollectDeclaringStores(IrFunction function)
     {
@@ -1289,6 +1291,17 @@ public sealed partial class CSharpPrinter
                         // synthesizing Unsafe.NullRef<T>() changes IL. If the first
                         // definition dominates every reference inside one block, declare
                         // at that ref assignment instead.
+                        _declaringStores.Add(store);
+                    }
+                    else if (function.IsLocalDeclaredInNestedScope(store.Index)
+                        && LocalReferencesStayInsideStoreBlock(function, store))
+                    {
+                        // The PDB scoped this local to a nested block, so the source
+                        // declared it at its assignment rather than at method scope.
+                        // The scope is evidence of intent, not of validity, so it only
+                        // takes effect where the IR independently shows every reference
+                        // stays in the store's block after the store. Absent a PDB the
+                        // flag is false everywhere and the hoisted shape is unchanged.
                         _declaringStores.Add(store);
                     }
                     else if (store is { Parent: ForLoop forLoop, ChildIndex: 0 }
@@ -1438,6 +1451,42 @@ public sealed partial class CSharpPrinter
         if (HasBranchTargetAfterStatement(store))
             return false;
         return LocalReferencesStayInBlockAfterStatement(function, store, store.Index);
+    }
+
+    /// <summary>
+    /// Every reference to the local written by <paramref name="store"/> lies in the
+    /// run of statements from that store to the end of its enclosing block, so the
+    /// declaration can be merged into the store where it sits.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="LocalReferencesStayInBlockAfterStatement"/> answers the same question
+    /// only for a store in one of the body's own top-level blocks: it walks top-level
+    /// statements and requires each referencing one to be a *descendant* of an allowed
+    /// statement. For a store nested inside a <c>using</c>, <c>try</c>, or loop — the
+    /// shape a PDB-scoped declaration sinks into — the top-level statement is an
+    /// *ancestor* of the reference instead, so that test can never say yes. This walks
+    /// the reference nodes themselves, which is orientation-free.
+    /// </remarks>
+    bool LocalReferencesStayInsideStoreBlock(IrFunction function, StoreLocal store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+        if (StoreValueReferencesLocal(store))
+            return false;
+        if (HasBranchTargetAfterStatement(store))
+            return false;
+
+        if (store.ChildIndex >= block.Children.Count || !ReferenceEquals(block.Children[store.ChildIndex], store))
+            return false;
+
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+
+        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, store.Index))
+        {
+            if (!allowed.Any(statement => IsDescendantOrSelf(reference, statement)))
+                return false;
+        }
+        return true;
     }
 
     bool LocalReferencesStayInBlockAfterStatement(IrFunction function, IrNode statement, int index)
