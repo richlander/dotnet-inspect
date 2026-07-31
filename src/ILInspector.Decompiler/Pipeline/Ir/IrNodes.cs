@@ -328,6 +328,14 @@ public sealed class IrFunction : IrNode
         while (names.Length < index)
             names = names.Add(null);
         LocalNames = names.Add(name);
+        if (!LocalDeclaredInNestedScope.IsDefaultOrEmpty)
+        {
+            // A slot a pass invents has no PDB scope, so it is not nested.
+            var nested = LocalDeclaredInNestedScope;
+            while (nested.Length < index)
+                nested = nested.Add(false);
+            LocalDeclaredInNestedScope = nested.Add(false);
+        }
         return index;
     }
 
@@ -352,6 +360,10 @@ public sealed class IrFunction : IrNode
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        // The new numbering no longer names the same locals, so any scope evidence
+        // gathered for the old slots would be misattributed. Drop it: the printer then
+        // degrades to the byte-stable method-scope shape rather than guessing.
+        LocalDeclaredInNestedScope = [];
         _eliminatedLocalSlots = eliminatedSlots switch
         {
             null => ImmutableHashSet<int>.Empty,
@@ -406,23 +418,28 @@ public sealed class IrFunction : IrNode
     /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
     /// </summary>
     static bool LocalSlotReferencedInScope(IrNode node, int index)
+        => LocalSlotReferencesInScope(node, index).Any();
+
+    /// <summary>
+    /// Every node in <paramref name="node"/>'s subtree that binds or reads local slot
+    /// <paramref name="index"/>, under the same scope rules as
+    /// <see cref="LocalSlotReferencedInScope"/> — which delegates here, so the two
+    /// cannot drift. Yielding the nodes rather than a bool lets a caller ask *where*
+    /// the references are, which is what deciding a declaration's placement needs.
+    /// </summary>
+    internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
         if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
-            return false;
+            yield break;
         if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
-            return false;
+            yield break;
         if (NodeBindsLocalSlot(node, index))
-            return true;
+            yield return node;
         foreach (var child in node.Children)
         {
-            if (child is Lambda lambda && CSharpPrinter.NeedsNestedLambdaScope(lambda))
-                continue;
-            if (child is LocalFunctionStatement localFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(localFunction))
-                continue;
-            if (LocalSlotReferencedInScope(child, index))
-                return true;
+            foreach (var reference in LocalSlotReferencesInScope(child, index))
+                yield return reference;
         }
-        return false;
     }
 
     /// <summary>
@@ -471,6 +488,25 @@ public sealed class IrFunction : IrNode
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>
+    /// Per entry in <see cref="Locals"/>, whether the portable PDB scoped the local to
+    /// something narrower than the whole method body — that is, whether the source
+    /// declared it inside a nested block. Empty when no PDB was available, which is
+    /// why placement never depends on a guess: with no evidence the printer keeps the
+    /// byte-stable hoisted shape. Length-aligned with <see cref="Locals"/> when
+    /// non-empty.
+    /// </summary>
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; set; } = [];
+
+    /// <summary>
+    /// Whether the source declared local <paramref name="index"/> inside a nested
+    /// block. False when no PDB evidence exists for the slot, so callers degrade to
+    /// the method-scope shape rather than inferring placement.
+    /// </summary>
+    public bool IsLocalDeclaredInNestedScope(int index)
+        => index >= 0 && index < LocalDeclaredInNestedScope.Length && LocalDeclaredInNestedScope[index];
+
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 

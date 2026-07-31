@@ -106,7 +106,7 @@ public static class InspectionCommandDefinitions
                 type = positional[positionalIndex++];
             if (positionalIndex < positional.Length)
             {
-                Console.Error.WriteLine("Error: too many positional arguments.");
+                CommandError.Write("too many positional arguments.");
                 return 1;
             }
 
@@ -120,8 +120,8 @@ public static class InspectionCommandDefinitions
             string? explicitFinding = parseResult.GetValue(findingOption);
             if (aliases.Count > 1 || (aliases.Count == 1 && explicitFinding is not null))
             {
-                Console.Error.WriteLine(
-                    "Error: specify only one of --finding, --members, --type-presence, or --attributes.");
+                CommandError.Write(
+                    "specify only one of --finding, --members, --type-presence, or --attributes.");
                 return 1;
             }
 
@@ -250,7 +250,7 @@ public static class InspectionCommandDefinitions
             switch (result)
             {
                 case DiffOptionsParser.VersionNumberError error:
-                    Console.Error.WriteLine($"Error: '{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
+                    CommandError.Write($"'{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
 
                 case DiffOptionsParser.Success success:
@@ -395,7 +395,7 @@ public static class InspectionCommandDefinitions
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
-                Console.Error.WriteLine(triageShapeError);
+                CommandError.Write(triageShapeError);
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))

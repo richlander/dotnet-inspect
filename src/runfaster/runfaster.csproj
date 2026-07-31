@@ -3,6 +3,11 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+
+    <!-- A separate shipping tool with its own entry point and its own
+         diagnostics, outside the CLI's reference closure and outside the
+         stderr-ownership rule (#3319). -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>

@@ -8,6 +8,14 @@
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
     <OutputType>Exe</OutputType>
+
+    <!-- IlasmScaffold captures the IL assembler's in-process stderr with
+         Console.SetError so a parse failure becomes a test diagnostic rather
+         than console noise, so this harness owns its own stderr (#3319). It is
+         outside the CLI's reference closure, which the ownership gate pins, and
+         outside dotnet-inspect.slnx, which is why the solution build did not
+         surface this. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
     <ILAssemblerProject>$(MSBuildThisFileDirectory)../../external/ILAssembler/ILAssembler/ILAssembler.csproj</ILAssemblerProject>
   </PropertyGroup>
 

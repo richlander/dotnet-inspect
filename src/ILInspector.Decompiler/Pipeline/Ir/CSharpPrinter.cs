@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
 using ILInspector.Text;
@@ -1257,7 +1258,9 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// A local declares at its store when that store is the local's first
     /// program-order reference and sits at statement level in the entry
-    /// block — the current emitter's merged-declaration shape.
+    /// block — the current emitter's merged-declaration shape — or, when the
+    /// portable PDB says the source declared the local inside a nested block,
+    /// at the first store in a block that dominates every later reference.
     /// </summary>
     void CollectDeclaringStores(IrFunction function)
     {
@@ -1289,6 +1292,17 @@ public sealed partial class CSharpPrinter
                         // synthesizing Unsafe.NullRef<T>() changes IL. If the first
                         // definition dominates every reference inside one block, declare
                         // at that ref assignment instead.
+                        _declaringStores.Add(store);
+                    }
+                    else if (function.IsLocalDeclaredInNestedScope(store.Index)
+                        && LocalReferencesStayInsideStoreBlock(function, store))
+                    {
+                        // The PDB scoped this local to a nested block, so the source
+                        // declared it at its assignment rather than at method scope.
+                        // The scope is evidence of intent, not of validity, so it only
+                        // takes effect where the IR independently shows every reference
+                        // stays in the store's block after the store. Absent a PDB the
+                        // flag is false everywhere and the hoisted shape is unchanged.
                         _declaringStores.Add(store);
                     }
                     else if (store is { Parent: ForLoop forLoop, ChildIndex: 0 }
@@ -1438,6 +1452,42 @@ public sealed partial class CSharpPrinter
         if (HasBranchTargetAfterStatement(store))
             return false;
         return LocalReferencesStayInBlockAfterStatement(function, store, store.Index);
+    }
+
+    /// <summary>
+    /// Every reference to the local written by <paramref name="store"/> lies in the
+    /// run of statements from that store to the end of its enclosing block, so the
+    /// declaration can be merged into the store where it sits.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="LocalReferencesStayInBlockAfterStatement"/> answers the same question
+    /// only for a store in one of the body's own top-level blocks: it walks top-level
+    /// statements and requires each referencing one to be a *descendant* of an allowed
+    /// statement. For a store nested inside a <c>using</c>, <c>try</c>, or loop — the
+    /// shape a PDB-scoped declaration sinks into — the top-level statement is an
+    /// *ancestor* of the reference instead, so that test can never say yes. This walks
+    /// the reference nodes themselves, which is orientation-free.
+    /// </remarks>
+    bool LocalReferencesStayInsideStoreBlock(IrFunction function, StoreLocal store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+        if (StoreValueReferencesLocal(store))
+            return false;
+        if (HasBranchTargetAfterStatement(store))
+            return false;
+
+        if (store.ChildIndex >= block.Children.Count || !ReferenceEquals(block.Children[store.ChildIndex], store))
+            return false;
+
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+
+        foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, store.Index))
+        {
+            if (!allowed.Any(statement => IsDescendantOrSelf(reference, statement)))
+                return false;
+        }
+        return true;
     }
 
     bool LocalReferencesStayInBlockAfterStatement(IrFunction function, IrNode statement, int index)
@@ -1854,8 +1904,8 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
-            string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.EscapeIdentifier(localFunction.Name)}({parameters})";
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.ContainedIdentifier(p.Name)}"));
+            string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
                 sb.Append(pad).Append(header).Append(" => ").Append(Expression(body)).AppendLf(";");
@@ -2739,7 +2789,7 @@ public sealed partial class CSharpPrinter
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
-        StoreArgument s => AssignmentText(CSharpNaming.EscapeIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(CSharpNaming.ContainedIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
@@ -2777,7 +2827,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
             ? $"{TypeText(init.Type)} {LocalName(local.Index)} = default;"
             : $"{LocalName(local.Index)} = default;",
-        InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
+        InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.ContainedIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
         CopyBlock cb => "/* unsupported cpblk */",
@@ -2826,7 +2876,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(target.Type)} {LocalName(target.LocalIndex)}"
             : LocalName(target.LocalIndex),
         DeconstructionTargetKind.Property => PropertyTarget(target.Accessor!, target.HasInstance ? target.Instance : null, target.IndexArguments, target.PropertyName, target.IsVirtual),
-        DeconstructionTargetKind.Argument => CSharpNaming.EscapeIdentifier(target.ArgumentName),
+        DeconstructionTargetKind.Argument => CSharpNaming.ContainedIdentifier(target.ArgumentName),
         DeconstructionTargetKind.Field => FieldTarget(
             target.Field!,
             target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
@@ -3109,7 +3159,7 @@ public sealed partial class CSharpPrinter
     string ExpressionCore(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
-        LoadArgument a => CSharpNaming.EscapeIdentifier(a.Name),
+        LoadArgument a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => StackSlotName(s),
         Constant { Value: int or long } c when EnumMemberName(c) is { } named => named,
@@ -3161,7 +3211,7 @@ public sealed partial class CSharpPrinter
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
-        LocalFunctionInvocation inv => $"{CSharpNaming.EscapeIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
+        LocalFunctionInvocation inv => $"{CSharpNaming.ContainedIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
@@ -3198,14 +3248,14 @@ public sealed partial class CSharpPrinter
         Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
-        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.EscapeIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
+        RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.ContainedIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
         PositionalPattern p => PositionalPatternText(p),
         CastClass c => $"({TypeText(c.Type)}){Operand(c.Operand)}",
         UnboxAny u => $"({TypeText(u.Type)}){UnboxAnyOperand(u)}",
         Unbox u => $"ref ({TypeText(u.Type)}){Operand(u.Operand)}",
         LoadLocalAddress a => $"ref {LocalName(a.Index)}",
-        LoadArgumentAddress a => $"ref {CSharpNaming.EscapeIdentifier(a.Name)}",
+        LoadArgumentAddress a => $"ref {CSharpNaming.ContainedIdentifier(a.Name)}",
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
@@ -3232,7 +3282,7 @@ public sealed partial class CSharpPrinter
 
     string DynamicGetMemberText(DynamicGetMember d)
     {
-        string member = CSharpNaming.EscapeIdentifier(d.PropertyName);
+        string member = CSharpNaming.ContainedIdentifier(d.PropertyName);
         // A dynamic member access needs no member signature — the name is a
         // string handed to Binder.GetMember and resolved at runtime — so a
         // receiver whose static type is already `dynamic` binds `receiver.Member`
@@ -3399,8 +3449,8 @@ public sealed partial class CSharpPrinter
 
         return property.Instance switch
         {
-            LoadArgumentAddress argument => CSharpNaming.EscapeIdentifier(argument.Name),
-            LoadArgument argument => CSharpNaming.EscapeIdentifier(argument.Name),
+            LoadArgumentAddress argument => CSharpNaming.ContainedIdentifier(argument.Name),
+            LoadArgument argument => CSharpNaming.ContainedIdentifier(argument.Name),
             LoadLocalAddress local => LocalName(local.Index),
             LoadLocal local => LocalName(local.Index),
             LoadFieldAddress field => FieldTarget(field.Field, field.Instance),
@@ -3725,7 +3775,7 @@ public sealed partial class CSharpPrinter
         // which is CS0193 (DeclaringType is never an unmanaged pointer).
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadLocalAddress a => $"{LocalName(a.Index)}",
-        LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
+        LoadArgumentAddress a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => FixedBufferElementText(f),
         LoadElementAddress e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
@@ -4269,7 +4319,7 @@ public sealed partial class CSharpPrinter
 
         string designation = pattern.PreserveLocalInPropertyPattern ? $" {LocalName(pattern.LocalIndex)}" : "";
         string not = negated ? " not" : "";
-        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{CSharpNaming.EscapeIdentifier(p.PropertyName)}: {p.Subpattern}"))} }}{designation}";
+        return $"{TypeTestValueText(pattern.Value)} is{not} {TypeText(pattern.Type)} {{ {string.Join(", ", subpatterns.Select(p => $"{CSharpNaming.ContainedIdentifier(p.PropertyName)}: {p.Subpattern}"))} }}{designation}";
     }
 
     static void CollectConjuncts(IrExpression expression, List<IrExpression> conjuncts)
@@ -5153,10 +5203,22 @@ public sealed partial class CSharpPrinter
             // enclosing printer (when this renders a lambda/local-function body with
             // its own scope), nested lambda/local-function parameters, and the
             // printer's own synthetic locals (stack slots S_n, switch temps). It
-            // mixes raw and escaped names; EscapeIdentifier is idempotent, so
-            // normalize all to the escaped spelling the rendered call name uses.
+            // mixes raw and escaped names, so the normalizer has to be idempotent
+            // on an already-escaped spelling: ContainedIdentifier maps both `int`
+            // and `@int` to `@int`, which is what the rendered call name carries.
+            // SafeIdentifier would NOT work here despite being the spelling
+            // SourceMethodName uses -- it is not idempotent, and rewrites `@int` to
+            // `__int`, which matches nothing.
+            //
+            // That leaves one residual mismatch, pre-existing and deliberately not
+            // widened here: an unspellable binder stays `<>c` in this set while
+            // SourceMethodName sanitizes the call name to `___c`, so a shadow by an
+            // unspellable name is missed. The IsUnspeakableName guard in
+            // RecordBareCallName covers that for the recording path; the remaining
+            // hole is tracked separately rather than fixed inside a security change
+            // whose corpus evidence is byte-neutrality.
             foreach (var name in CurrentScopeNames())
-                _staticScopeShadowNames.Add(CSharpNaming.EscapeIdentifier(name));
+                _staticScopeShadowNames.Add(CSharpNaming.ContainedIdentifier(name));
         }
         return _staticScopeShadowNames.Contains(escapedName);
     }
@@ -5485,7 +5547,12 @@ public sealed partial class CSharpPrinter
         // constant"). Escape them explicitly.
         '\u2028' => "\\u2028",
         '\u2029' => "\\u2029",
-        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        // Bidi overrides (U+202A-U+202E, U+2066-U+2069, U+200E/U+200F) are
+        // Unicode category Cf, so char.IsControl is false for them. Emitted raw
+        // into a literal they survive into the rendered code fence and reorder
+        // the displayed source without changing what it compiles to -- Trojan
+        // Source (issue #3319). The \u escape is the same C# string.
+        _ when CSharpIdentifier.RequiresLiteralEscape(c) => $"\\u{(int)c:x4}",
         // A lone surrogate code unit has no valid UTF-8/UTF-16 text form: emitted
         // raw it cannot survive an encode (writers substitute U+FFFD, corrupting
         // the literal \u2014 char.IsHighSurrogate's own bounds rendered as two
@@ -5553,7 +5620,7 @@ public sealed partial class CSharpPrinter
     }
 
     static string EscapeNamespace(string ns)
-        => string.Join(".", ns.Split('.').Select(CSharpNaming.EscapeIdentifier));
+        => string.Join(".", ns.Split('.').Select(CSharpNaming.SafeIdentifier));
 
     void RecordFrameworkTypeImportDecision(TypeRef type, string rendered)
     {

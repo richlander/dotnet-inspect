@@ -530,6 +530,7 @@ public static class IrImporter
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
+            LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
             UsesUpdatedMemorySafetyRules = source.SimulateNewRules || ModuleUsesUpdatedMemorySafetyRules(source.Reader),
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,

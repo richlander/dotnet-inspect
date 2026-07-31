@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -45,7 +46,11 @@ public static class ILStringEscaper
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 case '\f': sb.Append("\\f"); break;
-                case '\u0085' or '\u2028' or '\u2029':
+                // Every remaining rendering hazard - ESC, vertical tab, bidi
+                // override, line/paragraph separator - shares one definition
+                // with the C# literal escapers. Restating the set here is how
+                // three of those escapers came to disagree with it.
+                case var _ when CSharpIdentifierCore.RequiresLiteralEscape(c):
                     sb.Append("\\u").Append(((int)c).ToString("X4"));
                     break;
                 default: sb.Append(c); break;

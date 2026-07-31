@@ -73,7 +73,7 @@ public class ExtensionsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -100,8 +100,8 @@ public class ExtensionsCommand
         {
             if (census.Inspection.Failure() is { } failure)
             {
-                Console.Error.WriteLine(
-                    $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
+                CommandError.WriteWarning(
+                    $"Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
                 continue;
             }
 
