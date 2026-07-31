@@ -477,6 +477,67 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// Document paths that denote the same file are still attributable, even though they produce
+    /// different request texts and fetch identical content.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in review as a third spelling of "every document resolves to one file": document
+    /// paths differing only in repeated separators produce distinct URLs that all fetch the same
+    /// file, because the host normalizes them. Measured against
+    /// <c>raw.githubusercontent.com/dotnet/runtime</c> at <c>4d8ec59f…</c>: <c>/README.md</c>
+    /// returns 4800 bytes, <c>/./README.md</c> and <c>/docs/../README.md</c> return the same
+    /// bytes, and <c>//README.md</c> answers <c>307</c> with
+    /// <c>location: /dotnet/runtime/4d8ec59f…/README.md</c> — a same-origin redirect to the
+    /// collapsed path, which the fetch client follows.
+    /// </para>
+    /// <para>
+    /// It is not the same defect, and the difference is the point. In the two cases that were
+    /// fixed, the served file was <em>independent of the document name</em>: <c>Evil.cs</c> and
+    /// <c>Other.cs</c> both fetched <c>fixed.cs</c>. Here the served file is exactly the file the
+    /// document path denotes, because removing empty and dot segments is what the path
+    /// <em>means</em>. Two paths collide only when they are the same path — <c>x/../a/B.cs</c>
+    /// and <c>a/B.cs</c> — and <c>OTHER.cs</c> stays distinct, which the rows below pin.
+    /// </para>
+    /// <para>
+    /// Refusing them would be over-refusal with no security gain, and an expensive one: the
+    /// invariant is all-or-nothing per assembly, so one oddly spelled document path would strip
+    /// provenance from every document in the assembly. Recorded as a decision rather than left
+    /// as an unexamined gap.
+    /// </para>
+    /// <para>
+    /// The origin is unaffected either way. The redirect above is same-origin, and no
+    /// cross-repository redirect was found: <c>raw.githubusercontent.com</c> serves a renamed
+    /// repository under its old name with <c>200</c> and no redirect at all
+    /// (<c>aspnet/AspNetCore</c>, <c>Microsoft/vscode</c>). Provenance is read off the URL that is
+    /// requested, so a hypothetical cross-origin redirect would move the content without moving
+    /// the report; that is not reachable through either host's grammar here, and it is
+    /// <em>not</em> asserted to be unreachable in general.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("/_/a/B.cs", "a/B.cs")]
+    [InlineData("/_//a/B.cs", "//a/B.cs")]
+    [InlineData("/_/a/./B.cs", "a/./B.cs")]
+    [InlineData("/_/x/../a/B.cs", "x/../a/B.cs")]
+    public void ADocumentPathSpelledWithRedundantSegments_IsStillAttributable(string document, string tail)
+    {
+        const string Map =
+            $$$"""{"documents":{"/_/*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
+
+        var resolver = SLF.SourceLinkResolver.Parse(Map);
+        Assert.True(resolver.TryResolve(document, out var resolution));
+
+        // The request really does carry the redundant spelling; the host, not this reader,
+        // resolves it.
+        Assert.EndsWith(tail, resolution.Url, StringComparison.Ordinal);
+
+        var result = SLF.SourceLinkProvenance.Determine(resolver, [document]);
+        Assert.True(result.IsEstablished, result.Reason);
+        Assert.Equal("repo", result.Origin?.Repository);
+    }
+
+    /// <summary>
     /// The document text must be substituted into the component that selects content, because a
     /// substitution the host does not read leaves every document fetching the same file.
     /// </summary>
@@ -1294,6 +1355,115 @@ public class SourceLinkProvenanceTests
             var result = Determine(map, "/_/A.cs");
             Assert.False(result.IsEstablished);
             Assert.NotEmpty(result.Reason);
+        }
+    }
+
+    /// <summary>
+    /// URLs a hostile PDB could carry, each smuggling a non-graphic scalar into a component that
+    /// reaches the reported repository URL.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the property and by its vacuity pin, so the two cannot describe different sets.
+    /// </remarks>
+    private static readonly string[] HostileOriginUrlRows =
+    [
+        // GitHub: the owner and repository segments both reach the reported URL.
+        $"https://raw.githubusercontent.com/ow%1bner/repo/{Sha}/*",
+        $"https://raw.githubusercontent.com/ow%0d%0aner/repo/{Sha}/*",
+        $"https://raw.githubusercontent.com/owner/re%e2%80%aepo/{Sha}/*",
+        $"https://raw.githubusercontent.com/ow\u202Ener/repo/{Sha}/*",
+        $"https://raw.githubusercontent.com/ow\u0007ner/repo/{Sha}/*",
+        // Azure: the organization, the repository, and the host prefix all reach it.
+        $"{AzureRepositories}repo/items?path=/*&versionType=commit&version={Sha}"
+            .Replace("dev.azure.com/org", "dev.azure.com/or%1bg", StringComparison.Ordinal),
+        $"{AzureRepositories}re%0apo/items?path=/*&versionType=commit&version={Sha}",
+        $"{AzureRepositories}repo/items?path=/*&versionType=commit&version={Sha}"
+            .Replace("dev.azure.com", "ac%1bme.visualstudio.com", StringComparison.Ordinal),
+    ];
+
+    public static TheoryData<string> HostileOriginUrls() => [.. HostileOriginUrlRows];
+
+    private static string MapFor(string urlTemplate)
+        => $$$"""{"documents":{"/_/*":"{{{urlTemplate}}}"}}""";
+
+    /// <summary>
+    /// Pins that <see cref="AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink"/> is not
+    /// vacuous.
+    /// </summary>
+    /// <remarks>
+    /// That test passes trivially for a row that is refused, so a change that started refusing
+    /// every row would retire the property with the suite still green — the round-12 defect,
+    /// where an ordering test passed for the wrong reason. This asserts that most rows really do
+    /// establish and so really are asserting something about the reported text. The count is a
+    /// floor rather than an equality because refusing *more* hostile input is an improvement,
+    /// and one that should not have to come here to be allowed.
+    /// </remarks>
+    [Fact]
+    public void TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous()
+    {
+        int established = HostileOriginUrlRows
+            .Count(url => Determine(MapFor(url), "/_/A.cs").IsEstablished);
+
+        Assert.InRange(established, 5, 8);
+    }
+
+    /// <summary>
+    /// Pins that the one artifact-derived string this code renders cannot carry a control
+    /// character, a bidi override, or a line break to whatever displays it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RepositoryUrl</c> is built from segments of a URL that came out of a downloaded
+    /// package's PDB, and unlike <c>Reason</c> — which every caller currently drops — it is
+    /// rendered: <c>AssemblyInspector</c> puts it in <c>audit.RepositoryUrl</c>. So it is the
+    /// live path, and the rule from <c>docs/design/untrusted-data-threat-model.md</c> that
+    /// artifact text must not reach a sink as-is applies to it today, not eventually.
+    /// </para>
+    /// <para>
+    /// It holds, but incidentally: <see cref="Uri.AbsolutePath"/> leaves a percent-escape
+    /// escaped, so <c>%1b</c> stays the three characters <c>%</c>, <c>1</c>, <c>b</c> rather
+    /// than becoming <c>ESC</c>, and a raw <c>U+202E</c> comes back as <c>%E2%80%AE</c>. Nothing
+    /// declares that, which is exactly the shape of a safety property that dies silently — a
+    /// later switch to <c>UnescapeDataString</c>, or to a URL property that decodes, would break
+    /// it with every test still green. This is the gate that notices.
+    /// </para>
+    /// <para>
+    /// The refused categories are spelled out here rather than deferred to a shared policy
+    /// because <c>InertText</c> has not landed yet. When it does, this becomes
+    /// <c>TextPolicy.Field</c>, which is the same set: <c>Cc</c>, <c>Cf</c>, <c>Cs</c>,
+    /// <c>Zl</c>, <c>Zp</c>. The set is chosen by category and not by a list because <c>Cf</c>
+    /// is what a hand-written list misses, and <c>Cf</c> is where Trojan Source lives.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(HostileOriginUrls))]
+    public void AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink(string urlTemplate)
+    {
+        var result = Determine(MapFor(urlTemplate), "/_/A.cs");
+
+        // Refusing the URL outright is a pass: the claim is that nothing hostile is *reported*,
+        // not that every one of these is attributable.
+        if (!result.IsEstablished)
+        {
+            return;
+        }
+
+        string reported = result.Origin!.Value.RepositoryUrl;
+
+        foreach (System.Text.Rune scalar in reported.EnumerateRunes())
+        {
+            System.Globalization.UnicodeCategory category =
+                System.Text.Rune.GetUnicodeCategory(scalar);
+
+            Assert.False(
+                category is System.Globalization.UnicodeCategory.Control
+                    or System.Globalization.UnicodeCategory.Format
+                    or System.Globalization.UnicodeCategory.Surrogate
+                    or System.Globalization.UnicodeCategory.LineSeparator
+                    or System.Globalization.UnicodeCategory.ParagraphSeparator,
+                // Names the code point rather than printing the character, so a failure here does
+                // not do the very thing the test exists to prevent.
+                $"U+{scalar.Value:X4} ({category}) reached the reported repository URL");
         }
     }
 

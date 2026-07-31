@@ -238,7 +238,10 @@ one that was here, and it had gone stale by two.
   and in `version`. One reviewer cleared `api-version` on the grounds that Azure
   answers a file-like value with 400; another defeated that by naming the PDB's
   documents `1.0` and `7.1`, which the threat model treats as attacker-chosen.
-  Gated by
+  `scopePath` is on the accept side because it was measured to select, not
+  because the allow list already named it: `scopePath=/README.md` returns the
+  same 985 bytes and SHA-256 as `path=/README.md`, while `scopePath=/` returns a
+  different 425-byte response. Gated by
   `SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable`.
 - The two content selectors are each allow-listed, and their *combination* was
   never considered. `path` names an item and `scopePath` a collection, and the
@@ -453,6 +456,36 @@ characters, URLs, or prompt-like instructions. Renderers must preserve output
 structure and must not interpret inspected text as authority. JSON serializers
 provide structural escaping; Markdown, table, plain-text, and stderr paths need
 equivalent control-character and delimiter discipline.
+
+One artifact-derived string on the SourceLink path is rendered today: the
+reported `RepositoryUrl`, which `AssemblyInspector` writes to
+`audit.RepositoryUrl`. It is built from segments of a URL that came out of a
+downloaded package's PDB, so a hostile map can aim `ESC`, `CR`/`LF`, or a bidi
+override at it.
+
+It is inert, but **incidentally**. `Uri.AbsolutePath` leaves a percent-escape
+escaped, so `%1b` stays the three characters `%`, `1`, `b`, and a raw `U+202E`
+comes back as `%E2%80%AE`; measured, `https://github.com/ow%1bner/repo` and
+`https://github.com/ow%E2%80%AEner/repo` are what get reported. Nothing declared
+that, which is the shape of a safety property that dies silently — switching to
+`UnescapeDataString`, or to a URL property that decodes, would break it with
+every test green. `AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink`
+is the gate; `TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous`
+pins that its rows still establish, because a gate whose every row is refused
+asserts nothing.
+
+`SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
+Its messages quote artifact text throughout — the query, the path, the host, a
+revision, a rejected map key — and today no caller renders it: all six read
+`Origin?.RepositoryUrl` and drop the reason. Issue #3590 exists to report it,
+which is exactly the change that turns these into a live path, so #3590 must
+adopt visual encoding rather than merely surfacing the strings.
+
+A test framework is a sink too. xUnit builds its row labels from the theory
+arguments, so the runner prints a raw `U+202E` from a hostile fixture to the
+same terminal — assertion *messages* under our control name the code point
+instead (`U+202E (Format) at 2`), and fixtures should assume the label is not
+under our control.
 
 ## Verification obligations
 

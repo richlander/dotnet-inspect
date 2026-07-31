@@ -252,6 +252,13 @@ public static class SourceLinkProvenance
     /// the rule that says which ones do.
     /// </para>
     /// <para>
+    /// <c>scopePath</c> is on the accept list because it was measured to select, not because the
+    /// allow list already named it — that is the assumption this rule exists to stop making.
+    /// Against the same repository, <c>scopePath=/README.md</c> returns the same 985 bytes and
+    /// the same SHA-256 as <c>path=/README.md</c>, while <c>scopePath=/</c> returns a different
+    /// 425-byte response. It names a collection rather than an item, and serves the file anyway.
+    /// </para>
+    /// <para>
     /// This runs per document rather than across documents, because an assembly with a single
     /// document offers nothing to compare and the defect is present there just the same.
     /// </para>
@@ -316,8 +323,8 @@ public static class SourceLinkProvenance
         // else -- in the route, the repository segment, 'api-version', or a version selector that
         // the immutability rules already pin to one commit -- leaves the served file fixed.
         if (queryStart >= 0
-            && (TrySpanOfQueryValue(url, queryStart, pathEnd, "path", out int valueStart, out int valueEnd)
-                || TrySpanOfQueryValue(url, queryStart, pathEnd, "scopePath", out valueStart, out valueEnd))
+            && (TrySpanOfQueryValue(url, queryStart, "path", out int valueStart, out int valueEnd)
+                || TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd))
             && offset >= valueStart
             && end <= valueEnd)
         {
@@ -355,21 +362,16 @@ public static class SourceLinkProvenance
     /// The span is measured in the raw string rather than a parsed collection because it is
     /// compared against a substitution offset into that same string.
     /// </remarks>
+    /// <param name="queryStart">The index of the <c>?</c> that begins the query.</param>
     private static bool TrySpanOfQueryValue(
-        string url, int queryStart, int queryEnd, string name, out int valueStart, out int valueEnd)
+        string url, int queryStart, string name, out int valueStart, out int valueEnd)
     {
         valueStart = valueEnd = -1;
 
-        int limit = queryEnd;
-        int fragmentStart = url.IndexOf('#', StringComparison.Ordinal);
-        if (fragmentStart >= 0 && fragmentStart > queryStart && fragmentStart < limit)
-        {
-            limit = fragmentStart;
-        }
-        else if (limit <= queryStart)
-        {
-            limit = fragmentStart >= 0 && fragmentStart > queryStart ? fragmentStart : url.Length;
-        }
+        // A fragment ends the query and is never sent, so it bounds the search. The first '#'
+        // after the query wins: a later one is inside the fragment, not a second delimiter.
+        int fragmentStart = url.IndexOf('#', queryStart, StringComparison.Ordinal);
+        int limit = fragmentStart < 0 ? url.Length : fragmentStart;
 
         int i = queryStart + 1;
         while (i < limit)
