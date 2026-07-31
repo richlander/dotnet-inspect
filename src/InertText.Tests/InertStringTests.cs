@@ -948,4 +948,94 @@ public class InertStringTests
 
         Assert.NotEqual(fromAsciiText, fromScalar);
     }
+
+    /// <summary>
+    /// No project imports <c>InertText.Encoder</c> for every file at once, so naming the
+    /// capability namespace stays a per-file act and the audit search keeps file granularity.
+    /// </summary>
+    /// <remarks>
+    /// The audit sold by <c>docs/design/inert-text.md</c> is a search for the bare string
+    /// <c>InertText.Encoder</c>, on the reasoning that both ways to reach a namespace spell it:
+    /// a using directive, and a fully-qualified call. There is a third way, and it spells the
+    /// namespace somewhere else entirely:
+    ///
+    /// <code>
+    /// // one file, or a &lt;Using Include="InertText.Encoder" /&gt; item in the .csproj
+    /// global using InertText.Encoder;
+    /// </code>
+    ///
+    /// Every other file in that project can then call <c>VisualEncoder.TryDecode</c> with no
+    /// local mention of the namespace at all. The search still finds the import — it is still
+    /// text in the repository — but it stops answering "which files can decode?" and starts
+    /// answering "which projects can decode?", and the file it points at is not the file doing
+    /// the decoding. A reviewer reading a clean import list would conclude the file cannot
+    /// decode, which is the failure the bare-string rule exists to prevent.
+    ///
+    /// So the granularity is an invariant of the build, not of the language, and it is gated
+    /// here rather than asserted in prose. Nothing needs a project-wide encoder import:
+    /// production does not name the namespace at all, and the test projects that legitimately
+    /// decode do it with ordinary per-file directives.
+    /// </remarks>
+    [Fact]
+    public void NoProjectImportsTheCapabilityNamespaceForEveryFileAtOnce()
+    {
+        const string Capability = "InertText.Encoder";
+
+        DirectoryInfo? root = new(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        Assert.True(root is not null, "could not locate the repository root from the test binary");
+
+        string source = Path.Combine(root!.FullName, "src");
+        string[] candidates =
+        [
+            .. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories),
+            .. Directory.EnumerateFiles(source, "*.csproj", SearchOption.AllDirectories),
+            .. Directory.EnumerateFiles(source, "*.props", SearchOption.AllDirectories),
+        ];
+
+        // Non-vacuity: a root that resolved to somewhere without sources would pass silently,
+        // which is the same shape of bug as the invariant being gated.
+        Assert.NotEmpty(candidates);
+
+        List<string> offenders = [];
+        foreach (string file in candidates)
+        {
+            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Line-wise, skipping comments, because the example in this test's own doc comment
+            // is the exact text being searched for -- and a commented-out import is not one.
+            bool offends = File.ReadLines(file).Any(line =>
+            {
+                string trimmed = line.TrimStart();
+                if (trimmed.StartsWith("//", StringComparison.Ordinal)
+                    || trimmed.StartsWith("<!--", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                return trimmed.StartsWith($"global using {Capability};", StringComparison.Ordinal)
+                    || trimmed.Contains($"<Using Include=\"{Capability}\"", StringComparison.Ordinal);
+            });
+
+            if (offends)
+            {
+                offenders.Add(Path.GetRelativePath(root.FullName, file));
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            $"A project-wide import of '{Capability}' lets any file in that project decode with "
+                + "no local mention of the namespace, so grepping the bare string no longer says "
+                + "which files can recover the original: "
+                + string.Join("; ", offenders));
+    }
 }

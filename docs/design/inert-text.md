@@ -215,7 +215,7 @@ So the decoder lives in its own namespace:
 
 | Namespace | Contains | A file naming it can |
 | --- | --- | --- |
-| `InertText` | `InertString`, `ScalarPolicy`, `TextPolicy`, `VisualForm` | build, compose, compare and print inert text |
+| `InertText` | `InertString`, `TextPolicy`, `VisualForm` | build, compose, compare and print inert text |
 | `InertText.Encoder` | `VisualEncoder` | additionally recover the original text |
 
 Text enters through `InertString`'s constructor and leaves through `ToString`
@@ -233,11 +233,31 @@ InertText.Encoder.VisualEncoder.TryDecode(inert.ToString(), out string? original
 
 That compiles and recovers the original. A reviewer who greps for the directive
 sees a clean import list and concludes the file cannot decode, which is the
-opposite of the truth. Greping the bare namespace catches both forms, because a
-fully-qualified call has to spell the namespace too — there is no third way in.
+opposite of the truth. Grepping the bare namespace catches both forms, because a
+fully-qualified call has to spell the namespace too.
 
-So: a file that does not mention `InertText.Encoder` at all has no path back to
-the original of any value it handles.
+There is a third way, and it spells the namespace in a different file:
+
+```csharp
+// one file, or a <Using Include="InertText.Encoder" /> item in the .csproj
+global using InertText.Encoder;
+```
+
+Every other file in that project can then call `VisualEncoder.TryDecode` with no
+local mention of the namespace. The search still finds the import — it is still
+text in the repository — but it stops answering *which files* can decode and
+starts answering *which projects* can, and the file it points at is not the file
+doing the decoding.
+
+That granularity is therefore an invariant of the build rather than of the
+language, so it is gated by a test
+(`NoProjectImportsTheCapabilityNamespaceForEveryFileAtOnce`) that fails on a
+`global using` or a `<Using>` item naming the capability namespace. Nothing needs
+one: production does not name the namespace at all, and the tests that
+legitimately decode use ordinary per-file directives.
+
+So, with that gate in place: a file that does not mention `InertText.Encoder` at
+all has no path back to the original of any value it handles.
 
 A reflection test enumerates every public member of the `InertText` namespace
 that returns text and accounts for each one: `ToString` (the encoded form),
