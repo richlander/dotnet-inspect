@@ -433,9 +433,11 @@ jobs:
   # principle: the slow decompiler gates and corpus sensor (the #3326 class),
   # IL round-trip (its ilasm restore is a bash script), and packaging.
   #
-  # NOTE: like every other job here, this one is not merge-blocking today,
-  # because the `main` ruleset declares no required status checks at all. See
-  # the `decompiler-gates` note below.
+  # Like every other job here, this one must never be named as a required
+  # status check directly: it is path-gated and PR-only, and a required check
+  # that does not run is reported as "Expected" forever, blocking the merge
+  # permanently. Its result reaches `ci-required`, the aggregate gate at the
+  # end of this file, which is where it becomes merge-blocking.
   test-windows:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
@@ -1034,6 +1036,10 @@ jobs:
       - changes
       - markdownlint
       - test
+      # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
+      # pushes to main. That passes the gate by design; the allow list below
+      # distinguishes "correctly not run" from "ran and failed".
+      - test-windows
       - build-net10
       - decompiler-gates
       - csharp-diff-smoke
