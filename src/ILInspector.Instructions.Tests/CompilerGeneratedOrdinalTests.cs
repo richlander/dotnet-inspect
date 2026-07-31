@@ -535,6 +535,15 @@ public class CompilerGeneratedOrdinalTests
     /// other, so either could be deleted with the suite green while the surviving half hid
     /// it. Only a row whose <em>other</em> side is default can observe one half alone.
     /// </para>
+    /// <para>
+    /// The image carries a generated <em>type</em> as well as a generated method, and both
+    /// sides of the correspondence are asserted. Checking only the method side would leave
+    /// the claim narrower than its prose: the type index is built by the same call, and a
+    /// change that kept indexing types under a custom decoder while clearing only the
+    /// method maps would satisfy a method-only assertion.
+    /// <see cref="DefaultStringDecoder_StillFolds"/> carries the matching type assertion,
+    /// so neither half is vacuous.
+    /// </para>
     /// </remarks>
     [Theory]
     [InlineData(true, true)]
@@ -542,7 +551,8 @@ public class CompilerGeneratedOrdinalTests
     [InlineData(false, true)]
     public void NonDefaultStringDecoder_FoldsNothing(bool oldIsCustom, bool newIsCustom)
     {
-        using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
+        using var pe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<M>g__L|3_0")], generatedTypes: ["<M>d__3"])));
         // An ordinary UTF-8 decoder: it decodes exactly as the default one does, so the
         // image still folds under the default rules and only decoder identity differs.
         var custom = pe.GetMetadataReader(
@@ -556,23 +566,48 @@ public class CompilerGeneratedOrdinalTests
 
         Assert.False(oldSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
         Assert.False(newSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out _));
+
+        var generatedType = GeneratedTypeHandle(standard, "<M>d__3");
+        Assert.False(oldSide.TryGetTypeName(generatedType, out _));
+        Assert.False(newSide.TryGetTypeName(generatedType, out _));
     }
 
     /// <summary>
     /// The complement, so <see cref="NonDefaultStringDecoder_FoldsNothing"/> cannot pass
     /// because the image happens to fold nothing anyway: the same image under the default
-    /// decoder does fold, and folds to the elided form.
+    /// decoder does fold, and folds to the elided form. Both the method and the type are
+    /// asserted, because that test asserts both.
     /// </summary>
     [Fact]
     public void DefaultStringDecoder_StillFolds()
     {
-        using var pe = new PEReader(new MemoryStream(BuildImage("Probe", [Generated("<M>g__L|3_0")])));
+        using var pe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [Generated("<M>g__L|3_0")], generatedTypes: ["<M>d__3"])));
         var reader = pe.GetMetadataReader();
 
         var (oldSide, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
 
         Assert.True(oldSide.TryGetMethodName(MetadataTokens.MethodDefinitionHandle(2), out string? folded));
         Assert.Equal($"<M>g__L|{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}_0", folded);
+
+        Assert.True(oldSide.TryGetTypeName(GeneratedTypeHandle(reader, "<M>d__3"), out string? foldedType));
+        Assert.Equal($"<M>d__{CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder}", foldedType);
+    }
+
+    /// <summary>
+    /// Resolves a type definition by its metadata name. Looked up rather than assumed from
+    /// a row number, so that changing what <see cref="BuildImage"/> emits cannot silently
+    /// point an assertion at a different type.
+    /// </summary>
+    static TypeDefinitionHandle GeneratedTypeHandle(MetadataReader reader, string name)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            if (reader.GetString(reader.GetTypeDefinition(handle).Name) == name)
+                return handle;
+        }
+
+        throw new InvalidOperationException($"No type definition named '{name}' in the probe image.");
     }
 
     /// <summary>
