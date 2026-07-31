@@ -374,6 +374,13 @@ public sealed class ScannerRegistry
     /// original <c>params</c> array and this accessor's return value to produce exactly that
     /// divergence. <see cref="Add"/> and <see cref="AddBundle"/> copy on registration for the same
     /// reason. Gate: <c>SectionPipelineTests.PrerequisiteList_CannotBeMutatedAfterRegistration</c>.
+    ///
+    /// The boundary this holds against is ordinary calling code, not deliberate subversion:
+    /// <c>ImmutableCollectionsMarshal.AsArray</c> still reaches the backing store, as would
+    /// reflection or unsafe code. That is out of scope by the same reasoning that applies to every
+    /// other <see cref="ImmutableArray{T}"/> accessor in this codebase, and the threat model
+    /// (<c>docs/design/untrusted-data-threat-model.md</c>) draws its boundaries around
+    /// artifact-derived data rather than in-process callers.
     /// </summary>
     public ImmutableArray<string> RequirementsOf(string key)
         => _requires.TryGetValue(key, out var r) ? r : [];
