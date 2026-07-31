@@ -538,6 +538,103 @@ public class InertStringTests
         Assert.Equal("\u202Ecmd", original);
     }
 
+    /// <summary>
+    /// The third leg, and the one that makes the other two worth having: producing inert text
+    /// never requires naming the capability namespace.
+    /// </summary>
+    /// <remarks>
+    /// The audit this design sells is a search — "which files can recover the original?" — and a
+    /// search is only worth running if its answer is small. That is a property of the
+    /// <em>producing</em> side, not the decoding side. If the only way to make an
+    /// <see cref="InertString"/> were to call the encoder, then every file that produces inert
+    /// text would carry <c>using InertText.Encoder</c>, the decoder would sit one member access
+    /// away in all of them, and the search would return the whole producer set. The signal would
+    /// survive in form and be worthless in practice.
+    ///
+    /// Measured on the tree that introduced this: four production files produce inert text and
+    /// <em>none</em> imports the capability namespace. Routing production through the encoder
+    /// would make that four out of five, so the constructor is not sugar over
+    /// <c>VisualEncoder.Encode</c> — it is what keeps the false-positive rate at zero.
+    ///
+    /// The claim is about <em>production</em> code, and deliberately so. This test file imports
+    /// <c>InertText.Encoder</c> itself, as do the encoder's own tests: invertibility is a
+    /// contract, so something has to decode in order to check it. A test that can decode is the
+    /// system working, not a leak — the search that matters is over the files that ship. Read
+    /// the counts above as production-only.
+    ///
+    /// Two distinct regressions are gated here, because both look like tidying:
+    /// <list type="bullet">
+    /// <item>Removing the public constructor in favour of an encoder factory, on the grounds
+    /// that the constructor "just forwards".</item>
+    /// <item>Moving <c>ScalarPolicy</c> or <c>TextPolicy</c> next to the encoder, on the grounds
+    /// that the policy is "part of encoding". The creation path would still exist and would
+    /// still drag the import in with it.</item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void InertTextCanBeProducedWithoutNamingTheCapabilityNamespace()
+    {
+        const string Capability = "InertText.Encoder";
+
+        // Every public way to obtain an InertString: constructors, and static members that
+        // hand one back. Enumerated so a creation path added later is covered without an edit.
+        List<(string Name, Type[] Needs)> paths =
+        [
+            .. typeof(InertString).GetConstructors(Declared)
+                .Select(c => ($".ctor({Describe(c.GetParameters())})",
+                    c.GetParameters().Select(p => p.ParameterType).ToArray())),
+            .. typeof(InertString).GetMethods(Declared)
+                .Where(m => m.IsStatic && m.ReturnType == typeof(InertString))
+                .Select(m => ($"{m.Name}({Describe(m.GetParameters())})",
+                    m.GetParameters().Select(p => p.ParameterType).ToArray())),
+        ];
+
+        // Non-vacuity. Without this the test passes by there being no creation path at all,
+        // which is precisely the regression it exists to catch.
+        Assert.NotEmpty(paths);
+
+        (string Name, Type[] Needs)[] dragIn = [.. paths
+            .Where(p => p.Needs.Any(t => Namespaces(t).Any(ns => ns == Capability)))];
+
+        // Every path, not merely one of them. "Some way in is clean" is not the property --
+        // a caller uses the path that fits its call site, so a single contaminated overload is
+        // a hole for everyone who reaches for it.
+        Assert.True(
+            dragIn.Length == 0,
+            $"These ways to build an InertString name a type from '{Capability}', so the files "
+                + "that use them must import the decoder and the audit search stops being worth "
+                + "running: "
+                + string.Join("; ", dragIn.Select(p => p.Name)));
+
+        // The policy a caller must pass has to be reachable from the currency namespace too --
+        // a self-contained signature is no use if the only ScalarPolicy values live next to the
+        // decoder.
+        Assert.Equal("InertText", typeof(ScalarPolicy).Namespace);
+        Assert.Equal("InertText", typeof(TextPolicy).Namespace);
+
+        // Smoke check that the reflected signature is actually callable as described.
+        InertString produced = new("\u202Ecmd", TextPolicy.Field);
+        Assert.True(produced.WasEncoded);
+
+        static IEnumerable<string> Namespaces(Type type)
+        {
+            Type bare = type.IsByRef ? type.GetElementType()! : type;
+
+            yield return bare.Namespace ?? string.Empty;
+
+            foreach (Type argument in bare.IsGenericType ? bare.GetGenericArguments() : [])
+            {
+                foreach (string nested in Namespaces(argument))
+                {
+                    yield return nested;
+                }
+            }
+        }
+
+        static string Describe(ParameterInfo[] parameters)
+            => string.Join(", ", parameters.Select(p => p.ParameterType.Name));
+    }
+
     private const BindingFlags Declared =
         BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 }
