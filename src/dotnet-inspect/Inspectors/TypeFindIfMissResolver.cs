@@ -53,7 +53,7 @@ internal sealed record TypeFindIfMissResult(
 
     public int WriteAmbiguousError()
     {
-        Console.Error.WriteLine($"Error: Type '{Query}' matched multiple platform types. Use `find {Query} --platform` to choose a source library.");
+        CommandError.Write($"Type '{Query}' matched multiple platform types. Use `find {Query} --platform` to choose a source library.");
         return 1;
     }
 }

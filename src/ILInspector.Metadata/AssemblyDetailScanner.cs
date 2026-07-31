@@ -277,31 +277,7 @@ public static class AssemblyDetailScanner
     };
 
     private static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)
-    {
-        try
-        {
-            var blob = reader.GetBlobReader(attr.Value);
-            if (blob.Length < 2) return null;
-            blob.ReadUInt16(); // prolog
-
-            // Try reading a single string argument
-            var value = blob.ReadSerializedString();
-            if (value == null) return null;
-
-            // Filter out binary/control character values
-            foreach (char c in value)
-            {
-                if (char.IsControl(c) && c != '\t' && c != '\n' && c != '\r')
-                    return null;
-            }
-
-            return string.IsNullOrWhiteSpace(value) ? null : value;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => AttributeReader.TryGetAttributeDisplayValue(reader, attr);
 
     private static (string Key, string Value)? TryGetAssemblyMetadataValue(MetadataReader reader, CustomAttribute attr)
     {

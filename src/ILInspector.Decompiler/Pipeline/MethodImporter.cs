@@ -127,13 +127,18 @@ public static class MethodImporter
                 CatchType(reader, region.CatchType, scope)));
         }
 
+        var il = body.GetILBytes() ?? [];
+        var declarations = source.LocalDeclarations(methodHandle, locals.Length);
         var methodBody = new MethodBody(
-            [.. body.GetILBytes() ?? []],
+            [.. il],
             body.MaxStack,
             locals,
-            LocalNames: source.LocalNames(methodHandle, locals.Length),
+            LocalNames: declarations.Names,
             handlers.MoveToImmutable(),
-            SkipLocalsInit: !body.LocalVariablesInitialized);
+            SkipLocalsInit: !body.LocalVariablesInitialized)
+        {
+            LocalDeclaredInNestedScope = NestedScopeFlags(declarations.Scopes, il.Length),
+        };
 
         return new ImportedMethod(
             declaringType,
@@ -147,6 +152,23 @@ public static class MethodImporter
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
+
+    /// <summary>
+    /// Reduces raw PDB declaration scopes to the fact the IR needs: per slot, whether
+    /// the source declared the local inside a nested block rather than at method
+    /// scope. A slot with no scope entry is a compiler temp, which the source never
+    /// declared anywhere, so it is not nested.
+    /// </summary>
+    static ImmutableArray<bool> NestedScopeFlags(ImmutableArray<LocalSlotScope?> scopes, int ilLength)
+    {
+        if (scopes.IsDefaultOrEmpty)
+            return [];
+
+        var flags = new bool[scopes.Length];
+        for (int i = 0; i < scopes.Length; i++)
+            flags[i] = scopes[i] is { } scope && !scope.CoversMethodBody(ilLength);
+        return [.. flags];
+    }
 
     static bool HasDefault(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
     {

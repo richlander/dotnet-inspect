@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
@@ -52,7 +53,8 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine($"Type '{result.MatchedType}' has no type dependencies beyond System.Object.");
+                CommandError.WriteLine(
+                    $"Type '{ContainLabel(result.MatchedType ?? options.TargetType)}' has no type dependencies beyond System.Object.");
                 return 0;
             }
 
@@ -69,7 +71,10 @@ public class DependsCommand
             }
             else
             {
-                var rootName = options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!;
+                // The root label sits at the head of the same tree, so it needs
+                // the same containment as its children.
+                var rootName = ContainLabel(
+                    options.TargetType.Contains('<') ? options.TargetType : result.MatchedType!);
                 var treeNodes = ToTreeNodes(result.Tree);
 
                 if (options.MermaidOutput)
@@ -95,7 +100,7 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -112,7 +117,7 @@ public class DependsCommand
                 context.HttpClient, libraryName, options.SourceOptions, logger);
             if (result is LibraryDependencyGraphResult.Error error)
             {
-                Console.Error.WriteLine($"Error: {error.Message}");
+                CommandError.Write($"{error.Message}");
                 if (error.HintInput != null)
                     NamespacePrefixHints.WriteIfLikelyNamespacePrefix(error.HintInput);
                 return 1;
@@ -125,7 +130,7 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
+                CommandError.WriteLine($"No assembly references found in '{empty.AssemblyName}'.");
                 return 0;
             }
 
@@ -142,13 +147,13 @@ public class DependsCommand
             }
             else if (options.EmbeddedMermaid)
             {
-                WriteEmbeddedMermaidTree(graph.AssemblyName, treeNodes);
+                WriteEmbeddedMermaidTree(ContainLabel(graph.AssemblyName), treeNodes);
             }
             else
             {
                 var view = new PackageDependenciesView
                 {
-                    Title = graph.AssemblyName,
+                    Title = ContainLabel(graph.AssemblyName),
                     Dependencies = treeNodes
                 };
                 WriteMarkdown(view, options.Rows);
@@ -157,7 +162,7 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -174,9 +179,11 @@ public class DependsCommand
                 context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);
             if (result is PackageDependencyGraphResult.Error error)
             {
-                Console.Error.WriteLine($"Error: {error.Message}");
-                if (error.Detail != null)
-                    Console.Error.WriteLine(error.Detail);
+                // Detail lists the TFMs a package actually offers, which comes
+                // straight out of its .nuspec. It used to go out as its own
+                // unindented line, so a hostile targetFramework attribute
+                // containing a line separator forged a diagnostic under it.
+                CommandError.Write(error.Message, error.Detail is null ? [] : [error.Detail]);
                 return 1;
             }
             if (result is PackageDependencyGraphResult.Empty empty)
@@ -187,7 +194,7 @@ public class DependsCommand
                     return 0;
                 }
 
-                Console.Error.WriteLine(empty.Message);
+                CommandError.WriteLine(empty.Message);
                 return 0;
             }
 
@@ -200,17 +207,17 @@ public class DependsCommand
             }
             else if (options.MermaidOutput)
             {
-                WriteMermaidTree(graph.Title, treeNodes);
+                WriteMermaidTree(ContainLabel(graph.Title), treeNodes);
             }
             else if (options.EmbeddedMermaid)
             {
-                WriteEmbeddedMermaidTree(graph.Title, treeNodes);
+                WriteEmbeddedMermaidTree(ContainLabel(graph.Title), treeNodes);
             }
             else
             {
                 var view = new PackageDependenciesView
                 {
-                    Title = graph.Title,
+                    Title = ContainLabel(graph.Title),
                     Dependencies = treeNodes
                 };
                 WriteMarkdown(view, options.Rows);
@@ -219,17 +226,26 @@ public class DependsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
+
+    /// <summary>
+    /// A tree label is written straight into the terminal beside a box-drawing
+    /// gutter, so an ESC or a bidi override in a metadata name rewrites the
+    /// shape of the tree itself (issue #3319). Containment goes here, at
+    /// construction, so every renderer of the node inherits it.
+    /// </summary>
+    private static string ContainLabel(string label)
+        => CSharpIdentifier.ContainRenderedText(label);
 
     private static List<TreeNode> ToTreeNodes(List<TypeDependencyNode> nodes)
     {
         return nodes.Select(n =>
             n.Children.Count > 0
-                ? new TreeNode(n.TypeName) { Children = ToTreeNodes(n.Children) }
-                : new TreeNode(n.TypeName)
+                ? new TreeNode(ContainLabel(n.TypeName)) { Children = ToTreeNodes(n.Children) }
+                : new TreeNode(ContainLabel(n.TypeName))
         ).ToList();
     }
 
@@ -256,6 +272,7 @@ public class DependsCommand
             var label = !string.IsNullOrEmpty(n.Author)
                 ? $"{n.PackageId} {n.Version} [{n.Author}]"
                 : $"{n.PackageId} {n.Version}";
+            label = ContainLabel(label);
             return n.Children.Count > 0
                 ? new TreeNode(label) { Children = ToDependencyTreeNodes(n.Children) }
                 : new TreeNode(label);
@@ -278,6 +295,7 @@ public class DependsCommand
             var label = !string.IsNullOrEmpty(node.Company)
                 ? $"{node.Name} {node.Version} [{node.Company}]"
                 : $"{node.Name} {node.Version}";
+            label = ContainLabel(label);
             index++;
 
             List<TreeNode> children = [];

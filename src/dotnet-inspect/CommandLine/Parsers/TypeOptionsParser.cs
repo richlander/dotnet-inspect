@@ -57,7 +57,13 @@ public static class TypeOptionsParser
     /// <summary>
     /// Indicates a version error occurred.
     /// </summary>
-    public record VersionError(string Message) : TypeParseResult;
+    /// <remarks>
+    /// Carries an <see cref="DotnetInspector.Options.OptionError"/> rather than a
+    /// bare string so a validation failure keeps its detail lines all the way to
+    /// the writer; the implicit conversion leaves the message-only sites
+    /// unchanged.
+    /// </remarks>
+    public record VersionError(DotnetInspector.Options.OptionError Error) : TypeParseResult;
 
     /// <summary>
     /// Indicates an unrecognized option was found.
@@ -92,7 +98,7 @@ public static class TypeOptionsParser
         }
 
         if (hasProjectSource && hasNonProjectSource)
-            return new VersionError("Error: --project cannot be combined with --package, --library, or --platform.");
+            return new VersionError("--project cannot be combined with --package, --library, or --platform.");
 
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
