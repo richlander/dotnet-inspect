@@ -105,6 +105,23 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
+### Four routes into the same defect
+
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and four different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+
+| Route | Closed by |
+| --- | --- |
+| A scanner acquires the body index without declaring `Unbounded` | `RequireUnboundedDeclaration` at acquisition, not at registration |
+| A key is re-registered with a higher cost after sections snapshotted it | `RejectReregistration` in `Add`/`AddBundle` |
+| A prerequisite list is mutated through an alias the caller still holds | copy-on-registration into `ImmutableArray<string>` |
+| A scanner calls `LibraryBodyIndex.Open(ctx.AssemblyPath)` itself | an IL-analysis gate over this repository's own compiled assembly |
+
+The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
+
+The fourth is the only one no seam can intercept. `ctx.AssemblyPath` is a `string`, and a static `LibraryBodyIndex.Open(path)` call bypasses `RequireUnboundedDeclaration` entirely while doing the same seconds of whole-assembly work. Unlike deliberate subversion through `ImmutableCollectionsMarshal`, this route is reachable from ordinary code, so it is a genuine drift path. `NoScannerBypassesTheDeclarationGateByOpeningTheBodyIndexDirectly` closes it by running this repository's own IL analysis over its own compiled assembly and asserting that no caller of `LibraryBodyIndex.Open` or `OpenFromPrefetchedImage` lives in the `DotnetInspector.Sections` namespace. The sanctioned callers are the inspection session and the `diff`/`timeline` commands, none of which are scanners. The gate carries its own non-vacuity assertion — that the query finds openers *somewhere* — because a rename or an analysis change would otherwise make it pass by finding nothing at all, which is precisely how the earlier versions of these gates failed.
+
+`RequirementsOf` returns `ImmutableArray<string>`, which `ImmutableCollectionsMarshal.AsArray` can still unwrap. That is a documented property of `ImmutableArray` shared by every one of this repository's public `ImmutableArray`-returning members, not a property of this registry, and the type is unused anywhere in the product. The boundary is named in `RequirementsOf`'s doc comment rather than left as an unqualified claim.
+
 ## Data Flow
 
 ```text

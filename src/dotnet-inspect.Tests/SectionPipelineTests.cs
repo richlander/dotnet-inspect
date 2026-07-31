@@ -1815,6 +1815,50 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void NoScannerBypassesTheDeclarationGateByOpeningTheBodyIndexDirectly()
+    {
+        // The fourth route into this PR's defect class, raised by the GPT review of #3626 after
+        // the first three were closed. RequireUnboundedDeclaration guards ctx.BodyIndex() and
+        // ctx.DrillMap(), but a scanner holds ctx.AssemblyPath and can call
+        // LibraryBodyIndex.Open(path) itself, doing seconds of whole-assembly work while its
+        // section still declares NetworkFree. Nothing in the type system prevents that, and
+        // unlike the ImmutableCollectionsMarshal route it is reachable from ordinary code -- so
+        // it is a real drift path rather than deliberate subversion.
+        //
+        // The enforcement uses this repository's own IL analysis over its own compiled assembly,
+        // which is the only way to see through a static call that no seam intercepts. Scanner
+        // bodies are lambdas compiled into closure types in DotnetInspector.Sections, so a
+        // scanner that opened an index directly would appear here as a caller in that namespace.
+        var index = ILInspector.Analysis.LibraryBodyIndex.Open(
+            typeof(ScannerRegistry).Assembly.Location);
+
+        var openersInSections = index.DirectCalls
+            .Where(call => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
+                && call.Callee.Name is "Open" or "OpenFromPrefetchedImage")
+            .Select(call => call.Caller.DeclaringType)
+            .Where(type => type.Namespace.StartsWith("DotnetInspector.Sections", StringComparison.Ordinal))
+            .Select(type => type.Namespace + "." + type.Name)
+            .Distinct()
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(openersInSections);
+
+        // Non-vacuity: the query must actually be able to see openers. If the callee match broke
+        // -- a rename, a wrapper, an analysis change -- the assertion above would pass by finding
+        // nothing at all, which is the failure mode this whole PR keeps running into.
+        var openersAnywhere = index.DirectCalls
+            .Count(call => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
+                && call.Callee.Name is "Open" or "OpenFromPrefetchedImage");
+
+        Assert.True(
+            openersAnywhere > 0,
+            "The query found no LibraryBodyIndex.Open callers at all, so it cannot be evidence " +
+            "that scanners do not open one. Sanctioned callers are the inspection session and " +
+            "the diff/timeline commands.");
+    }
+
+    [Fact]
     public void PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt()
     {
         // GPT's re-review asked whether the re-registration guard reaches one level down: can
