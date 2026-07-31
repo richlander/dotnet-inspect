@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Eight routes into the same defect
+### Nine routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and eight different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and nine different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -119,8 +119,9 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A helper in another product assembly opens the index internally | the assembly set derived as the CLI's product reference closure |
 | A second overload of a pinned opener collapses into its sibling | opener identity keyed by full signature, not by `Type::Method` |
 | A generic opener (`Open<T>(string)`) collapses into its non-generic namesake | generic arity carried in the identity key |
+| A scanner opens the index by **reflection**, which no IL walk can follow | the set of reflection APIs reachable from `Sections` is pinned instead |
 
-That the enumeration reached eight is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached nine is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
@@ -152,6 +153,10 @@ That second edge is not defensive tidying. Review escaped the derived-closure ve
 
 Attribution deliberately goes through the generated type's **constructor** rather than through the origin name the compiler encodes in `<Origin>d__N`. A name carries no signature, so parsing it re-creates the overload collapse that signatures were introduced to fix: `ResourceLifecycleAnalysis.InspectAssembly` has two overloads, and name-based attribution reports the sanctioned one as a violation. The constructor is signature-exact and grounded in a real IL edge. Lambdas need no special case at all — `ldftn` is already recorded, so the origin already reaches them.
 
+That choice has one assumption inside it, and the assumption is asserted rather than trusted. A **struct-based async state machine** has no constructor — it is a local the origin never allocates, started through `AsyncTaskMethodBuilder.Start<TStateMachine>(ref …)` — so there would be nothing for the edge to attach to. On this toolchain the case does not arise: async methods compile with no state machine type at all, so the call stays in the method body where the walk already sees it directly. Measured across the closure, all 114 generated types declaring a `MoveNext` are class-based iterators with a `.ctor`, and the only two generated types without one are static `<G>$` data holders whose members are `call`ed directly and need no attribution.
+
+Because that is a property of the compiler rather than of this test, the gate asserts it: no generated type declaring a `MoveNext` may lack a constructor node. If a future toolchain emits a constructor-less state machine, the attribution edge would silently stop covering it — the exact failure mode that let five earlier versions of this gate look closed — and that assertion is what says so.
+
 Cutting the walk at the accessor is what keeps it precise. Without the cut it reports legitimate `Sections` members: the accessor itself, the `Unbounded` scanner lambdas that use it, and their enclosing factory. A gate that flagged those would need an allow list, and the allow list would become the hole.
 
 Its boundary used to be the assembly, and that boundary was a live hole rather than a theoretical one. A `NetworkFree` scanner calling `LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath)` left both claims green while the real CLI spent 5.1 s building an index — ordinary typed code, not subversion, because `ILInspector.Analysis` opens the index *inside* a helper this assembly's call graph knows nothing about. The gate had named that boundary and called it unverified; naming it was not enough.
@@ -160,7 +165,13 @@ Naming a *second* assembly was not enough either, and for a reason worth keeping
 
 Deriving it also settles a question a directory scan would get wrong. `DotnetInspector.Fixtures` sits in the same output directory and matches the same name prefix, so a glob would sweep test-support code into the pinned opener set. The closure excludes it because the CLI does not reference it — a property, not an exception, and one the gate asserts.
 
-What remains outside is reflection and interface dispatch that never resolves to a definition. Those are **unverified, not closed**, and the gate says so where it is written.
+What remains outside is interface dispatch that never resolves to a definition. That is **unverified, not closed**, and the gate says so where it is written.
+
+Reflection used to be on that list, and taking it off is the most useful thing this review produced. `typeof(LibraryBodyIndex).GetMethod("Open").Invoke(...)` from a `NetworkFree` scanner cost a measured 290.2 ms with both claims green, and the obvious reading is that it condemns every static IL gate equally and therefore cannot be fixed here.
+
+That reading is right about the question it asks. No walk can follow where a reflective call goes. But "where does this call go" is not the only question available: asked instead as *does section code use reflection at all*, the category is enumerable, small, and visible in the very same graph. Measured across `DotnetInspector.Sections` there is exactly **one** such call, and it is inside the gated accessor's own diagnostic message. So the set is pinned rather than described, and a scanner cannot reach an opener by reflection without first calling a reflection API and changing that set.
+
+The general lesson is the same one the assembly closure taught, arriving from the other direction: when evidence cannot answer the question you are asking, check whether a different question with the same consequence is answerable. "Unverified" was a correct description of the *walk*, and still the wrong conclusion about the gate.
 
 ### Work that belongs to no scanner cannot be afforded
 

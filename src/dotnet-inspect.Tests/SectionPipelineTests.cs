@@ -2060,6 +2060,37 @@ public class SectionPipelineTests
                 AddEdge(CallerKey(generated), constructor);
         }
 
+        // That edge needs the generated type to *have* a constructor, and a struct-based async
+        // state machine has none -- it is a local the origin never allocates, started through
+        // `AsyncTaskMethodBuilder.Start<TStateMachine>(ref …)`, so no IL edge exists to attach to.
+        //
+        // On this toolchain the case does not arise: async methods compile with no state machine
+        // type at all, so the call stays in the method body where the walk already sees it, and
+        // every generated type declaring a `MoveNext` is a class-based iterator with a `.ctor`.
+        // Measured, the only generated types here without a constructor are the two static `<G>$`
+        // data holders, whose members are `call`ed directly and need no attribution.
+        //
+        // That is a property of the compiler, not of this test, so it is asserted rather than
+        // assumed. If a future toolchain emits a constructor-less state machine, the attribution
+        // edge would silently stop covering it -- the exact failure mode that let five earlier
+        // versions of this gate look closed -- and this is the assertion that says so.
+        var stateMachines = calls
+            .Select(call => call.Caller)
+            .Where(method => method.Name == "MoveNext" && IsCompilerGenerated(method.DeclaringType))
+            .Select(method => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var stateMachinesMissingAConstructor = stateMachines
+            .Where(type => !constructorsByType.ContainsKey(type))
+            .OrderBy(type => type, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(stateMachinesMissingAConstructor);
+
+        // And the check above must have something to check.
+        Assert.NotEmpty(stateMachines);
+
         var openerKeys = calls
             .Where(OpensAnIndex)
             .Select(call => CallerKey(call.Caller))
@@ -2170,10 +2201,39 @@ public class SectionPipelineTests
         // opener. If it stopped reaching one, cutting there would prove nothing about Sections.
         Assert.NotEmpty(gatesOnAPath);
 
+        // Reflection was the one route this gate named as out of scope, and MAI-Code's review of
+        // this head duly walked through it: `typeof(LibraryBodyIndex).GetMethod("Open").Invoke(...)`
+        // from a NetworkFree scanner cost a measured 290.2 ms with both claims green.
+        //
+        // No IL walk can follow that call, so the obvious reading is that it condemns every static
+        // gate equally and has to stay unverified. But the escape is only unreachable *evidence*
+        // if the question is "where does this call go". Asked the other way -- "does section code
+        // use reflection at all" -- the category is enumerable, small, and visible in the very
+        // same graph. Measured across DotnetInspector.Sections there is exactly one such call, and
+        // it is inside the gated accessor's own diagnostic message.
+        //
+        // So it is pinned rather than described. A scanner cannot reach an opener by reflection
+        // without first calling a reflection API, and doing that changes this set.
+        var reflectionUsers = calls
+            .Where(call => CallerKey(call.Caller).StartsWith("DotnetInspector.Sections", StringComparison.Ordinal))
+            .Where(call => call.Callee.DeclaringType.Namespace.StartsWith("System.Reflection", StringComparison.Ordinal)
+                || call.Callee.DeclaringType.ToDisplayString() is "System.Type" or "System.Activator")
+            .Select(call => $"{CallerKey(call.Caller)} -> {call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            ["DotnetInspector.Sections.ScannerContext::BodyIndex() -> MemberInfo::get_Name"],
+            reflectionUsers);
+
         // Boundary, stated rather than implied. This walk sees the CLI's product reference
-        // closure, so code that never enters that closure -- reflection, and interface dispatch
-        // that never resolves to a definition -- remains **unverified, not closed**. What is no
-        // longer a boundary is the assembly: a helper anywhere in the product is in scope.
+        // closure, so interface dispatch that never resolves to a definition remains
+        // **unverified, not closed**. Reflection was on that list until the assertion just above
+        // took it off -- not by making the walk follow a reflective call, which is impossible,
+        // but by pinning the far smaller set of reflection APIs section code may touch at all.
+        // What is no longer a boundary is the assembly: a helper anywhere in the product is in
+        // scope.
         //
         // What is *not* an open edge any more is the unscoped caller. An earlier revision of this
         // comment said the cut asserts only that sections route through the accessor, and that a
