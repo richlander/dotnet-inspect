@@ -460,10 +460,12 @@ jobs:
   # passes nor fails, so the pin list is a ratchet in both directions rather
   # than a permanent exemption.
   #
-  # NOTE: this job is not merge-blocking today, because the `main` ruleset
-  # declares no required status checks at all — no job in this workflow blocks
-  # a merge. That is a repository-wide gap tracked separately; this job is
-  # exactly as enforcing as the existing `test` job until it is closed.
+  # NOTE: this path-gated job must never be named as a required status check
+  # directly. A required check that does not run on a given PR is reported as
+  # "Expected" forever and blocks that merge permanently, and this job is
+  # skipped on any PR that touches no decompiler-relevant path. Its result
+  # reaches the merge gate through the aggregate `ci-required` job at the end
+  # of this file, which is the single context the ruleset is meant to require.
   #
   # The remaining Fidelity-area classes are excluded on cost, not principle:
   # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two

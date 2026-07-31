@@ -434,8 +434,9 @@ the job survives, letting the checker run and fail loudly on the missing or
 truncated report.
 
 > [!NOTE]
-> This job reaches the merge gate through the aggregate `ci-required` job in
-> `ci.yml`, the single context the `main` ruleset is meant to require. It cannot
+> This job is intended to reach the merge gate through the aggregate
+> `ci-required` job in `ci.yml`, the single context the `main` ruleset is meant
+> to require. It cannot
 > be required directly: it is path-gated, and a required check that does not run
 > on a given PR is reported as "Expected" forever and blocks the merge
 > permanently. `ci-required` passes a `skipped` dependency and fails a
