@@ -5,8 +5,11 @@ namespace DotnetInspector.Sections;
 /// <summary>
 /// Non-generic descriptor for storage in collections.
 /// Created from <see cref="ISectionDescriptor{TModel}"/> implementations.
+/// A record so the pipeline can raise <see cref="Cost"/> with <c>with</c>: a hand-written copy
+/// would silently drop any property added later, and this type is never compared or used as a
+/// key, so the generated equality is unused rather than load-bearing.
 /// </summary>
-public sealed class SectionEntry<TModel>
+public sealed record SectionEntry<TModel>
 {
     public required string Name { get; init; }
     public required bool IsExpensive { get; init; }
@@ -47,6 +50,7 @@ public sealed class SectionPipeline<TModel>
     private readonly List<SectionCategory> _categories = [];
     private bool _curatedCatalog;
     private bool _computedPoles = true;
+    private Func<string, SectionCost>? _scannerCost;
 
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
@@ -62,6 +66,27 @@ public sealed class SectionPipeline<TModel>
     public SectionPipeline<TModel> UseCuratedCatalog()
     {
         _curatedCatalog = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Binds this pipeline to the scanner registry's declared costs, so a section registered
+    /// afterwards inherits the cost of the scanner it names (see <see cref="Add(SectionEntry{TModel})"/>).
+    ///
+    /// Throws if sections are already registered rather than retroactively raising them. Silent
+    /// order-dependence is what this change is removing, not something to reintroduce one layer up:
+    /// a call placed after the first <c>Add</c> would leave earlier sections under-declared, which
+    /// looks exactly like the defect being fixed.
+    /// </summary>
+    public SectionPipeline<TModel> UseScannerCosts(Func<string, SectionCost> costOf)
+    {
+        if (_entries.Count > 0)
+            throw new InvalidOperationException(
+                "UseScannerCosts must be called before any section is registered; " +
+                $"{_entries.Count} section(s) are already registered and would keep their " +
+                "declared cost.");
+
+        _scannerCost = costOf;
         return this;
     }
 
@@ -91,8 +116,26 @@ public sealed class SectionPipeline<TModel>
     /// rows twice. Noisy sections stay listed in the discovery catalog
     /// (<see cref="GetCatalogHiddenSections"/>) so they remain reachable by name.
     /// </summary>
-    private static bool IsAllMember(SectionEntry<TModel> entry)
+    private static bool IsAllMemberIgnoringCost(SectionEntry<TModel> entry)
         => !entry.IsExpensive && !entry.ExplicitOnly;
+
+    /// <summary>
+    /// Whether a section joins the <c>@All</c> pole, which renders every member. A
+    /// <see cref="SectionEntry{TModel}.Noisy"/> section is deliberately excluded: it is a
+    /// superset of narrower sections, so rendering it alongside them would emit the same
+    /// rows twice. Noisy sections stay listed in the discovery catalog
+    /// (<see cref="GetCatalogHiddenSections"/>) so they remain reachable by name.
+    ///
+    /// In a curated catalog an <see cref="SectionCost.Unbounded"/> section is excluded too.
+    /// <c>@All</c> renders every member, so admitting one would run unbounded work under a
+    /// selector that reads as a convenience. This used to be enforced by requiring each Unbounded
+    /// descriptor to *also* set IsExpensive or ExplicitOnly, which made the declaration redundant
+    /// and left the two axes free to disagree; reading Cost here makes the disagreement
+    /// unrepresentable instead.
+    /// </summary>
+    private bool IsAllMember(SectionEntry<TModel> entry)
+        => IsAllMemberIgnoringCost(entry)
+            && !(_curatedCatalog && entry.Cost == SectionCost.Unbounded);
 
     /// <summary>
     /// Registers a section descriptor. The descriptor type is never instantiated —
@@ -132,12 +175,24 @@ public sealed class SectionPipeline<TModel>
                 $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
                 "provide a structural applicability predicate.");
 
-        // @All renders every member, so an Unbounded section must not be able to join it.
-        // IsAllMember reads IsExpensive/ExplicitOnly rather than Cost, so without this check
-        // the two axes could disagree and a section costing unbounded work would be pulled in
-        // by -S @All. Enforcing the implication here makes that state unrepresentable instead
-        // of leaving it to a comment on each descriptor.
-        if (entry.Cost == SectionCost.Unbounded && !entry.IsExpensive && !entry.ExplicitOnly)
+        // A section cannot be cheaper than the scanner it depends on. Raising here rather than
+        // asking each descriptor to restate its scanner's cost is the point: the same body-index
+        // work was previously spelled three different ways across eleven descriptors, and every
+        // new section was one more chance to under-declare it. A descriptor may still raise its
+        // own cost above the scanner's -- a cheap scan feeding an enormous rendering is a real
+        // case -- but it can no longer lower it.
+        if (_scannerCost is { } costOf && entry.ScannerKey is { } scannerKey)
+        {
+            var scanner = costOf(scannerKey);
+            if (scanner > entry.Cost)
+                entry = entry with { Cost = scanner };
+        }
+
+        // @All renders every member, so an Unbounded section must not be able to join it. Curated
+        // pipelines get this from IsAllMember, which reads Cost directly. Legacy pipelines select
+        // on position and IsExpensive and never consult Cost, so there the implication still has
+        // to be declared.
+        if (!_curatedCatalog && entry.Cost == SectionCost.Unbounded && !entry.IsExpensive && !entry.ExplicitOnly)
             throw new InvalidOperationException(
                 $"{entry.Name} declares Cost=Unbounded and must also declare IsExpensive=true " +
                 "or ExplicitOnly=true, otherwise it joins the @All pole.");

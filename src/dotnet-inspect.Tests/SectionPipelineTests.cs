@@ -633,7 +633,11 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
-        Assert.Contains(section, effective);
+        // Having rows makes the section renderable, not automatic: it is backed by the
+        // OptimizationOpportunities scanner, which declares Cost=Unbounded, so it leaves the
+        // -v:d ladder and is reached through -S or the @Performance door instead. Asserting both
+        // directions keeps this test honest about which of the two properties it is pinning.
+        Assert.DoesNotContain(section, effective);
         Assert.Contains(section, selected);
     }
 
@@ -1294,9 +1298,9 @@ public class SectionPipelineTests
     {
         var ran = new HashSet<string>();
         var registry = new ScannerRegistry()
-            .Add("A", _ => ran.Add("A"))
-            .Add("B", _ => ran.Add("B"))
-            .Add("C", _ => ran.Add("C"));
+            .Add("A", SectionCost.NetworkFree, _ => ran.Add("A"))
+            .Add("B", SectionCost.NetworkFree, _ => ran.Add("B"))
+            .Add("C", SectionCost.NetworkFree, _ => ran.Add("C"));
 
         registry.RunScanners(["A", "C"], new ScannerContext
         {
@@ -1316,7 +1320,7 @@ public class SectionPipelineTests
     {
         var ran = false;
         var registry = new ScannerRegistry()
-            .Add("A", _ => ran = true);
+            .Add("A", SectionCost.NetworkFree, _ => ran = true);
 
         registry.RunScanners([], new ScannerContext
         {
@@ -1355,9 +1359,9 @@ public class SectionPipelineTests
         // scanner has to defensively re-scan.
         List<string> order = [];
         var registry = new ScannerRegistry()
-            .Add("leaf", _ => order.Add("leaf"))
-            .Add("mid", _ => order.Add("mid"), "leaf")
-            .Add("top", _ => order.Add("top"), "mid", "leaf");
+            .Add("leaf", SectionCost.NetworkFree, _ => order.Add("leaf"))
+            .Add("mid", SectionCost.NetworkFree, _ => order.Add("mid"), "leaf")
+            .Add("top", SectionCost.NetworkFree, _ => order.Add("top"), "mid", "leaf");
 
         registry.RunScanners(["top"], NullScannerContext());
 
@@ -1369,9 +1373,9 @@ public class SectionPipelineTests
     {
         List<string> order = [];
         var registry = new ScannerRegistry()
-            .Add("leaf", _ => order.Add("leaf"))
-            .Add("a", _ => order.Add("a"), "leaf")
-            .Add("b", _ => order.Add("b"), "leaf");
+            .Add("leaf", SectionCost.NetworkFree, _ => order.Add("leaf"))
+            .Add("a", SectionCost.NetworkFree, _ => order.Add("a"), "leaf")
+            .Add("b", SectionCost.NetworkFree, _ => order.Add("b"), "leaf");
 
         registry.RunScanners(["a", "b"], NullScannerContext());
 
@@ -1385,8 +1389,8 @@ public class SectionPipelineTests
         // section fed by several scanners needs one key that stands for all of them.
         List<string> order = [];
         var registry = new ScannerRegistry()
-            .Add("a", _ => order.Add("a"))
-            .Add("b", _ => order.Add("b"))
+            .Add("a", SectionCost.NetworkFree, _ => order.Add("a"))
+            .Add("b", SectionCost.NetworkFree, _ => order.Add("b"))
             .AddBundle("bundle", "a", "b");
 
         registry.RunScanners(["bundle"], NullScannerContext());
@@ -1400,9 +1404,9 @@ public class SectionPipelineTests
         // Callers that reason about the work a run will do — body-analysis feature selection in
         // particular — must see prerequisites, or they narrow away work the run still performs.
         var registry = new ScannerRegistry()
-            .Add("leaf", _ => { })
-            .Add("mid", _ => { }, "leaf")
-            .Add("top", _ => { }, "mid");
+            .Add("leaf", SectionCost.NetworkFree, _ => { })
+            .Add("mid", SectionCost.NetworkFree, _ => { }, "leaf")
+            .Add("top", SectionCost.NetworkFree, _ => { }, "mid");
 
         Assert.Equal(
             ["leaf", "mid", "top"],
@@ -1418,7 +1422,7 @@ public class SectionPipelineTests
         // from descriptors across registries and an unknown one is skipped on purpose -- so only
         // the prerequisite edge is validated here.
         var registry = new ScannerRegistry()
-            .Add("a", _ => { }, "typo");
+            .Add("a", SectionCost.NetworkFree, _ => { }, "typo");
 
         var expand = Assert.Throws<InvalidOperationException>(
             () => registry.ExpandRequired(["a"]));
@@ -1432,7 +1436,7 @@ public class SectionPipelineTests
         // Non-vacuity: an unregistered key that was merely REQUESTED must still be skipped, or
         // this test would be passing for the wrong reason.
         var ran = false;
-        var tolerant = new ScannerRegistry().Add("a", _ => ran = true);
+        var tolerant = new ScannerRegistry().Add("a", SectionCost.NetworkFree, _ => ran = true);
         tolerant.RunScanners(["a", "not-registered"], NullScannerContext());
         Assert.True(ran);
     }
@@ -1441,8 +1445,8 @@ public class SectionPipelineTests
     public void RunScanners_ThrowsOnPrerequisiteCycle()
     {
         var registry = new ScannerRegistry()
-            .Add("a", _ => { }, "b")
-            .Add("b", _ => { }, "a");
+            .Add("a", SectionCost.NetworkFree, _ => { }, "b")
+            .Add("b", SectionCost.NetworkFree, _ => { }, "a");
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => registry.RunScanners(["a"], NullScannerContext()));
@@ -1456,8 +1460,8 @@ public class SectionPipelineTests
         // terminated quietly and returned a plausible closure. That made the acyclicity half of
         // LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic vacuous.
         var registry = new ScannerRegistry()
-            .Add("a", _ => { }, "b")
-            .Add("b", _ => { }, "a");
+            .Add("a", SectionCost.NetworkFree, _ => { }, "b")
+            .Add("b", SectionCost.NetworkFree, _ => { }, "a");
 
         var ex = Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired(["a"]));
         Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -1469,19 +1473,218 @@ public class SectionPipelineTests
         // A shared prerequisite reached by two paths is not a cycle. Guards against a cycle check
         // that keys off "already seen" rather than "currently being visited".
         var registry = new ScannerRegistry()
-            .Add("d", _ => { })
-            .Add("b", _ => { }, "d")
-            .Add("c", _ => { }, "d")
-            .Add("a", _ => { }, "b", "c");
+            .Add("d", SectionCost.NetworkFree, _ => { })
+            .Add("b", SectionCost.NetworkFree, _ => { }, "d")
+            .Add("c", SectionCost.NetworkFree, _ => { }, "d")
+            .Add("a", SectionCost.NetworkFree, _ => { }, "b", "c");
 
         Assert.Equal(
             ["a", "b", "c", "d"],
             registry.ExpandRequired(["a"]).OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    // ===== Scanner cost tests =====
+
     [Fact]
-    public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()
+    public void Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost()
     {
+        // The registry cannot see that a scanner touches the body index, because ctx.BodyIndex is
+        // a lazily-invoked method group -- which is how four scanners came to declare NetworkFree
+        // while doing whole-assembly IL work. So the declaration is enforced where the cost is
+        // incurred, not where it is registered.
+        var cheap = new ScannerRegistry()
+            .Add("cheap", SectionCost.NetworkFree, ctx => ctx.BodyIndex());
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => cheap.RunScanners(["cheap"], NullScannerContext()));
+        Assert.Contains("body index", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("NetworkFree", ex.Message, StringComparison.Ordinal);
+
+        // Non-vacuity: a scanner that DID declare Unbounded must get past the declaration check.
+        // Without this the gate would also pass if BodyIndex threw unconditionally. The declared
+        // scanner still fails, but on the missing metadata context -- a different error, proving
+        // the cost check let it through.
+        var declared = new ScannerRegistry()
+            .Add("declared", SectionCost.Unbounded, ctx => ctx.BodyIndex());
+
+        var allowed = Assert.Throws<InvalidOperationException>(
+            () => declared.RunScanners(["declared"], NullScannerContext()));
+        Assert.DoesNotContain("Unbounded", allowed.Message, StringComparison.Ordinal);
+        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost()
+    {
+        var cheap = new ScannerRegistry()
+            .Add("cheap", SectionCost.NetworkFree, ctx => ctx.DrillMap());
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => cheap.RunScanners(["cheap"], NullScannerContext()));
+        Assert.Contains("drill map", ex.Message, StringComparison.Ordinal);
+
+        var declared = new ScannerRegistry()
+            .Add("declared", SectionCost.Unbounded, ctx => ctx.DrillMap());
+
+        var allowed = Assert.Throws<InvalidOperationException>(
+            () => declared.RunScanners(["declared"], NullScannerContext()));
+        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ScannerDeclaration_DoesNotOutliveTheRun()
+    {
+        // ctx.BodyIndex is handed to scan methods as a method group, so the Func can outlive the
+        // scanner that supplied it and be invoked later while rendering. The declaration must
+        // therefore be scoped to scanner execution: left set, the LAST scanner's declaration would
+        // govern every later use, and a cheap scanner finishing the run would refuse the body
+        // index to a caller that never declared anything.
+        //
+        // An earlier version of this gate ran a cheap scanner after an expensive prerequisite and
+        // asserted the cheap one was refused. That proved nothing -- each scanner overwrites
+        // Running on entry, so deleting the restore left it green. The observable that actually
+        // depends on the restore is the state after the run.
+        var registry = new ScannerRegistry()
+            .Add("cheap", SectionCost.NetworkFree, _ => { });
+        var context = NullScannerContext();
+
+        registry.RunScanners(["cheap"], context);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        Assert.Contains("metadata context", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("NetworkFree", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure()
+    {
+        // A bundle does no work of its own, so its cost is entirely what it pulls in. Letting it
+        // declare its own cost would let it under-state that, which is why AddBundle takes none.
+        var registry = new ScannerRegistry()
+            .Add("cheap", SectionCost.NetworkFree, _ => { })
+            .Add("expensive", SectionCost.Unbounded, _ => { })
+            .Add("moderate", SectionCost.Moderated, _ => { })
+            .AddBundle("mixed", "cheap", "expensive")
+            .AddBundle("allCheap", "cheap")
+            .Add("indirect", SectionCost.NetworkFree, _ => { }, "mixed");
+
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("cheap"));
+        Assert.Equal(SectionCost.Moderated, registry.CostOf("moderate"));
+        Assert.Equal(SectionCost.Unbounded, registry.CostOf("expensive"));
+        Assert.Equal(SectionCost.Unbounded, registry.CostOf("mixed"));
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("allCheap"));
+
+        // Transitive: a cheap scanner whose prerequisite is a bundle containing an expensive
+        // scanner costs what the run will actually do, not what it declared for itself.
+        Assert.Equal(SectionCost.Unbounded, registry.CostOf("indirect"));
+    }
+
+    [Fact]
+    public void SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor()
+    {
+        // Seeded from the REGISTRY, where cost is declared, rather than from the pipeline that
+        // consumes it: asking the pipeline which sections it considers unbounded and then checking
+        // that it acted on that answer would assert nothing. The registry and the selection code
+        // are the two halves this change couples, so the gate holds one fixed and observes the
+        // other.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+        // Presence flags only: the point is that each expensive section CAN render, so its
+        // absence from the -v:d ladder below is attributable to cost and nothing else.
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            HasUnsafeCode = true,
+        };
+
+        var unboundedScanners = registry.RegisteredKeys
+            .Where(key => registry.CostOf(key) == SectionCost.Unbounded)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var expensiveSections = pipeline.ScannerBoundSections
+            .Where(section => unboundedScanners.Contains(section.ScannerKey))
+            .Select(section => section.Name)
+            .ToList();
+
+        // Non-vacuity: an empty expensive set would satisfy every assertion below.
+        Assert.NotEmpty(expensiveSections);
+
+        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var allPole = pipeline.GetAllSelectorSections(model);
+
+        foreach (var name in expensiveSections)
+        {
+            Assert.DoesNotContain(name, detailed);
+            Assert.DoesNotContain(name, allPole);
+
+            // The other half, and what stops the first from passing for the wrong reason: absence
+            // from the ladder must be the cost decision, not an inability to render. Every one of
+            // these sections must still be reachable by exact name on the very same model.
+            var byName = pipeline.GetEffectiveSections(
+                model, Verbosity.Detailed,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name });
+            Assert.True(byName.Contains(name), $"'{name}' left the ladder and is unreachable by -S.");
+        }
+    }
+
+    [Fact]
+    public void UseScannerCosts_ThrowsAfterSectionsAreRegistered()
+    {
+        // Costs are applied to entries as they are added, so wiring the source afterwards would
+        // silently leave everything already registered at its declared cost.
+        var pipeline = new SectionPipeline<LibraryInspection>()
+            .Add<LibrarySections.ExtensionMethods>();
+
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.UseScannerCosts(_ => SectionCost.Unbounded));
+    }
+
+    [Fact]
+    public void LibraryPipeline_ConsultsScannerCosts()
+    {
+        // Non-vacuity for the whole strand: LibrarySections.CreatePipeline must actually call
+        // UseScannerCosts. Dropping that one line leaves every gate above green except this one,
+        // because each scanner-bound section would simply keep its own declared cost.
+        var withCosts = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+        };
+
+        // Performance: Boxing declares no cost of its own; it is expensive only because the
+        // OptimizationOpportunities scanner behind it is. If the pipeline stopped consulting the
+        // registry it would return to the -v:d ladder.
+        Assert.DoesNotContain(
+            SectionNames.PerformanceBoxing,
+            withCosts.GetEffectiveSections(model, Verbosity.Detailed));
+    }
+
+    [Fact]
+    public void LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner()
+    {
+        // Set equality against the registry's own key list, so a scanner added without a cost --
+        // impossible today, since Add requires one -- would fail here rather than defaulting to
+        // the cheapest tier if that requirement were ever relaxed.
+        var registry = LibrarySections.CreateScannerRegistry();
+
+        foreach (var key in registry.RegisteredKeys)
+        {
+            var cost = registry.CostOf(key);
+            Assert.True(
+                Enum.IsDefined(cost),
+                $"Scanner '{key}' resolved to an undeclared cost value.");
+        }
+
+        // The declared tiers must actually discriminate, or the whole mechanism is decoration.
+        var costs = registry.RegisteredKeys.Select(registry.CostOf).Distinct().ToList();
+        Assert.True(costs.Count > 1, "Every library scanner declares the same cost.");
+        Assert.Contains(SectionCost.Unbounded, costs);
+    }
+
+    [Fact]
+    public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()    {
         // Derived from the registry rather than restated, so a new prerequisite naming a key that
         // does not exist fails here instead of silently never running. RunScanners skips an
         // unregistered prerequisite, so nothing else would notice.
@@ -1762,7 +1965,7 @@ public class SectionPipelineTests
         // the time it failed. If the throwing scanner were dropped from the record, the trace would
         // implicate whichever scanner ran last before it.
         var registry = new ScannerRegistry()
-            .Add("Boom", _ => throw new InvalidOperationException("boom"));
+            .Add("Boom", SectionCost.NetworkFree, _ => throw new InvalidOperationException("boom"));
         var trace = new InspectionTrace();
         using var context = new ScannerContext
         {

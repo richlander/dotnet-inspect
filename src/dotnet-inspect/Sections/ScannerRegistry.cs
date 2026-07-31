@@ -134,6 +134,38 @@ public sealed class ScannerContext : IDisposable
     /// </summary>
     public int SharedScanCount { get; private set; }
 
+    /// <summary>
+    /// The scanner currently executing and the cost it declared, set by
+    /// <see cref="ScannerRegistry.RunScanners"/> around each invocation. Null when no scanner is
+    /// running through the registry — a test driving a scan function directly has no declaration
+    /// to check against.
+    /// </summary>
+    internal (string Key, SectionCost Cost)? Running { get; set; }
+
+    /// <summary>
+    /// Refuses a shared resource to a scanner that did not declare it could afford one.
+    ///
+    /// The body index is a whole-assembly IL build: measured at 1.4 s on a 1.7 MB assembly, and the
+    /// two scanners that consume it account for 99% of the time a <c>-v:d</c> run spends scanning.
+    /// The registry cannot see that a scanner touches it, because <see cref="BodyIndex"/> is handed
+    /// over as a lazily-invoked method group — which is exactly how four scanners came to declare
+    /// <see cref="SectionCost.NetworkFree"/> while doing unbounded work.
+    ///
+    /// So the declaration is enforced where the cost is actually incurred. Adding a body-index call
+    /// to a scanner that still claims to be cheap fails loudly instead of quietly restoring the
+    /// defect. Gate: <c>SectionPipelineTests.Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    /// </summary>
+    private void RequireUnboundedDeclaration(string resource)
+    {
+        if (Running is not { } running || running.Cost == SectionCost.Unbounded)
+            return;
+
+        throw new InvalidOperationException(
+            $"Scanner '{running.Key}' declares Cost={running.Cost} but asked for the {resource}, " +
+            $"which is unbounded whole-assembly work. Register it with SectionCost.Unbounded, or " +
+            $"stop taking the {resource}.");
+    }
+
     public void Dispose() => _session?.Dispose();
 
     /// <summary>
@@ -146,6 +178,7 @@ public sealed class ScannerContext : IDisposable
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex()
     {
+        RequireUnboundedDeclaration("body index");
         if (_bodySession is not null)
             return _bodySession.BodyIndex;
 
@@ -183,6 +216,7 @@ public sealed class ScannerContext : IDisposable
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
         DrillMap()
     {
+        RequireUnboundedDeclaration("drill map");
         if (_drillMap is not null)
             return _drillMap;
 
@@ -207,6 +241,7 @@ public sealed class ScannerRegistry
 {
     private readonly Dictionary<string, Action<ScannerContext>?> _scanners = [];
     private readonly Dictionary<string, string[]> _requires = [];
+    private readonly Dictionary<string, SectionCost> _costs = [];
 
     /// <summary>
     /// The keys of every registered scanner. This is the supply side of the section-to-scanner
@@ -219,8 +254,18 @@ public sealed class ScannerRegistry
     public IReadOnlyCollection<string> RegisteredKeys => _scanners.Keys;
 
     /// <summary>
-    /// Registers a scanner by key. The action populates the model with data.
+    /// Registers a scanner by key.
     /// </summary>
+    /// <param name="cost">
+    /// What this scanner costs to run. Required rather than optional because the defect this
+    /// replaced was a silent default: four scanners doing whole-assembly IL work sat at
+    /// <see cref="SectionCost.NetworkFree"/> because nothing forced anyone to say otherwise, and
+    /// they accounted for 99% of the time a <c>-v:d</c> run spent scanning.
+    ///
+    /// The declaration is load-bearing, not documentation: a scanner may only reach
+    /// <see cref="ScannerContext.BodyIndex"/> or <see cref="ScannerContext.DrillMap"/> if it
+    /// declares <see cref="SectionCost.Unbounded"/>, and asking without declaring throws.
+    /// </param>
     /// <param name="requires">
     /// Keys of scanners whose output this scanner reads. Declaring a prerequisite is the only
     /// supported way to depend on another scanner's work: <see cref="RunScanners"/> runs
@@ -229,10 +274,11 @@ public sealed class ScannerRegistry
     /// <see cref="ExpandRequired"/>, so cost and ordering stop being computable from the
     /// registry. Gate: <c>ScannerRegistryTests.LibraryScanners_DeclareTheirPrerequisites</c>.
     /// </param>
-    public ScannerRegistry Add(string key, Action<ScannerContext> scan, params string[] requires)
+    public ScannerRegistry Add(string key, SectionCost cost, Action<ScannerContext> scan, params string[] requires)
     {
         _scanners[key] = scan;
         _requires[key] = requires;
+        _costs[key] = cost;
         return this;
     }
 
@@ -240,12 +286,34 @@ public sealed class ScannerRegistry
     /// Registers a key that performs no work of its own and exists only to pull in
     /// <paramref name="requires"/>. A section whose data comes from several scanners binds to a
     /// bundle, because <see cref="ISectionDescriptor{TModel}.ScannerKey"/> names a single key.
+    ///
+    /// A bundle takes no cost argument: it does no work, so its cost is whatever its prerequisites
+    /// cost, and <see cref="CostOf"/> derives that. Letting a bundle declare its own cost would
+    /// allow it to under-state the work it pulls in, which is the exact failure this change exists
+    /// to remove.
     /// </summary>
     public ScannerRegistry AddBundle(string key, params string[] requires)
     {
         _scanners[key] = null;
         _requires[key] = requires;
         return this;
+    }
+
+    /// <summary>
+    /// What running <paramref name="key"/> costs, taken as the maximum over its transitive
+    /// prerequisite closure. A scanner cannot be cheaper than the work it pulls in, so a bundle of
+    /// one cheap and one unbounded prerequisite is unbounded.
+    /// </summary>
+    public SectionCost CostOf(string key)
+    {
+        var cost = SectionCost.NetworkFree;
+        foreach (var member in ExpandRequired([key]))
+        {
+            if (_costs.TryGetValue(member, out var declared) && declared > cost)
+                cost = declared;
+        }
+
+        return cost;
     }
 
     /// <summary>
@@ -351,9 +419,20 @@ public sealed class ScannerRegistry
         running.Remove(key);
         ran.Add(key);
 
-        if (context.Trace is { } trace)
-            trace.Time(key, isBundle: scan is null, () => scan?.Invoke(context));
-        else
-            scan?.Invoke(context);
+        // Scoped around the invocation, and restored rather than cleared, so a nested run (a
+        // prerequisite pulled in mid-scan) cannot leave the outer scanner unattributed.
+        var outer = context.Running;
+        context.Running = (key, _costs.TryGetValue(key, out var cost) ? cost : SectionCost.NetworkFree);
+        try
+        {
+            if (context.Trace is { } trace)
+                trace.Time(key, isBundle: scan is null, () => scan?.Invoke(context));
+            else
+                scan?.Invoke(context);
+        }
+        finally
+        {
+            context.Running = outer;
+        }
     }
 }

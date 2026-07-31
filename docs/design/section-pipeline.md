@@ -53,14 +53,41 @@ The pipeline does not render anything. It computes a `HashSet<string>` of sectio
 
 ### Layer 3: Scanner Registry
 
-`ScannerRegistry` maps scanner keys to scan functions:
+`ScannerRegistry` maps scanner keys to a declared cost and a scan function:
 
 ```csharp
-registry.Add("ExtensionMethods", ctx =>
+registry.Add("ExtensionMethods", SectionCost.NetworkFree, ctx =>
     LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger));
 ```
 
 `RunScanners(requiredKeys, context)` executes only the scanners needed for the current request. When a user runs `dotnet-inspect library Foo.dll -S "Extension Methods"`, only the `ExtensionMethods` scanner runs — not the full set of Detailed-level scans.
+
+## Scanner Cost
+
+Cost is declared by the **scanner**, not by the section, and the pipeline raises each section to the cost of the scanner behind it (`UseScannerCosts`). A descriptor may declare a higher cost than its scanner — a cheap scan feeding an enormous rendering is real — but it can no longer declare a lower one.
+
+This inverts the previous arrangement, in which each section restated the cost of work it did not own. Eleven sections were backed by the four scanners that build the whole-assembly IL body index, and only two of them said so; the other nine declared `NetworkFree` while costing seconds. A section is one of many views onto a scan, so the scan is the only place the cost is known once.
+
+`CostOf(key)` is the maximum over the transitive prerequisite closure, so a cheap scanner that requires an expensive one costs what the run will actually do. `AddBundle` takes no cost for the same reason: a bundle does no work of its own, and letting it declare one would let it under-state what it pulls in.
+
+### The declaration is enforced where the cost is incurred
+
+The registry cannot see that a scanner touches the body index. `ctx.BodyIndex` is handed to scan methods as a lazily-invoked method group bound to `Func<LibraryBodyIndex>`, which is exactly how those nine sections drifted. A declared-cost enum alone would let the next one drift the same way.
+
+So one declaration does both jobs: **only a scanner registered as `Unbounded` may call `ctx.BodyIndex()` or `ctx.DrillMap()`**. Adding a body-index call to a scanner that still claims to be cheap throws instead of quietly restoring the defect. The check is scoped to scanner execution and cleared when the run ends, because the `Func` can outlive the scanner that supplied it and be invoked while rendering.
+
+### What `Unbounded` means for selection
+
+`Unbounded` sections leave the `-v:d` render ladder and the `@All` pole entirely. They stay reachable by exact `-S` name and through any category door that lists them. The measured effect on `library <assembly> -v:d`:
+
+| Assembly | Before | After |
+| --- | --- | --- |
+| `ILInspector.Decompiler.dll` (1.7 MB) | 4,000.2 ms | 153.2 ms |
+| `System.Private.CoreLib.dll` (15.3 MB) | 9,067.1 ms | 395.1 ms |
+
+Measured with a NativeAOT publish, min-of-N warm runs, timings read from `--trace`.
+
+Note that `@Performance` is **not** a generic door. The tabular and JSONL group paths flatten it into a single kind-labeled table over exactly `PerformanceKinds.Sections`, so adding a differently-shaped section to it stops the group rendering as one table at all.
 
 ## Data Flow
 

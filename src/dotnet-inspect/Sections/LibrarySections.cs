@@ -35,6 +35,7 @@ public static class LibrarySections
     {
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
+            .UseScannerCosts(CreateScannerRegistry().CostOf)
             .Add<LibraryInfo>()
             .Add<InspectionFailures>()
             .Add<ILOffset>()
@@ -95,8 +96,12 @@ public static class LibrarySections
                 SectionNames.NonNormalizedPaths,
                 SectionNames.Signals,
                 SectionNames.Symbols)
-            .AddCategory(SectionCategoryNames.Performance,
-                PerformanceKinds.Sections)
+            // @Performance is not a generic door: the tabular/JSONL group path flattens it into
+            // one kind-labeled table (LibraryInspectionView.PerformanceGroupRows) over exactly
+            // PerformanceKinds.Sections. A differently-shaped section added here stops the group
+            // from rendering as a single table at all. Array Pool Escapes is Unbounded too, but
+            // it declares ListedInCatalog => false and is reached by exact name by design.
+            .AddCategory(SectionCategoryNames.Performance, PerformanceKinds.Sections)
             .AddCategory(SectionCategoryNames.Surface,
                 SectionNames.AsyncMethods,
                 SectionNames.CustomAttributes,
@@ -118,25 +123,25 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerExtensionMethods, ctx =>
+            .Add(ScannerExtensionMethods, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanExtensionMembers(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerClassifiedMethods, ctx =>
+            .Add(ScannerClassifiedMethods, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerResources, ctx =>
+            .Add(ScannerResources, SectionCost.NetworkFree, ctx =>
                 ctx.Model.ResourceInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
-            .Add(ScannerCustomAttributes, ctx =>
+            .Add(ScannerCustomAttributes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanCustomAttributes(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerUnionTypes, ctx =>
+            .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerTypeForwarders, ctx =>
+            .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
                 ctx.Model.TypeForwarderInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger)))
@@ -147,40 +152,40 @@ public static class LibrarySections
                 ScannerResources,
                 ScannerCustomAttributes,
                 ScannerTypeForwarders)
-            .Add(ScannerAuditSignals, ctx =>
+            .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
-            .Add(ScannerSwitches, ctx =>
+            .Add(ScannerSwitches, SectionCost.Moderated, ctx =>
                 ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerUnsafeMembers, ctx =>
+            .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerTopLeverage, ctx =>
+            .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
                 ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(
                     ctx.BodyIndex,
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger))
-            .Add(ScannerOptimizationOpportunities, ctx =>
+            .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
-            .Add(ScannerResourceTriage, ctx =>
+            .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
                 ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
-            .Add(ScannerIntegrations, ctx =>
+            .Add(ScannerIntegrations, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => LibraryMetadataService.ScanIntegrations(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
-            .Add(ScannerIntegrationOpportunities, ctx =>
+            .Add(ScannerIntegrationOpportunities, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
-            .Add(ScannerMetadata, ctx =>
+            .Add(ScannerMetadata, SectionCost.NetworkFree, ctx =>
                 LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
