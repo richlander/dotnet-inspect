@@ -464,8 +464,9 @@ jobs:
   # directly. A required check that does not run on a given PR is reported as
   # "Expected" forever and blocks that merge permanently, and this job is
   # skipped on any PR that touches no decompiler-relevant path. Its result
-  # reaches the merge gate through the aggregate `ci-required` job at the end
-  # of this file, which is the single context the ruleset is meant to require.
+  # reaches `ci-required`, the aggregate job at the end of this file that is
+  # intended to serve as the merge gate and be the one context the ruleset
+  # requires.
   #
   # The remaining Fidelity-area classes are excluded on cost, not principle:
   # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
