@@ -747,9 +747,10 @@ public sealed class ForwardedTypeAliases
         // Deliberately NOT a plain OrdinalIgnoreCase, and deliberately not keyed on the operating
         // system: a case-sensitive volume on Windows is exactly what this suite's own
         // `fsutil setCaseSensitiveInfo` run exercises, and folding case there would exempt a
-        // genuinely different file — the FABRICATING direction. Asking the census instead answers
-        // the real question, because a volume that holds two files differing only in case is
-        // case-sensitive by construction.
+        // genuinely different file — the FABRICATING direction. Nor is the census alone enough to
+        // decide it: the census is the caller's SCOPE, a subset of the volume, so one case-variant
+        // entry does not mean there is only one such file (executed in round 25 by Gemini). The
+        // volume is asked directly.
         string? targetPath = null;
 
         if (targetAssemblyPath is not null)
@@ -1510,14 +1511,19 @@ public sealed class ForwardedTypeAliases
     /// </summary>
     /// <remarks>
     /// <para>Returns <paramref name="path"/> unchanged unless the census holds exactly one entry
-    /// differing from it only by case. That "exactly one" is the whole safety argument, and it is
-    /// a filesystem fact rather than a guess: a volume that can hold two files whose paths differ
-    /// only by case IS case-sensitive, so on such a volume those are two genuinely different files
-    /// and neither may claim the other's exemption. Folding case unconditionally would hand the
-    /// target's self-exemption to an attacker file there — the FABRICATING direction, and the one
-    /// this file exists to refuse.</para>
+    /// differing from it only by case AND the volume itself does not distinguish case. Both halves
+    /// are required, and the second is the load-bearing one. An earlier form rested the whole
+    /// safety argument on "exactly one census entry", reasoning that a volume able to hold two
+    /// files differing only by case IS case-sensitive. That inference is sound in one direction
+    /// only: the census is a caller-supplied SUBSET of the volume, not the volume, so seeing one
+    /// variant says nothing — the other may simply be out of scope. A caller whose scope omitted
+    /// the real target and retained a case-variant sibling handed that sibling the target's
+    /// self-exemption, and the sibling then failed to refute a facade it contradicts (executed in
+    /// review of <c>2f49e2f3</c>). That is the FABRICATING direction, and the one this file exists
+    /// to refuse.</para>
     ///
-    /// <para>So this is deliberately not <see cref="StringComparison.OrdinalIgnoreCase"/>, and
+    /// <para>So the question is put to the filesystem instead, which is the only thing that can
+    /// answer it. This is deliberately not <see cref="StringComparison.OrdinalIgnoreCase"/>, and
     /// deliberately not switched on the operating system: case sensitivity is a property of the
     /// VOLUME, not the OS. This repository's own Analysis suite is run a second time against a
     /// directory marked with <c>fsutil file setCaseSensitiveInfo</c> precisely because the two come
@@ -1529,22 +1535,77 @@ public sealed class ForwardedTypeAliases
 
         foreach (string candidate in censusPaths)
         {
+            // The exact spelling is present, so it is unambiguously the same file on any volume.
+            // Returned from inside the loop, but the result does not depend on enumeration order:
+            // every other branch below also yields `path` once an Ordinal match exists.
             if (string.Equals(candidate, path, StringComparison.Ordinal))
                 return path;
 
             if (!string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            // A second case-variant spelling: the volume is case-sensitive, so these are distinct
-            // files and nothing here can say which was meant. Keep the caller's spelling and let
-            // the Ordinal comparison decline, which drops rather than fabricates.
+            // A second case-variant spelling: both were opened, so the volume is holding two files
+            // at once and is case-sensitive. Nothing here can say which was meant. Keep the
+            // caller's spelling and let the Ordinal comparison decline, which drops rather than
+            // fabricates. Subsumed by the volume check below, and kept because it is free and
+            // answers without touching the disk.
             if (unique is not null)
                 return path;
 
             unique = candidate;
         }
 
-        return unique ?? path;
+        if (unique is null || VolumeDistinguishesCase(path))
+            return path;
+
+        return unique;
+    }
+
+    /// <summary>
+    /// Whether the volume holding <paramref name="path"/> treats two spellings differing only by
+    /// case as two files, answered by asking the directory rather than by inferring it.
+    /// </summary>
+    /// <remarks>
+    /// <para>More than one real directory entry matching the file name case-insensitively can only
+    /// occur on a case-sensitive volume, so that answer is exact. Exactly one entry means the two
+    /// spellings cannot both name existing files, so either they denote that single entry or the
+    /// caller's spelling denotes nothing — and a target path that denotes nothing yields no
+    /// identity, which declines outright.</para>
+    ///
+    /// <para>Only the file-name component is resolved; a directory component differing in case is
+    /// left unmatched. That residual is a DROP — the pre-#3419 answer — never a fabrication.
+    /// A directory that cannot be enumerated is likewise treated as distinguishing case, so an
+    /// unknown answer declines.</para>
+    /// </remarks>
+    static bool VolumeDistinguishesCase(string path)
+    {
+        string? directory = Path.GetDirectoryName(path);
+        string name = Path.GetFileName(path);
+
+        if (string.IsNullOrEmpty(directory) || name.Length == 0)
+            return true;
+
+        try
+        {
+            int matches = 0;
+
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                if (!string.Equals(Path.GetFileName(entry), name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (++matches > 1)
+                    return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException
+                                      or UnauthorizedAccessException
+                                      or System.Security.SecurityException)
+        {
+            return true;
+        }
     }
 
     /// <summary>

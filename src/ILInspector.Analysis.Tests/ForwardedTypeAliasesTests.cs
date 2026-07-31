@@ -3508,6 +3508,71 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// A case-variant sibling does not inherit the target's self-exemption merely because the
+    /// target itself is out of scope. The round-24 rule rested on "exactly one case-variant entry
+    /// in the census", reasoning that a volume able to hold two such files is case-sensitive. That
+    /// is true, but the census is the caller's SCOPE — a subset of the volume — so seeing one
+    /// variant proves nothing about the other. Both round-25 reviewers (Gemini 3.1 Pro and
+    /// GPT-5.6 Sol) found this independently, and it FABRICATES: the sibling contradicts the
+    /// facade and was silenced by an exemption it had no claim to.
+    ///
+    /// <para>The sibling is written at the target's OWN version so that it genuinely refutes when
+    /// not exempted; that is what makes the second assertion discriminating rather than a case
+    /// the version ceilings would have declined anyway.</para>
+    ///
+    /// <para>Runs only on a case-sensitive volume, which the Analysis suite is executed against a
+    /// second time (<c>fsutil file setCaseSensitiveInfo</c>) for exactly this class of question.</para>
+    /// </summary>
+    [Fact]
+    public void ACaseVariantSiblingIsNotTheTargetWhenTheTargetIsOutOfScope()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+            string variantPath = Path.Combine(directory, "contoso.target.dll");
+            string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
+
+            Assert.SkipUnless(
+                IsCaseSensitive(directory),
+                "volume is case-insensitive; the two spellings are one file here");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            File.WriteAllBytes(
+                variantPath,
+                SerializePE(NewAssembly("Contoso.Target", null, new Version(1, 0, 0, 0), null)));
+
+            WriteForwarderToVersion(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Facade",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(1, 0, 0, 0));
+
+            // The control: with the real target in scope the facade answers, so the refusal below
+            // is the sibling's doing and not a fixture that never resolved.
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, new[] { facadePath, targetPath }, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+
+            // The attack: the scope omits the real target and retains only the case variant, which
+            // is therefore the sole case-insensitive match in the census.
+            Assert.False(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, new[] { facadePath, variantPath }, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Two silent claimants of the target's identity refute the same in either walk order. The
     /// round-24 reviewer (Claude Opus 4.8) cleared the new ceiling's order-independence by
     /// reasoning — <c>RefutedAt</c> keeps the higher ceiling, and max is commutative — but did not
