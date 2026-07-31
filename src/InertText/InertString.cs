@@ -108,23 +108,25 @@ public readonly struct InertString : IEquatable<InertString>
         ArgumentNullException.ThrowIfNull(separator);
         ArgumentNullException.ThrowIfNull(values);
 
-        string encodedSeparator = VisualEncoder.Encode(separator, permits, out VisualForm forms);
+        string encodedSeparator = VisualEncoder.Encode(separator, permits, out VisualForm separatorForms);
         StringBuilder builder = new();
+        VisualForm forms = VisualForm.None;
         bool first = true;
 
         foreach (InertString value in values)
         {
+            // The separator's spellings are folded in only when one is actually emitted, so a
+            // single-element join cannot report a form the output does not contain.
             if (!first)
+            {
                 builder.Append(encodedSeparator);
+                forms |= separatorForms;
+            }
 
             builder.Append(value.ToString());
             forms |= value.Forms;
             first = false;
         }
-
-        // No separator was ever emitted, so it cannot have contributed a spelling.
-        if (first)
-            forms = VisualForm.None;
 
         return new InertString(builder.ToString(), forms);
     }
@@ -205,6 +207,21 @@ public ref struct InertStringHandler
     {
         _builder.Append(value.ToString());
         _forms |= value.Forms;
+    }
+
+    /// <summary>
+    /// Appends an optional already-inert value, without encoding it a second time.
+    /// </summary>
+    /// <remarks>
+    /// Needed as its own overload because a <c>InertString?</c> hole would otherwise bind to the
+    /// generic case, whose <c>ToString</c> yields the encoded text and hands it back to the
+    /// encoder. Redaction returns this shape, so the trap is on a live path rather than
+    /// hypothetical.
+    /// </remarks>
+    public void AppendFormatted(InertString? value)
+    {
+        if (value is { } inert)
+            AppendFormatted(inert);
     }
 
     internal InertString ToInertString() => new(_builder.ToString(), _forms);

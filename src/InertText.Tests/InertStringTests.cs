@@ -117,6 +117,78 @@ public class InertStringTests
     }
 
     [Fact]
+    public void Format_NullableInertHole_IsNotEncodedTwice()
+    {
+        // Redaction returns InertString?, so without a dedicated overload this hole binds to the
+        // generic case, whose ToString hands the encoded text straight back to the encoder and
+        // doubles every backslash the first pass introduced.
+        InertString? inner = InertString.Encode(Hazard, TextPolicy.Field);
+
+        InertString outer = InertString.Format(TextPolicy.Field, $"[{inner}]");
+
+        Assert.Equal("[a\\u202Eb]", outer.ToString());
+        Assert.True(VisualEncoder.TryDecode(outer.ToString(), out string? decoded));
+        Assert.Equal($"[{Hazard}]", decoded);
+    }
+
+    [Fact]
+    public void Format_NullInertHole_ContributesNothing()
+    {
+        InertString? missing = null;
+
+        InertString outer = InertString.Format(TextPolicy.Field, $"[{missing}]");
+
+        Assert.Equal("[]", outer.ToString());
+    }
+
+    [Fact]
+    public void Join_SingleValue_ReportsNoFormFromTheUnusedSeparator()
+    {
+        // The separator is encoded up front, so folding its forms in unconditionally would make
+        // a one-element join advertise a spelling its output does not contain.
+        InertString only = InertString.Encode("plain", TextPolicy.Field);
+
+        InertString joined = InertString.Join("\n", TextPolicy.Field, [only]);
+
+        Assert.Equal("plain", joined.ToString());
+        Assert.Equal(VisualForm.None, joined.Forms);
+        Assert.Empty(joined.DescribeLegend());
+    }
+
+    [Fact]
+    public void Join_MultipleValues_ReportsTheSeparatorForm()
+    {
+        InertString first = InertString.Encode("a", TextPolicy.Field);
+        InertString second = InertString.Encode("b", TextPolicy.Field);
+
+        InertString joined = InertString.Join("\n", TextPolicy.Field, [first, second]);
+
+        Assert.Equal("a\\^Jb", joined.ToString());
+        Assert.Equal(VisualForm.Caret, joined.Forms);
+    }
+
+    [Fact]
+    public void Join_UnderProse_KeepsTheLineBreak()
+    {
+        InertString first = InertString.Encode("a", TextPolicy.Prose);
+        InertString second = InertString.Encode("b", TextPolicy.Prose);
+
+        InertString joined = InertString.Join(Environment.NewLine, TextPolicy.Prose, [first, second]);
+
+        Assert.Equal($"a{Environment.NewLine}b", joined.ToString());
+        Assert.Equal(VisualForm.None, joined.Forms);
+    }
+
+    [Fact]
+    public void Join_NoValues_IsEmpty()
+    {
+        InertString joined = InertString.Join("\n", TextPolicy.Field, []);
+
+        Assert.True(joined.IsEmpty);
+        Assert.Equal(VisualForm.None, joined.Forms);
+    }
+
+    [Fact]
     public void NoConversionFromStringExists()
     {
         // The guard the whole design rests on. A conversion from string would let untreated
