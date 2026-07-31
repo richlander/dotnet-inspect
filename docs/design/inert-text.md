@@ -28,6 +28,36 @@ without complaint:
 Percent-encoding, `Uri` normalization and HTML escaping each stop some of this
 and none of it. `Uri` percent-encodes `Cc` and passes `Cf` straight through.
 
+## What we are protecting
+
+Three channels, kept separate because they have different blast radii and a
+mitigation for one is not automatically a mitigation for another.
+
+- **The terminal.** The only channel where foreign text reaches the machine
+  rather than the reader. `OSC 52` writes the user's clipboard, `CSI` and `DEC`
+  sequences repaint the screen and can forge a shell prompt, and terminals have
+  shipped answerback paths that reach command execution (iTerm2,
+  CVE-2019-9535). This is what makes containment a safety requirement rather
+  than a formatting preference.
+- **The reader.** Bidi and homoglyph attacks never touch the machine. They make
+  output mean something other than what it displays, so the harm lands on
+  whoever acts on it — a reordered assembly name in a dependency listing is a
+  supply-chain decision made on false information.
+- **An agent's context.** This tool ships a skill, so its output is deliberately
+  fed to language models. Tag characters carry an invisible ASCII payload and no
+  terminal is involved at any point, so a sink that is safe for the first two
+  channels can be wide open on this one.
+
+Deliberately out of scope:
+
+- **Structural escaping.** Markdown pipes, JSON quotes and CSV delimiters
+  restructure a document rather than attack a renderer. Different mechanism,
+  different inverse; it composes with this one rather than being replaced by it.
+- **Text used for identity or control flow.** A name being compared, parsed or
+  matched is not being presented, and encoding it changes the answer.
+- **Text that must stay byte-exact to function.** File paths, request URLs and
+  assembly names are consumed by APIs, not read by people.
+
 ## What it does
 
 Refused scalars are rewritten in a visible spelling. The term and the contract
@@ -100,6 +130,79 @@ is not. The customary objection to a wrapper is that `ToString` launders it, but
 that assumes the payload is dangerous and the wrapper is what holds it back. Here
 the payload is already inert. Losing the wrapper loses provenance, not
 protection.
+
+## Where text becomes inert
+
+The tempting answer is "as early as possible": have every API that returns
+foreign text return `InertString`, so no caller can hold raw text and every
+consumer is forced to participate. That is the wrong answer here, for three
+reasons.
+
+**`InertString` marks the wrong end of the pipeline.** It means *this text has
+been treated for a sink*, which is an output marker. Asking metadata APIs to
+return it is asking for an input marker — *this text came from outside*. Those
+are different propositions, and only the second one is a property of a source.
+
+**A policy belongs to the sink, and acquisition does not know the sink.**
+`Encode` takes a `ScalarPolicy` because what may pass depends on where the text
+is going: `Field` for a table cell, `Prose` for a paragraph, something else for
+a sink with no terminal at the end of it. Where a name is read out of metadata
+there is no sink yet, so the API would have to pick a policy arbitrarily and be
+wrong everywhere that wanted a different one. Encoding again later does not
+recover it, because encoding under two policies is not encoding under a union of
+them.
+
+**Encoding at acquisition corrupts identity, and does it invisibly.** A literal
+backslash is always rewritten whatever the policy says, as is any scalar the
+policy refuses. 318 sites in `ILInspector.Metadata` compare foreign names for
+control flow rather than display — `member.Name == ".ctor"`,
+`prop.Name.StartsWith("/_")`, the pairing loop in the diff analyzer. Against
+encoded text those comparisons answer differently, and they do so *only for the
+inputs that needed encoding*. Benign text encodes to itself, so every test still
+passes and the behaviour changes exactly on unusual or hostile input. That is
+the worst available failure distribution: invisible in CI, live in the field.
+
+So containment goes late — but not "as late as possible", which is just the
+per-site approach with better manners. It goes at **the last structural boundary
+every rendered value must cross**.
+
+### Why a structural boundary and not a rule
+
+A boundary is worth something only if it cannot be walked around, so the claim
+has to be measured rather than asserted. The table path holds up: of 113 direct
+`Console.Write` calls in the tree only 24 interpolate anything, and all 24 are
+in a cache command, an analysis dev app and a decompiler fixture. None are in
+`src/dotnet-inspect/Output/`, which writes content the serializer has already
+rendered. Foreign text cannot reach stdout as a table cell without passing
+through a row property.
+
+That is the difference from containing at each use site. A structural boundary
+is crossed whether or not anyone remembered it; a per-site rule is a memory
+obligation, which is why the earlier approach was forgotten across 359 columns.
+
+Late containment also buys three things early containment cannot:
+
+- comparisons upstream operate on true text, so identity stays correct;
+- the sink is known, so the policy is known;
+- volume is bounded by what is rendered rather than everything read — one
+  framework assembly exposes 144,854 metadata name slots, while a user asking
+  for one type's members renders a handful.
+
+### The boundaries are not yet fully enumerated
+
+Two are known, and neither is complete on its own:
+
+| Boundary | Measured size | Tracked by |
+| -------- | ------------- | ---------- |
+| Row and view types | 359 columns across 86 row types | #3463 |
+| Diagnostic and log callbacks | 97 `Action<string>` sites | #3606 |
+
+Those cover the table path and the logging path. They are not exhaustive: the
+tree also has 46 `Console.Error` calls, 93 `TextWriter` references and 8
+`File.WriteAllText` calls, and no one has yet shown which of those carry foreign
+text. Establishing that list is a prerequisite for the guarantee, not a detail
+of it — a chokepoint you have not finished enumerating is a chokepoint you
+cannot claim.
 
 ## Holding a value is not the same as being able to reverse it
 
