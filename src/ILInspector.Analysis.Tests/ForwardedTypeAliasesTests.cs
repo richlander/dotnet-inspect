@@ -41,11 +41,11 @@ public class ForwardedTypeAliasesTests
         var aliases = ForwardedTypeAliases.ForTarget(XmlReader, FrameworkAssemblies);
 
         // One hop: the facade forwards straight to the definer.
-        Assert.True(aliases.Includes("System.Xml.ReaderWriter"));
+        Assert.True(aliases.IncludesIgnoringWithdrawals("System.Xml.ReaderWriter"));
 
         // Two hops: System.Xml forwards to System.Xml.ReaderWriter, which forwards to the definer.
         // A single-hop implementation passes the assertion above and fails this one.
-        Assert.True(aliases.Includes("System.Xml"));
+        Assert.True(aliases.IncludesIgnoringWithdrawals("System.Xml"));
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public class ForwardedTypeAliasesTests
 
         var aliases = ForwardedTypeAliases.ForTarget(XmlReader, FrameworkAssemblies, seeds);
 
-        Assert.True(aliases.Includes("System.Xml"));
+        Assert.True(aliases.IncludesIgnoringWithdrawals("System.Xml"));
     }
 
     /// <summary>
@@ -251,7 +251,7 @@ public class ForwardedTypeAliasesTests
     {
         var aliases = ForwardedTypeAliases.ForTarget(XmlReader, FrameworkAssemblies);
 
-        Assert.True(aliases.Includes("corelib"));
+        Assert.True(aliases.IncludesIgnoringWithdrawals("corelib"));
         Assert.True(aliases.IncludesRawSpelling("netstandard"));
 
         // The whole point: same canonical name, no forwarder, so it is not a raw spelling.
@@ -999,7 +999,7 @@ public class ForwardedTypeAliasesTests
 
         var widget = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
         var aliases = ForwardedTypeAliases.ForTarget(widget, Directory.GetFiles(directory, "*.dll"));
-        Assert.True(aliases.Includes("Contoso.Facade"));
+        Assert.True(aliases.IncludesIgnoringWithdrawals("Contoso.Facade"));
 
         var pattern = MemberPattern.Method(widget, "Ping", [widget]);
         var facadeSpelling = TypeRef.Definition("Contoso.Facade", "Contoso", "Widget");
@@ -1180,9 +1180,9 @@ public class ForwardedTypeAliasesTests
     /// <summary>
     /// Two forwarder spellings that canonicalize to one name. <see cref="TypeRef"/> collapses
     /// <c>mscorlib</c>, <c>netstandard</c>, <c>System.Runtime</c> and friends onto a single
-    /// canonical corelib name, and <see cref="ForwardedTypeAliases.Includes"/> asks about the
-    /// canonical name — so a spelling that failed verification would be readmitted through a
-    /// verified sibling in the same bucket unless the bucket goes with it.
+    /// canonical corelib name, and <see cref="ForwardedTypeAliases.Includes(string, string)"/> asks
+    /// about the canonical name — so a spelling that failed verification would be readmitted
+    /// through a verified sibling in the same bucket unless the bucket goes with it.
     ///
     /// <para>Reported by reasoning in review of <c>7181e795</c> and confirmed here. The removal is
     /// deliberately limited to spellings that supplied forwarder evidence: poisoning the bucket for
@@ -2427,15 +2427,27 @@ public class ForwardedTypeAliasesTests
     /// <c>d8aa7b47</c>). The census had already read the identity; the branch was comparing the
     /// name and throwing the identity away.</para>
     ///
-    /// <para>The two cases are one <see cref="Theory"/> on purpose. They are the same code path
-    /// taking opposite branches over a single fixture, so the same-identity case is the positive
-    /// control for the different-identity one: a rival that declines proves the fixture can reach
-    /// the decline at all, which is what stops the negative case from passing vacuously.</para>
+    /// <para>The cases are one <see cref="Theory"/> on purpose. They are the same code path taking
+    /// different branches over a single fixture, so the same-identity case is the positive control
+    /// for the others: a rival that declines proves the fixture can reach the decline at all,
+    /// which is what stops the negative cases from passing vacuously.</para>
+    ///
+    /// <para>Culture is a separate case because the gate compares token <em>and</em> culture, and
+    /// round-20 review executed a mutant making the culture comparison unconditionally true and
+    /// found the whole suite still green. That arm was real but untested. A satellite sharing the
+    /// target's name and token under another culture is still a file no reference to the
+    /// culture-neutral target can bind to — binding matches culture exactly, it does not fall
+    /// back — so it refutes nothing either.</para>
+    ///
+    /// <para>Version is deliberately <em>not</em> compared. A same-token rival at any version is
+    /// bindable, because binding rolls forward; comparing it would narrow the decline into a
+    /// fabrication.</para>
     /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void AnUnreadableClaimantDeclinesOnlyForTheTargetsOwnIdentity(bool sameIdentity)
+    [InlineData("same identity")]
+    [InlineData("different token")]
+    [InlineData("different culture")]
+    public void AnUnreadableClaimantDeclinesOnlyForTheTargetsOwnIdentity(string rival)
     {
         string directory = NewTempDirectory();
         try
@@ -2467,13 +2479,15 @@ public class ForwardedTypeAliasesTests
             Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
 
             // A second file claiming the target's NAME that the probe cannot read, answering to the
-            // target's own identity or to a different publisher's.
+            // target's own identity or differing from it in exactly one component.
             WriteUnprobableClaimant(
-                directory, "Contoso.Target", publicKey: sameIdentity ? targetKey : rivalKey,
-                fileName: "Target.rival", version: new Version(1, 0, 0, 0));
+                directory, "Contoso.Target",
+                publicKey: rival == "different token" ? rivalKey : targetKey,
+                fileName: "Target.rival", version: new Version(1, 0, 0, 0),
+                culture: rival == "different culture" ? "fr-FR" : null);
 
             Assert.Equal(
-                sameIdentity
+                rival == "same identity"
                     ? CallerScopeTypeFilter.TypeReferenceState.DoesNotName
                     : CallerScopeTypeFilter.TypeReferenceState.Names,
                 Classify());
@@ -2951,23 +2965,34 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// The gate named by <see cref="ForwardedTypeAliases.Includes(string)"/>'s doc comment. That
-    /// overload cannot see a withdrawal — a canonical bucket holds a verified spelling and a
-    /// withdrawn one at once — so a matching decision made through it reports a caller whose
-    /// reference was refused. Nothing on the product path uses it today; this fails if that
-    /// changes, rather than leaving the doc comment asserting a property nothing enforces.
+    /// The gate named by <see cref="ForwardedTypeAliases.IncludesIgnoringWithdrawals(string)"/>'s
+    /// doc comment. That member cannot see a withdrawal — a canonical bucket holds a verified
+    /// spelling and a withdrawn one at once — so a matching decision made through it reports a
+    /// caller whose reference was refused. Nothing on the product path uses it today; this fails
+    /// if that changes, rather than leaving the doc comment asserting a property nothing enforces.
     ///
     /// <para>Raised in review of <c>d8aa7b47</c> as an API-shape hazard rather than a live defect:
-    /// the one product call site is the two-argument overload, reached through
-    /// <see cref="ForwardedTypeAliases.DenotesSameType"/>. Tests are excluded because asserting
-    /// bucket membership itself is what the single-argument overload is for.</para>
+    /// the one product call site is <see cref="ForwardedTypeAliases.Includes(string, string)"/>,
+    /// reached through <see cref="ForwardedTypeAliases.DenotesSameType"/>. Tests are excluded
+    /// because asserting bucket membership itself is what the blind member is for.</para>
     ///
-    /// <para>The scan is non-vacuous by construction: it asserts it examined product sources that
-    /// mention the type at all, so a broken root walk or a moved directory fails here instead of
-    /// passing on an empty file set.</para>
+    /// <para>The enforcement is two-layered, and the first layer is the one that matters. These
+    /// were <c>Includes</c> overloads, so the only thing between the safe member and the blind one
+    /// was an argument a caller could drop silently, and the scan had to reconstruct an argument
+    /// count from text. Round-20 review executed that regex against real call shapes and evaded it
+    /// twice — <c>x.Includes(Foo())</c> and <c>x.Includes&lt;T&gt;(item)</c> both slipped through,
+    /// while a mention in a comment or string matched falsely. Renaming the blind member made the
+    /// accident a <em>compile error</em>, and left this scan matching one distinctive identifier
+    /// with a leading dot, which needs no argument counting and no paren balancing.</para>
+    ///
+    /// <para>Non-vacuity is asserted directly rather than assumed: the pattern is first run against
+    /// a known call-shaped string, so a typo that matches nothing fails here instead of passing
+    /// silently. The scan also asserts it examined product sources that mention the type at all,
+    /// so a broken root walk or a moved directory fails rather than passing on an empty set. The
+    /// declaration and the <c>cref</c> references carry no leading dot and so are not matched.</para>
     /// </summary>
     [Fact]
-    public void NoProductCodeMatchesOnTheWithdrawalBlindIncludesOverload()
+    public void NoProductCodeUsesTheWithdrawalBlindMembershipTest()
     {
         string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
 
@@ -2977,9 +3002,13 @@ public class ForwardedTypeAliasesTests
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .ToList();
 
-        // A call with one argument: no comma before the closing parenthesis. The declaration itself
-        // carries no leading dot and so is not matched.
-        var singleArgument = new Regex(@"\.Includes\(\s*[^,()]*\)", RegexOptions.CultureInvariant);
+        var callSite = new Regex(
+            @"\." + nameof(ForwardedTypeAliases.IncludesIgnoringWithdrawals) + @"\s*\(",
+            RegexOptions.CultureInvariant);
+
+        // The pattern's own control: it must match a call and must not match the declaration.
+        Assert.Matches(callSite, "aliases.IncludesIgnoringWithdrawals(\"Contoso.Facade\")");
+        Assert.DoesNotMatch(callSite, "public bool IncludesIgnoringWithdrawals(string assembly)");
 
         var offenders = new List<string>();
         int mentioning = 0;
@@ -2989,12 +3018,84 @@ public class ForwardedTypeAliasesTests
             if (text.Contains(nameof(ForwardedTypeAliases), StringComparison.Ordinal))
                 mentioning++;
 
-            foreach (Match match in singleArgument.Matches(text))
+            foreach (Match match in callSite.Matches(text))
                 offenders.Add($"{Path.GetRelativePath(sourceRoot, path)}: {match.Value}");
         }
 
         Assert.True(mentioning > 0, $"scanned {productSources.Count} product sources and none mentioned the type");
         Assert.Empty(offenders);
+    }
+
+    /// <summary>
+    /// The unreadable target claimant imposes a version <em>ceiling</em>, not an outright decline.
+    /// Binding rolls a reference forward and never back, so a claimant at version C can only be
+    /// reached by references at or below C — the same rule <c>RefutedAt</c> already applies to a
+    /// silent readable twin, applied here to the one identity the fixed point checks directly
+    /// rather than through <c>tokensBySpelling</c>.
+    ///
+    /// <para>Raised in review of <c>8e83107c</c> as a drop, and it was the ordinary shape rather
+    /// than an exotic one: a scope with a stale copy of the target lying in it — a build output
+    /// directory — lost every caller of every facade in the whole scope, because the decline was
+    /// the whole answer and not one spelling. The older claimant cannot be what the terminal
+    /// reference binds to, so it refutes nothing.</para>
+    ///
+    /// <para>The three cases are one fixture so each is the other's control: <c>older</c> is the
+    /// case that was wrong, and <c>same</c> and <c>newer</c> are the ones that must keep declining,
+    /// which is what stops a fix from being a blanket permission. <c>newer</c> is the roll-forward
+    /// direction and is the reason the ceiling is <em>at or below</em> rather than equality.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("older", CallerScopeTypeFilter.TypeReferenceState.Names)]
+    [InlineData("same", CallerScopeTypeFilter.TypeReferenceState.DoesNotName)]
+    [InlineData("newer", CallerScopeTypeFilter.TypeReferenceState.DoesNotName)]
+    public void AnUnreadableTargetClaimantRefutesOnlyReferencesItCanBeBoundTo(
+        string rivalAge,
+        CallerScopeTypeFilter.TypeReferenceState expected)
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(2, 0, 0, 0));
+            WriteForwarderToVersion(
+                directory, "Contoso.Good", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Good",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(2, 0, 0, 0));
+
+            using var caller = BuildCallerNaming("Contoso.Good", "Contoso", "Widget");
+
+            CallerScopeTypeFilter.TypeReferenceState Classify() =>
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, Directory.GetFiles(directory, "*.dll"), seedSpellings: null));
+
+            // The control: without the rival, the facade is a genuine alias.
+            Assert.Equal(CallerScopeTypeFilter.TypeReferenceState.Names, Classify());
+
+            // A second file of the target's own identity that the probe cannot read, below, at, or
+            // above the version the facade's terminal reference names.
+            WriteUnprobableClaimant(
+                directory, "Contoso.Target", publicKey: null, fileName: "Target.rival",
+                version: rivalAge switch
+                {
+                    "older" => new Version(1, 0, 0, 0),
+                    "same" => new Version(2, 0, 0, 0),
+                    _ => new Version(3, 0, 0, 0),
+                });
+
+            Assert.Equal(expected, Classify());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     static string FindRepositoryRoot()
@@ -3182,9 +3283,10 @@ public class ForwardedTypeAliasesTests
         string name,
         byte[]? publicKey,
         string fileName,
-        Version version)
+        Version version,
+        string? culture = null)
     {
-        var metadata = NewAssembly(name, publicKey, version);
+        var metadata = NewAssembly(name, publicKey, version, culture);
         metadata.AddAssemblyReference(
             metadata.GetOrAddString("Contoso.Target"),
             new Version(1, 0, 0, 0),
@@ -3705,6 +3807,9 @@ public class ForwardedTypeAliasesTests
         => NewAssembly(name, publicKey, new Version(1, 0, 0, 0));
 
     static MetadataBuilder NewAssembly(string name, byte[]? publicKey, Version version)
+        => NewAssembly(name, publicKey, version, culture: null);
+
+    static MetadataBuilder NewAssembly(string name, byte[]? publicKey, Version version, string? culture)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3716,7 +3821,7 @@ public class ForwardedTypeAliasesTests
         metadata.AddAssembly(
             metadata.GetOrAddString(name),
             version,
-            culture: default,
+            culture: culture is null ? default : metadata.GetOrAddString(culture),
             publicKey: publicKey is null ? default : metadata.GetOrAddBlob(publicKey),
             flags: default,
             hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);

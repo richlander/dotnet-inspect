@@ -514,24 +514,29 @@ public sealed class ForwardedTypeAliases
     /// in case verified and was then refused by the lookup, dropping a genuine caller (found in
     /// review of <c>984454a3</c>).</para>
     ///
-    /// <para><b>This overload cannot see a withdrawal.</b> Canonicalization collapses the five
+    /// <para><b>This method cannot see a withdrawal.</b> Canonicalization collapses the five
     /// core-library facade spellings onto one name, so a bucket can hold a verified spelling and a
     /// withdrawn one at once and this test answers <c>true</c> for both — see
-    /// <see cref="Includes(string, string)"/>, which is the overload every matching decision must
-    /// use. Nothing on the product path calls this one, and
-    /// <c>ForwardedTypeAliasesTests.NoProductCodeMatchesOnTheWithdrawalBlindIncludesOverload</c>
-    /// is the gate that keeps it that way; raised in review of <c>d8aa7b47</c>. It remains for
-    /// tests that are asserting bucket membership itself rather than whether a candidate
-    /// matches.</para>
+    /// <see cref="Includes(string, string)"/>, which is the member every matching decision must
+    /// use. It remains for tests that are asserting bucket membership itself rather than whether a
+    /// candidate matches.</para>
+    ///
+    /// <para>The blindness is in the name because it used to be an <c>Includes</c> overload, where
+    /// the only thing separating the safe member from the hazardous one was an argument a caller
+    /// could drop silently (raised in review of <c>d8aa7b47</c>). The rename makes that mistake a
+    /// compile error rather than something a source scan has to notice afterwards, which is the
+    /// gate: there is no longer a one-argument <c>Includes</c> to reach for by accident.</para>
     /// </summary>
-    public bool Includes(string assembly) => _aliases.Contains(assembly);
+    public bool IncludesIgnoringWithdrawals(string assembly) => _aliases.Contains(assembly);
 
     /// <summary>
-    /// <see cref="Includes(string)"/> for a candidate whose pre-canonical spelling is known.
+    /// <see cref="IncludesIgnoringWithdrawals(string)"/> for a candidate whose pre-canonical
+    /// spelling is known. This is the member every matching decision must use.
     ///
     /// <para>Canonicalization collapses the five core-library facade spellings onto one name, so
-    /// <see cref="Includes(string)"/> alone cannot tell a verified spelling from a withdrawn one in
-    /// the same bucket: an image referencing a retargetable <c>mscorlib</c> beside a verified
+    /// <see cref="IncludesIgnoringWithdrawals(string)"/> alone cannot tell a verified spelling from
+    /// a withdrawn one in the same bucket: an image referencing a retargetable <c>mscorlib</c>
+    /// beside a verified
     /// <c>netstandard</c> had its <c>mscorlib</c> withdrawal silently undone, and a
     /// <c>TypeRef</c> that went through the retargetable row matched anyway (executed in review of
     /// <c>b18e5009</c>). Withdrawing the bucket instead is not an option — that takes the verified
@@ -827,6 +832,17 @@ public sealed class ForwardedTypeAliases
                     // this independently (executed in review of d8aa7b47). The census already read
                     // the identity; this branch was throwing it away. A target whose own identity
                     // is unknown still declines, because then nothing distinguishes the two.
+                    //
+                    // A VERSION CEILING, not an outright decline. An unreadable file has to be
+                    // assumed silent about the type, and silence is already measured as a ceiling
+                    // everywhere else in this file: binding rolls a reference forward and never
+                    // back, so a claimant at version C can only be reached by references at or
+                    // below C. Declining outright made an OLD unreadable claimant refuse a NEWER
+                    // terminal reference that cannot roll back onto it, dropping every caller of a
+                    // scope that merely has a stale copy of the target lying in it — the ordinary
+                    // shape of a build output directory (executed in review of 8e83107c). This is
+                    // the same rule `RefutedAt` applies to a silent readable twin, applied to the
+                    // one identity that is checked directly rather than through `tokensBySpelling`.
                     if (claimantPaths.TryGetValue(path, out var unreadable))
                     {
                         if (string.Equals(unreadable.Name, targetAssemblyName, StringComparison.OrdinalIgnoreCase)
@@ -837,7 +853,11 @@ public sealed class ForwardedTypeAliases
                                         known.Culture,
                                         StringComparison.OrdinalIgnoreCase))))
                         {
-                            return None;
+                            if (targetIdentity is not { } bounded)
+                                return None;
+
+                            targetIdentity = bounded.RefutedAt(unreadable.Identity.Version);
+                            continue;
                         }
 
                         unreadableSpellings.Add(unreadable.Name);
