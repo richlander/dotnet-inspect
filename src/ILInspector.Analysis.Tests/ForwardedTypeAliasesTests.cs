@@ -3400,6 +3400,94 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// Two silent claimants of the target's identity refute the same in either walk order. The
+    /// round-24 reviewer (Claude Opus 4.8) cleared the new ceiling's order-independence by
+    /// reasoning — <c>RefutedAt</c> keeps the higher ceiling, and max is commutative — but did not
+    /// execute it, and flagged that gap. This executes it.
+    ///
+    /// <para>The versions are deliberately different and straddle the terminal hop, which is what
+    /// makes the assertion discriminating: the fold must reach the SAME answer both ways, not
+    /// merely a stable one. Under a last-wins fold the ceiling would be whichever claimant the
+    /// walk happened to see last, so <c>{v3, v1}</c> would admit and <c>{v1, v3}</c> would
+    /// refuse.</para>
+    ///
+    /// <para>Paths are ordered explicitly rather than by <c>Directory.GetFiles</c>, whose order is
+    /// filesystem-defined and would make the test assert nothing on a volume that returned them
+    /// the same way twice.</para>
+    /// </summary>
+    [Fact]
+    public void TwoSilentTargetClaimantsRefuteTheSameRegardlessOfWalkOrder()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(2, 0, 0, 0));
+            WriteForwarderToVersion(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Facade",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(2, 0, 0, 0));
+
+            using var caller = BuildCallerNaming("Contoso.Facade", "Contoso", "Widget");
+
+            // One claimant below the terminal hop (cannot be bound to it, refutes nothing on its
+            // own) and one above it (refutes). Only the second changes the answer, so an
+            // order-sensitive fold would disagree with itself.
+            WriteNonForwarder(
+                directory, "Contoso.Target", publicKey: null, "Older", new Version(1, 0, 0, 0));
+            WriteNonForwarder(
+                directory, "Contoso.Target", publicKey: null, "Newer", new Version(3, 0, 0, 0));
+
+            string[] forward = [.. Directory.GetFiles(directory, "*.dll").OrderBy(p => p, StringComparer.Ordinal)];
+            string[] reversed = [.. forward.Reverse()];
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(target, targetPath, forward, seedSpellings: null)));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(target, targetPath, reversed, seedSpellings: null)));
+
+            // The positive control: with only the older claimant the facade still answers in both
+            // orders, so the refusals above are the newer claimant's doing and not a fixture that
+            // never resolved.
+            File.Delete(Path.Combine(directory, "Newer.dll"));
+            string[] controlForward = [.. Directory.GetFiles(directory, "*.dll").OrderBy(p => p, StringComparer.Ordinal)];
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(target, targetPath, controlForward, seedSpellings: null)));
+
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(
+                    caller.GetMetadataReader(),
+                    target,
+                    ForwardedTypeAliases.ForTarget(
+                        target, targetPath, [.. controlForward.Reverse()], seedSpellings: null)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The file the target's identity came from does not refute itself. The caller's query asserts
     /// the type is defined there, so a probe that fails to see it is a limit of the probe.
     ///
