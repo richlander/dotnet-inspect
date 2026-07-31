@@ -47,9 +47,11 @@ namespace ILInspector.Instructions;
 /// The mangled forms are unspellable in C# but not in IL, so an untrusted assembly can
 /// declare a type literally named <c>&lt;Foo&gt;d__5</c>; without the attribute check such
 /// a type would be folded together with an unrelated one. Local-function methods and
-/// state-machine and display-class types all carry the attribute. Enforced by
-/// <c>NameShapeAlone_DoesNotFold</c>, which declares a type with a hand-written mangled
-/// name and no attribute and asserts it keeps its ordinal.
+/// state-machine and display-class types all carry the attribute. The method-side rule is
+/// enforced by <c>NameShapeAlone_DoesNotFold</c>, which declares a <em>method</em> with a
+/// hand-written mangled name and no attribute and asserts it keeps its ordinal;
+/// <c>TypeNameShapeAlone_DoesNotFold</c> asserts the same outcome for a type, though it
+/// pins the outcome rather than a single call site, for the reason its own remarks give.
 /// </para>
 /// <para>
 /// <b>That gate raises the cost of a collision; it is not a security boundary.</b>
@@ -61,6 +63,7 @@ namespace ILInspector.Instructions;
 /// the local-function name, and the slot ordinal to agree, and requires the key to be
 /// unique on <em>both</em> sides, so a forged attribute cannot equate members that differ
 /// in anything but the member ordinal. Do not read this gate as authenticating provenance.
+/// </para>
 /// <para>
 /// That bound is only real because the key's flattening is injective. When the separator
 /// was spellable it was not, and a forged attribute could equate members of two different

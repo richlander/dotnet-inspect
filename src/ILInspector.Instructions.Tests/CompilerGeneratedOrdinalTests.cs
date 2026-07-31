@@ -263,8 +263,9 @@ public class CompilerGeneratedOrdinalTests
             ctorSpelling: AttributeCtorSpelling.MemberReferenceOnTypeDefinition).IsExact);
     }
 
-
-    /// not a number elides to the same form as a real generated member, so two genuinely
+    /// <summary>
+    /// A scope ordinal that is not a number elides to the same form as a real generated
+    /// member, so two genuinely
     /// different call targets compare equal — the same false-<c>Exact</c> class as a forged
     /// name, reached through a malformed one.
     /// </summary>
@@ -642,7 +643,7 @@ public class CompilerGeneratedOrdinalTests
     /// itself prove every spellable separator is unsafe; a single-character separator
     /// defeats this particular name while remaining forgeable by a name containing that
     /// character. The general property rests on the separator being unspellable, which is
-    /// the same property <c>PlaceholderCannotBeSpelledByAMetadataName</c> asserts.
+    /// the property <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> asserts.
     /// </remarks>
     [Fact]
     public void ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes()
