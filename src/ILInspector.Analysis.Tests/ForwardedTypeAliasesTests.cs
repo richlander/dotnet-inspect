@@ -3400,6 +3400,114 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// The target recognizes itself when the caller named it in a different case on a
+    /// case-insensitive volume. Raised in round 24 by MAI-Code, reproduced through
+    /// <c>ForTarget</c>: the self-exemption compared paths Ordinal, so a case-variant spelling of
+    /// the target failed to match and the target refuted its own aliases.
+    ///
+    /// <para>The residual was latent rather than live — a target that declares the type top-level
+    /// never reaches the silence rule (<c>DeclaresType</c> short-circuits it), so reaching it needs
+    /// a target silent about its own type, today only a nested one (#3480), which has no alias to
+    /// lose. It is fixed anyway because that masking belongs to a different open bug, and because
+    /// the comment previously justified the gap with a claim about the CLI canonicalizing path
+    /// casing that MAI-Code checked and refuted.</para>
+    ///
+    /// <para>Skipped on a case-sensitive volume, where the premise does not hold: there the two
+    /// spellings are two files and the sibling test below is the one that applies.</para>
+    /// </summary>
+    [Fact]
+    public void TheTargetRecognizesItselfThroughACaseVariantSpellingOfItsOwnPath()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+            string variantPath = Path.Combine(directory, "contoso.target.dll");
+
+            // A target silent about its own type, which is what it takes to reach the rule at all.
+            WriteNonForwarder(
+                directory, "Contoso.Target", publicKey: null, "Contoso.Target", new Version(1, 0, 0, 0));
+            WriteForwarder(directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget");
+
+            Assert.SkipWhen(
+                IsCaseSensitive(directory),
+                "volume is case-sensitive; the two spellings are two files, which the sibling test covers");
+
+            string[] scope = Directory.GetFiles(directory, "*.dll");
+
+            // The control: named exactly, the target exempts itself and the facade answers, so a
+            // refusal below is the casing's doing and not a fixture that never resolved.
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, scope, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, variantPath, scope, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A genuinely different file does NOT inherit the target's self-exemption just because its
+    /// path differs only by case. This is the other half of the round-24 casing fix and the reason
+    /// it resolves the target against the census instead of folding case: on a case-sensitive
+    /// volume two such paths are two files, and exempting the wrong one would FABRICATE.
+    ///
+    /// <para>Runs only on a case-sensitive volume, which the Analysis suite is executed against a
+    /// second time (<c>fsutil file setCaseSensitiveInfo</c>) for exactly this class of question.</para>
+    /// </summary>
+    [Fact]
+    public void ACaseVariantSiblingDoesNotInheritTheTargetsSelfExemption()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+
+            Assert.SkipUnless(
+                IsCaseSensitive(directory),
+                "volume is case-insensitive; the two spellings are one file here");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            // The attacker: same identity, silent about the type, reachable by the terminal hop,
+            // under a path that differs from the target's only by case.
+            File.WriteAllBytes(
+                Path.Combine(directory, "contoso.target.dll"),
+                SerializePE(NewAssembly("Contoso.Target", null, new Version(2, 0, 0, 0), null)));
+
+            WriteForwarderToVersion(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Facade",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(1, 0, 0, 0));
+
+            string[] scope = Directory.GetFiles(directory, "*.dll");
+
+            // The silent same-identity sibling still refutes: it did not become the target merely
+            // by being spelled like it.
+            Assert.False(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, scope, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Two silent claimants of the target's identity refute the same in either walk order. The
     /// round-24 reviewer (Claude Opus 4.8) cleared the new ceiling's order-independence by
     /// reasoning — <c>RefutedAt</c> keeps the higher ceiling, and max is commutative — but did not

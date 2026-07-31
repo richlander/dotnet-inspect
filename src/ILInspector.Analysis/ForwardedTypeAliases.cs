@@ -731,18 +731,30 @@ public sealed class ForwardedTypeAliases
         // that fails to see it is a limit of the probe, not a contradiction. Left null when the
         // identity is unknown, in which case the silence rule declines outright anyway.
         //
-        // Ordinal, and a path rather than an identity, because the target and the attack are
-        // indistinguishable by identity — a second file claiming the target's name, token and
-        // culture at a DIFFERENT version is exactly the shape being caught, so only the path
-        // separates them. Ordinal is exactly right on a case-sensitive volume, where two spellings
-        // are two files. On a case-insensitive one a differently-cased spelling of the target path
-        // would fail to match and the target would refute itself — a DROP, the safe direction here,
-        // and not reachable through the CLI, which canonicalizes path casing before this point.
+        // A path rather than an identity, because the target and the attack are indistinguishable
+        // by identity — a second file claiming the target's name, token and culture at a DIFFERENT
+        // version is exactly the shape being caught, so only the path separates them.
+        //
+        // The comparison is Ordinal, but the supplied path is first resolved against the census so
+        // that a differently-cased spelling of the target still matches on a case-INSENSITIVE
+        // volume. Comparing raw Ordinal was a latent DROP there (raised in round 24 by MAI-Code,
+        // reproduced through `ForTarget`); it was masked only because a target declaring the type
+        // top-level never reaches the silence rule at all, so the residual needed a target that is
+        // silent about its own type — today only a nested one (#3480), for which no alias exists to
+        // lose. That masking is a property of a DIFFERENT open bug, not of this rule, so it is
+        // fixed here rather than documented.
+        //
+        // Deliberately NOT a plain OrdinalIgnoreCase, and deliberately not keyed on the operating
+        // system: a case-sensitive volume on Windows is exactly what this suite's own
+        // `fsutil setCaseSensitiveInfo` run exercises, and folding case there would exempt a
+        // genuinely different file — the FABRICATING direction. Asking the census instead answers
+        // the real question, because a volume that holds two files differing only in case is
+        // case-sensitive by construction.
         string? targetPath = null;
 
         if (targetAssemblyPath is not null)
         {
-            targetPath = Normalize(targetAssemblyPath);
+            targetPath = CensusSpellingOf(Normalize(targetAssemblyPath), claimantPaths.Keys);
 
             // An explicitly supplied target is authoritative, including when it cannot be read.
             // Falling through to the census then meant that LOSING the authoritative identity
@@ -1490,6 +1502,49 @@ public sealed class ForwardedTypeAliases
         }
 
         return forwarding;
+    }
+
+    /// <summary>
+    /// The census's own spelling of <paramref name="path"/>, so that the target file recognizes
+    /// itself on a case-insensitive volume where the caller named it in a different case.
+    /// </summary>
+    /// <remarks>
+    /// <para>Returns <paramref name="path"/> unchanged unless the census holds exactly one entry
+    /// differing from it only by case. That "exactly one" is the whole safety argument, and it is
+    /// a filesystem fact rather than a guess: a volume that can hold two files whose paths differ
+    /// only by case IS case-sensitive, so on such a volume those are two genuinely different files
+    /// and neither may claim the other's exemption. Folding case unconditionally would hand the
+    /// target's self-exemption to an attacker file there — the FABRICATING direction, and the one
+    /// this file exists to refuse.</para>
+    ///
+    /// <para>So this is deliberately not <see cref="StringComparison.OrdinalIgnoreCase"/>, and
+    /// deliberately not switched on the operating system: case sensitivity is a property of the
+    /// VOLUME, not the OS. This repository's own Analysis suite is run a second time against a
+    /// directory marked with <c>fsutil file setCaseSensitiveInfo</c> precisely because the two come
+    /// apart on Windows, and CI runs Linux, where a case-insensitive mount is equally possible.</para>
+    /// </remarks>
+    static string CensusSpellingOf(string path, IEnumerable<string> censusPaths)
+    {
+        string? unique = null;
+
+        foreach (string candidate in censusPaths)
+        {
+            if (string.Equals(candidate, path, StringComparison.Ordinal))
+                return path;
+
+            if (!string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // A second case-variant spelling: the volume is case-sensitive, so these are distinct
+            // files and nothing here can say which was meant. Keep the caller's spelling and let
+            // the Ordinal comparison decline, which drops rather than fabricates.
+            if (unique is not null)
+                return path;
+
+            unique = candidate;
+        }
+
+        return unique ?? path;
     }
 
     /// <summary>
