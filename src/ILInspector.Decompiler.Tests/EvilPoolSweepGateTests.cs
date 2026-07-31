@@ -365,6 +365,8 @@ public class EvilPoolSweepGateTests
     /// </summary>
     sealed class SweepWorld : IDisposable
     {
+        string? _cachedAssemblyPath;
+
         SweepWorld(string scratch, string cacheDirectory, byte[] fixtureBytes)
         {
             Scratch = scratch;
@@ -393,15 +395,13 @@ public class EvilPoolSweepGateTests
         /// <summary>
         /// The fixture assembly as the cache holds it. Overwriting this is how a case
         /// makes the cache answer with bytes the pin does not name.
+        ///
+        /// <para>Recorded by <see cref="SeedCache"/> from the path the product itself
+        /// names, not composed here: the directory a committed package lands in is the
+        /// product's to decide, down to the casing it applies to the name and version.</para>
         /// </summary>
-        public string CachedAssemblyPath => Path.Combine(
-            CacheDirectory,
-            "package-content-v2",
-            FixturePackage,
-            FixtureVersion,
-            "lib",
-            FixtureTfm,
-            FixtureAssembly);
+        public string CachedAssemblyPath => _cachedAssemblyPath
+            ?? throw new InvalidOperationException("The cache has not been seeded yet.");
 
         /// <summary>
         /// Builds the world. <paramref name="version"/> and <paramref name="tfm"/> are what
@@ -449,8 +449,27 @@ public class EvilPoolSweepGateTests
             // Points this process's cache at the scratch directory only so that the commit
             // below lands there. The sweep is told the same directory by environment, and
             // resolves it with this same code, so the two cannot disagree about where it is.
+            //
+            // This is process-global state with no reset, and it is left pointing at a
+            // directory Dispose removes. That is deliberate: no other type in this test
+            // assembly references CoreCache or NuGetCache, and if one ever does, resolving
+            // against a removed directory fails loudly, where leaving a usable scratch
+            // cache behind would quietly serve it this fixture instead.
             NuGetCache.Initialize("dotnet-inspect", CacheDirectory, skipNuGetCache: true);
             NuGetCache.CommitPackage(staged, null, FixturePackage, FixtureVersion);
+
+            // Where the product put it, plus the layout of the package this test authored.
+            // A product that moved its cache layout fails here, naming the path it did not
+            // write, rather than downstream as a sweep that mysteriously ignored a tamper.
+            _cachedAssemblyPath = Path.Combine(
+                NuGetCache.GetPackageCachePath(FixturePackage, FixtureVersion),
+                "lib",
+                FixtureTfm,
+                FixtureAssembly);
+
+            Assert.True(
+                File.Exists(_cachedAssemblyPath),
+                $"The committed package does not hold the fixture assembly at {_cachedAssemblyPath}.");
         }
 
         void WriteInputs(string pinnedVersion, string pinnedTfm)
