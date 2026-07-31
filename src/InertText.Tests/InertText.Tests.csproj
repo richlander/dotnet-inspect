@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <RootNamespace>Inert.Tests</RootNamespace>
+    <RootNamespace>InertText.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

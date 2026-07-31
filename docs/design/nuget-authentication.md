@@ -329,14 +329,32 @@ a terminal. `Uri` percent-encodes C0 controls, so an ANSI escape cannot survive 
 through it — but it passes `Cf` straight through, and `Cf` is where Trojan Source (CVE-2021-42574)
 lives. A right-to-left override in a feed name reorders the rest of the line.
 
-Every URL that reaches a message or a log goes through [`InertText.Encode`](../../src/InertText/InertText.cs)
-first, which re-spells anything in `Cc`, `Cf`, `Cs`, `Zl` or `Zp` as a visible escape. It is
-lossless and invertible rather than a filter, so the reader still sees what was actually there.
+Every URL that reaches a message or a log is spelled by
+[`VisualEncoder`](../../src/InertText/VisualEncoder.cs) first:
+
+```csharp
+VisualEncoder.Encode(withoutCredentials, TextPolicy.Field)
+```
+
+The component splits policy from spelling, which is what lets one encoder serve every sink:
+
+- The **predicate** (`ScalarPolicy`) answers "is this scalar permitted *here*". It is per-sink.
+  `TextPolicy.Field` is deny-shaped and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`; `TextPolicy.Prose`
+  is the same minus a `CR`/`LF`/`TAB` exemption. A field whose grammar is externally defined
+  should supply an allow-shaped policy instead.
+- The **speller** (`VisualEncoder`) answers "how is a refused scalar written down". It is total
+  over Unicode, never learns *why* a scalar was refused, and ships with its decoder, so the
+  transform is lossless and invertible rather than a filter.
+
+The split is not tidiness. A URL host is a constrained grammar, and the central typosquatting
+vector is a homoglyph: Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and
+neither is a hazard. No category rule catches that and none should — only an allow list does,
+and because the speller is total, such a sink needs no hazard set of its own. `TextPolicy.Field`
+is the weaker deny-shaped policy, chosen here because it is what the message path needs today;
+tightening the source URL to an allow list is tracked with the identifier work.
 
 `InertText` sits below every other project and references nothing, because the assemblies that
-print artifact-derived text include the dependency-free leaves. Note its limit: it guarantees the
-text cannot *act* on a sink, not that the text is honest. `https://evil.com／nuget.org/index.json`
-uses a fullwidth solidus and is entirely graphic characters, so it passes through untouched.
+print artifact-derived text include the dependency-free leaves.
 
 ## Service index discovery
 

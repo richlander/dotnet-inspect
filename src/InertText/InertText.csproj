@@ -6,9 +6,6 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <IsAotCompatible>true</IsAotCompatible>
-    <!-- The type is InertText, so the namespace cannot also be: a namespace and a type with
-         one name make InertText.Encode bind to the namespace and fail to compile. -->
-    <RootNamespace>Inert</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>

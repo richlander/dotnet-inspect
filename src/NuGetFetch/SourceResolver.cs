@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Xml.Linq;
-using Inert;
+using InertText;
 
 namespace NuGetFetch;
 
@@ -93,7 +93,7 @@ public static class SourceResolver
             Password = "",
         }.Uri.ToString();
 
-        problem = $"Source URL '{InertText.Encode(withoutCredentials)}' embeds "
+        problem = $"Source URL '{VisualEncoder.Encode(withoutCredentials, TextPolicy.Field)}' embeds "
             + "<user>:<password>, which NuGet does not support. Configure the credentials in a "
             + "nuget.config, or use a credential provider.";
         return false;
