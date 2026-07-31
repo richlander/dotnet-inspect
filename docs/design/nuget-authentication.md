@@ -315,7 +315,7 @@ the single point every source passes through whatever route it took.
 `SourceResolver` exposes both halves, so a caller chooses whether a bad source is an exception:
 
 ```csharp
-if (!SourceResolver.IsSupportedSource(url, out string? problem)) { /* report it */ }
+if (!SourceResolver.IsSupportedSource(url, out InertString? problem)) { /* report it */ }
 UnsupportedSourceException.ThrowIfUnsupported(url);   // the ArgumentNullException.ThrowIfNull shape
 ```
 
@@ -333,7 +333,7 @@ Every URL that reaches a message or a log is spelled by
 [`VisualEncoder`](../../src/InertText/VisualEncoder.cs) first:
 
 ```csharp
-VisualEncoder.Encode(withoutCredentials, TextPolicy.Field)
+InertString.Format(TextPolicy.Field, $"Source URL '{withoutCredentials}' embeds ...")
 ```
 
 The component splits policy from spelling, which is what lets one encoder serve every sink:
@@ -355,6 +355,45 @@ tightening the source URL to an allow list is tracked with the identifier work.
 
 `InertText` sits below every other project and references nothing, because the assemblies that
 print artifact-derived text include the dependency-free leaves.
+
+### Treated text is carried as a type, not as a string
+
+The encoder alone is transactional: a `string` goes in and a `string` comes out, so a redacted
+URL and a raw one have the same type. Nothing then stops a later edit from interpolating the raw
+one, and nothing marks the difference at the sink. Auditing that arrangement means tracing every
+call path that reaches a printer, which is work that has to be redone after every change.
+
+Redaction therefore returns [`InertString`](../../src/InertText/InertString.cs), a value that can
+only be built by applying a policy:
+
+```csharp
+internal static InertString RedactSensitiveUrlText(string value)   // was string
+public readonly record struct FeedFailure(InertString Url, ...)    // was string Url
+public InertString? DescribeFailure(string packageName)            // was string?
+```
+
+There is no conversion from `string`, implicit or explicit, and a unit test asserts its absence —
+one would restore exactly the confusion the type removes. Conversion *to* `string` through
+`ToString` is unrestricted, which is safe here in a way it usually is not: the customary objection
+to a wrapper is that `ToString` launders it, but that assumes the payload is dangerous and the
+wrapper is what holds it back. Here the payload is already inert. Losing the wrapper loses
+provenance, not protection.
+
+Composition is the part that has to work, or callers fall back to `$"...{treated}..."` and drop
+the guarantee at the moment it matters most. `InertString.Format` is an interpolated string
+handler that encodes each part as it is appended: holes because they are untrusted, literals too,
+because an invariant with an exception in it must be re-argued at every use. An already-inert hole
+is appended as-is rather than encoded twice.
+
+The type also changed what the compiler could see. `FeedFailureCollector.DescribeFailure` built
+its message with ordinary interpolation, which passed the *package name* through untouched — and
+a package name arrives from a command line or a dependency graph. Retyping the return value turned
+that into a build error at both call sites rather than a review finding.
+
+The remaining transactional path is the `Action<string>? log` delegate threaded through the
+package layer, where roughly a dozen sites interpolate a raw URL. Retyping it would make the
+compiler enumerate them the same way, and is tracked separately: it touches 27 files and does not
+belong in a fix for feed failure reporting.
 
 ## Service index discovery
 

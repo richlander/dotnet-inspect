@@ -1,4 +1,5 @@
 using System.Net;
+using InertText;
 
 namespace DotnetInspector.Core;
 
@@ -20,10 +21,10 @@ public enum FeedFailureKind
 /// <summary>
 /// A single request to a source that did not succeed and was not a plain "no such package".
 /// </summary>
-/// <param name="Url">The request URL that failed, already redacted of userinfo and sensitive query values.</param>
+/// <param name="Url">The request URL that failed, redacted of userinfo and sensitive query values.</param>
 /// <param name="Status">The status the source returned, if a response arrived at all.</param>
 /// <param name="Phase">The traffic kind in flight, which names what was being attempted.</param>
-public readonly record struct FeedFailure(string Url, HttpStatusCode? Status, NetworkTrafficKind Phase)
+public readonly record struct FeedFailure(InertString Url, HttpStatusCode? Status, NetworkTrafficKind Phase)
 {
     /// <summary>Classifies the failure for message selection.</summary>
     public FeedFailureKind Kind => Status switch
@@ -151,27 +152,33 @@ public sealed class FeedFailureCollector
     /// Builds the operator-facing explanation for a lookup that produced no result, or null
     /// when nothing failed and the package really is absent.
     /// </summary>
+    /// <remarks>
+    /// Returns currency rather than <see cref="string"/> because the result is printed. The
+    /// package name is not ours: it arrives from a command line or a dependency graph, so it is
+    /// interpolated through <see cref="InertString.Format"/>, which encodes it. Building this
+    /// message with ordinary interpolation would pass it through untouched.
+    /// </remarks>
     /// <param name="packageName">The package that was being looked for.</param>
-    public string? DescribeFailure(string packageName)
+    public InertString? DescribeFailure(string packageName)
     {
         var failures = Failures;
         if (failures.Count == 0)
             return null;
 
-        var lines = new List<string>();
+        var lines = new List<InertString>();
         bool needsCredentials = failures.Any(f => f.Kind == FeedFailureKind.Authentication);
 
         lines.Add(needsCredentials
-            ? $"Package '{packageName}' could not be resolved because a source requires credentials."
-            : $"Package '{packageName}' could not be resolved because a source did not answer.");
+            ? InertString.Format(TextPolicy.Field, $"Package '{packageName}' could not be resolved because a source requires credentials.")
+            : InertString.Format(TextPolicy.Field, $"Package '{packageName}' could not be resolved because a source did not answer."));
 
         foreach (var failure in failures)
-            lines.Add($"  {failure.Url} — {failure.StatusText} while {failure.PhaseText}");
+            lines.Add(InertString.Format(TextPolicy.Field, $"  {failure.Url} — {failure.StatusText} while {failure.PhaseText}"));
 
         lines.Add(failures.Any(f => f.Kind is FeedFailureKind.Authentication or FeedFailureKind.Authorization)
-            ? "The package may exist; the source was not readable. Supply credentials for this source and retry."
-            : "The package may exist; the source was not readable. Retry, or check the source URL.");
+            ? InertString.Format(TextPolicy.Field, $"The package may exist; the source was not readable. Supply credentials for this source and retry.")
+            : InertString.Format(TextPolicy.Field, $"The package may exist; the source was not readable. Retry, or check the source URL."));
 
-        return string.Join(Environment.NewLine, lines);
+        return InertString.Join(Environment.NewLine, TextPolicy.Prose, lines);
     }
 }

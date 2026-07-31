@@ -169,8 +169,8 @@ public class SharedOptions
     {
         foreach (var token in result.Tokens)
         {
-            if (!NuGetFetch.SourceResolver.IsSupportedSource(token.Value, out string? problem))
-                result.AddError(problem);
+            if (!NuGetFetch.SourceResolver.IsSupportedSource(token.Value, out InertText.InertString? problem))
+                result.AddError(problem.Value.ToString());
         }
     }
 

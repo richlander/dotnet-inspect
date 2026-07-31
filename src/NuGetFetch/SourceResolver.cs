@@ -28,8 +28,8 @@ public sealed class UnsupportedSourceException(string message) : Exception(messa
     /// </remarks>
     public static void ThrowIfUnsupported(string url)
     {
-        if (!SourceResolver.IsSupportedSource(url, out string? problem))
-            throw new UnsupportedSourceException(problem);
+        if (!SourceResolver.IsSupportedSource(url, out InertString? problem))
+            throw new UnsupportedSourceException(problem.Value.ToString());
     }
 
     /// <summary>
@@ -37,8 +37,8 @@ public sealed class UnsupportedSourceException(string message) : Exception(messa
     /// </summary>
     public static void ThrowIfUnsupported(IEnumerable<PackageSource> sources)
     {
-        if (!SourceResolver.IsSupportedSource(sources, out string? problem))
-            throw new UnsupportedSourceException(problem);
+        if (!SourceResolver.IsSupportedSource(sources, out InertString? problem))
+            throw new UnsupportedSourceException(problem.Value.ToString());
     }
 }
 
@@ -77,7 +77,7 @@ public static class SourceResolver
     /// The reason carries the URL stripped of its userinfo, so reporting the problem does not
     /// itself put the credential on a terminal or in a log.
     /// </remarks>
-    public static bool IsSupportedSource(string url, [NotNullWhen(false)] out string? problem)
+    public static bool IsSupportedSource(string url, [NotNullWhen(false)] out InertString? problem)
     {
         problem = null;
 
@@ -93,9 +93,10 @@ public static class SourceResolver
             Password = "",
         }.Uri.ToString();
 
-        problem = $"Source URL '{VisualEncoder.Encode(withoutCredentials, TextPolicy.Field)}' embeds "
-            + "<user>:<password>, which NuGet does not support. Configure the credentials in a "
-            + "nuget.config, or use a credential provider.";
+        problem = InertString.Format(
+            TextPolicy.Field,
+            $"Source URL '{withoutCredentials}' embeds <user>:<password>, which NuGet does not "
+            + $"support. Configure the credentials in a nuget.config, or use a credential provider.");
         return false;
     }
 
@@ -109,7 +110,7 @@ public static class SourceResolver
     /// </param>
     public static bool IsSupportedSource(
         IEnumerable<PackageSource> sources,
-        [NotNullWhen(false)] out string? problem)
+        [NotNullWhen(false)] out InertString? problem)
     {
         foreach (PackageSource source in sources)
         {

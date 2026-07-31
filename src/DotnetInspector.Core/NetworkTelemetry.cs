@@ -206,7 +206,7 @@ public static class NetworkTelemetry
 
 public sealed record NetworkRequestObservation(
     string Method,
-    string? Url,
+    InertString? Url,
     string? Scheme,
     string? Host,
     string ClientKind,
@@ -244,8 +244,8 @@ public sealed record NetworkRequestObservation(
             ["dotnet_inspect.network.policy.allowed"] = IsAllowedByPolicy
         };
 
-        if (Url != null)
-            tags["url.full"] = Url;
+        if (Url is { } url)
+            tags["url.full"] = url.ToString();
         if (Scheme != null)
             tags["url.scheme"] = Scheme;
         if (Host != null)
@@ -258,13 +258,13 @@ public sealed record NetworkRequestObservation(
         return tags;
     }
 
-    internal static string? RedactUrl(Uri? uri)
+    internal static InertString? RedactUrl(Uri? uri)
     {
         if (uri == null)
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return VisualEncoder.Encode(RedactRelativeUrl(uri.ToString()), TextPolicy.Field);
+            return InertString.Encode(RedactRelativeUrl(uri.ToString()), TextPolicy.Field);
 
         var builder = new UriBuilder(uri)
         {
@@ -279,18 +279,18 @@ public sealed record NetworkRequestObservation(
         // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
         // though this were already handled, but it passes Cf straight through — so a bidi
         // override in a source URL survives into a failure message and reorders it.
-        return VisualEncoder.Encode(builder.Uri.ToString(), TextPolicy.Field);
+        return InertString.Encode(builder.Uri.ToString(), TextPolicy.Field);
     }
 
-    internal static string RedactSensitiveUrlText(string value)
+    internal static InertString RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? VisualEncoder.Encode(value, TextPolicy.Field);
+            return RedactUrl(absolute) ?? InertString.Encode(value, TextPolicy.Field);
 
         if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return VisualEncoder.Encode(RedactRelativeUrl(relative.ToString()), TextPolicy.Field);
+            return InertString.Encode(RedactRelativeUrl(relative.ToString()), TextPolicy.Field);
 
-        return VisualEncoder.Encode(value, TextPolicy.Field);
+        return InertString.Encode(value, TextPolicy.Field);
     }
 
     private static string RedactRelativeUrl(string url)
@@ -424,7 +424,7 @@ public static class CacheTelemetry
 
 public sealed record CacheObservation(
     string Category,
-    string Key,
+    InertString Key,
     CacheAccessResult Result,
     NetworkTrafficKind TrafficKind,
     string? RequestWhat,
@@ -448,7 +448,7 @@ public sealed record CacheObservation(
         var tags = new ActivityTagsCollection
         {
            ["dotnet_inspect.cache.category"] = Category,
-           ["dotnet_inspect.cache.key"] = Key,
+           ["dotnet_inspect.cache.key"] = Key.ToString(),
            ["dotnet_inspect.cache.result"] = Result.ToTelemetryName(),
            ["dotnet_inspect.network.kind"] = TrafficKind.ToTelemetryName()
         };

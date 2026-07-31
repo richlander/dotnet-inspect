@@ -32,10 +32,11 @@ public class FeedFailureTelemetryTests
         var described = FeedFailureTelemetry.Current!.DescribeFailure("markout");
 
         Assert.NotNull(described);
-        Assert.DoesNotContain("not found", described, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains($"{(int)status}", described, StringComparison.Ordinal);
-        Assert.Contains("listing versions", described, StringComparison.Ordinal);
-        Assert.Contains("markout", described, StringComparison.Ordinal);
+        string describedText = described.Value.ToString();
+        Assert.DoesNotContain("not found", describedText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"{(int)status}", describedText, StringComparison.Ordinal);
+        Assert.Contains("listing versions", describedText, StringComparison.Ordinal);
+        Assert.Contains("markout", describedText, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -90,8 +91,8 @@ public class FeedFailureTelemetryTests
         var failures = FeedFailureTelemetry.Current!.Failures;
 
         Assert.Equal(2, failures.Count);
-        Assert.Contains(failures, f => f.Url.StartsWith("https://first.", StringComparison.Ordinal));
-        Assert.Contains(failures, f => f.Url.StartsWith("https://second.", StringComparison.Ordinal));
+        Assert.Contains(failures, f => f.Url.ToString().StartsWith("https://first.", StringComparison.Ordinal));
+        Assert.Contains(failures, f => f.Url.ToString().StartsWith("https://second.", StringComparison.Ordinal));
         Assert.All(failures, f => Assert.Equal(FeedFailureKind.Authentication, f.Kind));
     }
 
@@ -142,14 +143,15 @@ public class FeedFailureTelemetryTests
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
 
         // Stored, not merely rendered: Failures is public, so a secret here is already exposed.
-        Assert.DoesNotContain(secret, failure.Url, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, failure.Url.ToString(), StringComparison.Ordinal);
 
         var described = FeedFailureTelemetry.Current!.DescribeFailure("markout");
         Assert.NotNull(described);
-        Assert.DoesNotContain(secret, described, StringComparison.Ordinal);
+        string describedText = described.Value.ToString();
+        Assert.DoesNotContain(secret, describedText, StringComparison.Ordinal);
 
         // Redaction must not blank the whole URL; the operator still needs to know which source.
-        Assert.Contains("private.example", failure.Url, StringComparison.Ordinal);
+        Assert.Contains("private.example", failure.Url.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

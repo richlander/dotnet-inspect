@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Packages;
+using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -405,16 +406,17 @@ public class NuGetSearchSourcesTests
         // NuGet never sends URL userinfo, so this authenticates against nothing and would
         // otherwise surface as a bare 401 that reads like a wrong credential rather than an
         // unused one.
-        Assert.False(SourceResolver.IsSupportedSource(url, out string? problem));
+        Assert.False(SourceResolver.IsSupportedSource(url, out InertString? problem));
 
         Assert.NotNull(problem);
-        Assert.Contains("<user>:<password>", problem, StringComparison.Ordinal);
+        string text = problem.Value.ToString();
+        Assert.Contains("<user>:<password>", text, StringComparison.Ordinal);
 
         // The problem text is printed, so it must not carry the credential it is rejecting.
-        Assert.DoesNotContain(secret, problem, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
 
         // It still has to say which source was rejected.
-        Assert.Contains("private.example", problem, StringComparison.Ordinal);
+        Assert.Contains("private.example", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -460,14 +462,16 @@ public class NuGetSearchSourcesTests
         string esc = "\u001b[31mPWNED\u001b[0m";
 
         Assert.False(SourceResolver.IsSupportedSource(
-            $"https://alice:t0ken@evil.example/{esc}/index.json?x={esc}", out string? problem));
+            $"https://alice:t0ken@evil.example/{esc}/index.json?x={esc}", out InertString? problem));
 
-        Assert.DoesNotContain(problem, c => char.IsControl(c));
-        Assert.DoesNotContain("\u001b", problem, StringComparison.Ordinal);
+        Assert.NotNull(problem);
+        string text = problem.Value.ToString();
+        Assert.DoesNotContain(text, c => char.IsControl(c));
+        Assert.DoesNotContain("\u001b", text, StringComparison.Ordinal);
 
         // Still identifies the source, and still without the credential.
-        Assert.Contains("evil.example", problem, StringComparison.Ordinal);
-        Assert.DoesNotContain("t0ken", problem, StringComparison.Ordinal);
+        Assert.Contains("evil.example", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("t0ken", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -494,7 +498,7 @@ public class NuGetSearchSourcesTests
     {
         // A token in the query is a shape some feeds really use, so it must not be rejected
         // here; only userinfo is unsupported.
-        Assert.True(SourceResolver.IsSupportedSource(url, out string? problem));
+        Assert.True(SourceResolver.IsSupportedSource(url, out InertString? problem));
         Assert.Null(problem);
     }
 
