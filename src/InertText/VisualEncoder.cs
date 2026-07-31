@@ -3,58 +3,31 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
-namespace InertText;
+namespace InertText.Encoder;
 
 /// <summary>
-/// The spellings <see cref="InertString"/> can emit.
+/// The transform that makes text inert, and the decoder that recovers what it was given.
 /// </summary>
 /// <remarks>
-/// Reported so a caller can print a legend derived from what was actually emitted rather than
-/// from a second copy of the table. A legend written independently drifts; one projected from
-/// the encoder cannot.
+/// Deliberately in its own namespace, because that is what makes the guarantee auditable.
+/// <see cref="InertString"/> can be carried, composed and printed without ever naming this
+/// type: text enters through its constructor, which calls in here, and leaves through
+/// <c>ToString</c> already spelled. So a file that imports <c>InertText</c> and not
+/// <c>InertText.Encoder</c> has no way to recover the original text of any value it handles,
+/// and that is visible in its using block rather than by tracing calls.
+///
+/// The separation is an audit boundary, not a capability barrier. Nothing stops a file from
+/// adding the import or writing the name out in full — but it cannot do so invisibly, and
+/// making the dangerous half impossible to reach by accident is the achievable goal. A
+/// reflection test enforces the other half of it: no public member of <see cref="InertString"/>
+/// returns text derived from the original.
+///
+/// The name stays deliberately distinct from the currency type's. Two unrelated names give two
+/// independent searches — one for who carries inert text, one for who can recover it — where a
+/// shared prefix would blur both into a single noisy result.
 /// </remarks>
-[Flags]
-public enum VisualForm
+public static class VisualEncoder
 {
-    /// <summary>Nothing was encoded.</summary>
-    None = 0,
-
-    /// <summary>Caret notation for a C0 control, as in <c>\^[</c> for <c>ESC</c>.</summary>
-    Caret = 1 << 0,
-
-    /// <summary>Caret notation for <c>DEL</c>, spelled <c>\^?</c>.</summary>
-    CaretDelete = 1 << 1,
-
-    /// <summary>A scalar in the BMP, spelled <c>\uXXXX</c>.</summary>
-    BmpHex = 1 << 2,
-
-    /// <summary>A scalar above the BMP, spelled <c>\UXXXXXXXX</c>.</summary>
-    AstralHex = 1 << 3,
-
-    /// <summary>A literal backslash, doubled so the transform stays invertible.</summary>
-    Backslash = 1 << 4,
-}
-
-// The speller half of InertString: the transform that makes text inert, the predicate that
-// asks whether it already is, and the decoder that proves the transform is invertible. Split
-// into its own file for readability only -- the type's documentation lives on the other part.
-public readonly partial struct InertString
-{
-    /// <summary>
-    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, yielding a value that
-    /// can be carried to a sink.
-    /// </summary>
-    /// <remarks>
-    /// The only way into the type. There is deliberately no public form that hands back a bare
-    /// <see cref="string"/>: that would return treated text with its provenance stripped, which
-    /// is the confusion this type exists to remove.
-    /// </remarks>
-    public static InertString Encode(string value, ScalarPolicy permits)
-    {
-        string encoded = EncodeCore(value, permits, out VisualForm forms);
-        return new InertString(encoded, forms);
-    }
-
     /// <summary>
     /// Returns <paramref name="value"/> with every scalar <paramref name="permits"/> refuses
     /// visually encoded, reporting which spellings were used.
@@ -68,7 +41,7 @@ public readonly partial struct InertString
     /// <param name="value">The text to encode.</param>
     /// <param name="permits">The per-sink policy deciding what may pass through.</param>
     /// <param name="formsUsed">The spellings actually emitted, for a caller-written legend.</param>
-    internal static string EncodeCore(string value, ScalarPolicy permits, out VisualForm formsUsed)
+    public static string Encode(string value, ScalarPolicy permits, out VisualForm formsUsed)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(permits);
@@ -110,66 +83,16 @@ public readonly partial struct InertString
     }
 
     /// <summary>
-    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is.
-    /// </summary>
-    /// <remarks>
-    /// The early-fail check, for callers that would rather reject text than display an encoded
-    /// rendering of it. This is deliberately not "would <see cref="Encode"/> change it": a
-    /// backslash is permitted by any sane policy but is still rewritten, and a check derived
-    /// from the encoder would reject every Windows path.
-    /// </remarks>
-    public static bool IsPermitted(string value, ScalarPolicy permits)
-        => IsPermitted(value, permits, out _);
-
-    /// <summary>
-    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is, naming
-    /// the first that is not.
-    /// </summary>
-    /// <remarks>
-    /// The violation names a position and a classification, never the rendered character, which
-    /// is what lets a survey mode report a finding without echoing artifact text.
-    /// </remarks>
-    public static bool IsPermitted(
-        string value,
-        ScalarPolicy permits,
-        [NotNullWhen(false)] out ScalarViolation? violation)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(permits);
-
-        int i = 0;
-        while (i < value.Length)
-        {
-            Rune scalar = DecodeAt(value, i, out int width, out bool isUnpairedSurrogate);
-
-            if (isUnpairedSurrogate)
-            {
-                // The raw code unit, not the decoded scalar: DecodeAt yields U+FFFD here,
-                // and the whole point of the report is to name the code point exactly.
-                violation = new ScalarViolation(i, value[i], UnicodeCategory.Surrogate);
-                return false;
-            }
-
-            if (!permits(scalar))
-            {
-                violation = new ScalarViolation(i, scalar.Value, Rune.GetUnicodeCategory(scalar));
-                return false;
-            }
-
-            i += width;
-        }
-
-        violation = null;
-        return true;
-    }
-
-    /// <summary>
     /// Recovers the original text from <see cref="Encode"/>'s output.
     /// </summary>
     /// <remarks>
-    /// Exists because invertibility is an asserted property, and an encoder without a decoder
-    /// cannot demonstrate it: a caret-introduced spelling survives casual inspection and only
-    /// fails a round-trip that a decoder makes possible.
+    /// The reason this namespace exists. Every other operation in the library moves text
+    /// <em>toward</em> being inert; this is the one that moves it back, so it is the one whose
+    /// presence in a file is worth being able to see at a glance.
+    ///
+    /// It also exists because invertibility is an asserted property, and an encoder without a
+    /// decoder cannot demonstrate it: a caret-introduced spelling survives casual inspection
+    /// and only fails a round-trip that a decoder makes possible.
     /// </remarks>
     /// <returns>True when <paramref name="encoded"/> is well-formed.</returns>
     public static bool TryDecode(string encoded, [NotNullWhen(true)] out string? value)
@@ -340,7 +263,7 @@ public readonly partial struct InertString
     // replacement character, so the caller has to keep the original code unit itself.
     // string.EnumerateRunes() cannot be used here: it silently substitutes U+FFFD, which would
     // make the transform lossy on exactly the input that needs it most.
-    private static Rune DecodeAt(string value, int index, out int width, out bool isUnpairedSurrogate)
+    internal static Rune DecodeAt(string value, int index, out int width, out bool isUnpairedSurrogate)
     {
         OperationStatus status = Rune.DecodeFromUtf16(
             value.AsSpan(index),
@@ -368,5 +291,4 @@ public readonly partial struct InertString
                 CultureInfo.InvariantCulture,
                 out value);
     }
-
 }

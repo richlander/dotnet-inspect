@@ -264,7 +264,7 @@ public sealed record NetworkRequestObservation(
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return InertString.Encode(RedactRelativeUrl(uri.ToString()), TextPolicy.Field);
+            return new InertString(RedactRelativeUrl(uri.ToString()), TextPolicy.Field);
 
         var builder = new UriBuilder(uri)
         {
@@ -279,18 +279,18 @@ public sealed record NetworkRequestObservation(
         // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
         // though this were already handled, but it passes Cf straight through — so a bidi
         // override in a source URL survives into a failure message and reorders it.
-        return InertString.Encode(builder.Uri.ToString(), TextPolicy.Field);
+        return new InertString(builder.Uri.ToString(), TextPolicy.Field);
     }
 
     internal static InertString RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? InertString.Encode(value, TextPolicy.Field);
+            return RedactUrl(absolute) ?? new InertString(value, TextPolicy.Field);
 
         if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return InertString.Encode(RedactRelativeUrl(relative.ToString()), TextPolicy.Field);
+            return new InertString(RedactRelativeUrl(relative.ToString()), TextPolicy.Field);
 
-        return InertString.Encode(value, TextPolicy.Field);
+        return new InertString(value, TextPolicy.Field);
     }
 
     private static string RedactRelativeUrl(string url)

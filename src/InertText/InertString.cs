@@ -1,6 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using InertText.Encoder;
 
 namespace InertText;
 
@@ -14,19 +16,26 @@ namespace InertText;
 /// treated value and an untreated one are the same type, and the only way to tell whether a
 /// sink is safe is to trace every call path that reaches it. A distinct type inverts that: the
 /// question becomes a type search, and a sink that accepts only <see cref="InertString"/>
-/// cannot be handed raw text by accident. That is why <see cref="Encode"/> yields this type and
-/// why no public member hands treated text back as a <see cref="string"/>.
+/// cannot be handed raw text by accident.
 ///
-/// The speller lives in this same type rather than beside it. It holds no state, and every
-/// operation it offers either produces one of these values or asks whether text is already
-/// inert, so a separate class would have been a namespace wearing the costume of an
-/// abstraction. What is genuinely separate is <see cref="ScalarPolicy"/>: the speller never
-/// learns <em>why</em> a scalar was refused, which is what lets it serve a deny-shaped sink and
-/// an allow-shaped one alike. A speller with a built-in hazard set has absorbed policy.
+/// The second half of that is what this type does <em>not</em> offer. Holding one of these
+/// gives no way back to the text it was built from: the decoder lives in
+/// <c>InertText.Encoder</c>, in its own namespace, and nothing here reaches it. So a file that
+/// imports <c>InertText</c> and not <c>InertText.Encoder</c> cannot recover the original of any
+/// value it handles, and that fact is legible in its using block rather than by tracing calls.
+/// A reflection test enumerates the public surface of this namespace and accounts for every
+/// member that returns text, so the property is enforced rather than merely intended.
+///
+/// The boundary is an audit aid, not a capability barrier — a file can always add the import.
+/// The goal it does meet is that the dangerous half cannot arrive by accident or unnoticed.
+///
+/// Also genuinely separate is <see cref="ScalarPolicy"/>: the encoder never learns <em>why</em>
+/// a scalar was refused, which is what lets it serve a deny-shaped sink and an allow-shaped one
+/// alike. An encoder with a built-in hazard set has absorbed policy.
 ///
 /// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
 /// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees
-/// what was actually there), and invertible (<see cref="TryDecode"/> recovers the original
+/// what was actually there), and invertible (<c>VisualEncoder.TryDecode</c> recovers the original
 /// exactly). This is not neutralization, which has none of the three.
 ///
 /// "Inert" is scoped, and the scope matters: no terminal interprets the output as control and
@@ -38,8 +47,8 @@ namespace InertText;
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
 /// explicit. One would restore exactly the confusion the type removes. Text enters through
-/// <see cref="Encode"/>, <see cref="Format"/> or <see cref="Join"/>, all of which apply a
-/// policy, so every value has been spelled under some policy.
+/// the constructor, <see cref="Format"/> or <see cref="Join"/>, all of which apply a policy,
+/// so every value has been spelled under some policy.
 ///
 /// Note the "some": the type records that a policy was applied, not which one, because a value
 /// is routinely built for one sink and spliced into a message bound for another. That makes
@@ -52,10 +61,32 @@ namespace InertText;
 /// holds it back. Here the payload is already inert, and the wrapper only records that fact.
 /// Losing the wrapper loses provenance, not protection.
 /// </remarks>
-public readonly partial struct InertString : IEquatable<InertString>
+public readonly struct InertString : IEquatable<InertString>
 {
     private readonly string? _text;
 
+    /// <summary>
+    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, yielding a value that
+    /// can be carried to a sink.
+    /// </summary>
+    /// <remarks>
+    /// The only way text enters the type, and the reason no member of it can take text without
+    /// also taking a policy — a reflection test enforces that. Encoding happens here rather
+    /// than through a factory because a factory would have been a constructor with a different
+    /// spelling; what is worth separating is not the call shape but the ability to reverse it,
+    /// which lives in <see cref="VisualEncoder"/> and in its own namespace.
+    /// </remarks>
+    /// <param name="value">The untreated text.</param>
+    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
+    public InertString(string value, ScalarPolicy permits)
+    {
+        _text = VisualEncoder.Encode(value, permits, out VisualForm forms);
+        Forms = forms;
+    }
+
+    // Takes text already spelled by the encoder, so it asserts rather than establishes the
+    // invariant. Internal because composition needs it: Join and the interpolation handler
+    // build their result piecewise and would otherwise have to re-encode an encoded string.
     internal InertString(string text, VisualForm forms)
     {
         _text = text;
@@ -155,7 +186,7 @@ public readonly partial struct InertString : IEquatable<InertString>
         ArgumentNullException.ThrowIfNull(separator);
         ArgumentNullException.ThrowIfNull(values);
 
-        string encodedSeparator = EncodeCore(separator, permits, out VisualForm separatorForms);
+        string encodedSeparator = VisualEncoder.Encode(separator, permits, out VisualForm separatorForms);
         StringBuilder builder = new();
         VisualForm forms = VisualForm.None;
         bool first = true;
@@ -179,7 +210,61 @@ public readonly partial struct InertString : IEquatable<InertString>
     }
 
     /// <summary>Names the spellings this value contains, one line each.</summary>
-    public IReadOnlyList<string> DescribeLegend() => DescribeLegend(Forms);
+    public IReadOnlyList<string> DescribeLegend() => VisualEncoder.DescribeLegend(Forms);
+
+        /// <summary>
+    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is.
+    /// </summary>
+    /// <remarks>
+    /// The early-fail check, for callers that would rather reject text than display an encoded
+    /// rendering of it. This is deliberately not "would encoding change it": a
+    /// backslash is permitted by any sane policy but is still rewritten, and a check derived
+    /// from the encoder would reject every Windows path.
+    /// </remarks>
+    public static bool IsPermitted(string value, ScalarPolicy permits)
+        => IsPermitted(value, permits, out _);
+
+    /// <summary>
+    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is, naming
+    /// the first that is not.
+    /// </summary>
+    /// <remarks>
+    /// The violation names a position and a classification, never the rendered character, which
+    /// is what lets a survey mode report a finding without echoing artifact text.
+    /// </remarks>
+    public static bool IsPermitted(
+        string value,
+        ScalarPolicy permits,
+        [NotNullWhen(false)] out ScalarViolation? violation)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(permits);
+
+        int i = 0;
+        while (i < value.Length)
+        {
+            Rune scalar = VisualEncoder.DecodeAt(value, i, out int width, out bool isUnpairedSurrogate);
+
+            if (isUnpairedSurrogate)
+            {
+                // The raw code unit, not the decoded scalar: DecodeAt yields U+FFFD here,
+                // and the whole point of the report is to name the code point exactly.
+                violation = new ScalarViolation(i, value[i], UnicodeCategory.Surrogate);
+                return false;
+            }
+
+            if (!permits(scalar))
+            {
+                violation = new ScalarViolation(i, scalar.Value, Rune.GetUnicodeCategory(scalar));
+                return false;
+            }
+
+            i += width;
+        }
+
+        violation = null;
+        return true;
+    }
 
     /// <summary>
     /// Restates <paramref name="value"/> under <paramref name="permits"/>, re-encoding it if it
@@ -193,7 +278,7 @@ public readonly partial struct InertString : IEquatable<InertString>
     /// single-line message and report <see cref="VisualForm.None"/> for it, which is the log
     /// injection this library exists to prevent, with the type appearing to vouch for it.
     ///
-    /// This is the second thing invertibility buys. Because <see cref="InertString.TryDecode"/>
+    /// This is the second thing invertibility buys. Because <c>VisualEncoder.TryDecode</c>
     /// recovers the original exactly, a mismatched piece can be taken back to its source text
     /// and re-spelled under the policy actually in force, rather than rejected or trusted.
     ///
@@ -215,8 +300,8 @@ public readonly partial struct InertString : IEquatable<InertString>
 
         // Falling back to the encoded text when decoding fails cannot happen for a value this
         // library produced; it is here so the failure mode is over-encoding rather than a leak.
-        string original = TryDecode(text, out string? decoded) ? decoded : text;
-        return EncodeCore(original, permits, out forms);
+        string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
+        return VisualEncoder.Encode(original, permits, out forms);
     }
 
     /// <inheritdoc/>
@@ -330,7 +415,7 @@ public ref struct InertStringHandler
         if (string.IsNullOrEmpty(value))
             return;
 
-        _builder.Append(InertString.EncodeCore(value, _permits, out VisualForm forms));
+        _builder.Append(VisualEncoder.Encode(value, _permits, out VisualForm forms));
         _forms |= forms;
     }
 }

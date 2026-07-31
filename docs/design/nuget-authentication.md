@@ -342,18 +342,34 @@ The component splits policy from spelling, which is what lets one speller serve 
   `TextPolicy.Field` is deny-shaped and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`; `TextPolicy.Prose`
   is the same minus a `CR`/`LF`/`TAB` exemption. A field whose grammar is externally defined
   should supply an allow-shaped policy instead.
-- The **speller** (`InertString`) answers "how is a refused scalar written down". It is total
+- The **speller** (`VisualEncoder`) answers "how is a refused scalar written down". It is total
   over Unicode, never learns *why* a scalar was refused, and ships with its decoder, so the
   transform is lossless and invertible rather than a filter.
 
-The speller lives on `InertString` rather than in a class beside it. It holds no state, and
-every operation it offers either produces an `InertString` or asks whether text is already
-inert, so a separate static class would have been a namespace rather than an abstraction — and
-it is what made `Encode` and `DescribeLegend` exist twice, once on each type. Collapsing them
-also closes a hole: the old `VisualEncoder.Encode` was public and returned a bare `string`,
-handing back treated text with its provenance stripped, which is the confusion the value type
-was introduced to remove. Nothing in production called it. What stays separate is the
-predicate, because that is the half that genuinely varies.
+The speller sits in its own namespace, `InertText.Encoder`, and that placement is the design
+rather than a filing decision. `InertString` is the currency form: it can be built, composed,
+compared and printed without ever naming the encoder, because text enters through its
+constructor and leaves through `ToString` already spelled. The decoder is the one operation
+that turns an inert value back into the hostile original, so it is the one worth being able to
+see. A file that imports `InertText` and not `InertText.Encoder` has no path back to the
+original text of any value it handles — and that is visible in its using block, rather than
+recovered by tracing its call graph.
+
+The property is enforced, not just intended: a reflection test enumerates every public member
+of the `InertText` namespace that returns text and accounts for each one. Today that is
+`InertString.ToString` (the encoded form), `InertString.DescribeLegend` (fixed strings naming
+spellings) and `ScalarViolation.ToString` (an index, a code point and a category — which is why
+the violation carries an `int` rather than the character). Adding a decode convenience to the
+currency type fails that test.
+
+It is an audit boundary, not a capability barrier. A file can add the import or write the name
+out in full; nothing prevents that, and nothing should. What the boundary achieves is that the
+dangerous half cannot arrive unnoticed. In this repository the whole of production carries
+`InertString` — the source resolver, the package extractor, both telemetry paths, the shared
+CLI options — and not one of those files can decode.
+
+What stays separate for a different reason is the predicate, because that is the half that
+genuinely varies from sink to sink.
 
 The split is not tidiness. A URL host is a constrained grammar, and the central typosquatting
 vector is a homoglyph: Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and
