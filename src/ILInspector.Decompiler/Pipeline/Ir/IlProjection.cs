@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -100,7 +101,7 @@ public static class IlProjection
             string types = typesByOffset.TryGetValue(i.Offset, out var stack)
                 ? $"  // {StackAnnotation(stack)}"
                 : "";
-            sb.AppendLine(Format(i) + types);
+            sb.AppendLf(Format(i) + types);
         }
         return sb.ToString();
     }
@@ -263,7 +264,7 @@ public static class IlProjection
     {
         var sb = new StringBuilder();
         foreach (var i in instructions)
-            sb.AppendLine(Format(i));
+            sb.AppendLf(Format(i));
         return sb.ToString();
     }
 
@@ -278,12 +279,12 @@ public static class IlProjection
         foreach (var i in instructions)
         {
             if (tryStarts.Contains(i.Offset))
-                sb.AppendLine("  // .try");
+                sb.AppendLf("  // .try");
             if (handlerStarts.TryGetValue(i.Offset, out var kind))
-                sb.AppendLine($"  // {kind.ToString().ToLowerInvariant()}");
+                sb.AppendLf($"  // {kind.ToString().ToLowerInvariant()}");
             if (leaders.Contains(i.Offset))
-                sb.AppendLine($"IL_{i.Offset:X4}:");
-            sb.AppendLine("    " + Format(i));
+                sb.AppendLf($"IL_{i.Offset:X4}:");
+            sb.AppendLf("    " + Format(i));
         }
         return sb.ToString();
     }
@@ -339,31 +340,31 @@ public static class IlProjection
                 {
                     if (indent > 1) indent--;
                     WriteIndent(sb, indent);
-                    sb.AppendLine(endMarker);
+                    sb.AppendLf(endMarker);
                 }
             if (regionStarts.TryGetValue(i.Offset, out var startMarkers))
                 foreach (var startMarker in startMarkers)
                 {
                     WriteIndent(sb, indent);
-                    sb.AppendLine(startMarker);
+                    sb.AppendLf(startMarker);
                     indent++;
                 }
             if (blockIndex.TryGetValue(i.Offset, out int index))
             {
-                if (i.Offset > 0) sb.AppendLine();
+                if (i.Offset > 0) sb.AppendLf();
                 WriteIndent(sb, indent);
-                sb.AppendLine($"Block_{index}: (IL_{i.Offset:X4}-IL_{blockEnd[i.Offset]:X4})");
+                sb.AppendLf($"Block_{index}: (IL_{i.Offset:X4}-IL_{blockEnd[i.Offset]:X4})");
             }
 
             WriteIndent(sb, indent + 1);
-            sb.AppendLine(annotatedLines[i.Offset].Text);
+            sb.AppendLf(annotatedLines[i.Offset].Text);
         }
 
         while (indent > 1)
         {
             indent--;
             WriteIndent(sb, indent);
-            sb.AppendLine("}");
+            sb.AppendLf("}");
         }
         return sb.ToString();
     }
@@ -485,14 +486,14 @@ public static class IlProjection
     static void AnnotatedHeader(StringBuilder sb, ImportedMethod imported)
     {
         var body = imported.Body;
-        sb.AppendLine("// Method IL");
+        sb.AppendLf("// Method IL");
         if (imported.Signature.Parameters.Length > 0)
-            sb.AppendLine(FoldLine($"//   Parameters: {string.Join(", ", imported.Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))}"));
+            sb.AppendLf(FoldLine($"//   Parameters: {string.Join(", ", imported.Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))}"));
         if (body.Locals.Length > 0)
-            sb.AppendLine(FoldLine($"//   Locals: {string.Join(", ", body.Locals.Select((t, i) => $"{t.ToDisplayString()} {LocalName(body, i)}"))}"));
-        sb.AppendLine($"//   MaxStack: {body.MaxStack}");
-        sb.AppendLine($"//   IL size: {body.IL.Length} bytes");
-        sb.AppendLine();
+            sb.AppendLf(FoldLine($"//   Locals: {string.Join(", ", body.Locals.Select((t, i) => $"{t.ToDisplayString()} {LocalName(body, i)}"))}"));
+        sb.AppendLf($"//   MaxStack: {body.MaxStack}");
+        sb.AppendLf($"//   IL size: {body.IL.Length} bytes");
+        sb.AppendLf();
     }
 
     static string LocalName(MethodBody body, int index) =>

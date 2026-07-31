@@ -1,4 +1,5 @@
 using System.Text;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -49,8 +50,8 @@ public static class StageDump
         AppendReadingGuide(sb, stages, includesRaisedCSharp);
         for (int i = 0; i < stages.Count; i++)
         {
-            sb.AppendLine();
-            sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
+            sb.AppendLf();
+            sb.AppendLf(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
             sb.Append(stages[i].Projection);
         }
         return sb.ToString();
@@ -68,13 +69,13 @@ public static class StageDump
         string result = includesRaisedCSharp
             ? $"the raised C# section plus the FINAL IR stage \"{Title(stages[^1].PassName)}\""
             : $"the FINAL IR stage \"{Title(stages[^1].PassName)}\"";
-        sb.AppendLine();
-        sb.AppendLine("==== reading guide ====");
-        sb.AppendLine($"// Result = {result}");
-        sb.AppendLine($"// (stage {stages.Count}/{stages.Count}, fidelity {stages[^1].Fidelity}), tagged [FINAL raised] below.");
-        sb.AppendLine("// The earlier IR stages are a per-pass trace and show pre-raise IR by design");
-        sb.AppendLine("// (async state machines, un-raised nodes). A node in an early stage is not the");
-        sb.AppendLine("// product output — read the final stage, not an intermediate one.");
+        sb.AppendLf();
+        sb.AppendLf("==== reading guide ====");
+        sb.AppendLf($"// Result = {result}");
+        sb.AppendLf($"// (stage {stages.Count}/{stages.Count}, fidelity {stages[^1].Fidelity}), tagged [FINAL raised] below.");
+        sb.AppendLf("// The earlier IR stages are a per-pass trace and show pre-raise IR by design");
+        sb.AppendLf("// (async state machines, un-raised nodes). A node in an early stage is not the");
+        sb.AppendLf("// product output — read the final stage, not an intermediate one.");
     }
 
     /// <summary>
@@ -110,14 +111,14 @@ public static class StageDump
             return sb.ToString();
 
         AppendReadingGuide(sb, stages, includesRaisedCSharp);
-        sb.AppendLine();
-        sb.AppendLine(StageHeader(Title(stages[0].PassName), 0, stages.Count, stages[^1].Fidelity));
+        sb.AppendLf();
+        sb.AppendLf(StageHeader(Title(stages[0].PassName), 0, stages.Count, stages[^1].Fidelity));
         sb.Append(stages[0].Projection);
 
         for (int i = 1; i < stages.Count; i++)
         {
             var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
-            sb.AppendLine();
+            sb.AppendLf();
             // The terminal stage is the result the reading guide points at, so it
             // always prints its full IR body (with a "(no change)" note when the
             // last pass changed nothing) rather than a localized delta — otherwise
@@ -126,18 +127,18 @@ public static class StageDump
             if (i == stages.Count - 1)
             {
                 string? suffix = hunks.Count == 0 ? "(no change)" : null;
-                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix));
+                sb.AppendLf(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix));
                 sb.Append(stages[i].Projection);
                 continue;
             }
             if (hunks.Count == 0)
             {
-                sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
+                sb.AppendLf(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity, suffix: "(no change)"));
                 continue;
             }
-            sb.AppendLine(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
+            sb.AppendLf(StageHeader(Title(stages[i].PassName), i, stages.Count, stages[^1].Fidelity));
             foreach (var line in hunks)
-                sb.AppendLine(line);
+                sb.AppendLf(line);
         }
         return sb.ToString();
     }
@@ -176,7 +177,7 @@ public static class StageDump
                 continue;
             var hunks = DiffHunks(stages[i - 1].Projection, stages[i].Projection);
             foreach (var line in hunks)
-                sb.AppendLine(line);
+                sb.AppendLf(line);
         }
         return sb.ToString();
     }
@@ -284,24 +285,24 @@ public static class StageDump
                 void AppendIl(StringBuilder sb, string title, IlProjectionDepth depth)
                 {
                     var il = IlProjection.Project(source, typeFullName, methodName, depth, overloadIndex, publicOnly);
-                    sb.AppendLine();
-                    sb.AppendLine($"==== {title} ====");
-                    sb.Append(il.Output ?? string.Join(Environment.NewLine, il.Diagnostics.Select(d => $"// {d}")) + Environment.NewLine);
+                    sb.AppendLf();
+                    sb.AppendLf($"==== {title} ====");
+                    sb.Append(il.Output ?? string.Join("\n", il.Diagnostics.Select(d => $"// {d}")) + "\n");
                 }
             }
 
             sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method), source.AreProvablyDisjoint), includesRaisedCSharp: true));
 
-            sb.AppendLine();
+            sb.AppendLf();
             // RunWithStages above ran the canonical Default pass list on
             // `function` with the cross-method import seam wired (so cross-method
             // passes such as classic-async reconstruction run exactly as in the
             // product path), so it is now fully raised. Printing it here is
             // byte-identical to CSharpPrinter.PrintRaised(import) — i.e. this is
             // the exact C# the shipped product emits, not an intermediate view.
-            sb.AppendLine("==== C# (raised — the shipped product output) ====");
+            sb.AppendLf("==== C# (raised — the shipped product output) ====");
             var printed = CSharpPrinter.Print(function);
-            sb.AppendLine(printed.Output ?? string.Join(Environment.NewLine, printed.Diagnostics.Select(d => $"// {d}")));
+            sb.AppendLf(printed.Output ?? string.Join("\n", printed.Diagnostics.Select(d => $"// {d}")));
 
             return sb.ToString();
         });

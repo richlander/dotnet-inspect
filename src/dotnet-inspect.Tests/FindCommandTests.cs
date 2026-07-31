@@ -28,7 +28,9 @@ public class FindCommandTests
         };
 
         var view = FindOutputFormatter.BuildView(results);
-        var lines = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split(Environment.NewLine);
+        // The table pipeline pins LF (see StringBuilderLineExtensions), so rows are
+        // LF-separated on every platform rather than the ambient Environment.NewLine.
+        var lines = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split('\n');
 
         Assert.Equal(3, lines.Length);
         Assert.Equal("Pattern1\tZebra\tAnimals\tclass\tZoo\truntime", lines[0]);

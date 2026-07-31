@@ -146,6 +146,7 @@ public static class InspectionCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
@@ -322,6 +323,10 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
+        // trace should advertise the flag. A flag every command accepts and only one honours is
+        // worse than an unrecognized argument, which at least fails loudly.
+        assemblyCommand.Options.Add(opts.Trace);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
         opts.AddPrintOptionTo(assemblyCommand);
@@ -385,7 +390,8 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
-            bool hasExplicitSelect = select is { Length: > 0 };
+            var selectDefault = opts.ParseSelectDefault(parseResult);
+            bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
@@ -443,10 +449,12 @@ public static class InspectionCommandDefinitions
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
+                Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
+                SelectDefault = selectDefault,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
