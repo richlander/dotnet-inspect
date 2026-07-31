@@ -3668,10 +3668,15 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void LocalFunctionCall_DemanglesToSourceName()
+    public void UnraisedLocalFunctionCall_RendersSanitizedNameNotSourceName()
     {
-        // A call to the compiler-generated local function <Outer>g__Helper|0_0
-        // renders its source name Helper, not the invalid mangled identifier.
+        // A call to the compiler-generated local function <Outer>g__Helper|0_0 that no
+        // pass raised — CSharpPrinter.Print has no cross-method resolver, so
+        // LocalFunctionRaisingPass never runs and no declaration of Helper is emitted.
+        // Rendering the call as `Helper()` would therefore be a call to a method that
+        // exists nowhere: CS0103 dressed as ordinary recovered C# (#3631). The
+        // sanitized spelling keeps the compiler-generated identity visible instead, and
+        // the method degrades to Partial.
         var voidType = TypeRef.CoreLib("System", "Void");
         var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "Owner"),
             "<Outer>g__Helper|0_0", voidType, [], HasThis: false);
@@ -3687,9 +3692,10 @@ public class RaisingPassTests
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!;
 
-        Assert.Contains("Helper()", output);
-        Assert.DoesNotContain("g__", output);
+        Assert.DoesNotContain("Helper()", output);
+        Assert.Contains("__Outer_g__Helper_0_0()", output);
         Assert.DoesNotContain("<", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
     [Fact]

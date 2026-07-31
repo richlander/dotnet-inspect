@@ -49,20 +49,30 @@ internal static class CSharpNaming
         => CSharpIdentifier.ContainIdentifier(name);
 
     /// <summary>
-    /// The emittable C# spelling of a call/method-group target name: the source
-    /// name (a <c>&gt;g__</c> local function decodes to its source spelling; any
-    /// other name is unchanged), routed through <see cref="SafeIdentifier"/> so a
-    /// reserved keyword is <c>@</c>-escaped and — the fallback that keeps output
-    /// parseable — an unspellable compiler-generated name a raising pass left
-    /// standing (a lambda body method <c>&lt;M&gt;b__N_M</c>, a
-    /// <c>&lt;Clone&gt;$</c>) is sanitized into a legal identifier rather than
-    /// leaked raw. This never emits a raw <c>&lt;&gt;</c> name; for names that are
-    /// already valid identifiers it is identical to <see cref="EscapeIdentifier"/>.
-    /// The method's fidelity is still degraded by the spellability check on the
-    /// unchanged IR name, so honest failure remains visible.
+    /// The emittable C# spelling of a call/method-group target name, routed through
+    /// <see cref="SafeIdentifier"/> so a reserved keyword is <c>@</c>-escaped and an
+    /// unspellable compiler-generated name is sanitized into a legal identifier
+    /// rather than leaked raw. This never emits a raw <c>&lt;&gt;</c> name; for names
+    /// that are already valid identifiers it is identical to
+    /// <see cref="EscapeIdentifier"/>.
     /// </summary>
+    /// <remarks>
+    /// This deliberately does <em>not</em> decode a local function's
+    /// <c>&lt;Enclosing&gt;g__Name|N_M</c> to its source spelling. Every call site of a
+    /// local function that <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/>
+    /// raised is rewritten to a <see cref="LocalFunctionInvocation"/>, which prints its
+    /// already-decoded <c>Name</c> directly and never reaches here. A <see cref="Call"/>
+    /// still carrying a <c>&gt;g__</c> name is therefore, by construction, one the pass
+    /// declined to raise — so no declaration of it is emitted, and printing the bare
+    /// source spelling would produce a call to a method that is declared nowhere
+    /// (CS0103) while looking like ordinary recovered C# (#3631). Sanitizing instead
+    /// keeps the compiler-generated identity visible, matching the treatment of an
+    /// unraised lambda body method <c>&lt;M&gt;b__N_M</c>, and
+    /// <see cref="ILInspector.Decompiler.Pipeline.CSharpSpellability"/> degrades the
+    /// method to <see cref="DecompilationFidelity.Partial"/> for the same reason.
+    /// </remarks>
     public static string SourceMethodName(string metadataName)
-        => SafeIdentifier(MethodName(metadataName));
+        => SafeIdentifier(metadataName);
 
     public static string TypeNameSegment(string metadataName)
         => SafeIdentifier(StripArity(metadataName));

@@ -6528,3 +6528,30 @@ public sealed class DeclScopeLoopClient
         }
     }
 }
+
+// Local functions whose bodies LocalFunctionRaisingPass declines to raise, next to one
+// it accepts. The declined ones must not print a call to a name they never declare.
+public static class UnraisedLocalFunctionSamples
+{
+    // Declined: IsPrintableBody rejects a try body.
+    public static int CallsUnraisedTry(int x)
+    {
+        return F(x);
+        static int F(int n) { try { return n / 2; } catch { return 0; } }
+    }
+
+    // Declined: IsPrintableBody rejects a foreach body.
+    public static int CallsUnraisedForeach(int[] x)
+    {
+        return F(x);
+        static int F(int[] a) { int t = 0; foreach (int v in a) t += v; return t; }
+    }
+
+    // Control: an if body is raised, so the declaration is emitted and the call keeps
+    // its source spelling.
+    public static int CallsRaisedIf(int x)
+    {
+        return F(x);
+        static int F(int n) { if (n > 0) return n; return -n; }
+    }
+}
