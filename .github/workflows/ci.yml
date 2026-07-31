@@ -255,8 +255,8 @@ jobs:
   # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
   # the separate `test-windows` job below; macOS is still uncovered by tests and
   # appears only as a `release.yml` packaging target. Note that release.yml's
-  # `build-native` job does run on `windows-latest`, but it only packs -- no
-  # test has ever executed on Windows in any workflow.
+  # `build-native` job does run on `windows-latest`, but it only packs and runs
+  # no tests, so it is not Windows test coverage.
   #
   # Runs on PRs only. A pull_request build validates the PR merged into the
   # current base, so re-running the full test suite on the push to main is
@@ -454,7 +454,17 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
+        id: build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      # Each suite below runs even when an earlier suite failed. The default
+      # fail-fast behaviour reports the first broken suite and marks the rest
+      # `skipped`, which reads as "fine" when it actually means "unknown" --
+      # the success-shaped-empty-output failure AGENTS.md rules out. A Windows
+      # break is typically one fixture-level bug hitting several suites at
+      # once, so the first red step is the least useful place to stop. Gated on
+      # the build so a compile error still fails fast rather than producing
+      # five copies of the same error.
 
       # Unfiltered, unlike the Ubuntu lane, and that is the point of this job.
       # CommandExecutionTests carries a class-level [Trait("Speed", "Slow")], so
@@ -463,12 +473,14 @@ jobs:
       # here would faithfully reproduce the blind spot this leg exists to close.
       # Some cases need ilasm/ildasm and skip when absent, which they are here.
       - name: Run CLI tests (all)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
       # CorpusSensorComparisonTests) are in the fast subset, so the slow gates
       # stay excluded without losing the regressions this leg is here for.
       - name: Run decompiler unit tests (fast)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       # Covers the PluginDiscoveryTests failures found during #3428 review:
@@ -476,12 +488,15 @@ jobs:
       # that differs by OS. Live-network tests are excluded here for the same
       # reasons as on the Ubuntu lane.
       - name: Run NuGetFetch tests (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
 
       - name: Run metadata tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run services tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
