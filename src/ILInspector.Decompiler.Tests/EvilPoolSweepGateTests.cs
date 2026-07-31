@@ -101,6 +101,11 @@ public class EvilPoolSweepGateTests
         Assert.Equal("selected", entry["Status"]!.GetValue<string>());
         Assert.Equal(world.FixtureSha256, entry["Sha256"]!.GetValue<string>());
 
+        // And that it came from the cache rather than the network, which is the manifest's
+        // own record of the isolation every other case rests on -- measured: hardcoding it
+        // false left every case green.
+        Assert.True(entry["FromCache"]!.GetValue<bool>(), world.Explain(sweep, "a pool the cache did not serve"));
+
         // Where it landed, too. The manifest is how an operator finds the pooled file
         // without walking the tree, and the path is the one recorded field nothing else
         // here reads -- measured: replacing it with a literal left all nine cases green.
@@ -143,6 +148,49 @@ public class EvilPoolSweepGateTests
         // package this case plants is pinned out of the pool permanently and the evidence
         // of the tamper goes with it -- measured: relabelling both pin-mismatch sites left
         // all nine cases green, because exit code, prose and an empty pool are unchanged.
+        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
+
+        world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A package pinned as shipping no library, which now ships one, is refused.
+    ///
+    /// <para>The other direction of the pin, and the one that is easy to miss. Nine of the
+    /// top hundred packages genuinely carry no primary library -- meta-packages, and
+    /// packages whose primary is ambiguous -- so the pin records <c>no-library</c> for them
+    /// and the sweep neither acquires nor fails over them. That is an assertion about the
+    /// package, not a way of ignoring it: a version that starts shipping an assembly starts
+    /// contributing to the pool, and a pool that absorbed it quietly would have grown
+    /// without anyone approving the bytes.</para>
+    ///
+    /// <para>Gated because nothing reached this behavior at all before: no case pinned a
+    /// package as <c>no-library</c>, so the whole arm was unexercised.</para>
+    ///
+    /// <para>What the case proves is the refusal, not the arm. Replacing the arm's
+    /// condition with <c>false</c> leaves this green, and that is correct rather than a
+    /// gap: a <c>no-library</c> pin carries no hash -- there is no assembly for one to
+    /// describe, which is the invariant <c>EvilPoolPinTests</c> holds the committed file to
+    /// -- so the assembly that arrived is compared against no hash and refused a few lines
+    /// later anyway. The arm is a better-diagnosed refusal in front of a backstop that
+    /// would catch it regardless, which is worth having and is not what keeps the pool
+    /// pinned. A reviewer read the green as the pool silently drifting; measured, it does
+    /// not -- the pool still holds the lead alone, which is what this case asserts. Gating
+    /// the arm itself would need a pin that is <c>no-library</c> and carries a matching
+    /// hash, a combination the real file cannot hold, so it is left ungated and said so.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesAPackagePinnedAsShippingNoLibraryThatShipsOne()
+    {
+        using var world = SweepWorld.Create(status: "no-library");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a no-library pin over a package with one"));
+
+        // The same word as any other pin failure: what arrived is not what was named.
         Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
 
         world.AssertOnlyTheLeadWasPooled(sweep);
@@ -649,7 +697,7 @@ public class EvilPoolSweepGateTests
         /// the <em>pin</em> claims; the package in the cache is always the real one, so a
         /// case that changes them is changing the pin alone.
         /// </summary>
-        public static SweepWorld Create(string? version = null, string? tfm = null)
+        public static SweepWorld Create(string? version = null, string? tfm = null, string? status = null)
         {
             string scratch = Directory.CreateTempSubdirectory("evil-sweep-gate").FullName;
             try
@@ -661,7 +709,7 @@ public class EvilPoolSweepGateTests
                 var world = new SweepWorld(scratch, cacheDirectory, bytes);
 
                 world.SeedCache();
-                world.WriteInputs(version ?? FixtureVersion, tfm ?? FixtureTfm);
+                world.WriteInputs(version ?? FixtureVersion, tfm ?? FixtureTfm, status ?? "pinned");
                 return world;
             }
             catch
@@ -729,7 +777,7 @@ public class EvilPoolSweepGateTests
             return committed;
         }
 
-        void WriteInputs(string pinnedVersion, string pinnedTfm)
+        void WriteInputs(string pinnedVersion, string pinnedTfm, string pinnedStatus)
         {
             string data = Path.Combine(FakeRoot, "docs", "data");
             Directory.CreateDirectory(data);
@@ -738,14 +786,24 @@ public class EvilPoolSweepGateTests
             // the two files beside it instead of the committed ones.
             File.WriteAllText(Path.Combine(FakeRoot, "dotnet-inspect.slnx"), "");
 
-            WriteListAndPin(data, FixturePackage, pinnedVersion, pinnedTfm, FixtureSha256);
+            WriteListAndPin(data, FixturePackage, pinnedVersion, pinnedTfm, FixtureSha256, pinnedStatus);
         }
 
         /// <summary>
         /// Writes the list and the pin the sweep reads: the lead at rank 1, always correct,
         /// and the subject at rank 2 with whatever this case is asking for.
+        ///
+        /// <para>A <c>no-library</c> pin carries no hash, because there is no assembly for
+        /// one to describe -- which is what <c>EvilPoolPinTests</c> holds the committed pin
+        /// file to, so writing one here would be a fixture the real file could not be.</para>
         /// </summary>
-        void WriteListAndPin(string data, string package, string version, string? tfm, string sha256)
+        void WriteListAndPin(
+            string data,
+            string package,
+            string version,
+            string? tfm,
+            string sha256,
+            string status = "pinned")
         {
             var list = new JsonArray(
                 new JsonObject
@@ -778,9 +836,9 @@ public class EvilPoolSweepGateTests
                         ["package"] = package,
                         ["version"] = version,
                         ["tfm"] = tfm,
-                        ["status"] = "pinned",
-                        ["detail"] = null,
-                        ["sha256"] = sha256,
+                        ["status"] = status,
+                        ["detail"] = status == "no-library" ? "ships no primary library" : null,
+                        ["sha256"] = status == "no-library" ? null : sha256,
                     }),
             };
 
