@@ -857,4 +857,95 @@ public class InertStringTests
 
         Assert.Empty(callbacks);
     }
+
+    /// <summary>
+    /// A value composed from fragments that were each encoded separately still decodes, so the
+    /// repair in <see cref="InertString.EnsurePermitted"/> reaches its decode path.
+    /// </summary>
+    /// <remarks>
+    /// The invariant the fallback in <c>EnsurePermitted</c> rests on. When it broke, nothing
+    /// threw: the fallback treated the library's own encoded text as raw and encoded it a second
+    /// time, which is only visible by comparing against a directly encoded value.
+    ///
+    /// A lone high surrogate and a lone low surrogate are the case that broke it, because each
+    /// encodes to an escape alone and the two land adjacent once concatenated.
+    /// </remarks>
+    [Fact]
+    public void Compose_OfFragmentsEncodedSeparately_StillDecodes()
+    {
+        InertString composed = InertString.Join(
+            string.Empty,
+            TextPolicy.Prose,
+            [
+                new InertString(TextPolicy.Prose, "\uD834"),
+                new InertString(TextPolicy.Prose, "\uDD73"),
+                new InertString(TextPolicy.Prose, "\n"),
+            ]);
+
+        Assert.True(
+            VisualEncoder.TryDecode(composed.ToString(), out _),
+            "a value this library composed must decode, or EnsurePermitted over-encodes it");
+    }
+
+    /// <summary>
+    /// Splitting a surrogate pair across a composition boundary and repairing the result yields
+    /// the same value as encoding that astral scalar directly.
+    /// </summary>
+    /// <remarks>
+    /// "\uD834" + "\uDD73" is "\U0001D173" -- one scalar, not two halves -- so the two routes
+    /// describe the same text and must agree. They did not: the composed spelling failed to
+    /// decode, so the repair re-encoded its backslashes and produced \\uD834\\uDD73.
+    /// </remarks>
+    [Fact]
+    public void Compose_OfTwoLoneSurrogates_RepairsToTheSameValueAsEncodingThePairDirectly()
+    {
+        InertString composed = InertString.Join(
+            string.Empty,
+            TextPolicy.Prose,
+            [
+                new InertString(TextPolicy.Prose, "\uD834"),
+                new InertString(TextPolicy.Prose, "\uDD73"),
+                new InertString(TextPolicy.Prose, "\n"),
+            ]);
+
+        InertString repaired = composed.EnsurePermitted(TextPolicy.Field);
+        InertString direct = new(TextPolicy.Field, "\U0001D173\n");
+
+        Assert.Equal(direct, repaired);
+    }
+
+    /// <summary>
+    /// An astral scalar split across a composition boundary does not repair to the same value as
+    /// the ASCII text that spells its halves.
+    /// </summary>
+    /// <remarks>
+    /// The consequence of the two above, and the reason they are worth having. Encoding is meant
+    /// to be injective: distinct inputs keep distinct spellings, which is what lets a reader
+    /// treat the encoded form as evidence of what arrived. These two inputs converged on
+    /// <c>\\uD834\\uDD73\^J</c>, so the rendered output no longer said which one produced it.
+    /// </remarks>
+    [Fact]
+    public void Compose_DoesNotConverge_OnTheAsciiTextThatSpellsTheSurrogateHalves()
+    {
+        InertString newline = new(TextPolicy.Prose, "\n");
+
+        InertString fromScalar = InertString.Join(
+            string.Empty,
+            TextPolicy.Prose,
+            [
+                new InertString(TextPolicy.Prose, "\uD834"),
+                new InertString(TextPolicy.Prose, "\uDD73"),
+                newline,
+            ]).EnsurePermitted(TextPolicy.Field);
+
+        InertString fromAsciiText = InertString.Join(
+            string.Empty,
+            TextPolicy.Prose,
+            [
+                new InertString(TextPolicy.Prose, @"\uD834\uDD73"),
+                newline,
+            ]).EnsurePermitted(TextPolicy.Field);
+
+        Assert.NotEqual(fromAsciiText, fromScalar);
+    }
 }

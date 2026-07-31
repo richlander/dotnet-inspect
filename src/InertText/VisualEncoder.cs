@@ -113,11 +113,7 @@ public static class VisualEncoder
         value = null;
         StringBuilder builder = new(encoded.Length);
 
-        // Where a \uXXXX that decoded to a high surrogate ended, so the \u arm below can tell a
-        // surrogate *pair* spelled as two escapes from two independently unpaired ones.
-        int highSurrogateEscapeEnd = -1;
-
-        for (int i = 0; i < encoded.Length; i++)
+                for (int i = 0; i < encoded.Length; i++)
         {
             if (encoded[i] != '\\')
             {
@@ -141,8 +137,6 @@ public static class VisualEncoder
                 builder.Append(encoded[i]);
                 continue;
             }
-
-            int escapeStart = i;
 
             if (++i == encoded.Length)
             {
@@ -191,18 +185,20 @@ public static class VisualEncoder
                         return false;
                     }
 
-                    if (char.IsLowSurrogate((char)bmp) && escapeStart == highSurrogateEscapeEnd)
-                    {
-                        // \uD83D\uDE00 would otherwise land a well-formed pair in the builder and
-                        // re-encode as \U0001F600, giving that astral scalar two spellings. The
-                        // lone-surrogate case below stays legal precisely because this one does
-                        // not: a pair is representable as \U, an unpaired half is not
-                        // representable any other way at all.
-                        return false;
-                    }
-
+                    // \uD83D\uDE00 decodes to the astral scalar rather than being refused as a
+                    // second spelling of \U0001F600. Refusing it looks like canonicalization but
+                    // is not expressible: a .NET string is UTF-16, so "\uD83D" + "\uDE00" *is*
+                    // "\U0001F600" -- there is no string in which those halves stay apart, and
+                    // no other text the spelling could denote. Encode still only ever emits \U
+                    // for a pair, so this arm is not a second output form; it is the input form
+                    // composition produces. Join and the interpolation handler concatenate
+                    // fragments that were each encoded alone, so a lone high surrogate encoded
+                    // in one fragment lands beside a lone low surrogate encoded in the next.
+                    // Refusing that made a value this library had just produced fail to decode,
+                    // and EnsurePermitted then re-encoded the escapes as literal text -- turning
+                    // \uD834\uDD73 into \\uD834\\uDD73, which is also what the ASCII text a user
+                    // typed encodes to. Two unrelated inputs converged on one output.
                     i += 4;
-                    highSurrogateEscapeEnd = char.IsHighSurrogate((char)bmp) ? i + 1 : -1;
                     builder.Append((char)bmp);
                     break;
                 case 'U':
