@@ -1684,6 +1684,33 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void CostOf_ThrowsOnAnUnregisteredScannerKey()
+    {
+        // Raised by MAI-Code review of #3626. CostOf answered NetworkFree for a key nobody
+        // registered, so a stale or misspelled ScannerKey on a section would resolve to the
+        // cheapest tier and quietly return that section to the -v:d ladder -- the exact
+        // under-declaration this change exists to prevent, arrived at silently.
+        //
+        // The library pipeline is protected today by
+        // LibraryScannerRegistry_RegistrationMatchesDeclaration, but that is a property of one
+        // pipeline, not of CostOf, and any pipeline wired with UseScannerCosts depends on it.
+        var registry = new ScannerRegistry()
+            .Add("real", SectionCost.Unbounded, _ => { });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => registry.CostOf("typo"));
+        Assert.Contains("typo", ex.Message, StringComparison.Ordinal);
+
+        // Non-vacuity: a registered key still resolves, including a bundle, which is registered
+        // with a null scan function and carries no cost entry of its own.
+        var withBundle = new ScannerRegistry()
+            .Add("real", SectionCost.Unbounded, _ => { })
+            .AddBundle("bundle", "real");
+
+        Assert.Equal(SectionCost.Unbounded, withBundle.CostOf("real"));
+        Assert.Equal(SectionCost.Unbounded, withBundle.CostOf("bundle"));
+    }
+
+    [Fact]
     public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()    {
         // Derived from the registry rather than restated, so a new prerequisite naming a key that
         // does not exist fails here instead of silently never running. RunScanners skips an

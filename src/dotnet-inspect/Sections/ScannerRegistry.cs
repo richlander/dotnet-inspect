@@ -303,9 +303,20 @@ public sealed class ScannerRegistry
     /// What running <paramref name="key"/> costs, taken as the maximum over its transitive
     /// prerequisite closure. A scanner cannot be cheaper than the work it pulls in, so a bundle of
     /// one cheap and one unbounded prerequisite is unbounded.
+    ///
+    /// Throws on an unregistered key rather than answering <see cref="SectionCost.NetworkFree"/>.
+    /// A stale or misspelled <c>ISectionDescriptor.ScannerKey</c> would otherwise resolve to the
+    /// cheapest tier and quietly return its section to the <c>-v:d</c> ladder -- reintroducing the
+    /// exact under-declaration this type exists to prevent, and doing it silently.
+    /// Gate: <c>SectionPipelineTests.CostOf_ThrowsOnAnUnregisteredScannerKey</c>.
     /// </summary>
     public SectionCost CostOf(string key)
     {
+        if (!_scanners.ContainsKey(key))
+            throw new InvalidOperationException(
+                $"No scanner is registered for key '{key}', so its cost cannot be determined. " +
+                "A section declaring this ScannerKey would silently keep the cheapest cost.");
+
         var cost = SectionCost.NetworkFree;
         foreach (var member in ExpandRequired([key]))
         {
