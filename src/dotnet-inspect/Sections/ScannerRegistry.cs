@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
@@ -240,7 +241,7 @@ public sealed class ScannerContext : IDisposable
 public sealed class ScannerRegistry
 {
     private readonly Dictionary<string, Action<ScannerContext>?> _scanners = [];
-    private readonly Dictionary<string, string[]> _requires = [];
+    private readonly Dictionary<string, ImmutableArray<string>> _requires = [];
     private readonly Dictionary<string, SectionCost> _costs = [];
 
     /// <summary>
@@ -278,7 +279,7 @@ public sealed class ScannerRegistry
     {
         RejectReregistration(key);
         _scanners[key] = scan;
-        _requires[key] = requires;
+        _requires[key] = [.. requires];
         _costs[key] = cost;
         return this;
     }
@@ -297,7 +298,7 @@ public sealed class ScannerRegistry
     {
         RejectReregistration(key);
         _scanners[key] = null;
-        _requires[key] = requires;
+        _requires[key] = [.. requires];
         return this;
     }
 
@@ -361,10 +362,20 @@ public sealed class ScannerRegistry
     }
 
     /// <summary>
-    /// The prerequisite keys declared by <paramref name="key"/>, or an empty span when it has
+    /// The prerequisite keys declared by <paramref name="key"/>, or an empty array when it has
     /// none. Exposed so a test can assert the declared graph rather than infer it from behavior.
+    ///
+    /// Returns <see cref="ImmutableArray{T}"/> rather than <see cref="IReadOnlyList{T}"/> because
+    /// a read-only interface over a <c>string[]</c> can be cast back to the array and mutated.
+    /// The prerequisite closure is an input to <see cref="CostOf"/>, and sections snapshot that
+    /// cost when they are added, so a caller able to edit this list after the fact could raise a
+    /// section's real cost while the pipeline kept auto-rendering it at the cheap cost it
+    /// recorded. Raised as blocking by the GPT review of #3626, which mutated both the caller's
+    /// original <c>params</c> array and this accessor's return value to produce exactly that
+    /// divergence. <see cref="Add"/> and <see cref="AddBundle"/> copy on registration for the same
+    /// reason. Gate: <c>SectionPipelineTests.PrerequisiteList_CannotBeMutatedAfterRegistration</c>.
     /// </summary>
-    public IReadOnlyList<string> RequirementsOf(string key)
+    public ImmutableArray<string> RequirementsOf(string key)
         => _requires.TryGetValue(key, out var r) ? r : [];
 
     /// <summary>

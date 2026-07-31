@@ -1787,6 +1787,34 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void PrerequisiteList_CannotBeMutatedAfterRegistration()
+    {
+        // Raised as BLOCKING by the GPT review of #3626, one level deeper than the re-registration
+        // guard. The registry stored the caller's `params string[]` by reference and handed the
+        // same array back through RequirementsOf as IReadOnlyList, which casts straight back to
+        // string[]. Either alias could be edited after a section had already snapshotted the cost,
+        // so CostOf would report Unbounded while SectionCosts kept saying NetworkFree -- the
+        // pipeline's value being the one the ladder reads.
+        var registry = new ScannerRegistry();
+        registry.Add("Cheap", SectionCost.NetworkFree, _ => { });
+        registry.Add("Expensive", SectionCost.Unbounded, _ => { });
+
+        // Registration must copy, so editing the caller's array afterwards changes nothing.
+        var declared = new[] { "Cheap" };
+        registry.Add("Root", SectionCost.NetworkFree, _ => { }, declared);
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
+
+        declared[0] = "Expensive";
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
+        Assert.Equal(["Cheap"], registry.RequirementsOf("Root"));
+
+        // And the accessor must not hand out a mutable alias of the stored list. ImmutableArray
+        // is the enforcement: there is no cast that reaches the backing store.
+        Assert.Equal(["Cheap"], registry.RequirementsOf("Root"));
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Root"));
+    }
+
+    [Fact]
     public void PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt()
     {
         // GPT's re-review asked whether the re-registration guard reaches one level down: can
