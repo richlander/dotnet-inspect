@@ -7,24 +7,53 @@ namespace SourceLinkFetch;
 /// <summary>
 /// The origin that source content is actually fetched from, read off a resolved SourceLink URL.
 /// </summary>
-/// <param name="Host">The canonical, lower-cased host of the resolved URL.</param>
-/// <param name="Organization">
-/// The owning account: the GitHub owner, or the Azure DevOps organization and project.
-/// </param>
-/// <param name="Repository">The repository name.</param>
-/// <param name="Revision">
-/// The commit, branch, or tag the content is served at. Two entries naming one repository at two
-/// revisions are two origins, because a revision is reachable in a repository without being part
-/// of it — the head of an unmerged pull request is served by the same host as the default branch.
-/// </param>
-/// <param name="RepositoryUrl">A browsable URL for the repository.</param>
-public readonly record struct SourceLinkOrigin(
-    string Host,
-    string Organization,
-    string Repository,
-    string Revision,
-    string RepositoryUrl)
+/// <remarks>
+/// Construction is <c>internal</c>, and the components are get-only so that <c>with</c> cannot
+/// replace one. An origin is artifact text — it is assembled from a URL that came out of a
+/// downloaded package's PDB — and the rule that none of its components may carry a scalar that
+/// can act on a sink is enforced at the one place origins are made,
+/// <c>SourceLinkProvenance.TryEmitOrigin</c>. That rule is only worth anything if the type
+/// cannot be built around it, which is what a public positional constructor would allow.
+/// <c>default</c> remains constructible, as it does for every struct, and carries no text.
+/// </remarks>
+public readonly record struct SourceLinkOrigin
 {
+    internal SourceLinkOrigin(
+        string host,
+        string organization,
+        string repository,
+        string revision,
+        string repositoryUrl)
+    {
+        Host = host;
+        Organization = organization;
+        Repository = repository;
+        Revision = revision;
+        RepositoryUrl = repositoryUrl;
+    }
+
+    /// <summary>The canonical, lower-cased host of the resolved URL.</summary>
+    public string Host { get; }
+
+    /// <summary>
+    /// The owning account: the GitHub owner, or the Azure DevOps organization and project.
+    /// </summary>
+    public string Organization { get; }
+
+    /// <summary>The repository name.</summary>
+    public string Repository { get; }
+
+    /// <summary>
+    /// The commit, branch, or tag the content is served at. Two entries naming one repository at
+    /// two revisions are two origins, because a revision is reachable in a repository without
+    /// being part of it — the head of an unmerged pull request is served by the same host as the
+    /// default branch.
+    /// </summary>
+    public string Revision { get; }
+
+    /// <summary>A browsable URL for the repository.</summary>
+    public string RepositoryUrl { get; }
+
     /// <summary>
     /// A stable identity for this exact origin, suitable as a cache key. It names the revision
     /// <em>and</em> the repository it was served from, because a commit hash alone is shared by
@@ -841,7 +870,11 @@ public static class SourceLinkProvenance
     /// property of the value and not of one code path. <see cref="BrowseUrl"/> reads an origin
     /// without going through <see cref="Determine"/>, and its result is rendered as
     /// <c>GitHubBrowseUrl</c>; the cache identity is built from the same components. A rule that
-    /// only one consumer applies is a rule the next consumer will not inherit.
+    /// only one consumer applies is a rule the next consumer will not inherit. For the same
+    /// reason <see cref="SourceLinkOrigin"/>'s constructor is <c>internal</c> and its components
+    /// are get-only: a public positional constructor would let a caller build an origin around
+    /// this method, so the claim that this is the only place an origin is produced would be
+    /// false.
     /// </para>
     /// <para>
     /// Gated by

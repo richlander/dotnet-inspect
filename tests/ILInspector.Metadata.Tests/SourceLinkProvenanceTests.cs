@@ -1,3 +1,4 @@
+using System.Reflection;
 using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
@@ -1609,6 +1610,33 @@ public class SourceLinkProvenanceTests
                     $"U+{scalar.Value:X4} ({category}) reached a produced origin component");
             }
         }
+    }
+
+    /// <summary>
+    /// Pins that <c>SourceLinkOrigin</c> cannot be built around the inertness rule.
+    /// </summary>
+    /// <remarks>
+    /// The rule is enforced at <c>TryEmitOrigin</c>, and that is only worth something if there is
+    /// no other way to make an origin. It was a positional record struct until round 17's
+    /// re-review pointed out that its public constructor made the "only place" claim false — a
+    /// caller could construct one carrying a live <c>U+2066</c> and hand it to any consumer, and
+    /// <c>with</c> could replace a component on a validated one. Making the constructor internal
+    /// and the components get-only is what closes that, so it is asserted rather than left as a
+    /// declaration a later refactor could undo silently. <c>default</c> is exempt: every struct
+    /// has it and it carries no text.
+    /// </remarks>
+    [Fact]
+    public void ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly()
+    {
+        Type type = typeof(SLF.SourceLinkOrigin);
+
+        Assert.Empty(type
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+            .Where(static c => c.GetParameters().Length != 0));
+
+        Assert.Empty(type
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(static p => p.SetMethod is { } setter && setter.IsPublic));
     }
 
     /// <summary>
