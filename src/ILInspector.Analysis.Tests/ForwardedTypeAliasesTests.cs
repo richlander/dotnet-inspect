@@ -2713,7 +2713,16 @@ public class ForwardedTypeAliasesTests
 
         // The facade's ExportedType points at `CONTOSO.DEFINER`; the file on disk claims
         // `Contoso.Definer`. ECMA identity comparison is case-insensitive, so this is one assembly.
-        WriteForwarder(directory, "Contoso.Facade", "CONTOSO.DEFINER", "Contoso", "Widget");
+        //
+        // WriteForwarderToVersion, because the WriteForwarder overloads materialize `<target>.dll`
+        // when it is absent — here `CONTOSO.DEFINER.dll`, which on a CASE-SENSITIVE volume is a
+        // second file claiming this name and so a silent twin of the definer. The fixture would
+        // then be testing contradiction rather than casing, and it failed only on Linux.
+        WriteForwarderToVersion(
+            directory, "Contoso.Facade", "CONTOSO.DEFINER", "Contoso", "Widget",
+            fileName: "Contoso.Facade",
+            version: new Version(1, 0, 0, 0),
+            targetVersion: new Version(1, 0, 0, 0));
         File.WriteAllBytes(
             Path.Combine(directory, "Contoso.Definer.dll"),
             SerializePE(NewAssembly("Contoso.Definer", publicKey: null)));
