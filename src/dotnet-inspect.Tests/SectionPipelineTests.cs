@@ -1537,8 +1537,7 @@ public class SectionPipelineTests
         // ctx.BodyIndex is handed to scan methods as a method group, so the Func can outlive the
         // scanner that supplied it and be invoked later while rendering. The declaration must
         // therefore be scoped to scanner execution: left set, the LAST scanner's declaration would
-        // govern every later use, and a cheap scanner finishing the run would refuse the body
-        // index to a caller that never declared anything.
+        // govern every later use.
         //
         // An earlier version of this gate ran a cheap scanner after an expensive prerequisite and
         // asserted the cheap one was refused. That proved nothing -- each scanner overwrites
@@ -1550,9 +1549,48 @@ public class SectionPipelineTests
 
         registry.RunScanners(["cheap"], context);
 
+        // Refused, because the run is over and nothing is left to attribute the work to. The
+        // message distinguishes the two reasons a call can be refused, which is what keeps the
+        // restore pinned: delete the `finally` in RunWithRequirements and Running stays set to
+        // ("cheap", NetworkFree), so the *declaration* message appears here instead.
         var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
-        Assert.Contains("metadata context", ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("NetworkFree", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("outside a scanner run", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("declares Cost", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnscopedCallers_AreRefusedTheBodyIndex()
+    {
+        // Raised by the GPT review of #3626, as a working exploit rather than a hypothetical.
+        //
+        // RequireUnboundedDeclaration used to *return* when Running was null, on the reasoning
+        // that a caller outside a scanner run "has no declaration to check against". That made
+        // the absence of a declaration the one way to escape needing one. GPT reached it from
+        // ordinary code: a descriptor's CanRender that captured the ScannerContext called
+        // BodyIndex() while rendering -- after RunScanners had restored Running to null -- and
+        // the CLI spent 5.2 seconds on whole-assembly work that no section had declared.
+        //
+        // It also undermined the reachability gate below. That gate cuts its walk at the accessor
+        // on the grounds that the accessor is guarded; if the accessor waves through every caller
+        // that is not a scanner, the cut launders exactly the violation it claims to exclude.
+        //
+        // Cost is declared per scanner, so work that cannot be attributed to one cannot be
+        // afforded by anything. Both resources refuse.
+        var context = NullScannerContext();
+        Assert.Null(context.Running);
+
+        var body = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        Assert.Contains("outside a scanner run", body.Message, StringComparison.Ordinal);
+
+        var drill = Assert.Throws<InvalidOperationException>(() => context.DrillMap());
+        Assert.Contains("outside a scanner run", drill.Message, StringComparison.Ordinal);
+
+        // Non-vacuity: the refusal must be the declaration check, not the missing metadata context
+        // that NullScannerContext would also throw on. Declaring Unbounded gets past this check
+        // and reaches the context requirement instead, which is a different message.
+        context.Running = ("declared", SectionCost.Unbounded);
+        var allowed = Assert.Throws<InvalidOperationException>(() => context.DrillMap());
+        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1855,17 +1893,60 @@ public class SectionPipelineTests
             => method.DeclaringType.Name == "ScannerContext"
                 && method.Name is "BodyIndex" or "DrillMap";
 
-        // CalleeDefinitionToken is the intra-assembly MethodDef token a call targets, so keying
-        // the reverse edges on it links callee back to caller without cross-assembly collisions:
-        // a call that leaves this assembly carries a MemberRef token from a different table.
+        // CalleeDefinitionToken is the intra-assembly MethodDef token a call targets *when the
+        // analysis can peel to one*. It cannot always: the GPT review of #3626 escaped an earlier
+        // version of this walk twice, and both escapes are edges that must be added by hand.
+        //
+        //  - A call on a *constructed generic declaring type* (Helper<int>.Open) goes through a
+        //    MemberRef on a TypeSpec. Peeling handles MethodSpec (a generic *method*), not this,
+        //    so the token edge simply does not exist.
+        //  - A static constructor has no caller edge at all. The CLR runs a type initializer on
+        //    first use, and no IL instruction references it, so a helper whose .cctor opens an
+        //    index is reachable at runtime and invisible in the call graph.
+        //
+        // Both are closed by over-approximating: name-matched edges for any callee whose short
+        // type and method name correspond to a method defined here, and an edge from every call
+        // site to the type initializer of the type it touches. Over-approximation is the safe
+        // direction -- a spurious edge can only make this gate redder, never blind.
         var methodsByToken = new Dictionary<int, ILInspector.Analysis.MethodIdentity>();
-        var callersByCallee = new Dictionary<int, HashSet<int>>();
+        var tokensByName = new Dictionary<(string Type, string Method), HashSet<int>>();
         foreach (var call in index.DirectCalls)
         {
-            methodsByToken[call.Caller.MetadataToken] = call.Caller;
-            if (!callersByCallee.TryGetValue(call.CalleeDefinitionToken, out var callers))
-                callersByCallee[call.CalleeDefinitionToken] = callers = [];
-            callers.Add(call.Caller.MetadataToken);
+            var caller = call.Caller;
+            methodsByToken[caller.MetadataToken] = caller;
+
+            var name = (caller.DeclaringType.Name, caller.Name);
+            if (!tokensByName.TryGetValue(name, out var tokens))
+                tokensByName[name] = tokens = [];
+            tokens.Add(caller.MetadataToken);
+        }
+
+        var callersByCallee = new Dictionary<int, HashSet<int>>();
+        void AddEdge(int calleeToken, int callerToken)
+        {
+            if (!callersByCallee.TryGetValue(calleeToken, out var callers))
+                callersByCallee[calleeToken] = callers = [];
+            callers.Add(callerToken);
+        }
+
+        foreach (var call in index.DirectCalls)
+        {
+            var callerToken = call.Caller.MetadataToken;
+            AddEdge(call.CalleeDefinitionToken, callerToken);
+
+            // Name-matched edge, covering the constructed-generic case the token misses.
+            if (tokensByName.TryGetValue((call.Callee.DeclaringType.Name, call.Callee.Name), out var byName))
+            {
+                foreach (var token in byName)
+                    AddEdge(token, callerToken);
+            }
+
+            // Touching any member of a type can run that type's initializer.
+            if (tokensByName.TryGetValue((call.Callee.DeclaringType.Name, ".cctor"), out var cctors))
+            {
+                foreach (var token in cctors)
+                    AddEdge(token, callerToken);
+            }
         }
 
         var gateTokens = methodsByToken
@@ -1874,6 +1955,34 @@ public class SectionPipelineTests
             .ToHashSet();
 
         var openers = index.DirectCalls.Where(OpensAnIndex).Select(call => call.Caller).ToList();
+
+        // PRIMARY CLAIM: the set of methods in this assembly that open a body index is pinned.
+        //
+        // This is deliberately not a reachability argument, because reachability rests on the call
+        // graph being complete and it is not. The GPT review of #3626 escaped an earlier walk by
+        // calling a helper on a *constructed generic type* (Helper<int>.Open): that call goes
+        // through a MemberRef on a TypeSpec, and DirectCalls records no edge for it whatsoever --
+        // not a wrong edge, no edge -- so no backwards walk from an opener can ever find its
+        // caller. A static constructor is invisible for a different reason: the CLR runs a type
+        // initializer on first use and no IL instruction references it.
+        //
+        // Pinning the openers sidesteps both. Every escape of that kind has to *add an opener*
+        // somewhere in this assembly, and an opener is visible no matter how it is reached. So the
+        // enforcement does not depend on knowing who calls it.
+        var openerNames = openers
+            .Select(method => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}")
+            .Distinct()
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            [
+                "DotnetInspector.Commands.DiffCommand::AcquireAuthoredSourceInspectionsAsync",
+                "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies",
+                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures",
+                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithPrefetchedImage",
+            ],
+            openerNames);
 
         var reached = new HashSet<int>();
         var pending = new Queue<int>();
@@ -1911,6 +2020,9 @@ public class SectionPipelineTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
+        // SECONDARY CLAIM: no section reaches one of those four sanctioned openers except through
+        // the gated accessor. The pinned set above cannot catch this case, because calling
+        // MethodBodyInspectionSession.OpenWithFeatures from a scanner adds no new opener.
         Assert.Empty(ungatedSectionCallers);
 
         // Three non-vacuity assertions, because every gate in this PR that lacked one turned out

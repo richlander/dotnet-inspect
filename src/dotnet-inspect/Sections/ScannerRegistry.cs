@@ -137,14 +137,17 @@ public sealed class ScannerContext : IDisposable
 
     /// <summary>
     /// The scanner currently executing and the cost it declared, set by
-    /// <see cref="ScannerRegistry.RunScanners"/> around each invocation. Null when no scanner is
-    /// running through the registry — a test driving a scan function directly has no declaration
-    /// to check against.
+    /// <see cref="ScannerRegistry.RunScanners"/> around each invocation, and restored rather than
+    /// cleared so a nested run cannot leave the outer scanner unattributed.
+    ///
+    /// Null outside a scanner run. That is a refusal, not a permission: see
+    /// <see cref="RequireUnboundedDeclaration"/>. A test driving a scan function directly sets
+    /// this to declare on the scanner's behalf.
     /// </summary>
     internal (string Key, SectionCost Cost)? Running { get; set; }
 
     /// <summary>
-    /// Refuses a shared resource to a scanner that did not declare it could afford one.
+    /// Refuses a shared resource to a caller that did not declare it could afford one.
     ///
     /// The body index is a whole-assembly IL build: measured at 1.4 s on a 1.7 MB assembly, and the
     /// two scanners that consume it account for 99% of the time a <c>-v:d</c> run spends scanning.
@@ -155,10 +158,27 @@ public sealed class ScannerContext : IDisposable
     /// So the declaration is enforced where the cost is actually incurred. Adding a body-index call
     /// to a scanner that still claims to be cheap fails loudly instead of quietly restoring the
     /// defect. Gate: <c>SectionPipelineTests.Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    ///
+    /// A caller outside a scanner run is refused rather than allowed. This branch used to return,
+    /// on the reasoning that such a caller "has no declaration to check against" — but that made
+    /// the absence of a declaration the one way to escape needing one. The GPT review of #3626
+    /// exploited it in ordinary code: a descriptor's <c>CanRender</c> that captured the context
+    /// called <see cref="BodyIndex"/> while rendering, spending seconds with no check, because
+    /// <see cref="Running"/> is restored to null once the run ends. Cost is declared per scanner,
+    /// so work that is not attributable to one cannot be afforded by anything.
+    /// Gate: <c>SectionPipelineTests.UnscopedCallers_AreRefusedTheBodyIndex</c>.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
-        if (Running is not { } running || running.Cost == SectionCost.Unbounded)
+        if (Running is not { } running)
+        {
+            throw new InvalidOperationException(
+                $"The {resource} was requested outside a scanner run, so no cost declaration " +
+                $"covers it. It is unbounded whole-assembly work and must be attributed to a " +
+                $"scanner registered with SectionCost.Unbounded.");
+        }
+
+        if (running.Cost == SectionCost.Unbounded)
             return;
 
         throw new InvalidOperationException(
