@@ -444,6 +444,13 @@ foreach (var entry in selected)
             // A backstop behind the version-shape check above: the extractor validates
             // its own path components and throws, and a throw here exits 134 --
             // indistinguishable from a crash, over an input the pin file supplied.
+            //
+            // Ungated, deliberately: IsBareVersion and IsBarePackageId already refuse
+            // every spelling that reaches this, so no input the sweep will accept can
+            // make the extractor throw, and no black-box case can arrange one. It stays
+            // because the two shape checks and this catch guard the same 134 from
+            // opposite sides, and the cheap side to be wrong on is this one. Measured:
+            // disabling this catch leaves every case in EvilPoolSweepGateTests green.
             results.Add(Failed(entry, "acquisition-failed", ex.Message));
             Console.Error.WriteLine(
                 $"rank {entry.Rank}: {entry.Package}: acquisition failed: {ex.Message}");
@@ -465,6 +472,13 @@ foreach (var entry in selected)
         // that matters is made against what came back: a pool entry acquired under a
         // different identity than the one selected is not the package the list ranked,
         // whatever spelling got it there.
+        //
+        // Ungated, and not gateable by EvilPoolSweepGateTests: those cases run offline
+        // against a seeded cache, and the cache-hit path echoes the requested name back
+        // as PackageName (PackageExtractor.AcquireResolvedPackageAsync), so the two sides
+        // of this comparison are the same string by construction. It has teeth only on
+        // the download path, where the name comes from what was served. Measured:
+        // deleting this check outright leaves every case in that class green.
         if (!string.Equals(resolvedPackage, entry.Package, StringComparison.OrdinalIgnoreCase))
         {
             results.Add(Failed(
@@ -722,6 +736,50 @@ if (unwritable is not null)
     Console.Error.WriteLine(unwritable);
     Environment.ExitCode = 2;
     return;
+}
+
+// The pool is made to hold what this run recorded, rather than merely being described
+// by it. Writing assemblies.txt from the in-memory list keeps a stray file out of the
+// record; nothing kept one out of the pool, and the pool is reused by design -- the
+// corpus script passes the same output directory every time so that the paths in an
+// earlier assemblies.txt stay valid. So a package that was pooled once and is refused,
+// re-versioned, or dropped from the list later left its assembly behind, unrecorded and
+// indistinguishable from a current one, for as long as the directory survived. Measured
+// before this existed: a second run whose subject could not be acquired recorded the
+// lead alone and left the first run's assembly sitting in packages/.
+//
+// Held against the record rather than by clearing the directory first. Clearing is the
+// obvious spelling and the wrong one: it also removes whatever a caller had put at a
+// destination, which is the seam two of this sweep's gates use to make a copy fail, and
+// a fix that silently disarms the tests for the code it touches is worse than the leak.
+// Reconciling afterwards touches only what the run did not record.
+//
+// Scoped to packages/, which is the sweep's own: it names every child and records what
+// it put there. Files elsewhere under the output directory belong to the caller.
+// Deletions are announced -- a leftover the sweep removes is still a fault somewhere,
+// and a silent cleanup is how one goes unnoticed for a release.
+var recordedAssemblies = new HashSet<string>(
+    assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
+try
+{
+    foreach (string pooled in Directory.GetFiles(packageDirectory, "*", SearchOption.AllDirectories))
+    {
+        if (recordedAssemblies.Contains(Path.GetFullPath(pooled)))
+            continue;
+
+        File.Delete(pooled);
+        Console.Error.WriteLine(
+            $"removed '{pooled}' from the pool: this sweep did not record it.");
+    }
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    // Reported, and the run fails: the pool now holds something the record does not
+    // name, which is the state this whole step exists to prevent. Exiting 0 here would
+    // hand a consumer a pool the manifest misdescribes.
+    Console.Error.WriteLine(
+        $"Could not reconcile the pool under '{packageDirectory}' with the record: {ex.Message}");
+    Environment.ExitCode = 1;
 }
 
 var manifest = new PackageSweepManifest(

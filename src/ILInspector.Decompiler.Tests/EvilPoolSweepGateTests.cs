@@ -66,6 +66,13 @@ public class EvilPoolSweepGateTests
     const string LeadPackage = "sweep.lead";
     const string LeadAssembly = "Sweep.Lead.dll";
 
+    // A third package, committed by every world and pooled by none of them, which ships a
+    // nuspec and no library at all. It is what the !IsSelected arm needs: the two packages
+    // above both ship an assembly, so that whole arm -- library-unavailable, and the
+    // no-library pin it confirms -- was unreachable, and deleting the arm outright left all
+    // eleven cases green.
+    const string EmptyPackage = "sweep.empty";
+
     /// <summary>
     /// A sweep whose pin matches the cache pools those bytes, at the path the manifest
     /// says, and leaves nothing behind.
@@ -298,6 +305,22 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// What a case plants at the destination before the sweep runs: the three shapes a
+    /// path can take that are not an ordinary file the sweep may simply overwrite.
+    /// </summary>
+    public enum Plant
+    {
+        /// <summary>A symlink to an existing file outside the output directory.</summary>
+        SymbolicLink,
+
+        /// <summary>A symlink whose target does not exist.</summary>
+        DanglingSymbolicLink,
+
+        /// <summary>A second name for an existing file outside the output directory.</summary>
+        HardLink,
+    }
+
+    /// <summary>
     /// Something planted at a destination is replaced, not written through.
     ///
     /// <para>This is the round-sixteen defect, kept. The three metadata writes had been
@@ -308,30 +331,55 @@ public class EvilPoolSweepGateTests
     /// and reading back through the same link returns the bytes that were written.</para>
     ///
     /// <para>So the assertion is not about the sweep's exit code -- the sweep is entitled
-    /// to succeed here, and does. It is that the file outside the output directory still
-    /// holds its own bytes, and that what the sweep pooled is a real file rather than a
-    /// link to somewhere else.</para>
+    /// to succeed here, and does. It is that the path outside the output directory is
+    /// exactly as it was, and that what the sweep pooled is a real file rather than a link
+    /// to somewhere else.</para>
+    ///
+    /// <para>All three shapes, because one of them was the whole coverage and the other two
+    /// are the ways around it. Gated on a live symlink alone, a sweep that protected links
+    /// whose target exists and wrote through the rest kept every case green while creating
+    /// an arbitrary external file through a dangling one; and a sweep that asked only
+    /// whether <c>LinkTarget</c> was set -- which a hard link leaves null -- wrote straight
+    /// through a hard-linked destination onto the file it shares an inode with. Both were
+    /// measured green against the single-shape case. The property was never about symlinks;
+    /// it is that the sweep replaces what it finds instead of opening it.</para>
     /// </summary>
-    [Fact]
-    public void ASweepReplacesWhatIsPlantedAtItsDestinationRatherThanWritingThroughIt()
+    [Theory]
+    [InlineData(Plant.SymbolicLink)]
+    [InlineData(Plant.DanglingSymbolicLink)]
+    [InlineData(Plant.HardLink)]
+    public void ASweepReplacesWhatIsPlantedAtItsDestinationRatherThanWritingThroughIt(Plant plant)
     {
         using var world = SweepWorld.Create();
 
         string outsider = Path.Combine(world.Scratch, "outside.txt");
         const string Sentinel = "bytes that belong to someone else";
-        File.WriteAllText(outsider, Sentinel);
+        if (plant != Plant.DanglingSymbolicLink)
+            File.WriteAllText(outsider, Sentinel);
 
         string destination = world.SubjectDestination;
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        PlantSymbolicLink(destination, outsider);
+        PlantAt(destination, outsider, plant);
 
         var sweep = world.Run();
 
-        Assert.Equal(Sentinel, File.ReadAllText(outsider));
-        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a symlink planted at the destination"));
+        // The outside path first, before anything about the sweep: whatever it exited, this
+        // is the fact the case is about.
+        if (plant == Plant.DanglingSymbolicLink)
+        {
+            Assert.False(
+                File.Exists(outsider),
+                $"the sweep created '{outsider}' by writing through a dangling link at its destination.");
+        }
+        else
+        {
+            Assert.Equal(Sentinel, File.ReadAllText(outsider));
+        }
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, $"a {plant} planted at the destination"));
 
         // Replaced, so the pooled path is the assembly itself rather than a way back out
-        // to the file above -- which would read as correct while pooling nothing.
+        // to the path above -- which would read as correct while pooling nothing.
         Assert.Null(new FileInfo(destination).LinkTarget);
         Assert.Equal(world.FixtureSha256, Sha256Of(destination));
         world.AssertNoTemporaryLeftBehind();
@@ -472,6 +520,132 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// A second sweep into the same output directory pools what that sweep recorded, and
+    /// not what the one before it left there.
+    ///
+    /// <para>Reuse is the normal way this sweep is run, not an edge: the corpus script
+    /// passes the same <c>&lt;outdir&gt;/sweep</c> every time, deliberately, so that the
+    /// paths in an earlier <c>assemblies.txt</c> stay valid. So the pool accumulates
+    /// across runs while each run's record describes only itself, and the two disagree
+    /// the first time a package stops being pooled -- which is exactly the state
+    /// <see cref="SweepWorld.AssertNoTemporaryLeftBehind"/> already says is the dangerous
+    /// one: <em>a file in <c>packages/</c> that nothing recorded is one a later sweep
+    /// finds, hashes, and disagrees with the pin about, reported as the pin failing
+    /// rather than as the run that made it.</em> That was prose about a single run; this
+    /// is the case that makes it true across runs.</para>
+    ///
+    /// <para>The second run refuses on a version the scratch cache cannot serve, which is
+    /// the cheapest way to make a package that <em>was</em> pooled stop being pooled. Any
+    /// refusal would do -- the point is the leftover, not the reason for it.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepIntoAReusedDirectoryPoolsOnlyWhatItRecorded()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        Assert.Equal("selected", world.ReportedStatus(first));
+
+        // Same package, a version nothing seeded: pooled by the run above, refused by this
+        // one, so anything of its still in packages/ afterwards is the previous run's.
+        world.PinInstead(FixturePackage, "9.9.9", FixtureTfm);
+
+        var second = world.Run();
+        Assert.True(second.ExitCode == 1, world.Explain(second, "a rerun whose subject cannot be acquired"));
+        Assert.Equal("acquisition-failed", world.ReportedStatus(second));
+
+        world.AssertOnlyTheLeadWasPooled(second);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A package that ships no primary library is refused as <c>library-unavailable</c>,
+    /// rather than pooled or crashed over.
+    ///
+    /// <para>Nothing reached this arm before: the two packages every other case uses both
+    /// ship an assembly, so <c>!selection.IsSelected</c> was never true and the whole arm
+    /// below it -- this refusal, and the <c>no-library</c> pin it confirms -- could be
+    /// deleted outright with every case still green. It is not a quiet corner. A run that
+    /// records <c>library-unavailable</c> is what <c>--refresh-pin</c> turns into a
+    /// permanent <c>no-library</c> pin, so this is the status that decides whether a
+    /// package is in the pool at all from then on.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesAPackageThatShipsNoLibrary()
+    {
+        using var world = SweepWorld.Create();
+        world.PinEmptyInstead();
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a package that ships no library"));
+        Assert.Equal("library-unavailable", world.ReportedStatus(sweep));
+
+        // The description the pin is later confirmed against, so the two cases below are
+        // about the same fact this one records.
+        Assert.Equal("NoAssemblies", world.ReportedDetail(sweep));
+
+        world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A package pinned as shipping no library, that ships none, is confirmed -- accounted
+    /// for rather than counted as a failure.
+    ///
+    /// <para>The other half of
+    /// <see cref="ASweepRefusesAPackagePinnedAsShippingNoLibraryThatShipsOne"/>, and the
+    /// half that makes <c>no-library</c> a claim about a package rather than a way to
+    /// delete one from the pool: nine of the real top hundred are meta-packages, and this
+    /// is the arm that lets the sweep account for them without pretending they contributed
+    /// an assembly.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepConfirmsAPackagePinnedAsShippingNoLibraryThatShipsNone()
+    {
+        using var world = SweepWorld.Create();
+        world.PinEmptyInstead("no-library", "NoAssemblies");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a confirmed no-library pin"));
+        Assert.Equal("no-library-confirmed", world.ReportedStatus(sweep));
+
+        world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A <c>no-library</c> pin is confirmed against the detail it was recorded over, so a
+    /// package that has since lost its candidates no longer confirms.
+    ///
+    /// <para>This is the check the sweep describes as its defence against a wiped or
+    /// truncated cache entry: an emptied extraction reports exactly what a genuine
+    /// meta-package reports, so without comparing the recorded detail the sweep would
+    /// confirm a package it no longer has. Dropping the detail comparison leaves the case
+    /// above green, because there the two agree; only a disagreement can tell whether it
+    /// was consulted.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepDoesNotConfirmANoLibraryPinRecordedOverSomethingElse()
+    {
+        using var world = SweepWorld.Create();
+        world.PinEmptyInstead("no-library", "NoAssemblies: Some.Candidate.dll");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a no-library pin whose detail no longer holds"));
+
+        // Refused, not confirmed: the pin describes a package that had candidates, and this
+        // one has none.
+        Assert.Equal("library-unavailable", world.ReportedStatus(sweep));
+
+        world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
     /// A package the seeded cache does not hold is unreachable, rather than fetched.
     ///
     /// <para>This is the case that gates the other seven. They all pool a synthetic package
@@ -589,12 +763,34 @@ public class EvilPoolSweepGateTests
     /// because on those platforms this always works, and the reason it stopped working is
     /// something the run should say out loud rather than swallow.</para>
     /// </summary>
-    static void PlantSymbolicLink(string path, string target)
+    /// <summary>
+    /// Plants one of the three shapes at <paramref name="path"/>, skipping visibly where
+    /// the platform will not allow it.
+    /// </summary>
+    static void PlantAt(string path, string target, Plant plant)
     {
         if (OperatingSystem.IsWindows())
-            Assert.Skip("planting a symlink needs privileges an unelevated Windows process lacks.");
+            Assert.Skip("planting a link needs privileges an unelevated Windows process lacks.");
 
-        File.CreateSymbolicLink(path, target);
+        if (plant != Plant.HardLink)
+        {
+            File.CreateSymbolicLink(path, target);
+            return;
+        }
+
+        // No BCL API makes a hard link, so this is the platform's. Reported rather than
+        // skipped when it fails: the file it names was just written, so there is no
+        // ordinary reason for `ln` not to succeed, and a case that skipped here would
+        // quietly stop covering the shape it exists for.
+        using var link = Process.Start(new ProcessStartInfo("ln")
+        {
+            ArgumentList = { target, path },
+            RedirectStandardError = true,
+        }) ?? throw new InvalidOperationException("could not start ln");
+
+        string errors = link.StandardError.ReadToEnd();
+        link.WaitForExit();
+        Assert.True(link.ExitCode == 0, $"could not hard-link '{path}' to '{target}': {errors}");
     }
 
     /// <summary>
@@ -794,7 +990,37 @@ public class EvilPoolSweepGateTests
 
             _leadCachedAssemblyPath = Commit(LeadPackage, LeadAssembly, LeadBytes);
             _cachedAssemblyPath = Commit(FixturePackage, FixtureAssembly, FixtureBytes);
+            CommitWithoutLibrary(EmptyPackage);
         }
+
+        /// <summary>
+        /// Stages the part of a synthetic package that is not its library -- the directory
+        /// and the nuspec -- and answers with the staged path for a caller to fill in.
+        /// </summary>
+        string Stage(string package)
+        {
+            string staged = Path.Combine(Scratch, "staged", package);
+            Directory.CreateDirectory(staged);
+            File.WriteAllText(
+                Path.Combine(staged, $"{package}.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package><metadata>
+                  <id>{package}</id><version>{FixtureVersion}</version>
+                  <authors>{nameof(EvilPoolSweepGateTests)}</authors>
+                  <description>A synthetic package that exists only to be pooled.</description>
+                </metadata></package>
+                """);
+
+            return staged;
+        }
+
+        /// <summary>
+        /// Commits a package that ships a nuspec and no library, so that the sweep's
+        /// <c>!IsSelected</c> arm has something to be about.
+        /// </summary>
+        void CommitWithoutLibrary(string package) =>
+            NuGetCache.CommitPackage(Stage(package), null, package, FixtureVersion);
 
         /// <summary>
         /// Stages one synthetic package and commits it, answering with the path the product
@@ -808,19 +1034,9 @@ public class EvilPoolSweepGateTests
         /// </summary>
         string Commit(string package, string assembly, byte[] bytes)
         {
-            string staged = Path.Combine(Scratch, "staged", package);
+            string staged = Stage(package);
             Directory.CreateDirectory(Path.Combine(staged, "lib", FixtureTfm));
             File.WriteAllBytes(Path.Combine(staged, "lib", FixtureTfm, assembly), bytes);
-            File.WriteAllText(
-                Path.Combine(staged, $"{package}.nuspec"),
-                $"""
-                <?xml version="1.0" encoding="utf-8"?>
-                <package><metadata>
-                  <id>{package}</id><version>{FixtureVersion}</version>
-                  <authors>{nameof(EvilPoolSweepGateTests)}</authors>
-                  <description>A synthetic package that exists only to be pooled.</description>
-                </metadata></package>
-                """);
 
             NuGetCache.CommitPackage(staged, null, package, FixtureVersion);
 
@@ -863,7 +1079,8 @@ public class EvilPoolSweepGateTests
             string version,
             string? tfm,
             string sha256,
-            string status = "pinned")
+            string status = "pinned",
+            string? detail = null)
         {
             var list = new JsonArray(
                 new JsonObject
@@ -897,7 +1114,7 @@ public class EvilPoolSweepGateTests
                         ["version"] = version,
                         ["tfm"] = tfm,
                         ["status"] = status,
-                        ["detail"] = status == "no-library" ? "ships no primary library" : null,
+                        ["detail"] = detail ?? (status == "no-library" ? "ships no primary library" : null),
                         ["sha256"] = status == "no-library" ? null : sha256,
                     }),
             };
@@ -1001,6 +1218,14 @@ public class EvilPoolSweepGateTests
             ReportedEntry(sweep)["WriteTemporary"]?.GetValue<string>();
 
         /// <summary>
+        /// The detail the sweep recorded beside the status -- for the <c>!IsSelected</c>
+        /// arm, its description of what it found instead of a library, which a
+        /// <c>no-library</c> pin is confirmed against.
+        /// </summary>
+        public string? ReportedDetail((int ExitCode, string Output, string Errors) sweep) =>
+            ReportedEntry(sweep)["Detail"]?.GetValue<string>();
+
+        /// <summary>
         /// Replaces the inputs so the sweep is asked for some other package, pinned to
         /// bytes nothing has. Used to ask for something the scratch cache cannot answer.
         /// </summary>
@@ -1009,6 +1234,18 @@ public class EvilPoolSweepGateTests
             _requestedPackage = package;
             WriteListAndPin(
                 Path.Combine(FakeRoot, "docs", "data"), package, version, tfm, FixtureSha256);
+        }
+
+        /// <summary>
+        /// Replaces the inputs so the sweep is asked for the package that ships no library,
+        /// pinned however this case needs.
+        /// </summary>
+        public void PinEmptyInstead(string status = "pinned", string? detail = null)
+        {
+            _requestedPackage = EmptyPackage;
+            WriteListAndPin(
+                Path.Combine(FakeRoot, "docs", "data"), EmptyPackage, FixtureVersion, FixtureTfm,
+                FixtureSha256, status, detail);
         }
 
         /// <summary>
