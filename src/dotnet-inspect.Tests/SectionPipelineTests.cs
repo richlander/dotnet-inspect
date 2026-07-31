@@ -1672,16 +1672,20 @@ public class SectionPipelineTests
         // The literal list is the point: it is a human-reviewed statement of which sections are
         // deliberately not cheap. Any cost change that moves a section across the NetworkFree
         // boundary now fails here and has to be justified in review.
+        //
+        // The re-review then showed one axis was still open. The first version of this gate read
+        // registry.CostOf(section.ScannerKey), which is only one of the two inputs: the raise is
+        // one-way, so a descriptor can declare a higher cost than its scanner and leave the ladder
+        // on its own. Declaring `Cost => Moderated` on the Switches descriptor reproduced the
+        // original defect exactly, with both new gates green. So the primary assertion is on the
+        // pipeline's effective cost — the value the ladder actually consults — which subsumes the
+        // scanner axis, because a scanner raise always raises the entry.
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        var aboveCheap = pipeline.ScannerBoundSections
-            .Where(section => registry.CostOf(section.ScannerKey) > SectionCost.NetworkFree)
-            .Select(section => section.Name)
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToList();
-
-        string[] expected =
+        // The scanner axis: sections that are expensive because the scan behind them is. This is
+        // the family this change moved off the ladder.
+        string[] expectedBodyIndexFamily =
         [
             SectionNames.ArrayPoolEscapes,
             SectionNames.PerformanceHotspots,
@@ -1696,7 +1700,59 @@ public class SectionPipelineTests
             SectionNames.UnsafeMembers,
         ];
 
-        Assert.Equal(expected.OrderBy(name => name, StringComparer.Ordinal), aboveCheap);
+        var scannerAboveCheap = pipeline.ScannerBoundSections
+            .Where(section => registry.CostOf(section.ScannerKey) > SectionCost.NetworkFree)
+            .Select(section => section.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            expectedBodyIndexFamily.OrderBy(name => name, StringComparer.Ordinal),
+            scannerAboveCheap);
+
+        // The effective axis: everything the ladder will refuse to auto-render, whichever
+        // declaration made it so. The Metadata table sections and the SourceLink family were
+        // already Unbounded by their own descriptors before this change — they are here because
+        // this list is the honest full set, not because this PR moved them.
+        string[] expectedAboveCheap =
+        [
+            .. expectedBodyIndexFamily,
+            "Metadata: #Blob",
+            "Metadata: #GUID",
+            "Metadata: #Strings",
+            "Metadata: #US",
+            "Metadata: Assembly",
+            "Metadata: AssemblyRef",
+            "Metadata: Constant",
+            "Metadata: CustomAttribute",
+            "Metadata: ExportedType",
+            "Metadata: Field",
+            "Metadata: GenericParam",
+            "Metadata: MemberRef",
+            "Metadata: MethodDef",
+            "Metadata: MethodImpl",
+            "Metadata: MethodSpec",
+            "Metadata: Module",
+            "Metadata: Param",
+            "Metadata: StandAloneSig",
+            "Metadata: TypeDef",
+            "Metadata: TypeRef",
+            "Metadata: TypeSpec",
+            SectionNames.SourceLinkAvailability,
+            SectionNames.SourceLinkFiles,
+            SectionNames.SourceLinkIntegrity,
+            SectionNames.SourceLinkMissingFiles,
+        ];
+
+        var effectivelyAboveCheap = pipeline.SectionCosts
+            .Where(section => section.Cost > SectionCost.NetworkFree)
+            .Select(section => section.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            expectedAboveCheap.OrderBy(name => name, StringComparer.Ordinal),
+            effectivelyAboveCheap);
     }
 
     [Fact]

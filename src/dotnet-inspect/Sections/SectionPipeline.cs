@@ -264,6 +264,17 @@ public sealed class SectionPipeline<TModel>
         .Select(e => (e.Name, e.ScannerKey!));
 
     /// <summary>
+    /// Section names paired with the <b>effective</b> cost the verbosity ladder consults — after
+    /// <see cref="UseScannerCosts"/> has raised each entry to the cost of the scanner behind it.
+    /// This is the cost axis that actually decides auto-rendering, and it is not the same as
+    /// <c>registry.CostOf(section.ScannerKey)</c>: the raise is one-way, so a descriptor may
+    /// declare a higher cost than its scanner and move itself off the ladder independently.
+    /// Exposed so a gate can pin the decision input rather than one of its two sources.
+    /// </summary>
+    public IEnumerable<(string Name, SectionCost Cost)> SectionCosts => _entries
+        .Select(e => (e.Name, e.Cost));
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.
