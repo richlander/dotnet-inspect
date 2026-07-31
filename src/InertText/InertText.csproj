@@ -14,6 +14,12 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The rule table and the scalar predicate are internal so no caller can supply one; the
+         sweeps that assert the encoder is total and invertible have to reach them anyway. -->
+    <InternalsVisibleTo Include="InertText.Tests" />
+  </ItemGroup>
+
   <!-- Deliberately carries no ProjectReference. Every assembly that prints artifact-derived
        text needs this, including the dependency-free leaves, so it has to sit below all of
        them. Keep it that way: a reference added here is a reference added to everything. -->

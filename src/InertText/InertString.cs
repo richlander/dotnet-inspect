@@ -7,8 +7,8 @@ using InertText.Encoder;
 namespace InertText;
 
 /// <summary>
-/// Text with a <see cref="ScalarPolicy"/> applied to it, carried as a value rather than as a
-/// bare <see cref="string"/>.
+/// Text spelled under a <see cref="TextPolicy"/>, carried as a value rather than as a bare
+/// <see cref="string"/>.
 /// </summary>
 /// <remarks>
 /// This is the currency form, and it exists for auditability. Encoding on its own is
@@ -29,9 +29,12 @@ namespace InertText;
 /// The boundary is an audit aid, not a capability barrier — a file can always add the import.
 /// The goal it does meet is that the dangerous half cannot arrive by accident or unnoticed.
 ///
-/// Also genuinely separate is <see cref="ScalarPolicy"/>: the encoder never learns <em>why</em>
-/// a scalar was refused, which is what lets it serve a deny-shaped sink and an allow-shaped one
-/// alike. An encoder with a built-in hazard set has absorbed policy.
+/// The policy is named rather than supplied. An earlier shape took a caller-written predicate,
+/// which read as the more general design and was worse in both directions: rules drifted apart
+/// between sinks that should have shared them, and repairing a value meant handing the caller's
+/// predicate the decoded original — walking the audit boundary back out through a callback, in a
+/// file whose using block still named only the currency namespace. <see cref="TextPolicy"/> is
+/// closed, so the rules are shared and no caller code runs during a repair.
 ///
 /// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
 /// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees
@@ -46,9 +49,13 @@ namespace InertText;
 /// encoding and structural escaping compose; neither substitutes for the other.
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
-/// explicit. One would restore exactly the confusion the type removes. Text enters through
-/// the constructor, <see cref="Format"/> or <see cref="Join"/>, all of which apply a policy,
-/// so every value has been spelled under some policy.
+/// explicit. One would restore exactly the confusion the type removes. Text enters through the
+/// constructor, <see cref="Format"/> or <see cref="Join"/>, all of which name a policy, so every
+/// value has been spelled under some policy.
+///
+/// Every one of those reads <c>(TextPolicy, payload)</c>, including <see cref="IsPermitted"/> and
+/// <see cref="EnsurePermitted"/>. One shape rather than one per member, and the policy set can
+/// grow without the type growing a member per policy.
 ///
 /// Note the "some": the type records that a policy was applied, not which one, because a value
 /// is routinely built for one sink and spliced into a message bound for another. That makes
@@ -76,20 +83,20 @@ public readonly struct InertString : IEquatable<InertString>
     private readonly string? _text;
 
     /// <summary>
-    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, yielding a value that
-    /// can be carried to a sink.
+    /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, yielding a value
+    /// that can be carried to a sink.
     /// </summary>
     /// <remarks>
     /// The only way text enters the type, and the reason no member of it can take text without
-    /// also taking a policy — a reflection test enforces that.
+    /// also naming a policy — a reflection test enforces that.
     ///
     /// Forwards to <see cref="VisualEncoder"/> rather than duplicating the loop, and exists so
     /// that producing inert text does not require naming the capability namespace. That is what
     /// keeps the decoder out of the files that merely make inert text, and it is gated.
     /// </remarks>
+    /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
     /// <param name="value">The untreated text.</param>
-    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
-    public InertString(string value, ScalarPolicy permits) => this = VisualEncoder.Encode(value, permits);
+    public InertString(TextPolicy policy, string value) => this = VisualEncoder.Encode(policy, value);
 
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
     // invariant. Internal because composition needs it: Join and the interpolation handler
@@ -145,7 +152,8 @@ public readonly struct InertString : IEquatable<InertString>
     /// a conformance check, and using it as one inverts the answer in both directions: text
     /// encoded under <see cref="TextPolicy.Prose"/> can carry a raw line feed and report
     /// <see langword="false"/> here while violating <see cref="TextPolicy.Field"/>, and text
-    /// encoded under <c>Field</c> reports <see langword="true"/> while satisfying every policy,
+    /// encoded under <see cref="TextPolicy.Field"/> reports <see langword="true"/> while
+    /// satisfying every policy,
     /// because the spellings it emits are plain ASCII.
     ///
     /// Conformance is a relation between a value and a policy rather than a property of the
@@ -156,11 +164,6 @@ public readonly struct InertString : IEquatable<InertString>
     /// <summary>The encoded text.</summary>
     public override string ToString() => Text;
 
-    /// <summary>
-    /// Encodes <paramref name="value"/> under <paramref name="permits"/>.
-    /// </summary>
-    /// <param name="value">The untreated text.</param>
-    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
     /// <summary>
     /// Builds a value from an interpolated string, encoding every part of it.
     /// </summary>
@@ -175,36 +178,38 @@ public readonly struct InertString : IEquatable<InertString>
     /// exception in it has to be reasoned about at every use, and a bidi override is as
     /// invisible in a C# source file as it is anywhere else.
     /// </remarks>
-    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
+    /// <param name="policy">The kind of text being built.</param>
     /// <param name="handler">The interpolated string, encoded piecewise as it is appended.</param>
     public static InertString Format(
-        ScalarPolicy permits,
-        [InterpolatedStringHandlerArgument("permits")] ref InertStringHandler handler)
-    {
-        ArgumentNullException.ThrowIfNull(permits);
-        return handler.ToInertString();
-    }
+        TextPolicy policy,
+        [InterpolatedStringHandlerArgument(nameof(policy))] ref InertStringHandler handler)
+        => handler.ToInertString();
 
     /// <summary>
     /// Concatenates <paramref name="values"/>, separated by <paramref name="separator"/>.
     /// </summary>
     /// <remarks>
-    /// The separator is encoded under <paramref name="permits"/> like everything else, so a
-    /// multi-line message must pass a policy that permits the line break it joins with.
-    /// Exempting the separator would be a hole exactly the size of one caller's mistake.
+    /// The separator is encoded under <paramref name="policy"/> like everything else, so joining
+    /// with a line break requires a policy that permits one. Exempting it would be a hole exactly
+    /// the size of one caller's mistake, and it would contradict the handler, which encodes
+    /// source literals for the same reason.
+    ///
+    /// This is why <see cref="TextPolicy.Prose"/> still permits <c>CR</c>. Refusing it would
+    /// render <c>Environment.NewLine</c> as <c>\^M</c> on Windows for every caller who joins
+    /// with it, so dropping <c>CR</c> and encoding the separator cannot both hold.
     /// </remarks>
     /// <param name="separator">The text placed between values.</param>
-    /// <param name="permits">
-    /// The per-sink policy, applied to <paramref name="separator"/> and to any value that does
-    /// not already satisfy it.
+    /// <param name="policy">
+    /// The kind of text being built, applied to <paramref name="separator"/> and to any value
+    /// that does not already satisfy it.
     /// </param>
     /// <param name="values">The values to join.</param>
-    public static InertString Join(string separator, ScalarPolicy permits, IEnumerable<InertString> values)
+    public static InertString Join(string separator, TextPolicy policy, IEnumerable<InertString> values)
     {
         ArgumentNullException.ThrowIfNull(separator);
         ArgumentNullException.ThrowIfNull(values);
 
-        InertString encodedSeparator = VisualEncoder.Encode(separator, permits);
+        InertString encodedSeparator = VisualEncoder.Encode(policy, separator);
         StringBuilder builder = new();
         VisualForm forms = VisualForm.None;
         bool first = true;
@@ -219,7 +224,7 @@ public readonly struct InertString : IEquatable<InertString>
                 forms |= encodedSeparator.Forms;
             }
 
-            InertString conformed = value.EnsurePermitted(permits);
+            InertString conformed = value.EnsurePermitted(policy);
             builder.Append(conformed.ToString());
             forms |= conformed.Forms;
             first = false;
@@ -245,8 +250,8 @@ public readonly struct InertString : IEquatable<InertString>
     /// for it should call <see cref="EnsurePermitted"/> instead, which repairs rather than
     /// reports.
     /// </remarks>
-    public static bool IsPermitted(string value, ScalarPolicy permits)
-        => IsPermitted(value, permits, out _);
+    public static bool IsPermitted(TextPolicy policy, string value)
+        => IsPermitted(policy, value, out _);
 
     /// <summary>
     /// Reports whether every scalar in <paramref name="value"/> is permitted as it is, naming
@@ -257,13 +262,13 @@ public readonly struct InertString : IEquatable<InertString>
     /// is what lets a survey mode report a finding without echoing artifact text.
     /// </remarks>
     public static bool IsPermitted(
+        TextPolicy policy,
         string value,
-        ScalarPolicy permits,
         [NotNullWhen(false)] out ScalarViolation? violation)
     {
         ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(permits);
 
+        ScalarPolicy permits = ScalarPolicies.For(policy);
         int i = 0;
         while (i < value.Length)
         {
@@ -303,7 +308,7 @@ public readonly struct InertString : IEquatable<InertString>
     /// injection this library exists to prevent, with the type appearing to vouch for it.
     ///
     /// Public because a sink that accepts an <see cref="InertString"/> has no other correct way
-    /// to make one safe for itself. Re-encoding through <c>new InertString(value.ToString(), …)</c>
+    /// to make one safe for itself. Re-encoding through <c>new InertString(policy, value.ToString())</c>
     /// is the obvious substitute and is wrong: the text it re-encodes is already encoded, so the
     /// backslashes double on every pass. This decodes first, and so is idempotent.
     ///
@@ -316,15 +321,19 @@ public readonly struct InertString : IEquatable<InertString>
     /// inert would let a caller launder one by quoting it somewhere permissive. The cost is that
     /// splice path is observable — the same source text can render differently depending on
     /// where it was encoded — which is a deliberate trade, not an oversight.
+    ///
+    /// Taking a <see cref="TextPolicy"/> rather than a predicate is what keeps the repair inside
+    /// the library. The decode below recovers the hostile original, and with a caller-supplied
+    /// predicate that original would be passed to it scalar by scalar — so a file that imports
+    /// only the currency namespace could read back every character the value was built from. The
+    /// enum has no such reverse channel.
     /// </remarks>
-    /// <param name="permits">The policy of the sink about to receive this value.</param>
-    public InertString EnsurePermitted(ScalarPolicy permits)
+    /// <param name="policy">The kind of text the sink about to receive this value expects.</param>
+    public InertString EnsurePermitted(TextPolicy policy)
     {
-        ArgumentNullException.ThrowIfNull(permits);
-
         string text = Text;
 
-        if (IsPermitted(text, permits))
+        if (IsPermitted(policy, text))
         {
             return this;
         }
@@ -332,7 +341,7 @@ public readonly struct InertString : IEquatable<InertString>
         // Falling back to the encoded text when decoding fails cannot happen for a value this
         // library produced; it is here so the failure mode is over-encoding rather than a leak.
         string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
-        return VisualEncoder.Encode(original, permits);
+        return VisualEncoder.Encode(policy, original);
     }
 
     /// <inheritdoc/>
@@ -369,19 +378,17 @@ public readonly struct InertString : IEquatable<InertString>
 [InterpolatedStringHandler]
 public ref struct InertStringHandler
 {
-    private readonly ScalarPolicy _permits;
+    private readonly TextPolicy _policy;
     private readonly StringBuilder _builder;
     private VisualForm _forms;
 
     /// <summary>Called by the compiler for an interpolated string argument.</summary>
     /// <param name="literalLength">The total length of the literal parts.</param>
     /// <param name="formattedCount">The number of interpolation holes.</param>
-    /// <param name="permits">The per-sink policy deciding what may pass through.</param>
-    public InertStringHandler(int literalLength, int formattedCount, ScalarPolicy permits)
+    /// <param name="policy">The kind of text being built.</param>
+    public InertStringHandler(int literalLength, int formattedCount, TextPolicy policy)
     {
-        ArgumentNullException.ThrowIfNull(permits);
-
-        _permits = permits;
+        _policy = policy;
         _builder = new StringBuilder(literalLength + (formattedCount * 12));
         _forms = VisualForm.None;
     }
@@ -395,16 +402,45 @@ public ref struct InertStringHandler
     /// whose decimal separator depends on the ambient culture is a message that cannot be
     /// grepped, and these are diagnostics rather than presentation.
     /// </remarks>
+    /// <remarks>
+    /// Tests for <see cref="InertString"/> first, because overload resolution cannot. The
+    /// dedicated overloads below bind on the <em>static</em> type of the hole, so a value reached
+    /// through a generic parameter or through <see cref="object"/> lands here instead, and
+    /// <c>ToString</c> would hand its already-encoded text back to the encoder — turning
+    /// <c>\u202E</c> into <c>\\u202E</c>. A type test is the only thing that sees through
+    /// either.
+    /// </remarks>
     public void AppendFormatted<T>(T value)
-        => Append(value is IFormattable formattable
+    {
+        if (value is InertString inert)
+        {
+            AppendFormatted(inert);
+            return;
+        }
+
+        Append(value is IFormattable formattable
             ? formattable.ToString(null, CultureInfo.InvariantCulture)
             : value?.ToString());
+    }
 
     /// <summary>Appends an interpolation hole that carries a format specifier.</summary>
+    /// <remarks>
+    /// Tests for <see cref="InertString"/> for the same reason as the overload above. The
+    /// specifier is discarded in that arm: an <see cref="InertString"/> has one rendering, and
+    /// honouring a format string would mean re-deriving it from the encoded text.
+    /// </remarks>
     public void AppendFormatted<T>(T value, string? format)
-        => Append(value is IFormattable formattable
+    {
+        if (value is InertString inert)
+        {
+            AppendFormatted(inert);
+            return;
+        }
+
+        Append(value is IFormattable formattable
             ? formattable.ToString(format, CultureInfo.InvariantCulture)
             : value?.ToString());
+    }
 
     /// <summary>Appends a string-valued interpolation hole.</summary>
     public void AppendFormatted(string? value) => Append(value);
@@ -420,7 +456,7 @@ public ref struct InertStringHandler
     /// </remarks>
     public void AppendFormatted(InertString value)
     {
-        InertString conformed = value.EnsurePermitted(_permits);
+        InertString conformed = value.EnsurePermitted(_policy);
         _builder.Append(conformed.ToString());
         _forms |= conformed.Forms;
     }
@@ -447,7 +483,7 @@ public ref struct InertStringHandler
         if (string.IsNullOrEmpty(value))
             return;
 
-        InertString encoded = VisualEncoder.Encode(value, _permits);
+        InertString encoded = VisualEncoder.Encode(_policy, value);
         _builder.Append(encoded.ToString());
         _forms |= encoded.Forms;
     }

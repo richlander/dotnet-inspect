@@ -17,9 +17,9 @@ public class InertStringTests
     [Fact]
     public void Encode_ProducesAPayloadThePolicyAccepts()
     {
-        InertString value = new InertString(Hazard, TextPolicy.Field);
+        InertString value = new InertString(TextPolicy.Field, Hazard);
 
-        Assert.True(InertString.IsPermitted(value.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, value.ToString()));
         Assert.True(value.WasEncoded);
         Assert.Equal(VisualForm.BmpHex, value.Forms);
     }
@@ -27,7 +27,7 @@ public class InertStringTests
     [Fact]
     public void Encode_RoundTripsThroughTheDecoder()
     {
-        InertString value = new InertString(Hazard, TextPolicy.Field);
+        InertString value = new InertString(TextPolicy.Field, Hazard);
 
         Assert.True(VisualEncoder.TryDecode(value.ToString(), out string? decoded));
         Assert.Equal(Hazard, decoded);
@@ -39,7 +39,7 @@ public class InertStringTests
         InertString message = InertString.Format(TextPolicy.Field, $"url: {Hazard}");
 
         Assert.Equal("url: a\\u202Eb", message.ToString());
-        Assert.True(InertString.IsPermitted(message.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, message.ToString()));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class InertStringTests
     [Fact]
     public void Format_AlreadyInertHole_IsNotEncodedTwice()
     {
-        InertString inner = new InertString(Hazard, TextPolicy.Field);
+        InertString inner = new InertString(TextPolicy.Field, Hazard);
 
         InertString outer = InertString.Format(TextPolicy.Field, $"[{inner}]");
 
@@ -110,9 +110,9 @@ public class InertStringTests
     [Fact]
     public void Equality_ComparesTheEncodedText()
     {
-        InertString left = new InertString(Hazard, TextPolicy.Field);
-        InertString right = new InertString(Hazard, TextPolicy.Field);
-        InertString other = new InertString("b", TextPolicy.Field);
+        InertString left = new InertString(TextPolicy.Field, Hazard);
+        InertString right = new InertString(TextPolicy.Field, Hazard);
+        InertString other = new InertString(TextPolicy.Field, "b");
 
         Assert.True(left == right);
         Assert.True(left != other);
@@ -125,7 +125,7 @@ public class InertStringTests
         // Redaction returns InertString?, so without a dedicated overload this hole binds to the
         // generic case, whose ToString hands the encoded text straight back to the encoder and
         // doubles every backslash the first pass introduced.
-        InertString? inner = new InertString(Hazard, TextPolicy.Field);
+        InertString? inner = new InertString(TextPolicy.Field, Hazard);
 
         InertString outer = InertString.Format(TextPolicy.Field, $"[{inner}]");
 
@@ -149,7 +149,7 @@ public class InertStringTests
     {
         // The separator is encoded up front, so folding its forms in unconditionally would make
         // a one-element join advertise a spelling its output does not contain.
-        InertString only = new InertString("plain", TextPolicy.Field);
+        InertString only = new InertString(TextPolicy.Field, "plain");
 
         InertString joined = InertString.Join("\n", TextPolicy.Field, [only]);
 
@@ -161,8 +161,8 @@ public class InertStringTests
     [Fact]
     public void Join_MultipleValues_ReportsTheSeparatorForm()
     {
-        InertString first = new InertString("a", TextPolicy.Field);
-        InertString second = new InertString("b", TextPolicy.Field);
+        InertString first = new InertString(TextPolicy.Field, "a");
+        InertString second = new InertString(TextPolicy.Field, "b");
 
         InertString joined = InertString.Join("\n", TextPolicy.Field, [first, second]);
 
@@ -173,8 +173,8 @@ public class InertStringTests
     [Fact]
     public void Join_UnderProse_KeepsTheLineBreak()
     {
-        InertString first = new InertString("a", TextPolicy.Prose);
-        InertString second = new InertString("b", TextPolicy.Prose);
+        InertString first = new InertString(TextPolicy.Prose, "a");
+        InertString second = new InertString(TextPolicy.Prose, "b");
 
         InertString joined = InertString.Join(Environment.NewLine, TextPolicy.Prose, [first, second]);
 
@@ -210,7 +210,7 @@ public class InertStringTests
     public void Splice_ReEncodesAValueThatThisPolicyRefuses()
     {
         // Built for a multi-line sink, so the line feed survived encoding.
-        InertString prose = new InertString("first\nsecond", TextPolicy.Prose);
+        InertString prose = new InertString(TextPolicy.Prose, "first\nsecond");
         Assert.Equal("first\nsecond", prose.ToString());
 
         // Spliced into a single-line sink, it must not carry the line feed in with it.
@@ -218,14 +218,14 @@ public class InertStringTests
 
         Assert.DoesNotContain('\n', field.ToString());
         Assert.Contains(@"\^J", field.ToString(), StringComparison.Ordinal);
-        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, field.ToString()));
         Assert.True(field.Forms.HasFlag(VisualForm.Caret));
     }
 
     [Fact]
     public void Splice_LeavesAConformingValueByteForByteAlone()
     {
-        InertString piece = new InertString("a\u202Eb", TextPolicy.Field);
+        InertString piece = new InertString(TextPolicy.Field, "a\u202Eb");
         InertString message = InertString.Format(TextPolicy.Field, $"{piece}");
 
         // The repair path must not fire here, or every splice would pay a decode/re-encode.
@@ -240,7 +240,7 @@ public class InertStringTests
         // the repair path never runs and the test passes vacuously. Prose refuses the bidi
         // override (so the value arrives already carrying a backslash escape) but permits the
         // line feed (which Field then refuses, forcing the repair).
-        InertString origin = new InertString("a\u202Eb\nc", TextPolicy.Prose);
+        InertString origin = new InertString(TextPolicy.Prose, "a\u202Eb\nc");
         Assert.Contains(@"\u202E", origin.ToString(), StringComparison.Ordinal);
         Assert.Contains('\n', origin.ToString());
 
@@ -259,7 +259,7 @@ public class InertStringTests
         Assert.DoesNotContain(@"\\u202E", once.ToString(), StringComparison.Ordinal);
 
         // Pin the failure this guards against: the substitute a caller would otherwise reach for.
-        InertString viaToString = new InertString(origin.ToString(), TextPolicy.Field);
+        InertString viaToString = new InertString(TextPolicy.Field, origin.ToString());
         Assert.Contains(@"\\u202E", viaToString.ToString(), StringComparison.Ordinal);
     }
 
@@ -272,7 +272,7 @@ public class InertStringTests
         // Field spellings would be undone into text Prose permits.
         foreach (string source in new[] { "a\u202Eb", "x\ny", "p\u0007q", "\uD800lone" })
         {
-            InertString strict = new InertString(source, TextPolicy.Field);
+            InertString strict = new InertString(TextPolicy.Field, source);
             InertString spliced = strict.EnsurePermitted(TextPolicy.Prose);
 
             Assert.Equal(strict.ToString(), spliced.ToString());
@@ -286,14 +286,14 @@ public class InertStringTests
         // WasEncoded reports what was done, not what is satisfied, and it is wrong in both
         // directions. A sink that used it as a conformance check would admit the first value and
         // needlessly repair the second.
-        InertString prose = new InertString("line1\nline2", TextPolicy.Prose);
+        InertString prose = new InertString(TextPolicy.Prose, "line1\nline2");
         Assert.False(prose.WasEncoded);
-        Assert.False(InertString.IsPermitted(prose.ToString(), TextPolicy.Field));
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, prose.ToString()));
 
-        InertString field = new InertString("a\u202Eb", TextPolicy.Field);
+        InertString field = new InertString(TextPolicy.Field, "a\u202Eb");
         Assert.True(field.WasEncoded);
-        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Field));
-        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Prose));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, field.ToString()));
+        Assert.True(InertString.IsPermitted(TextPolicy.Prose, field.ToString()));
     }
 
     [Fact]
@@ -301,21 +301,21 @@ public class InertStringTests
     {
         InertString[] values =
         [
-            new InertString("one\ntwo", TextPolicy.Prose),
-            new InertString("three", TextPolicy.Field),
+            new InertString(TextPolicy.Prose, "one\ntwo"),
+            new InertString(TextPolicy.Field, "three"),
         ];
 
         InertString joined = InertString.Join(", ", TextPolicy.Field, values);
 
         Assert.DoesNotContain('\n', joined.ToString());
-        Assert.True(InertString.IsPermitted(joined.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, joined.ToString()));
         Assert.True(joined.Forms.HasFlag(VisualForm.Caret));
     }
 
     [Fact]
     public void Splice_ReportsEveryFormTheRepairIntroduced()
     {
-        InertString prose = new InertString("a\nb", TextPolicy.Prose);
+        InertString prose = new InertString(TextPolicy.Prose, "a\nb");
         Assert.Equal(VisualForm.None, prose.Forms);
 
         InertString field = InertString.Format(TextPolicy.Field, $"{prose}");
@@ -328,7 +328,7 @@ public class InertStringTests
     [Fact]
     public void Empty_EqualsAnEncodedEmptyString()
     {
-        InertString encoded = new InertString("", TextPolicy.Field);
+        InertString encoded = new InertString(TextPolicy.Field, "");
 
         Assert.Equal(InertString.Empty, encoded);
         Assert.True(InertString.Empty == encoded);
@@ -359,7 +359,7 @@ public class InertStringTests
         // Field encoded the line feed; Prose would have permitted it. The repair must not
         // undo that: composition may make a value more inert, never less, or a value could be
         // laundered by quoting it into a laxer sink.
-        InertString strict = new InertString("a\nb", TextPolicy.Field);
+        InertString strict = new InertString(TextPolicy.Field, "a\nb");
         InertString lax = InertString.Format(TextPolicy.Prose, $"{strict}");
 
         Assert.Equal(@"a\^Jb", lax.ToString());
@@ -372,7 +372,7 @@ public class InertStringTests
     [Fact]
     public void Splice_IsAFixedPointUnderTheSamePolicy()
     {
-        InertString piece = new InertString("x\ny", TextPolicy.Prose);
+        InertString piece = new InertString(TextPolicy.Prose, "x\ny");
         InertString once = InertString.Format(TextPolicy.Field, $"{piece}");
         InertString twice = InertString.Format(TextPolicy.Field, $"{once}");
 
@@ -392,7 +392,7 @@ public class InertStringTests
         [
             default,
             InertString.Empty,
-            new InertString("", TextPolicy.Field),
+            new InertString(TextPolicy.Field, ""),
         ];
 
         InertString zero = empties[0];
@@ -438,7 +438,7 @@ public class InertStringTests
     [Fact]
     public void ToString_DoesNotCopy()
     {
-        InertString value = new InertString("nothing to encode", TextPolicy.Field);
+        InertString value = new InertString(TextPolicy.Field, "nothing to encode");
 
         Assert.Same(value.ToString(), value.ToString());
     }
@@ -452,8 +452,8 @@ public class InertStringTests
         string other = string.Concat("a\u202E", "b");
         Assert.False(ReferenceEquals(one, other));
 
-        InertString left = new InertString(one, TextPolicy.Field);
-        InertString right = new InertString(other, TextPolicy.Field);
+        InertString left = new InertString(TextPolicy.Field, one);
+        InertString right = new InertString(TextPolicy.Field, other);
 
         Assert.Equal(left, right);
         Assert.True(left == right);
@@ -497,7 +497,7 @@ public class InertStringTests
             || p.ParameterType == typeof(ReadOnlySpan<char>));
 
         static bool TakesPolicy(ParameterInfo[] parameters) => parameters.Any(p =>
-            p.ParameterType == typeof(ScalarPolicy)
+            p.ParameterType == typeof(TextPolicy)
             || p.ParameterType == typeof(InertStringHandler));
 
         static string Describe(ParameterInfo[] parameters)
@@ -603,7 +603,7 @@ public class InertStringTests
         Assert.NotNull(decode);
         Assert.Equal("InertText.Encoder", typeof(VisualEncoder).Namespace);
 
-        InertString inert = new("\u202Ecmd", TextPolicy.Field);
+        InertString inert = new(TextPolicy.Field, "\u202Ecmd");
         Assert.True(VisualEncoder.TryDecode(inert.ToString(), out string? original));
         Assert.Equal("\u202Ecmd", original);
     }
@@ -636,9 +636,9 @@ public class InertStringTests
     /// <list type="bullet">
     /// <item>Removing the public constructor in favour of an encoder factory, on the grounds
     /// that the constructor "just forwards".</item>
-    /// <item>Moving <c>ScalarPolicy</c> or <c>TextPolicy</c> next to the encoder, on the grounds
-    /// that the policy is "part of encoding". The creation path would still exist and would
-    /// still drag the namespace in with it.</item>
+    /// <item>Moving <c>TextPolicy</c> next to the encoder, on the grounds that the policy is
+    /// "part of encoding". The creation path would still exist and would still drag the
+    /// namespace in with it.</item>
     /// </list>
     /// </remarks>
     [Fact]
@@ -676,14 +676,13 @@ public class InertStringTests
                 + "running: "
                 + string.Join("; ", dragIn.Select(p => p.Name)));
 
-        // The policy a caller must pass has to be reachable from the currency namespace too --
-        // a self-contained signature is no use if the only ScalarPolicy values live next to the
+        // The policy a caller must name has to be reachable from the currency namespace too --
+        // a self-contained signature is no use if the only TextPolicy values live next to the
         // decoder.
-        Assert.Equal("InertText", typeof(ScalarPolicy).Namespace);
         Assert.Equal("InertText", typeof(TextPolicy).Namespace);
 
         // Smoke check that the reflected signature is actually callable as described.
-        InertString produced = new("\u202Ecmd", TextPolicy.Field);
+        InertString produced = new(TextPolicy.Field, "\u202Ecmd");
         Assert.True(produced.WasEncoded);
 
         static IEnumerable<string> Namespaces(Type type)
@@ -707,4 +706,155 @@ public class InertStringTests
 
     private const BindingFlags Declared =
         BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+    /// <summary>
+    /// An already-inert value reached through a generic parameter is not encoded a second time.
+    /// </summary>
+    /// <remarks>
+    /// Overload resolution binds on the <em>static</em> type of an interpolation hole, so the
+    /// dedicated <c>AppendFormatted(InertString)</c> is invisible from inside a generic method:
+    /// <c>T</c> is not <see cref="InertString"/> at the call site even when it is at run time.
+    /// The generic overload then called <c>ToString</c> on already-encoded text and handed it
+    /// back to the encoder, doubling every backslash. The trap was known for
+    /// <see cref="InertString"/> and <c>InertString?</c> and closed with overloads; those
+    /// overloads cannot reach this case, and only a type test can.
+    /// </remarks>
+    [Fact]
+    public void Format_DoesNotDoubleEncode_WhenReachedThroughAGenericParameter()
+    {
+        InertString inner = new(TextPolicy.Field, Hazard);
+
+        InertString direct = InertString.Format(TextPolicy.Field, $"{inner}");
+        InertString viaGeneric = Wrap(inner);
+
+        Assert.Equal(@"a\u202Eb", direct.ToString());
+        Assert.Equal(direct.ToString(), viaGeneric.ToString());
+
+        static InertString Wrap<T>(T value) => InertString.Format(TextPolicy.Field, $"{value}");
+    }
+
+    /// <summary>The same hole, reached through <see cref="object"/>.</summary>
+    [Fact]
+    public void Format_DoesNotDoubleEncode_WhenReachedThroughObject()
+    {
+        InertString inner = new(TextPolicy.Field, Hazard);
+        object boxed = inner;
+
+        Assert.Equal(
+            @"a\u202Eb",
+            InertString.Format(TextPolicy.Field, $"{boxed}").ToString());
+    }
+
+    /// <summary>The same hole again, through a hole that carries a format specifier.</summary>
+    /// <remarks>
+    /// A separate overload with its own body, so closing one and not the other is a live risk.
+    /// </remarks>
+    [Fact]
+    public void Format_DoesNotDoubleEncode_WhenTheHoleCarriesAFormatSpecifier()
+    {
+        object boxed = new InertString(TextPolicy.Field, Hazard);
+
+        Assert.Equal(
+            @"a\u202Eb",
+            InertString.Format(TextPolicy.Field, $"{boxed:X}").ToString());
+    }
+
+    /// <summary>
+    /// Repairing a value for a policy yields text that policy accepts, for every ordered pair.
+    /// </summary>
+    /// <remarks>
+    /// The property a caller-supplied predicate could not have. An allow-shaped predicate --
+    /// the shape needed to catch a homoglyph -- refuses the escape alphabet itself, so
+    /// <c>EnsurePermitted</c> returned text its own policy rejected, silently. Every
+    /// <see cref="TextPolicy"/> is deny-shaped and permits graphic punctuation, so the escape
+    /// spellings always conform, and the closed set is what makes that a checkable claim rather
+    /// than a hope about what callers will pass.
+    ///
+    /// Swept over the full cross product, so a policy added later is covered without an edit.
+    /// </remarks>
+    [Fact]
+    public void EnsurePermitted_AlwaysReturnsTextTheTargetPolicyAccepts()
+    {
+        const string Nasty = "a\u202Eb\u001B[31m\nc\td\\e\uD83D\uDE00";
+
+        foreach (TextPolicy from in Enum.GetValues<TextPolicy>())
+        {
+            foreach (TextPolicy to in Enum.GetValues<TextPolicy>())
+            {
+                InertString repaired = new InertString(from, Nasty).EnsurePermitted(to);
+
+                Assert.True(
+                    InertString.IsPermitted(to, repaired.ToString(), out ScalarViolation? violation),
+                    $"{from} -> {to} produced {violation}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Repair is idempotent for every ordered pair, not only the one the case above covers.
+    /// </summary>
+    /// <remarks>
+    /// This is what injectivity in the decoder buys, and it is why a second accepted spelling
+    /// there would be a defect here.
+    /// </remarks>
+    [Fact]
+    public void EnsurePermitted_IsIdempotent_ForEveryPolicyPair()
+    {
+        const string Nasty = "a\u202Eb\u001B[31m\nc\td\\e";
+
+        foreach (TextPolicy from in Enum.GetValues<TextPolicy>())
+        {
+            foreach (TextPolicy to in Enum.GetValues<TextPolicy>())
+            {
+                InertString once = new InertString(from, Nasty).EnsurePermitted(to);
+                InertString twice = once.EnsurePermitted(to);
+
+                Assert.Equal(once.ToString(), twice.ToString());
+            }
+        }
+    }
+
+    /// <summary>
+    /// No public member takes a delegate, which is what keeps a repair from running caller code.
+    /// </summary>
+    /// <remarks>
+    /// The reason <see cref="TextPolicy"/> is an enum rather than a predicate. A repair decodes
+    /// the value first -- it has to, or the backslashes double -- so a caller-supplied predicate
+    /// would be handed the hostile original one scalar at a time, in a file whose using block
+    /// names only the currency namespace. That is the audit boundary walked back out through a
+    /// callback, and no reflection test over return types can see it, because the disclosure is
+    /// an argument rather than a result.
+    ///
+    /// Stated over the whole public surface rather than as "EnsurePermitted takes an enum", so
+    /// that reintroducing a predicate anywhere -- as an overload, on the handler, as an optional
+    /// escape valve -- fails here.
+    /// </remarks>
+    [Fact]
+    public void NoPublicMemberOfTheCurrencyNamespaceTakesADelegate()
+    {
+        List<string> callbacks = [];
+
+        foreach (Type type in typeof(InertString).Assembly.GetExportedTypes()
+            .Where(t => t.Namespace == "InertText"))
+        {
+            foreach (MethodBase member in typeof(InertString).GetMethods(Declared)
+                .Cast<MethodBase>()
+                .Concat(type.GetConstructors(Declared)))
+            {
+                foreach (ParameterInfo parameter in member.GetParameters())
+                {
+                    Type bare = parameter.ParameterType.IsByRef
+                        ? parameter.ParameterType.GetElementType()!
+                        : parameter.ParameterType;
+
+                    if (typeof(Delegate).IsAssignableFrom(bare))
+                    {
+                        callbacks.Add($"{type.Name}.{member.Name}({bare.Name})");
+                    }
+                }
+            }
+        }
+
+        Assert.Empty(callbacks);
+    }
 }
