@@ -370,7 +370,9 @@ public static class SourceLinkProvenance
 
         // A fragment ends the query and is never sent, so it bounds the search. The first '#'
         // after the query wins: a later one is inside the fragment, not a second delimiter.
-        int fragmentStart = url.IndexOf('#', queryStart, StringComparison.Ordinal);
+        // IndexOf(char, int) is ordinal by definition; the StringComparison overload does not
+        // exist on the net10.0 fallback target this also has to build against.
+        int fragmentStart = url.IndexOf('#', queryStart);
         int limit = fragmentStart < 0 ? url.Length : fragmentStart;
 
         int i = queryStart + 1;
