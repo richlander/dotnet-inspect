@@ -735,27 +735,31 @@ public sealed class ForwardedTypeAliases
         // by identity — a second file claiming the target's name, token and culture at a DIFFERENT
         // version is exactly the shape being caught, so only the path separates them.
         //
-        // The comparison is Ordinal, but the supplied path is first resolved against the census so
-        // that a differently-cased spelling of the target still matches on a case-INSENSITIVE
-        // volume. Comparing raw Ordinal was a latent DROP there (raised in round 24 by MAI-Code,
-        // reproduced through `ForTarget`); it was masked only because a target declaring the type
-        // top-level never reaches the silence rule at all, so the residual needed a target that is
-        // silent about its own type — today only a nested one (#3480), for which no alias exists to
-        // lose. That masking is a property of a DIFFERENT open bug, not of this rule, so it is
-        // fixed here rather than documented.
+        // The comparison is Ordinal, and deliberately does not fold case. Two spellings of one
+        // path differing only in case do fail to match on a case-INSENSITIVE volume, which loses
+        // the exemption and drops an alias. That residual is knowingly accepted, because every
+        // mechanism tried for closing it cost more than it bought:
         //
-        // Deliberately NOT a plain OrdinalIgnoreCase, and deliberately not keyed on the operating
-        // system: a case-sensitive volume on Windows is exactly what this suite's own
-        // `fsutil setCaseSensitiveInfo` run exercises, and folding case there would exempt a
-        // genuinely different file — the FABRICATING direction. Nor is the census alone enough to
-        // decide it: the census is the caller's SCOPE, a subset of the volume, so one case-variant
-        // entry does not mean there is only one such file (executed in round 25 by Gemini). The
-        // volume is asked directly.
+        //   * The drop is not reachable today. A target that declares the type top-level never
+        //     reaches the silence rule at all (`DeclaresType` short-circuits it), so the residual
+        //     needs a target SILENT about its own type — today only a nested one (#3480), for
+        //     which no alias exists to lose. Raised in round 24 by MAI-Code and fixed then;
+        //     reverted here.
+        //   * Closing it fabricated twice. Resolving the supplied path against the census handed
+        //     the exemption to a case-variant sibling whenever the real target was out of scope
+        //     (round 25), and asking one directory listing while comparing whole paths handed it
+        //     to a sibling in a case-variant DIRECTORY (round 26). Both invent a caller row.
+        //
+        // Fabrication outranks drop, so an unreachable drop does not justify a live fabrication
+        // surface. `ACaseVariantSiblingDoesNotInheritTheTargetsSelfExemption`,
+        // `ACaseVariantSiblingIsNotTheTargetWhenTheTargetIsOutOfScope` and
+        // `ACaseVariantDirectoryDoesNotMakeASiblingTheTarget` are kept as standing guards so the
+        // fabrications cannot return. #3628 tracks revisiting this if #3480 makes the drop live.
         string? targetPath = null;
 
         if (targetAssemblyPath is not null)
         {
-            targetPath = CensusSpellingOf(Normalize(targetAssemblyPath), claimantPaths.Keys);
+            targetPath = Normalize(targetAssemblyPath);
 
             // An explicitly supplied target is authoritative, including when it cannot be read.
             // Falling through to the census then meant that LOSING the authoritative identity
@@ -1503,127 +1507,6 @@ public sealed class ForwardedTypeAliases
         }
 
         return forwarding;
-    }
-
-    /// <summary>
-    /// The census's own spelling of <paramref name="path"/>, so that the target file recognizes
-    /// itself on a case-insensitive volume where the caller named it in a different case.
-    /// </summary>
-    /// <remarks>
-    /// <para>Returns <paramref name="path"/> unchanged unless the census holds exactly one entry
-    /// differing from it only by case AND the volume itself does not distinguish case. Both halves
-    /// are required, and the second is the load-bearing one. An earlier form rested the whole
-    /// safety argument on "exactly one census entry", reasoning that a volume able to hold two
-    /// files differing only by case IS case-sensitive. That inference is sound in one direction
-    /// only: the census is a caller-supplied SUBSET of the volume, not the volume, so seeing one
-    /// variant says nothing — the other may simply be out of scope. A caller whose scope omitted
-    /// the real target and retained a case-variant sibling handed that sibling the target's
-    /// self-exemption, and the sibling then failed to refute a facade it contradicts (executed in
-    /// review of <c>2f49e2f3</c>). That is the FABRICATING direction, and the one this file exists
-    /// to refuse.</para>
-    ///
-    /// <para>So the question is put to the filesystem instead, which is the only thing that can
-    /// answer it. This is deliberately not <see cref="StringComparison.OrdinalIgnoreCase"/>, and
-    /// deliberately not switched on the operating system: case sensitivity is a property of the
-    /// VOLUME, not the OS. This repository's own Analysis suite is run a second time against a
-    /// directory marked with <c>fsutil file setCaseSensitiveInfo</c> precisely because the two come
-    /// apart on Windows, and CI runs Linux, where a case-insensitive mount is equally possible.</para>
-    /// </remarks>
-    static string CensusSpellingOf(string path, IEnumerable<string> censusPaths)
-    {
-        string? directory = Path.GetDirectoryName(path);
-        string name = Path.GetFileName(path);
-        string? unique = null;
-
-        foreach (string candidate in censusPaths)
-        {
-            // The exact spelling is present, so it is unambiguously the same file on any volume.
-            // Returned from inside the loop, but the result does not depend on enumeration order:
-            // every other branch below also yields `path` once an Ordinal match exists.
-            if (string.Equals(candidate, path, StringComparison.Ordinal))
-                return path;
-
-            // Only the FILE NAME may differ by case. The volume question below is answered by
-            // enumerating ONE directory, which reports on the leaf names inside it and says
-            // nothing about whether the PARENT distinguishes case. Comparing whole paths
-            // case-insensitively while checking only the leaf let a sibling in a case-variant
-            // DIRECTORY inherit the exemption: `TargetDir\A.dll` and `targetdir\A.dll` are two
-            // files on a case-sensitive volume, yet the enumeration of `TargetDir` sees a single
-            // `A.dll` and folded them together (executed in review of `abfb8b24`). Requiring the
-            // directory to match exactly keeps the fold inside the scope the evidence covers.
-            if (!string.Equals(Path.GetDirectoryName(candidate), directory, StringComparison.Ordinal))
-                continue;
-
-            if (!string.Equals(Path.GetFileName(candidate), name, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // A second case-variant spelling: both were opened, so the volume is holding two files
-            // at once and is case-sensitive. Nothing here can say which was meant. Keep the
-            // caller's spelling and let the Ordinal comparison decline, which drops rather than
-            // fabricates. Subsumed by the volume check below, and kept because it is free and
-            // answers without touching the disk.
-            if (unique is not null)
-                return path;
-
-            unique = candidate;
-        }
-
-        if (unique is null || VolumeDistinguishesCase(directory, name))
-            return path;
-
-        return unique;
-    }
-
-    /// <summary>
-    /// Whether the directory holding <paramref name="name"/> treats two spellings of that name as
-    /// two files, answered by asking the directory rather than by inferring it.
-    /// </summary>
-    /// <remarks>
-    /// <para>More than one real entry matching <paramref name="name"/> case-insensitively can only
-    /// occur on a case-sensitive volume, so that answer is exact. Exactly one entry means the two
-    /// spellings cannot both name existing files, so either they denote that single entry or the
-    /// caller's spelling denotes nothing — and a target path that denotes nothing yields no
-    /// identity, which declines outright.</para>
-    ///
-    /// <para>This reports on ONE directory's leaf names only. Its caller is what keeps that
-    /// sufficient, by refusing to fold two paths whose directory components differ at all; a
-    /// caller that compared whole paths case-insensitively would be reading this answer as
-    /// evidence about a directory it never enumerated.</para>
-    ///
-    /// <para>A directory that cannot be enumerated is treated as distinguishing case, so an
-    /// unknown answer declines. The catch list matches <see cref="Normalize"/>'s, widened to the
-    /// enumeration's own failures: a narrower list here would let a hostile path that survived
-    /// normalization throw out of the public entry point instead of degrading to the pre-#3419
-    /// answer.</para>
-    /// </remarks>
-    static bool VolumeDistinguishesCase(string? directory, string name)
-    {
-        if (string.IsNullOrEmpty(directory) || name.Length == 0)
-            return true;
-
-        try
-        {
-            int matches = 0;
-
-            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
-            {
-                if (!string.Equals(Path.GetFileName(entry), name, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                if (++matches > 1)
-                    return true;
-            }
-
-            return false;
-        }
-        catch (Exception ex) when (ex is IOException
-                                      or UnauthorizedAccessException
-                                      or ArgumentException
-                                      or NotSupportedException
-                                      or System.Security.SecurityException)
-        {
-            return true;
-        }
     }
 
     /// <summary>
