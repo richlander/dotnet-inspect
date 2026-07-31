@@ -434,11 +434,11 @@ the job survives, letting the checker run and fail loudly on the missing or
 truncated report.
 
 > [!NOTE]
-> This job blocks merges through the aggregate `ci-required` job in `ci.yml`,
-> which is the single context the `main` ruleset requires. It cannot be
-> required directly: it is path-gated, and a required check that does not run
-> on a given PR is reported as "Expected" forever and blocks the merge
-> permanently. `ci-required` passes a `skipped` dependency and fails a
+> This job gates merges through the aggregate `ci-required` job in `ci.yml`,
+> which is the single context the `main` ruleset names as its required status
+> check. It cannot be required directly: it is path-gated, and a required check
+> that does not run on a given PR is reported as "Expected" forever and blocks
+> the merge permanently. `ci-required` passes a `skipped` dependency and fails a
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 

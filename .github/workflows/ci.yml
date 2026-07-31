@@ -16,8 +16,14 @@ env:
 # (test/pack are PR-only), so there is little to cancel. release.yml
 # builds all release packages fresh at publish time and does not consume CI
 # artifacts.
+#
+# The group keys on the pull request *number*, not `github.head_ref`. Branch
+# names are not unique across forks, so two PRs both branched as `patch-1`
+# would share a group and cancel each other. That was merely wasteful while CI
+# was advisory; now that `ci-required` gates merges, the loser's required check
+# would land as `cancelled` and block that PR until someone re-ran it by hand.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -888,13 +894,18 @@ jobs:
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
 
-  # The single check the `main` ruleset requires.
+  # The one check the `main` ruleset is meant to require, and the only one that
+  # safely can be.
   #
   # Every other job here is path-gated, so none of them can be required
   # directly: a required check that does not run on a given PR is reported as
   # "Expected" forever and blocks the merge permanently. This job always runs
   # and collapses the others into one result, so the ruleset has exactly one
-  # stable context to require.
+  # stable context to name.
+  #
+  # Adding the `required_status_checks` rule is a repository-settings change
+  # applied once this job exists on `main`; requiring it earlier would block
+  # every open PR with no way forward.
   #
   # Three details carry the whole contract, and each is easy to get backwards:
   #
