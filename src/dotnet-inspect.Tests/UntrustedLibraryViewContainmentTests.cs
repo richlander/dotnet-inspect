@@ -253,6 +253,52 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         AssertNoLineSplit(output);
     }
 
+    /// <summary>
+    /// The Type Info section's <c>Type Parameters</c> row, which is its own
+    /// channel and not covered by the type-spelling cases above.
+    /// <para>
+    /// The row is producer-contained, but one level further out than the other
+    /// columns: <c>BuildTypeView</c> composes the summary from
+    /// <see cref="TypeParameter.DisplayName"/>, and it is that property -- not
+    /// the renderer and not <c>Name</c>, which stays raw as identity -- that
+    /// calls <c>ContainComposedName</c>. Because the containment sits on a
+    /// display projection rather than at the point of use, nothing about
+    /// <c>BuildTypeView</c> shows that it happened, and
+    /// <c>MarkoutRowContainmentTests</c> pins the column as
+    /// <c>NotSelfContaining</c>, which does not distinguish a contained
+    /// producer from a genuine residual. So the only thing that would notice
+    /// <c>DisplayName</c> losing its containment is a test that reads the
+    /// rendered row. This is that test: deleting the <c>ContainComposedName</c>
+    /// call compiles cleanly and fails here, and here alone.
+    /// </para>
+    /// <para>
+    /// This section also has hotter exposure than the inline type-parameter
+    /// field it shares a residual entry with: that field is <c>topFieldsOnly</c>
+    /// (quiet), while Type Info renders whenever member detail is off.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TypeInfoSection_WithHostileTypeParameterName_RendersNoHazard()
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.ExecuteAsync(new ApiOptions
+            {
+                AssemblyPath = _path,
+                TypeName = "GenericType",
+                Select = ["Type Info"],
+            }));
+
+        Assert.Equal(0, exit);
+
+        // Non-vacuity is two claims, not one: the hostile text must reach the
+        // output at all, and it must reach it through this section rather than
+        // through the tree the default view renders instead.
+        Assert.Contains("## Type Info", output, StringComparison.Ordinal);
+        Assert.Contains("INJECTED", output, StringComparison.Ordinal);
+        AssertNoHazard(output);
+        AssertNoLineSplit(output);
+    }
+
     [Fact]
     public async Task TypeNotFoundSuggestions_WithHostileTypeNames_RenderNoHazard()
     {
@@ -333,6 +379,18 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
             "DerivedType", TypeAttributes.Public | TypeAttributes.Class, hostileType);
         derived.AddInterfaceImplementation(hostileInterfaceType);
         derived.CreateType();
+
+        // Hostile *type parameter* name. This is the Type Info section's
+        // "Type Parameters" row, which is a distinct channel from the ones
+        // above: it is contained by the renderer rather than at the producer
+        // (tp.DisplayName is raw in BuildTypeView), and the section renders
+        // whenever the view is not member detail, where the inline type
+        // parameter field is quiet-only. So it is both less guarded and more
+        // exposed than the inline twin it borrows its residual entry from.
+        var generic = module.DefineType(
+            "GenericType", TypeAttributes.Public | TypeAttributes.Class);
+        generic.DefineGenericParameters($"T{Hazard}INJECTED");
+        generic.CreateType();
 
         ab.Save(path);
     }
