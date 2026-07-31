@@ -329,67 +329,25 @@ a terminal. `Uri` percent-encodes C0 controls, so an ANSI escape cannot survive 
 through it — but it passes `Cf` straight through, and `Cf` is where Trojan Source (CVE-2021-42574)
 lives. A right-to-left override in a feed name reorders the rest of the line.
 
-Every URL that reaches a message or a log is spelled by
-[`InertString`](../../src/InertText/InertString.cs) first:
+Every URL that reaches a message or a log is therefore spelled by `InertString` first:
 
 ```csharp
 InertString.Format(TextPolicy.Field, $"Source URL '{withoutCredentials}' embeds ...")
 ```
 
-The component splits policy from spelling, which is what lets one speller serve every sink:
+The mechanism — the policy/speller split, the audit boundary around the decoder, and how
+composition preserves the guarantee — is described in
+[the InertText design note](inert-text.md). Only what is specific to this path is recorded here.
 
-- The **predicate** (`ScalarPolicy`) answers "is this scalar permitted *here*". It is per-sink.
-  `TextPolicy.Field` is deny-shaped and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`; `TextPolicy.Prose`
-  is the same minus a `CR`/`LF`/`TAB` exemption. A field whose grammar is externally defined
-  should supply an allow-shaped policy instead.
-- The **speller** (`VisualEncoder`) answers "how is a refused scalar written down". It is total
-  over Unicode, never learns *why* a scalar was refused, and ships with its decoder, so the
-  transform is lossless and invertible rather than a filter.
+**Which policy, and why this one.** `TextPolicy.Field` is deny-shaped: it refuses `Cc`, `Cf`,
+`Cs`, `Zl` and `Zp`. That is what the message path needs today, and it is deliberately the weaker
+choice. A URL host is a constrained grammar, and the central typosquatting vector is a homoglyph —
+Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and neither is a hazard. No
+category rule catches that and none should; only an allow list does. Tightening the source URL to
+an allow-shaped policy is tracked with the identifier work.
 
-The speller sits in its own namespace, `InertText.Encoder`, and that placement is the design
-rather than a filing decision. `InertString` is the currency form: it can be built, composed,
-compared and printed without ever naming the encoder, because text enters through its
-constructor and leaves through `ToString` already spelled. The decoder is the one operation
-that turns an inert value back into the hostile original, so it is the one worth being able to
-see. A file that imports `InertText` and not `InertText.Encoder` has no path back to the
-original text of any value it handles — and that is visible in its using block, rather than
-recovered by tracing its call graph.
-
-The property is enforced, not just intended: a reflection test enumerates every public member
-of the `InertText` namespace that returns text and accounts for each one. Today that is
-`InertString.ToString` (the encoded form), `InertString.DescribeLegend` (fixed strings naming
-spellings) and `ScalarViolation.ToString` (an index, a code point and a category — which is why
-the violation carries an `int` rather than the character). Adding a decode convenience to the
-currency type fails that test.
-
-It is an audit boundary, not a capability barrier. A file can add the import or write the name
-out in full; nothing prevents that, and nothing should. What the boundary achieves is that the
-dangerous half cannot arrive unnoticed. In this repository the whole of production carries
-`InertString` — the source resolver, the package extractor, both telemetry paths, the shared
-CLI options — and not one of those files can decode.
-
-What stays separate for a different reason is the predicate, because that is the half that
-genuinely varies from sink to sink.
-
-The split is not tidiness. A URL host is a constrained grammar, and the central typosquatting
-vector is a homoglyph: Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and
-neither is a hazard. No category rule catches that and none should — only an allow list does,
-and because the speller is total, such a sink needs no hazard set of its own. `TextPolicy.Field`
-is the weaker deny-shaped policy, chosen here because it is what the message path needs today;
-tightening the source URL to an allow list is tracked with the identifier work.
-
-`InertText` sits below every other project and references nothing, because the assemblies that
-print artifact-derived text include the dependency-free leaves.
-
-### Treated text is carried as a type, not as a string
-
-The encoder alone is transactional: a `string` goes in and a `string` comes out, so a redacted
-URL and a raw one have the same type. Nothing then stops a later edit from interpolating the raw
-one, and nothing marks the difference at the sink. Auditing that arrangement means tracing every
-call path that reaches a printer, which is work that has to be redone after every change.
-
-Redaction therefore returns [`InertString`](../../src/InertText/InertString.cs), a value that can
-only be built by applying a policy:
+**What the retyping caught here.** Redaction returns `InertString` rather than `string`, so the
+distinction between a redacted URL and a raw one is visible to the compiler:
 
 ```csharp
 internal static InertString RedactSensitiveUrlText(string value)   // was string
@@ -397,41 +355,16 @@ public readonly record struct FeedFailure(InertString Url, ...)    // was string
 public InertString? DescribeFailure(string packageName)            // was string?
 ```
 
-There is no conversion from `string`, implicit or explicit, and a unit test asserts its absence —
-one would restore exactly the confusion the type removes. Conversion *to* `string` through
-`ToString` is unrestricted, which is safe here in a way it usually is not: the customary objection
-to a wrapper is that `ToString` launders it, but that assumes the payload is dangerous and the
-wrapper is what holds it back. Here the payload is already inert. Losing the wrapper loses
-provenance, not protection.
+That change found a live defect rather than merely documenting an intent.
+`FeedFailureCollector.DescribeFailure` built its message with ordinary interpolation, which passed
+the *package name* through untouched — and a package name arrives from a command line or a
+dependency graph. Retyping the return value turned that into a build error at both call sites
+instead of a review finding.
 
-Composition is the part that has to work, or callers fall back to `$"...{treated}..."` and drop
-the guarantee at the moment it matters most. `InertString.Format` is an interpolated string
-handler that encodes each part as it is appended: holes because they are untrusted, literals too,
-because an invariant with an exception in it must be re-argued at every use.
-
-An already-inert hole is not encoded twice — but neither is it trusted. The type records that
-*a* policy was applied, not *which* one, and a value built for one sink is routinely spliced into
-a message bound for another. `Prose` permits the line feed that `Field` exists to remove, so
-appending a `Prose` value into a `Field` message unexamined would put a raw newline into a
-single-line log record and report no encoded forms for it — log injection, with the type
-appearing to vouch for it. Splices are therefore checked against the policy in force and
-re-spelled under it when they do not satisfy it, in `Format` and in `Join` alike.
-
-That repair is the second thing invertibility buys. `TryDecode` recovers the original text
-exactly, so a mismatched piece can be taken back to its source and re-encoded rather than either
-rejected or trusted. It is also why the decoder refuses spellings the encoder never emits: `\U`
-for a BMP scalar, and `\uXXXX` for a scalar with a canonical short form such as `\\`, `\^X` or
-`\^?`. One scalar, one encoding, in both directions.
-
-The type also changed what the compiler could see. `FeedFailureCollector.DescribeFailure` built
-its message with ordinary interpolation, which passed the *package name* through untouched — and
-a package name arrives from a command line or a dependency graph. Retyping the return value turned
-that into a build error at both call sites rather than a review finding.
-
-The remaining transactional path is the `Action<string>? log` delegate threaded through the
-package layer, where roughly a dozen sites interpolate a raw URL. Retyping it would make the
-compiler enumerate them the same way, and is tracked separately: it touches 27 files and does not
-belong in a fix for feed failure reporting.
+**What is still transactional.** The `Action<string>? log` delegate threaded through the package
+layer, where roughly a dozen sites interpolate a raw URL. Retyping it would make the compiler
+enumerate them the same way, and is tracked separately: it touches 27 files and does not belong in
+a fix for feed failure reporting.
 
 ## Service index discovery
 
