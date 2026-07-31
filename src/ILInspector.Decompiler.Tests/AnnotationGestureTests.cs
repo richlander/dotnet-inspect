@@ -189,8 +189,8 @@ public class AnnotationGestureTests
         // The agreement rule is all-or-nothing, and the case that matters is
         // PARTIAL: one fact narrows, another has no printed node to point at.
         // Narrowing there would underline an expression that is true of only
-        // some of the facts sharing the caret. 609 lines in CoreLib mix facts
-        // with and without extents, 498 of them with a single surviving extent,
+        // some of the facts sharing the caret. 615 lines in CoreLib mix facts
+        // with and without extents, 499 of them with a single surviving extent,
         // so this is the difference between right and wrong on real output.
         const string Line = "        Sink(new object());";
         var narrowed = Fact(Alloc, "has-extent");

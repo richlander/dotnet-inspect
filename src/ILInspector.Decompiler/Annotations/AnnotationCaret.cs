@@ -185,12 +185,12 @@ public static class AnnotationCaret
     /// <remarks>
     /// <para>
     /// A line is underlined once. Giving each distinct extent its own
-    /// <c>^^^^</c> row was tried and rejected on the evidence: of 5,848 extent
-    /// pairs sharing a line, 3,191 nest or overlap, so the rows would
+    /// <c>^^^^</c> row was tried and rejected on the evidence: of 5,816 extent
+    /// pairs sharing a line, 3,325 nest or overlap, so the rows would
     /// re-underline the same characters at different widths and the reader would
     /// have to count columns to tell which row named which fact. The worst line
-    /// in <c>System.Private.CoreLib</c> carries nine distinct extents, which
-    /// would bury one line of code under nine of carets.
+    /// in <c>System.Private.CoreLib</c> carries eight distinct extents, which
+    /// would bury one line of code under eight of carets.
     /// </para>
     /// <para>
     /// So narrowing is all-or-nothing per line, and the fallback is not a

@@ -201,7 +201,7 @@ public class AnnotationAnchorTests
     {
         // A statement that wraps puts its narrow sub-expression on a later line
         // than the one the fact is attached to, so narrowing there would draw
-        // the caret under a line the fact does not belong to. 279 facts in
+        // the caret under a line the fact does not belong to. 283 facts in
         // System.Private.CoreLib take this path; all keep the statement-wide
         // caret. Only the if and the allocation carry the offset -- giving it to
         // the inner statement too would make Best pick that, and the owner line
@@ -411,13 +411,13 @@ public class AnnotationAnchorTests
     [InlineData("\tx\t", 0, 3, 1, 1)]
     [InlineData("\u00a0x", 0, 2, 1, 1)]
     // Reaching exactly the last character, so a clamp that stopped one short
-    // would silently drop it. 87,400 of the corpus's printed ranges end here.
+    // would silently drop it. 650 of the extents the caller delivers end here.
     [InlineData("    new object();", 4, 13, 4, 13)]
     // Overhanging the end of the line. ComputeCaretExtents cannot deliver this
     // today -- TryGetLineColumn rejects every range that crosses a line break,
-    // 16,895 of them in the corpus, so 0 of 359,584 survivors overhang -- but
-    // the clamp is the reason an overhang is survivable at all, and an internal
-    // helper is not entitled to assume it keeps only its current caller.
+    // so 0 of the 33,657 extents the caller delivers overhang -- but the clamp
+    // is the reason an overhang is survivable at all, and an internal helper is
+    // not entitled to assume it keeps only its current caller.
     [InlineData("    x", 4, 99, 4, 1)]
     public void TryTrimToPrinted_ShrinksOntoPrintedCharactersAtBothEnds(
         string lineText, int column, int length, int expectedColumn, int expectedLength)
