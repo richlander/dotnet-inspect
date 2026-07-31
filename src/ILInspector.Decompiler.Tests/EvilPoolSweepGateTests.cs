@@ -103,7 +103,10 @@ public class EvilPoolSweepGateTests
 
         // And that it came from the cache rather than the network, which is the manifest's
         // own record of the isolation every other case rests on -- measured: hardcoding it
-        // false left every case green.
+        // false left every case green. One direction only, and worth saying: a constant
+        // true passes this too, because no case here can produce a row that legitimately
+        // reports false. The gate on the isolation itself is
+        // ASweepCannotReachAPackageTheSeededCacheDoesNotHold.
         Assert.True(entry["FromCache"]!.GetValue<bool>(), world.Explain(sweep, "a pool the cache did not serve"));
 
         // Where it landed, too. The manifest is how an operator finds the pooled file
@@ -194,6 +197,42 @@ public class EvilPoolSweepGateTests
         Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
 
         world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// The pin binds the bytes at the first rank as well as the second, and one package's
+    /// refusal is not the run's.
+    ///
+    /// <para>The companion to <see cref="ASweepRefusesBytesThePinDoesNotName"/>, which
+    /// tampers with the subject at rank 2. Moving the subject off the front is what made
+    /// the first iteration observable at all, and it left the first iteration itself
+    /// unwatched: gating the hash comparison on <c>entry.Rank &gt; 1</c> left all ten cases
+    /// green while a poisoned rank-1 package entered the pool -- measured. So this case
+    /// tampers with the lead instead, and the two together hold both ends of the window
+    /// the sweep is run over.</para>
+    ///
+    /// <para>It asserts the other half too, which nothing else could: the subject behind it
+    /// is still pooled. A refusal has to stop the package it is about, and a sweep that
+    /// abandoned the rest of the list on the first bad hash would pass every other case
+    /// here, because in all of them the refused package is the last one.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesBytesThePinDoesNotNameAtTheFirstRankToo()
+    {
+        using var world = SweepWorld.Create();
+        File.WriteAllBytes(world.LeadCachedAssemblyPath, [.. world.LeadBytes, 0]);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a cache answering rank 1 with other bytes"));
+        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep, LeadPackage));
+
+        // The run carried on to rank 2 and pooled it, and the pool is that alone.
+        Assert.Equal("selected", world.ReportedStatus(sweep));
+        Assert.Equal([world.SubjectDestination], PooledAssemblies(world.OutputDirectory));
+        Assert.Equal(world.FixtureSha256, Sha256Of(world.SubjectDestination));
+
         world.AssertNoTemporaryLeftBehind();
     }
 
@@ -609,20 +648,36 @@ public class EvilPoolSweepGateTests
     /// A repository root, a package list, a pin, a cache holding two packages, and an output
     /// directory -- everything one sweep reads and writes, all of it scratch.
     ///
-    /// <para>Two packages, and the one each case is about is always the second. A real sweep
-    /// runs this loop ninety-odd times; a world holding a single package can only ever
+    /// <para>Two packages, and the one each case is about is normally the second. A real
+    /// sweep runs this loop ninety-odd times; a world holding a single package can only ever
     /// exercise the first iteration, and every guarantee here would then hold for the first
     /// package alone. Measured, on a one-package world: restricting the hash comparison, the
     /// replace-don't-write-through copy, the failure accounting, and the manifest's package
-    /// identity to <c>accountedFor == 0</c> each left all nine cases green, while a real
+    /// identity to <c>accountedFor == 0</c> each left all cases green, while a real
     /// hundred-package sweep would pool poisoned bytes, write through a planted symlink,
-    /// exit 0 over a failed copy, and refresh the wrong pin key. With the subject at rank 2
-    /// each of those is a mutation that turns the subject's own iteration off.</para>
+    /// exit 0 over a failed copy, and refresh the wrong pin key.</para>
     ///
-    /// <para>The lead is pooled successfully by every case, including the ones whose subject
-    /// is refused, which is the other half of what it buys: a refusal must stop the package
-    /// it is about and nothing else, and a sweep that abandoned the run would take the lead
-    /// with it.</para>
+    /// <para>What that buys, exactly: the sweep is run over a window of two, and both ends
+    /// of that window are subjects. <see cref="ASweepRefusesBytesThePinDoesNotName"/>
+    /// tampers with rank 2 and
+    /// <see cref="ASweepRefusesBytesThePinDoesNotNameAtTheFirstRankToo"/> with rank 1, so a
+    /// mutation that spares either end is caught -- and a two-package window has no interior
+    /// to hide in.</para>
+    ///
+    /// <para>It does <em>not</em> make the guarantee loop-wide, and this file should not be
+    /// read as though it does. A mutation keyed on the index -- <c>accountedFor &lt;= 1</c>,
+    /// say -- enforces the property for exactly the ranks this fixture occupies and drops it
+    /// for every rank beyond, with all cases green; measured, on the byte pin, the safe copy,
+    /// and the failure accounting alike. No finite fixture closes that, because the threshold
+    /// simply moves. What is gated is the loop <em>body</em>, at both ends of the window it
+    /// is run over; that the body is reached identically on the eighty-eight iterations no
+    /// fixture here reaches is unverified, and is named here rather than left to read as
+    /// covered.</para>
+    ///
+    /// <para>The lead is pooled successfully by every case that does not tamper with it,
+    /// including the ones whose subject is refused, which is the other half of what it buys:
+    /// a refusal must stop the package it is about and nothing else, and a sweep that
+    /// abandoned the run would take the lead with it.</para>
     ///
     /// <para>The cache is seeded through <see cref="NuGetCache.CommitPackage"/> rather than
     /// by writing the directories directly. The layout of a committed package, including
@@ -633,6 +688,7 @@ public class EvilPoolSweepGateTests
     sealed class SweepWorld : IDisposable
     {
         string? _cachedAssemblyPath;
+        string? _leadCachedAssemblyPath;
         string _requestedPackage = FixturePackage;
 
         SweepWorld(string scratch, string cacheDirectory, byte[] fixtureBytes)
@@ -692,6 +748,10 @@ public class EvilPoolSweepGateTests
         public string CachedAssemblyPath => _cachedAssemblyPath
             ?? throw new InvalidOperationException("The cache has not been seeded yet.");
 
+        /// <summary>The same, for the lead -- how a case makes rank 1 the one being refused.</summary>
+        public string LeadCachedAssemblyPath => _leadCachedAssemblyPath
+            ?? throw new InvalidOperationException("The cache has not been seeded yet.");
+
         /// <summary>
         /// Builds the world. <paramref name="version"/> and <paramref name="tfm"/> are what
         /// the <em>pin</em> claims; the package in the cache is always the real one, so a
@@ -732,7 +792,7 @@ public class EvilPoolSweepGateTests
             // cache behind would quietly serve it this fixture instead.
             NuGetCache.Initialize("dotnet-inspect", CacheDirectory, skipNuGetCache: true);
 
-            Commit(LeadPackage, LeadAssembly, LeadBytes);
+            _leadCachedAssemblyPath = Commit(LeadPackage, LeadAssembly, LeadBytes);
             _cachedAssemblyPath = Commit(FixturePackage, FixtureAssembly, FixtureBytes);
         }
 
@@ -863,8 +923,9 @@ public class EvilPoolSweepGateTests
         /// Asking the row who it is about is what makes the status an answer to the
         /// question the case put.</para>
         /// </summary>
-        public string ReportedStatus((int ExitCode, string Output, string Errors) sweep) =>
-            ReportedEntry(sweep)["Status"]!.GetValue<string>();
+        public string ReportedStatus(
+            (int ExitCode, string Output, string Errors) sweep, string? package = null) =>
+            ReportedEntry(sweep, package)["Status"]!.GetValue<string>();
 
         /// <summary>
         /// The manifest row about the package this world asked for, having established that it
@@ -880,19 +941,21 @@ public class EvilPoolSweepGateTests
         /// is the parse this is built on and reaches no row; a reader wanting one comes
         /// here.</para>
         /// </summary>
-        public JsonNode ReportedEntry((int ExitCode, string Output, string Errors) sweep)
+        public JsonNode ReportedEntry(
+            (int ExitCode, string Output, string Errors) sweep, string? package = null)
         {
+            string subject = package ?? _requestedPackage;
             var packages = ReportedManifest(sweep)["Packages"]!.AsArray();
             Assert.True(packages.Count == 2, Explain(sweep, $"a manifest holding {packages.Count} packages"));
 
             var matching = packages
-                .Where(row => row!["RequestedPackage"]?.GetValue<string>() == _requestedPackage)
+                .Where(row => row!["RequestedPackage"]?.GetValue<string>() == subject)
                 .ToArray();
             Assert.True(
                 matching.Length == 1,
                 Explain(
                     sweep,
-                    $"a manifest with {matching.Length} rows about '{_requestedPackage}', reporting on "
+                    $"a manifest with {matching.Length} rows about '{subject}', reporting on "
                     + string.Join(
                         ", ",
                         packages.Select(row => $"'{row!["RequestedPackage"]?.GetValue<string>()}'"))));

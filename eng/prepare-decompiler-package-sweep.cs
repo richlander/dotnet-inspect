@@ -609,6 +609,12 @@ foreach (var entry in selected)
         // and then copying it leaves an interval a cache writer can land in, and the
         // file in the pool is the one that gets measured -- so that is the one whose
         // bytes must match.
+        //
+        // That last step is reasoning, not a gated property, and is marked so rather
+        // than left to read as covered: every case in EvilPoolSweepGateTests tampers
+        // with the cache entry, so source and destination carry the same bytes and no
+        // black-box case can tell which was measured. Hashing the source here leaves
+        // the whole class green. What is gated is that the hash is compared at all.
         string assemblySha = Convert.ToHexStringLower(
             SHA256.HashData(File.ReadAllBytes(destination)));
         if (honorPin && pin is not null
