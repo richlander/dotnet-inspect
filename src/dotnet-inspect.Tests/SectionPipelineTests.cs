@@ -2287,91 +2287,126 @@ public class SectionPipelineTests
 
         Assert.Equal(["MemberInfo::get_Name", "Type::op_Equality"], reflectionSurface);
 
-        // Reflection is not the only late-binding mechanism, and Gemini Pro's review raised
-        // `dynamic` as an escape: the C# compiler lowers it into the DLR, so the IL names
-        // Microsoft.CSharp.RuntimeBinder and System.Runtime.CompilerServices.CallSite rather than
-        // anything under System.Reflection, and neither the walk nor the pin above sees it.
+        // Reflection is not the only late-binding mechanism. Gemini Pro's review raised `dynamic`,
+        // which the compiler lowers into the DLR so the IL names Microsoft.CSharp.RuntimeBinder
+        // rather than anything under System.Reflection. That one is unreachable -- `dynamic` does
+        // not compile anywhere in this product, because src/Directory.Build.props sets
+        // IsAotCompatible plus TreatWarningsAsErrors for every project under src/, making a dynamic
+        // call site build errors IL2026 and IL3050 ("the 'dynamic' feature requires runtime-code
+        // generation, which is incompatible with AOT"). Verified by writing one in the CLI and
+        // again in ILInspector.Analysis. That is the gate that claim rests on, and it is a stronger
+        // one than a test.
         //
-        // The reasoning is right and the escape is not reachable, because `dynamic` does not
-        // compile anywhere in this product. src/Directory.Build.props sets IsAotCompatible plus
-        // TreatWarningsAsErrors for every project under src/, so the AOT analyzers turn a dynamic
-        // call site into build errors IL2026 and IL3050 ("the 'dynamic' feature requires
-        // runtime-code generation, which is incompatible with AOT"). Verified by writing one, in
-        // the CLI and again in ILInspector.Analysis: both fail to build. That is a stronger gate
-        // than a test, and it is the one this claim rests on.
+        // The review then landed the same idea somewhere the build does not object:
+        // `Delegate.CreateDelegate(typeof(Func<string, LibraryBodyIndex>), typeof(LibraryBodyIndex),
+        // "Open")`. It names the target with a string, so there is no ldftn for the walk to follow;
+        // its declaring type is System.Delegate, so the reflection predicate below never sees it;
+        // and this overload carries no trimming annotation, so it compiles clean. Measured 2.13 s
+        // -> 6.35 s on mscorlib.dll with all 175 tests in this class green.
         //
-        // Even so, enumerating mechanisms -- add RuntimeBinder, add CallSite, add Reflection.Emit,
-        // add Linq.Expressions -- would make this a deny list, and a deny list is precisely where
-        // the *next* mechanism hides. This PR has now been wrong about "that is the last route"
-        // ten times, so the polarity is inverted instead: pin what section-reachable code is
-        // allowed to call, and let anything new fail closed. That also keeps the property standing
-        // if the AOT constraint is ever relaxed.
+        // The instructive part is *why* that worked. The predicate below special-cases Type and
+        // Activator inside the otherwise-allowed System namespace -- which makes it a deny list in
+        // the one namespace that holds the most dangerous primitives, and a deny list is exactly
+        // where the next mechanism hides. Delegate was simply the entry I did not think of. This
+        // PR has now been wrong about "that is the last route" eleven times, so the fix is not to
+        // add Delegate; it is to stop enumerating.
         //
-        // Namespace granularity is what makes that affordable. Measured, the whole forward closure
-        // touches 19 BCL namespaces, and every late-binding mechanism lives in a namespace that is
-        // not among them. Product namespaces are deliberately excluded -- they churn as this
-        // consolidation moves code, and a product helper's own BCL calls are already in this
-        // closure, so excluding them costs no coverage.
-        var bclSurface = calls
+        // So the allowed BCL *type* surface is pinned, and anything new fails closed: Delegate,
+        // Activator, Marshal, CallSite, Assembly, and AppDomain are all absent from it and cannot
+        // be reached without changing this literal.
+        //
+        // Granularity is chosen by measurement, not taste. System.Reflection.Metadata and
+        // System.Reflection.PortableExecutable are excluded and left at namespace granularity: they
+        // are the substrate this entire product reads metadata with, they account for 81 of the 146
+        // reachable BCL types, they churn with every new metadata table touched, and they contain
+        // no invocation primitive. Excluding them turns an unreviewable list into 65 stable entries
+        // -- primitives, exceptions, collections, and helpers -- where a genuinely new BCL type is
+        // worth the one line of review it costs. Product namespaces are excluded for the same
+        // churn reason, at no cost in coverage: a product helper's own BCL calls are already inside
+        // this same closure, which is what the previous route proved.
+        var bclTypeSurface = calls
             .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
-            .Select(call => call.Callee.DeclaringType.Namespace)
-            .Where(namespaceName => !namespaceName.StartsWith("DotnetInspector.", StringComparison.Ordinal)
-                && !namespaceName.StartsWith("ILInspector.", StringComparison.Ordinal)
-                && !namespaceName.StartsWith("Markout", StringComparison.Ordinal)
-                && namespaceName.Length > 0)
+            .Select(call => call.Callee.DeclaringType)
+            .Where(type => type.Namespace.Length > 0
+                && !type.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("Markout", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("System.Reflection.Metadata", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("System.Reflection.PortableExecutable", StringComparison.Ordinal))
+            .Select(type => $"{type.Namespace}.{type.ToDisplayString()}")
             .Distinct(StringComparer.Ordinal)
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToList();
 
         Assert.Equal(
             [
-                "System",
-                "System.Buffers.Binary",
-                "System.Collections",
-                "System.Collections.Generic",
-                "System.Collections.Immutable",
-                "System.Diagnostics",
-                "System.Globalization",
-                "System.IO",
-                "System.Linq",
-                "System.Reflection",
-                "System.Reflection.Metadata",
-                "System.Reflection.Metadata.Ecma335",
-                "System.Reflection.PortableExecutable",
-                "System.Runtime.CompilerServices",
-                "System.Runtime.InteropServices",
-                "System.Security.Cryptography",
-                "System.Text",
-                "System.Threading",
-                "System.Threading.Tasks",
+                "System.Action",
+                "System.ArgumentException",
+                "System.ArgumentNullException",
+                "System.ArgumentOutOfRangeException",
+                "System.Array",
+                "System.BadImageFormatException",
+                "System.Buffers.Binary.BinaryPrimitives",
+                "System.Collections.Generic.CollectionExtensions",
+                "System.Collections.IEnumerator",
+                "System.Collections.Immutable.ImmutableArray",
+                "System.Collections.Immutable.ImmutableDictionary",
+                "System.Console",
+                "System.Convert",
+                "System.Diagnostics.Stopwatch",
+                "System.Enum",
+                "System.Environment",
+                "System.Exception",
+                "System.Globalization.CultureInfo",
+                "System.IDisposable",
+                "System.IO.File",
+                "System.IO.Path",
+                "System.IO.Stream",
+                "System.IO.TextWriter",
+                "System.Index",
+                "System.InvalidOperationException",
+                "System.InvalidProgramException",
+                "System.Linq.Enumerable",
+                "System.Linq.ImmutableArrayExtensions",
+                "System.Math",
+                "System.MemoryExtensions",
+                "System.NotSupportedException",
+                "System.ObjectDisposedException",
+                "System.Range",
+                "System.Reflection.MemberInfo",
+                "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler",
+                "System.Runtime.CompilerServices.RuntimeHelpers",
+                "System.Runtime.CompilerServices.Unsafe",
+                "System.Runtime.InteropServices.CollectionsMarshal",
+                "System.Runtime.InteropServices.ImmutableCollectionsMarshal",
+                "System.Runtime.InteropServices.MemoryMarshal",
+                "System.Security.Cryptography.SHA1",
+                "System.Security.Cryptography.SHA256",
+                "System.StringComparer",
+                "System.Text.Encoding",
+                "System.Text.StringBuilder",
+                "System.Text.StringBuilder.AppendInterpolatedStringHandler",
+                "System.Threading.Interlocked",
+                "System.Threading.Tasks.Parallel",
+                "System.TimeSpan",
+                "System.Type",
+                "System.bool",
+                "System.byte",
+                "System.char",
+                "System.decimal",
+                "System.double",
+                "System.float",
+                "System.int",
+                "System.long",
+                "System.object",
+                "System.sbyte",
+                "System.short",
+                "System.string",
+                "System.uint",
+                "System.ulong",
+                "System.ushort",
             ],
-            bclSurface);
-
-        // System.Runtime.CompilerServices is the one allowed namespace that also houses dispatch
-        // machinery, so it is pinned a level finer. Measured, section-reachable code uses it for
-        // interpolated strings, Unsafe, and two RuntimeHelpers -- CallSite and CallSiteBinder do
-        // not appear, and a hand-rolled call site would have to add them here.
-        var compilerServicesSurface = calls
-            .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
-            .Where(call => call.Callee.DeclaringType.Namespace == "System.Runtime.CompilerServices")
-            .Select(call => $"{call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(entry => entry, StringComparer.Ordinal)
-            .ToList();
-
-        Assert.Equal(
-            [
-                "DefaultInterpolatedStringHandler::.ctor",
-                "DefaultInterpolatedStringHandler::AppendFormatted",
-                "DefaultInterpolatedStringHandler::AppendLiteral",
-                "DefaultInterpolatedStringHandler::ToStringAndClear",
-                "RuntimeHelpers::EnsureSufficientExecutionStack",
-                "RuntimeHelpers::GetSubArray",
-                "Unsafe::Add",
-                "Unsafe::As",
-                "Unsafe::AsRef",
-            ],
-            compilerServicesSurface);
+            bclTypeSurface);
 
         // Non-vacuity: the forward walk must actually leave DotnetInspector.Sections, or the pin
         // above only describes one assembly and the transitive-helper escape reopens.

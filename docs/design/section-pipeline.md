@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Ten routes into the same defect
+### Eleven routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and ten different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and eleven different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -121,8 +121,9 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A generic opener (`Open<T>(string)`) collapses into its non-generic namesake | generic arity carried in the identity key |
 | A scanner opens the index by **reflection**, which no IL walk can follow | the reflection API surface reachable from `Sections` is pinned instead |
 | A helper in another assembly does the reflecting on the scanner's behalf | the pin walks *forward* over the whole product closure, not just `Sections` |
+| `Delegate.CreateDelegate` names the target with a **string**, so there is no `ldftn` to follow and `System.Delegate` is neither `Type` nor `Activator` | the allowed BCL **type** surface is pinned, so any late-binding type is new |
 
-That the enumeration reached ten is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached eleven is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
@@ -178,7 +179,13 @@ What makes that affordable is measuring before choosing a granularity. The forwa
 
 Reflection is not the only late-binding mechanism, and the next review raised `dynamic`: the compiler lowers it into the DLR, so the IL names `Microsoft.CSharp.RuntimeBinder` and `System.Runtime.CompilerServices.CallSite` rather than anything under `System.Reflection`. The reasoning is right and the escape is unreachable, because **`dynamic` does not compile anywhere in this product**. `src/Directory.Build.props` sets `IsAotCompatible` and `TreatWarningsAsErrors` for every project under `src/`, so a dynamic call site is build errors IL2026 and IL3050 — verified by writing one in the CLI and again in `ILInspector.Analysis`. That is a stronger gate than any test, and it is the gate this particular claim names.
 
-Enumerating mechanisms anyway — add `RuntimeBinder`, add `CallSite`, add `Reflection.Emit`, add `Linq.Expressions` — would have turned the pin into a deny list, and on this defect a deny list is precisely where the next mechanism hides. The polarity is inverted instead: the gate pins the **19 BCL namespaces** section-reachable code is allowed to call, so any new mechanism fails closed rather than needing to be predicted. `System.Runtime.CompilerServices` is the one allowed namespace that also houses dispatch machinery, so it is pinned a level finer, at its 9 members. Product namespaces are excluded because they churn as this consolidation moves code — and at no cost in coverage, since a product helper's own BCL calls are already inside the same closure.
+The same review then landed the idea somewhere the build does not object. `Delegate.CreateDelegate(typeof(Func<string, LibraryBodyIndex>), typeof(LibraryBodyIndex), "Open")` names its target with a *string*, so there is no `ldftn` for the walk to follow; its declaring type is `System.Delegate`, which is neither `Type` nor `Activator`, so the reflection predicate never sees it; and this overload carries no trimming annotation, so it compiles clean. Measured 2.13 s → 6.35 s with every test in the class green.
+
+Why that worked is the part worth keeping. The reflection predicate special-cased `Type` and `Activator` *inside* the otherwise-allowed `System` namespace — which quietly made it a deny list in the one namespace holding the most dangerous primitives. `Delegate` was simply the entry not thought of, and on this defect the entry not thought of is the whole failure mode.
+
+So the fix is not to add `Delegate`. It is to stop enumerating: the allowed BCL **type** surface is pinned, and `Delegate`, `Activator`, `Marshal`, `CallSite`, `Assembly`, and `AppDomain` are all absent from it. A new mechanism fails closed instead of needing to be predicted.
+
+Granularity is again chosen by measurement. `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` are left at namespace granularity and excluded from the type pin: they are the substrate this product reads metadata with, they account for **81 of the 146** reachable BCL types, they churn with every new metadata table touched, and they contain no invocation primitive. Excluding them turns an unreviewable list into **65** stable entries — primitives, exceptions, collections, helpers — where a genuinely new BCL type costs one line of review and is worth it. Product namespaces are excluded for the same churn reason and at no cost in coverage, since a product helper's own BCL calls are already inside the same closure, which is exactly what the previous route proved.
 
 The general lesson is the same one the assembly closure taught, arriving from the other direction: when evidence cannot answer the question you are asking, check whether a different question with the same consequence is answerable. "Unverified" was a correct description of the *walk*, and still the wrong conclusion about the gate.
 
