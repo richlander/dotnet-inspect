@@ -157,6 +157,12 @@ public readonly struct InertString : IEquatable<InertString>
     /// This is the second thing invertibility buys. Because <see cref="VisualEncoder.TryDecode"/>
     /// recovers the original exactly, a mismatched piece can be taken back to its source text
     /// and re-spelled under the policy actually in force, rather than rejected or trusted.
+    ///
+    /// The repair only ever tightens. A piece encoded under a stricter policy keeps its
+    /// spellings when spliced into a laxer sink, because composition making a value <em>less</em>
+    /// inert would let a caller launder one by quoting it somewhere permissive. The cost is that
+    /// splice path is observable — the same source text can render differently depending on
+    /// where it was encoded — which is a deliberate trade, not an oversight.
     /// </remarks>
     internal static string Conform(InertString value, ScalarPolicy permits, out VisualForm forms)
     {

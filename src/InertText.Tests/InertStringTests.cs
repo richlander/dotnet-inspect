@@ -287,4 +287,33 @@ public class InertStringTests
             CultureInfo.CurrentCulture = original;
         }
     }
+
+    [Fact]
+    public void Splice_TightensButNeverLoosens()
+    {
+        // Field encoded the line feed; Prose would have permitted it. The repair must not
+        // undo that: composition may make a value more inert, never less, or a value could be
+        // laundered by quoting it into a laxer sink.
+        InertString strict = InertString.Encode("a\nb", TextPolicy.Field);
+        InertString lax = InertString.Format(TextPolicy.Prose, $"{strict}");
+
+        Assert.Equal(@"a\^Jb", lax.ToString());
+        Assert.DoesNotContain('\n', lax.ToString());
+
+        // So splice path is observable, and deliberately so.
+        Assert.NotEqual(InertString.Format(TextPolicy.Prose, $"{"a\nb"}"), lax);
+    }
+
+    [Fact]
+    public void Splice_IsAFixedPointUnderTheSamePolicy()
+    {
+        InertString piece = InertString.Encode("x\ny", TextPolicy.Prose);
+        InertString once = InertString.Format(TextPolicy.Field, $"{piece}");
+        InertString twice = InertString.Format(TextPolicy.Field, $"{once}");
+
+        // Re-composing must not re-encode what the repair already spelled, or a value would
+        // drift every time it passed through a sink.
+        Assert.Equal(once, twice);
+        Assert.Equal(once.Forms, twice.Forms);
+    }
 }
