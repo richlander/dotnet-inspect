@@ -196,6 +196,58 @@ public class AnnotationAnchorTests
         Assert.Equal(line.Trim(), line.Substring(extent.Column, extent.Length));
     }
 
+    [Fact]
+    public void CaretExtent_IsWithheldWhenTheNarrowNodePrintsOnAContinuationLine()
+    {
+        // A statement that wraps puts its narrow sub-expression on a later line
+        // than the one the fact is attached to, so narrowing there would draw
+        // the caret under a line the fact does not belong to. 279 facts in
+        // System.Private.CoreLib take this path; all keep the statement-wide
+        // caret. Only the if and the allocation carry the offset -- giving it to
+        // the inner statement too would make Best pick that, and the owner line
+        // would agree, which is the case this test must avoid.
+        const int Offset = 7;
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+        var allocation = new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true),
+            []);
+        allocation.SetSourceOffset(Offset);
+
+        var inner = new Block(1);
+        inner.Add(new ExpressionStatement(allocation));
+        var conditional = new IfStatement(
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")), inner, null);
+        conditional.SetSourceOffset(Offset);
+
+        var outer = new Block(0);
+        outer.Add(conditional);
+        outer.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(outer);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        CSharpPrinter.PrintRaised(function, out var ranges);
+
+        // Non-vacuity: the allocation must really print on a different line from
+        // the statement the fact anchors to, or this gates nothing.
+        Assert.True(AnnotationAnchor.TryGetPrintedLine(conditional, ranges, out int ownerLine));
+        Assert.True(ranges.TryGetLineColumn(allocation, out int nodeLine, out _, out _));
+        Assert.NotEqual(ownerLine, nodeLine);
+
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+
+        Assert.DoesNotContain(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+    }
+
     [Theory]
     // Leading indent only — what a statement's own printed range looks like.
     [InlineData("    new object();", 0, 17, 4, 13)]

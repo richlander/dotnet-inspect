@@ -121,7 +121,7 @@ public static class AnnotationAnchor
     /// whose exact offset was erased by the raise still anchors to a covering
     /// statement, but has no sub-token to point at, so it is simply absent here
     /// and the caller keeps the statement-wide underline. Measured over
-    /// <c>System.Private.CoreLib</c>, 34,008 of 37,800 facts (89.97%) get an
+    /// <c>System.Private.CoreLib</c>, 33,729 of 37,800 facts (89.23%) get an
     /// extent.
     /// </para>
     /// <para>
@@ -132,7 +132,7 @@ public static class AnnotationAnchor
     /// <para>
     /// An extent is produced only when the narrow node prints on the same line
     /// as the statement the fact anchors to. Where a statement wraps and the
-    /// sub-expression prints on a continuation line (270 facts in the same
+    /// sub-expression prints on a continuation line (279 facts in the same
     /// corpus), narrowing would put the underline under a line the fact is not
     /// attached to; those keep the statement-wide caret until the caret block
     /// can be emitted against the narrow node's own line.
@@ -183,16 +183,18 @@ public static class AnnotationAnchor
     /// A statement's printed range begins at its line's indent, so when the
     /// narrowest node carrying an offset is the statement itself the raw extent
     /// covers the leading whitespace and a caret drawn from it would start left
-    /// of the code. Measured over <c>System.Private.CoreLib</c> that is 161 of
-    /// 25,682 narrowed lines. Trimming makes such an extent coincide with the
-    /// statement-wide default rather than mis-drawing, and leaves every extent
-    /// that already named an expression untouched.
+    /// of the code. Measured over <c>System.Private.CoreLib</c>, the trim moves
+    /// 205 of the 33,729 extents and rejects none of them. Trimming makes such
+    /// an extent coincide with the statement-wide default rather than
+    /// mis-drawing, and leaves every extent that already named an expression
+    /// untouched.
     /// <para>
     /// The clamp on the far end is defensive rather than load-bearing today:
-    /// <see cref="PrintedRangeMap.TryGetLineColumn"/> refuses a range that
-    /// crosses a line break (16,895 in the same corpus), so none of the 359,584
-    /// that reach here overhang the line. It is kept, and gated, because this is
-    /// an internal helper taking a caller-supplied range: the cost is one
+    /// <see cref="PrintedRangeMap.TryGetLineColumn"/> refuses any range that
+    /// crosses a line break, so of the 33,729 ranges the caller delivers here,
+    /// 0 overhang the line and 652 end exactly on its last character. It is
+    /// kept, and gated, because this is an internal helper taking a
+    /// caller-supplied range: the cost is one
     /// <see cref="Math.Min(int, int)"/> and the alternative is an out-of-range
     /// read the first time a second caller passes a range this one would not.
     /// </para>
