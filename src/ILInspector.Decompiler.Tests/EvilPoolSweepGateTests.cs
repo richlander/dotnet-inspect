@@ -769,6 +769,16 @@ public class EvilPoolSweepGateTests
             startInfo.Environment["DOTNET_INSPECT_ISOLATED"] = "evil-sweep-gate";
             startInfo.Environment["DOTNET_INSPECT_CACHE_DIR"] = CacheDirectory;
 
+            // NUGET_PACKAGES is deliberately left alone, and cannot be used for isolation.
+            // The sweep is a file-based app, so this subprocess restores itself before it
+            // runs anything, and it restores from wherever that variable points. Aiming it
+            // somewhere without this repository's own package graph fails the restore
+            // (NU1102) and the sweep never starts -- every case here goes red naming a
+            // package it has nothing to do with. That is a broken environment reporting
+            // itself, not a false green, and Explain prints the restore error that says so.
+            // Isolation from the shared NuGet cache is DOTNET_INSPECT_ISOLATED's job, which
+            // the sweep applies to its own lookups and not to its restore.
+
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("could not start the sweep");
 
