@@ -278,6 +278,39 @@ public class EvilPoolSweepGateTests
         world.AssertNoTemporaryLeftBehind();
     }
 
+    /// <summary>
+    /// A package the seeded cache does not hold is unreachable, rather than fetched.
+    ///
+    /// <para>This is the case that gates the other seven. They all pool a synthetic package
+    /// that only the scratch cache holds, so they stay green whatever the isolation does:
+    /// deleting both knobs from the sweep -- <c>HttpClientFactory.Initialize(false)</c> and
+    /// <c>skipNuGetCache: false</c> -- leaves all seven passing, because the fixture is
+    /// still found where it was seeded. The suite would quietly become able to reach the
+    /// developer's NuGet cache and the network, and <see cref="SweepWorld.Run"/> would go
+    /// on claiming otherwise. Naming a real package is what makes that regression visible:
+    /// it is reachable both ways, so only genuine isolation can fail to reach it.</para>
+    ///
+    /// <para>The assertion is on the <em>reason</em>, not just the exit code. A sweep that
+    /// found this package would still exit 1 -- on a pin mismatch, since the pin below
+    /// names bytes no real package has -- so an exit-code-only case would pass equally well
+    /// with the isolation removed, which is the failure it exists to catch.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepCannotReachAPackageTheSeededCacheDoesNotHold()
+    {
+        using var world = SweepWorld.Create();
+
+        // Present in the shared NuGet cache of any machine that has built this repository,
+        // and on nuget.org. Reachable by either knob's absence, and by neither's presence.
+        world.PinInstead("newtonsoft.json", "13.0.4", "net6.0");
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a package the scratch cache does not hold"));
+        Assert.Contains("not available offline", sweep.Errors, StringComparison.Ordinal);
+        Assert.Empty(PooledAssemblies(world.OutputDirectory));
+    }
+
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
         Directory.Exists(Path.Combine(outputDirectory, "packages"))
             ? Directory.GetFiles(Path.Combine(outputDirectory, "packages"), "*.dll", SearchOption.AllDirectories)
@@ -509,12 +542,48 @@ public class EvilPoolSweepGateTests
         }
 
         /// <summary>
+        /// Replaces the inputs so the sweep is asked for some other package, pinned to
+        /// bytes nothing has. Used to ask for something the scratch cache cannot answer.
+        /// </summary>
+        public void PinInstead(string package, string version, string tfm)
+        {
+            string data = Path.Combine(FakeRoot, "docs", "data");
+            var list = new JsonArray(
+                new JsonObject
+                {
+                    ["rank"] = 1,
+                    ["package"] = package,
+                    ["downloads"] = 1,
+                });
+            var pin = new JsonObject
+            {
+                ["schemaVersion"] = 1,
+                ["packages"] = new JsonArray(
+                    new JsonObject
+                    {
+                        ["package"] = package,
+                        ["version"] = version,
+                        ["tfm"] = tfm,
+                        ["status"] = "pinned",
+                        ["detail"] = null,
+                        ["sha256"] = Sha256Of(FixtureBytes),
+                    }),
+            };
+
+            var indented = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(Path.Combine(data, "nuget-top-packages.json"), list.ToJsonString(indented));
+            File.WriteAllText(Path.Combine(data, "nuget-top-packages.lock.json"), pin.ToJsonString(indented));
+        }
+
+        /// <summary>
         /// Runs the sweep over this world's inputs, offline and against this world's cache.
         ///
         /// <para>Offline is not decoration. It is what makes a green result mean the seeded
         /// cache answered: without it, a case that stopped reaching the fixture would go to
         /// nuget.org and could pass on a real package, and the suite would be gating the
-        /// network instead of the pin.</para>
+        /// network instead of the pin. That claim is itself gated, by
+        /// <see cref="ASweepCannotReachAPackageTheSeededCacheDoesNotHold"/> -- without it,
+        /// both knobs could be deleted from the sweep with all other cases still green.</para>
         /// </summary>
         public (int ExitCode, string Output, string Errors) Run()
         {
