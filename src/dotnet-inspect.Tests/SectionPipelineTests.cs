@@ -1932,6 +1932,14 @@ public class SectionPipelineTests
         // ILInspector.Analysis that opens an index internally (LeakTriageAnalyzer.AnalyzeAssembly
         // is the live example) is invisible here, as are reflection and interface dispatch that
         // never resolves to a definition token. Those residual routes are unverified, not closed.
+        //
+        // And note what the cut asserts: that sections *route* through the gated accessor, not
+        // that the check always fires. RequireUnboundedDeclaration returns without throwing when
+        // no scanner is running, so a Func captured during a scan and invoked later -- while
+        // rendering -- passes it. That is deliberate (ScannerDeclaration_DoesNotOutliveTheRun pins
+        // the scoping), and no model stores such a Func today: the accessors are only ever handed
+        // to scan methods as parameters. Deferred invocation is an open edge of the mechanism,
+        // unverified rather than closed.
     }
 
     [Fact]
