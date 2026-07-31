@@ -2042,11 +2042,143 @@ public class SectionPipelineTests
         // `IBodyOpener::Open`, and from there its real callers. Feeding the same pairs to the
         // forward walk keeps the two claims consistent.
         //
-        // Keying by declaring type plus the member's own signature is an over-approximation -- it
-        // links members that merely share a signature across a hierarchy, not only true overrides.
-        // That is the safe direction: a spurious edge can make this gate redder, never blind.
+        // Matching a member by *name* across a hierarchy was the first attempt, and Gemini Pro's
+        // fixed-head pass walked through it three separate ways, each for a different reason:
+        //
+        //   explicit implementation   the compiler names the member `Ns.IFace.Open`, not `Open`
+        //   inherited implementation  the member satisfying the slot is declared on a *sibling*
+        //                             ancestor the derived type never mentions
+        //   generic interface         `IOpener`1::Open` is not a graph node at all -- see below
+        //
+        // Only the first two are name-matching failures, and `GetInterfaceMap` answers both
+        // exactly: it reports the member that actually occupies each interface slot, whatever it
+        // is named and wherever it is declared. `GetBaseDefinition` does the same for overrides.
         var hierarchyEdges = new List<(string CallerKey, string CalleeKey)>();
-        var derivedByAncestor = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        // Reflection reports members; this graph is keyed by IL signatures. Rebuilding an IL
+        // parameter display string from a `ParameterInfo` is precisely the silent mismatch that
+        // would leave the edge set empty while looking correct, so no key is ever *built* from
+        // reflection. Every IL-derived key is instead indexed under a coarse tuple that reflection
+        // can also produce -- declaring type, member name, parameter count, generic arity -- and a
+        // reflection pair is resolved by looking both ends up in that index. Matching is therefore
+        // always IL key against IL key. A coarse tuple can be ambiguous (overloads differing only
+        // in parameter *types*); every match is linked, which can only make this gate redder.
+        var keysByMember = new Dictionary<(string Type, string Name, int Parameters, int Arity), HashSet<string>>();
+
+        void IndexKey(string typeName, string name, int parameters, int arity, string key)
+        {
+            if (!keysByMember.TryGetValue((typeName, name, parameters, arity), out var keys))
+                keysByMember[(typeName, name, parameters, arity)] = keys = new HashSet<string>(StringComparer.Ordinal);
+
+            keys.Add(key);
+        }
+
+        foreach (var call in calls)
+        {
+            IndexKey(
+                $"{call.Caller.DeclaringType.Namespace}.{call.Caller.DeclaringType.Name}",
+                call.Caller.Name,
+                call.Caller.ParameterTypes.Count(),
+                call.Caller.GenericArity,
+                CallerKey(call.Caller));
+
+            var callee = call.Callee;
+            if (callee.DeclaringType.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                || callee.DeclaringType.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal))
+            {
+                IndexKey(
+                    $"{callee.DeclaringType.Namespace}.{callee.DeclaringType.Name}",
+                    callee.Name,
+                    callee.OpenSignatureParameters.Count(),
+                    callee.GenericArity,
+                    CalleeKey(callee));
+            }
+        }
+
+        static string? ReflectionTypeName(Type? type)
+            => type is null
+                ? null
+                : (type.IsConstructedGenericType ? type.GetGenericTypeDefinition() : type).FullName;
+
+        IReadOnlyCollection<string> ResolveKeys(System.Reflection.MethodBase member)
+        {
+            if (ReflectionTypeName(member.DeclaringType) is not { } typeName)
+                return [];
+
+            var arity = member.IsGenericMethodDefinition ? member.GetGenericArguments().Length : 0;
+            return keysByMember.TryGetValue(
+                (typeName, member.Name, member.GetParameters().Length, arity), out var keys)
+                ? keys
+                : [];
+        }
+
+        const System.Reflection.BindingFlags DeclaredMembers =
+            System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.DeclaredOnly;
+
+        var resolvedExplicit = 0;
+        var resolvedInherited = 0;
+        var resolvedGeneric = 0;
+
+        // Edges run callee -> caller, so an implementation is recorded as though its ancestor
+        // *called* it: reaching `BodyOpener::Open` then reaches `IBodyOpener::Open`, and from there
+        // its real callers. The same pairs feed the forward walk so both claims stay consistent.
+        void Link(
+            IReadOnlyCollection<string> constructorKeys,
+            System.Reflection.MethodInfo ancestor,
+            System.Reflection.MethodInfo implementation)
+        {
+            var implementationKeys = ResolveKeys(implementation);
+            if (implementationKeys.Count == 0)
+                return;
+
+            if (implementation.Name.Contains('.', StringComparison.Ordinal))
+                resolvedExplicit++;
+            if (implementation.DeclaringType != ancestor.DeclaringType
+                && ancestor.DeclaringType?.IsInterface is true
+                && implementation.GetBaseDefinition() == implementation)
+            {
+                resolvedInherited++;
+            }
+
+            var ancestorKeys = ResolveKeys(ancestor);
+            if (ancestorKeys.Count > 0 && ancestor.DeclaringType?.IsConstructedGenericType is true)
+                resolvedGeneric++;
+
+            // Witness that this mechanism is load-bearing: a `static abstract` interface member
+            // dispatched through a generic constraint. Nothing is ever constructed, so the
+            // construction edges below cannot see it; removing this loop turns that tamper green.
+            foreach (var ancestorKey in ancestorKeys)
+            {
+                foreach (var implementationKey in implementationKeys)
+                    hierarchyEdges.Add((ancestorKey, implementationKey));
+            }
+
+            // The ancestor edge alone is not enough, and the generic case is why. A `callvirt` on a
+            // constructed generic interface goes through a MemberRef on a TypeSpec, which
+            // `DirectCalls` does not record *at all* -- so `IOpener`1::Open` is never a node, has
+            // no incoming edge, and an edge out of it dead-ends immediately. Construction is the
+            // independent second link: an instance member cannot be dispatched to without an
+            // instance, and the `newobj` that creates one is a recorded edge. Attributing to the
+            // *concrete* type's constructors is also what covers an implementation inherited from a
+            // base class, since it is the derived type that gets constructed.
+            //
+            // Witness that this mechanism is load-bearing: the constructed-generic interface.
+            // Removing this loop turns that tamper green while the other six stay red, so the two
+            // mechanisms overlap on most shapes but neither subsumes the other.
+            if (implementation.IsStatic)
+                return;
+
+            foreach (var constructorKey in constructorKeys)
+            {
+                foreach (var implementationKey in implementationKeys)
+                    hierarchyEdges.Add((constructorKey, implementationKey));
+            }
+        }
+
         foreach (var assembly in productAssemblies.Values)
         {
             Type[] types;
@@ -2061,50 +2193,62 @@ public class SectionPipelineTests
 
             foreach (var type in types)
             {
-                if (type.FullName is not { } derivedName)
+                if (type.IsInterface)
                     continue;
 
-                var ancestors = type.GetInterfaces().AsEnumerable();
-                for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
-                    ancestors = ancestors.Append(baseType);
+                var constructorKeys = type
+                    .GetConstructors(DeclaredMembers)
+                    .SelectMany(ResolveKeys)
+                    .ToHashSet(StringComparer.Ordinal);
 
-                foreach (var ancestor in ancestors)
+                foreach (var contract in type.GetInterfaces())
                 {
-                    if (ancestor.FullName is not { } ancestorName
-                        || !IsProductAssembly(ancestor.Assembly.GetName().Name))
+                    if (!IsProductAssembly(contract.Assembly.GetName().Name))
+                        continue;
+
+                    System.Reflection.InterfaceMapping map;
+                    try
+                    {
+                        map = type.GetInterfaceMap(contract);
+                    }
+                    catch (ArgumentException)
+                    {
+                        continue;
+                    }
+                    catch (InvalidOperationException)
                     {
                         continue;
                     }
 
-                    if (!derivedByAncestor.TryGetValue(ancestorName, out var derived))
-                        derivedByAncestor[ancestorName] = derived = new HashSet<string>(StringComparer.Ordinal);
+                    for (var slot = 0; slot < map.InterfaceMethods.Length; slot++)
+                        Link(constructorKeys, map.InterfaceMethods[slot], map.TargetMethods[slot]);
+                }
 
-                    derived.Add(derivedName);
+                foreach (var method in type.GetMethods(DeclaredMembers))
+                {
+                    if (!method.IsVirtual)
+                        continue;
+
+                    var baseDefinition = method.GetBaseDefinition();
+                    if (baseDefinition != method
+                        && IsProductAssembly(baseDefinition.DeclaringType?.Assembly.GetName().Name))
+                    {
+                        Link(constructorKeys, baseDefinition, method);
+                    }
                 }
             }
         }
 
-        foreach (var definedKey in definedKeys)
-        {
-            var separator = definedKey.IndexOf("::", StringComparison.Ordinal);
-            if (separator < 0
-                || !derivedByAncestor.TryGetValue(definedKey[..separator], out var derivedTypes))
-            {
-                continue;
-            }
-
-            var member = definedKey[separator..];
-            foreach (var derivedType in derivedTypes)
-            {
-                var overrideKey = derivedType + member;
-                if (definedKeys.Contains(overrideKey))
-                    hierarchyEdges.Add((definedKey, overrideKey));
-            }
-        }
-
-        // Non-vacuity: generic type names differ between reflection (`Foo`1`) and the IL keys, and
-        // a silent mismatch would leave this list empty while looking correct.
+        // Non-vacuity, and `Assert.NotEmpty` is not enough for it. Gemini Pro's review made exactly
+        // that point: the product contains plenty of ordinary interface implementations, so the
+        // edge list stays non-empty even when the shapes that defeated the previous version resolve
+        // to nothing. Each of the three is therefore counted separately against real product code.
+        // These are floors on shapes, not on a churning literal -- they fail if reflection stops
+        // agreeing with the IL key format for that shape, which is the failure this cannot survive.
         Assert.NotEmpty(hierarchyEdges);
+        Assert.True(resolvedExplicit > 0, "No explicit interface implementation resolved to an IL key.");
+        Assert.True(resolvedInherited > 0, "No inherited interface implementation resolved to an IL key.");
+        Assert.True(resolvedGeneric > 0, "No constructed-generic interface slot resolved to an IL key.");
 
         foreach (var (callerKey, calleeKey) in hierarchyEdges)
             AddEdge(calleeKey, callerKey);

@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Twelve routes into the same defect
+### Thirteen routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twelve different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and thirteen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -123,8 +123,34 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A helper in another assembly does the reflecting on the scanner's behalf | the pin walks *forward* over the whole product closure, not just `Sections` |
 | `Delegate.CreateDelegate` names the target with a **string**, so there is no `ldftn` to follow and `System.Delegate` is neither `Type` nor `Activator` | the allowed BCL **type** surface is pinned, so any late-binding type is new |
 | The opener is called through an **interface or virtual member**, so the reverse walk dead-ends at the implementation | hierarchy edges from each product ancestor member to its implementations |
+| The implementation cannot be *named* from the interface member — an explicit implementation, one inherited from a base class, or a constructed generic interface | ancestor/implementation pairs come from `GetInterfaceMap`, plus construction edges from the concrete type's constructors |
 
-That the enumeration reached twelve is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached thirteen is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+
+The thirteenth is the most instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
+
+- an **explicit** implementation is named `Ns.IFace.Open`, not `Open`;
+- an **inherited** implementation is declared on a *sibling* ancestor the derived type never mentions;
+- a **constructed generic** interface member is not a graph node at all.
+
+`Type.GetInterfaceMap` answers the first two exactly — it reports whichever member occupies each interface slot, however named and wherever declared — but it cannot help with the third, and that distinction is the point. A `callvirt` on `IOpener<string>::Open` goes through a `MemberRef` on a `TypeSpec`, which `DirectCalls` does not record, so the interface member has no incoming edge and an edge *out* of it dead-ends immediately. This is the same missing-edge blind spot as the constructed generic and the iterator state machine, arriving a third time in a new disguise.
+
+The second mechanism is therefore independent of dispatch entirely: **an instance member cannot be dispatched to without an instance, and the `newobj` that creates one is a recorded edge.** Construction edges run from the concrete type's constructors to every member occupying an interface slot — which also covers the inherited case, since it is the *derived* type that gets constructed.
+
+Neither mechanism subsumes the other, and each has a witness that the other cannot catch:
+
+| Mechanism | Witness that it is load-bearing |
+| --- | --- |
+| ancestor edges (`GetInterfaceMap`) | a `static abstract` interface member dispatched through a generic constraint — nothing is ever constructed |
+| construction edges | a constructed-generic interface — the `callvirt` edge does not exist |
+
+Removing either loop turns exactly its own witness green and leaves the other six shapes red. That is why both are kept, and it was measured rather than assumed.
+
+Two method points from this round generalize:
+
+**No key is ever built from reflection.** Reflection reports members; the graph is keyed by IL signatures. Rebuilding an IL parameter display string from a `ParameterInfo` is exactly the silent mismatch that leaves an edge set empty while looking correct. Instead every IL-derived key is indexed under a coarse tuple reflection can also produce — declaring type, member name, parameter count, generic arity — and a reflection pair is resolved by looking *both ends* up in that index, so matching is always IL key against IL key. Where the coarse tuple is ambiguous every match is linked, which can only make the gate redder.
+
+**`Assert.NotEmpty` was the wrong non-vacuity guard, and review said so before it failed.** The product contains plenty of ordinary interface implementations, so the edge list stays non-empty even when the three shapes that defeated the previous version resolve to nothing — the assertion proved the code ran, not that it worked. Each shape is now counted separately against real product code and asserted to be non-zero. Those are floors on *shapes*, not on a churning literal: they fail precisely when reflection stops agreeing with the IL key format for that shape.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
