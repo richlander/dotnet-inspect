@@ -20,8 +20,8 @@ env:
 # The group keys on the pull request *number*, not `github.head_ref`. Branch
 # names are not unique across forks, so two PRs both branched as `patch-1`
 # would share a group and cancel each other. That was merely wasteful while CI
-# was advisory; now that `ci-required` gates merges, the loser's required check
-# would land as `cancelled` and block that PR until someone re-ran it by hand.
+# was advisory; once `ci-required` is required, the loser's check would land as
+# `cancelled` and block that PR until someone re-ran it by hand.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
