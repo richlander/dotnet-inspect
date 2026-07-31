@@ -295,7 +295,7 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections)
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
             return;
 
@@ -1010,7 +1010,7 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.Select, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);

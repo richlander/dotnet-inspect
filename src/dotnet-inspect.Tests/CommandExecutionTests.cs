@@ -7736,28 +7736,24 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Bare <c>-S</c> and the <c>@Default</c> pole are different requests, and on a pipeline that
-    /// still publishes the pole that difference is visible. Bare <c>-S</c> asks for the command's
-    /// default preset — the network-free fixed overview, which is broader than the Info sections
-    /// alone. <c>@Default</c> is a category, so it resolves to exactly its members. They used to
-    /// be indistinguishable because bare <c>-S</c> was encoded as the literal string
-    /// <c>"@Default"</c>, which is what let a hand-typed pole inherit preset-only behavior (#3547).
+    /// The default preset is reached only through bare <c>-S</c>. <c>@Default</c> was a computed
+    /// pole that restated what bare <c>-S</c> already meant, so it is gone — including on
+    /// pipelines that still publish <c>@All</c>. Bare <c>-S</c> keeps rendering the broader
+    /// network-free fixed overview, which the pole never matched anyway (#3547).
     /// </summary>
     [Fact]
-    public async Task LibraryCommand_BareSelect_IsNotTheSameRequestAsTheDefaultPole()
+    public async Task LibraryCommand_DefaultPole_IsNotResolvable()
     {
-        var (bareExit, bareOutput, _) = await RunAppAsync("library", "System.Text.Json", "-S");
-        var (poleExit, poleOutput, _) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
+        var (bareExit, bareOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
+        var (poleExit, poleOutput, poleError) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
+
+        Assert.Equal(1, poleExit);
+        Assert.Contains("'@Default' not found", poleError, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", poleOutput);
 
         Assert.Equal(0, bareExit);
-        Assert.Equal(0, poleExit);
-
-        // The pole resolves to its category members and stops there.
-        Assert.Contains("## Library Info", poleOutput);
-        Assert.DoesNotContain("## Signals", poleOutput);
-        Assert.DoesNotContain("## Symbols", poleOutput);
-
-        // The preset reaches further, so the two cannot be collapsed.
+        Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
+        Assert.Contains("## Library Info", bareOutput);
         Assert.Contains("## Signals", bareOutput);
         Assert.Contains("## Symbols", bareOutput);
     }
@@ -10937,7 +10933,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The package command drops the computed <c>@All</c> and <c>@Default</c> poles
+    /// The package command drops the computed <c>@All</c> pole
     /// (<see cref="DotnetInspector.Sections.SectionPipeline{TModel}.WithoutComputedPoles"/>):
     /// its sections are reachable by name, by topical door, and by verbosity, so a pole that
     /// renders a superset nobody asked for is a surface no discovery output describes. This is
@@ -10953,10 +10949,8 @@ public partial class CommandExecutionTests
             Assert.Equal(1, allExit);
             Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            // @Default is dropped by the same call, so it must not resolve on its own either.
-            // It used to, because bare -S was encoded as the literal string "@Default" and the
-            // command short-circuited on that encoding — which made a hand-typed pole
-            // indistinguishable from the marker and so silently exempt from the drop (#3547).
+            // @Default is gone everywhere, not just here: it restated what bare -S already means
+            // and had no spelling worth keeping (#3547).
             var (defaultExit, defaultOutput, defaultError) = await RunAppAsync("package", packagePath, "-S", "@Default");
             Assert.Equal(1, defaultExit);
             Assert.Contains("'@Default' not found", defaultError, StringComparison.Ordinal);
