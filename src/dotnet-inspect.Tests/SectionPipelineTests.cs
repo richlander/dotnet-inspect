@@ -1883,20 +1883,46 @@ public class SectionPipelineTests
         // This uses the repository's own IL analysis over its own compiled assemblies, because no
         // seam can intercept a static call.
         //
-        // Two assemblies, not one. The GPT re-review of ca1ac260 escaped the single-assembly
-        // version of this gate with ordinary typed code: a NetworkFree scanner calling
-        // LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath). That helper lives in
-        // ILInspector.Analysis and opens the index internally, so this assembly's call graph shows
+        // Every product assembly, not a hand-picked few. The GPT re-review of ca1ac260 escaped the
+        // single-assembly version of this gate with ordinary typed code: a NetworkFree scanner
+        // calling LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath). That helper lives in
+        // ILInspector.Analysis and opens the index internally, so the CLI's own call graph shows
         // nothing but a call to a method it knows nothing about -- and the real CLI did 5.1 s of
-        // undeclared work with both claims below still green. Merging the analysis assembly's
-        // graph in is what makes such a call visible as a call to an opener.
-        var assemblyPaths = new[]
-        {
-            typeof(ScannerRegistry).Assembly.Location,
-            typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location,
-        };
+        // undeclared work with both claims below still green.
+        //
+        // Merging in a named second assembly fixed that instance and left the shape of it intact:
+        // the MAI re-review pointed at ILInspector.Research, which opens an index in
+        // AnalysisIndexCache.ForPath and ResearchDiff. So the assembly set is not listed here at
+        // all. It is *derived* as the product reference closure of the CLI, which means a new
+        // product assembly enters this gate by being referenced rather than by someone remembering
+        // to add it. Deriving it also excludes test-support assemblies such as
+        // DotnetInspector.Fixtures for a reason rather than by an exception: the CLI does not
+        // reference them, so a fixture that opens an index cannot pad the pinned set below.
+        static bool IsProductAssembly(string? name)
+            => name is not null
+                && (name.StartsWith("ILInspector.", StringComparison.Ordinal)
+                    || name.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                    || name == "dotnet-inspect");
 
-        var calls = assemblyPaths
+        var productAssemblies = new Dictionary<string, System.Reflection.Assembly>(StringComparer.Ordinal);
+        var toVisit = new Queue<System.Reflection.Assembly>();
+        toVisit.Enqueue(typeof(ScannerRegistry).Assembly);
+        while (toVisit.Count > 0)
+        {
+            var assembly = toVisit.Dequeue();
+            if (!productAssemblies.TryAdd(assembly.GetName().Name!, assembly))
+                continue;
+
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                if (IsProductAssembly(reference.Name))
+                    toVisit.Enqueue(System.Reflection.Assembly.Load(reference));
+            }
+        }
+
+        var calls = productAssemblies.Values
+            .Select(assembly => assembly.Location)
+            .OrderBy(location => location, StringComparer.Ordinal)
             .SelectMany(path => ILInspector.Analysis.LibraryBodyIndex.Open(path).DirectCalls)
             .ToList();
 
@@ -1992,6 +2018,8 @@ public class SectionPipelineTests
                 "ILInspector.Analysis.LibraryBodyIndex::Open(string)",
                 "ILInspector.Analysis.LibraryBodyIndex::Open(string,IAssemblyReferenceResolver,bool,bool,IReadOnlySet<int>,Func<TypeRef, bool>)",
                 "ILInspector.Analysis.ResourceLifecycleAnalysis+<>c__DisplayClass0_0::<InspectAssembly>b__0()",
+                "ILInspector.Research.AnalysisIndexCache::ForPath(string)",
+                "ILInspector.Research.ResearchDiff+<BodyIndexEntries>d__26::MoveNext()",
             ],
             openerKeys);
 
@@ -2042,14 +2070,21 @@ public class SectionPipelineTests
         // The walk must be able to see openers, or Assert.Empty passes by finding nothing.
         Assert.NotEmpty(openerKeys);
 
-        // The second assembly must actually be in the graph. If it silently failed to merge, the
-        // cross-assembly claim would evaporate and everything above would still pass.
-        Assert.Contains(
-            definedKeys,
-            key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
+        // The closure must actually be a closure. If it collapsed to the CLI alone, or quietly
+        // stopped at one hop, the cross-assembly claim would evaporate while everything else still
+        // passed. ILInspector.Research is the useful witness: nothing in the CLI names it in this
+        // test, it is reached only by following references, and it owns two of the pinned openers.
+        Assert.Contains("ILInspector.Analysis", productAssemblies.Keys);
+        Assert.Contains("ILInspector.Research", productAssemblies.Keys);
         Assert.Contains(
             openerKeys,
-            key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
+            key => key.StartsWith("ILInspector.Research.", StringComparison.Ordinal));
+
+        // And it must stay a *product* closure. DotnetInspector.Fixtures sits in the same output
+        // directory and matches the same name prefix, so a directory scan would sweep it in and
+        // let test-support code pad the pinned set. It is absent because the CLI does not
+        // reference it, which is the property worth pinning rather than an exclusion list.
+        Assert.DoesNotContain("DotnetInspector.Fixtures", productAssemblies.Keys);
 
         // Both gated members must still exist under these exact signatures. A rename or an added
         // parameter would silently stop matching, turning the cut into a no-op -- which happens to
@@ -2062,10 +2097,10 @@ public class SectionPipelineTests
         // opener. If it stopped reaching one, cutting there would prove nothing about Sections.
         Assert.NotEmpty(gatesOnAPath);
 
-        // Boundary, stated rather than implied. This walk sees these two assemblies, so a helper
-        // that opens an index from some third assembly would be invisible, as are reflection and
-        // interface dispatch that never resolves to a definition. Those residual routes are
-        // unverified, not closed.
+        // Boundary, stated rather than implied. This walk sees the CLI's product reference
+        // closure, so code that never enters that closure -- reflection, and interface dispatch
+        // that never resolves to a definition -- remains **unverified, not closed**. What is no
+        // longer a boundary is the assembly: a helper anywhere in the product is in scope.
         //
         // What is *not* an open edge any more is the unscoped caller. An earlier revision of this
         // comment said the cut asserts only that sections route through the accessor, and that a

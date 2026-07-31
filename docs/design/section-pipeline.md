@@ -123,13 +123,16 @@ The third is worth stating plainly because the original code looked defensive: `
 
 The fourth is the only one no seam can intercept. `ctx.AssemblyPath` is a `string`, and a static `LibraryBodyIndex.Open(path)` call bypasses `RequireUnboundedDeclaration` entirely while doing the same seconds of whole-assembly work. Unlike deliberate subversion through `ImmutableCollectionsMarshal`, this route is reachable from ordinary code, so it is a genuine drift path.
 
-`NoSectionReachesTheBodyIndexExceptThroughTheGatedAccessor` closes it by running this repository's own IL analysis over its own compiled assemblies. Getting it right took four attempts, and the three failures are worth recording because all three looked convincing:
+`NoSectionReachesTheBodyIndexExceptThroughTheGatedAccessor` closes it by running this repository's own IL analysis over its own compiled assemblies. Getting it right took five attempts, and the four failures are worth recording because all four looked convincing:
 
 1. **Direct callers only.** The first version asserted that no caller of `LibraryBodyIndex.Open` lived in `DotnetInspector.Sections`. Review broke it in one line: scanners already route their work through `LibraryMetadataService`, so a scanner calling a helper *there* that opens an index passed untouched. The gate was checking the one spelling nobody would use.
 2. **Reachability only.** The second version walked the call graph backwards from every opener. Review broke that too, by calling a helper on a **constructed generic type** — `Helper<int>.Open()` goes through a `MemberRef` on a `TypeSpec`, and `DirectCalls` records *no edge at all* for it. Not a wrong edge: no edge. No backwards walk can find a caller that the graph does not contain. A static constructor is invisible for a second reason — the CLR runs a type initializer on first use and no IL instruction references it.
 3. **One assembly, and keyed by name.** The third version pinned the openers, which fixed the graph problem, but pinned them by `Type::Method` within `dotnet-inspect` alone. Both halves of that were escapable: a second overload of an already-pinned opener collapsed into its sibling, and a helper in `ILInspector.Analysis` was outside the graph entirely.
+4. **A hand-listed assembly set.** The fourth version merged in the assembly whose helper had just been used to escape it. That fixed the instance and left the shape: review pointed at a third assembly the next round. The set had to stop being a list and start being derived.
 
 The generalizable move is in the second failure: when a gate keeps being escaped, check whether the evidence it rests on can even *see* the escape. Two rounds went into improving matching inside a graph that structurally lacked the edge. Prefer a claim over a **declared set** to a claim over a **derived relation**, because the set fails closed when the analysis is incomplete.
+
+The fourth adds a second habit: when a fix names the specific thing that was just used against you, ask whether the *category* is enumerable, and derive it if so. `ILInspector.Analysis` was the escape; product assemblies were the category.
 
 So the gate now leads with a claim that does not depend on the call graph being complete: **the set of methods that open a body index is pinned**, and pinned by *signature* rather than by name. Every escape of that kind has to *add* an opener, and an opener is visible however it is reached.
 
@@ -141,9 +144,11 @@ Cutting the walk at the accessor is what keeps it precise. Without the cut it re
 
 Its boundary used to be the assembly, and that boundary was a live hole rather than a theoretical one. A `NetworkFree` scanner calling `LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath)` left both claims green while the real CLI spent 5.1 s building an index — ordinary typed code, not subversion, because `ILInspector.Analysis` opens the index *inside* a helper this assembly's call graph knows nothing about. The gate had named that boundary and called it unverified; naming it was not enough.
 
-Both claims now run over the merged call graph of `dotnet-inspect` **and** `ILInspector.Analysis`, so such a helper is visible as what it is: a call to an opener. `LeakTriageAnalyzer.AnalyzeAssemblyDetailed` and `ResourceLifecycleAnalysis`'s opening overload are pinned openers alongside the CLI's own, and a test asserts the second assembly is actually in the graph — without it, a silent failure to merge would empty the cross-assembly claim while everything else still passed.
+Naming a *second* assembly was not enough either, and for a reason worth keeping: it fixed the instance rather than the shape. Review promptly pointed at a third — `ILInspector.Research` opens an index in `AnalysisIndexCache.ForPath` and in `ResearchDiff`. So the gate now lists no assemblies at all. The set is **derived as the product reference closure of the CLI**, walked from `dotnet-inspect` through every referenced `ILInspector.*`/`DotnetInspector.*` assembly, which means a new product assembly enters this gate by being referenced rather than by someone remembering to add it.
 
-What remains outside is a helper in some *third* assembly, plus reflection and interface dispatch that never resolves to a definition. Those are **unverified, not closed**, and the gate says so where it is written.
+Deriving it also settles a question a directory scan would get wrong. `DotnetInspector.Fixtures` sits in the same output directory and matches the same name prefix, so a glob would sweep test-support code into the pinned opener set. The closure excludes it because the CLI does not reference it — a property, not an exception, and one the gate asserts.
+
+What remains outside is reflection and interface dispatch that never resolves to a definition. Those are **unverified, not closed**, and the gate says so where it is written.
 
 ### Work that belongs to no scanner cannot be afforded
 
