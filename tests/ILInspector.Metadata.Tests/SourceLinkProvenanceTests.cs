@@ -1373,6 +1373,14 @@ public class SourceLinkProvenanceTests
         $"https://raw.githubusercontent.com/owner/re%e2%80%aepo/{Sha}/*",
         $"https://raw.githubusercontent.com/ow\u202Ener/repo/{Sha}/*",
         $"https://raw.githubusercontent.com/ow\u0007ner/repo/{Sha}/*",
+        // Raw, not percent-encoded. Every original row here was an escape, which is why the
+        // round-17 bypass — a live U+2066 in a host label — walked past this gate.
+        $"https://a\u2066ccount.visualstudio.com/project/_apis/git/repositories/core/items?versionType=commit&version={Sha}&path=/*",
+        $"https://a\u200Bccount.visualstudio.com/project/_apis/git/repositories/core/items?versionType=commit&version={Sha}&path=/*",
+        $"https://a\u00ADccount.visualstudio.com/project/_apis/git/repositories/core/items?versionType=commit&version={Sha}&path=/*",
+        $"https://a\u202Eccount.visualstudio.com/project/_apis/git/repositories/core/items?versionType=commit&version={Sha}&path=/*",
+        $"https://dev.azure.com/o\u2066rg/project/_apis/git/repositories/repo/items?versionType=commit&version={Sha}&path=/*",
+        $"https://raw.githubusercontent.com/ow\u2066ner/repo/{Sha}/*",
         // Azure: the organization, the repository, and the host prefix all reach it.
         $"{AzureRepositories}repo/items?path=/*&versionType=commit&version={Sha}"
             .Replace("dev.azure.com/org", "dev.azure.com/or%1bg", StringComparison.Ordinal),
@@ -1404,7 +1412,90 @@ public class SourceLinkProvenanceTests
         int established = HostileOriginUrlRows
             .Count(url => Determine(MapFor(url), "/_/A.cs").IsEstablished);
 
-        Assert.InRange(established, 5, 8);
+        Assert.True(
+            established >= 5,
+            $"only {established} of {HostileOriginUrlRows.Length} rows establish, so the scalar " +
+            "gate is mostly asserting nothing");
+    }
+
+    /// <summary>
+    /// Pins where the query ends when a URL carries a fragment.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A fragment is never sent, so a wildcard inside one varies the map's text while every
+    /// document fetches whatever the real <c>path</c> names — the round-14 and round-15 defect
+    /// in a third spelling. It is refused, though by the matcher rather than here: the resolver
+    /// declines the URL before provenance is asked, which is why the reason names resolution.
+    /// </para>
+    /// <para>
+    /// Round 17 questioned whether simplifying <c>TrySpanOfQueryValue</c>'s fragment bound
+    /// changed behaviour. In isolation the two spellings do differ, on a URL carrying a <c>#</c>
+    /// both before and after the <c>?</c>; through the product they cannot, because a <c>#</c>
+    /// before the <c>?</c> puts the whole query in the fragment, leaving no <c>version</c> and
+    /// so no origin. This pins the reachable boundary from both sides rather than leaving that
+    /// argument as prose.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // A wildcard confined to the fragment selects nothing that is ever transmitted.
+    [InlineData("&path=/x#/*", false)]
+    // A wildcard in 'path' is unaffected by a fragment that follows it.
+    [InlineData("&path=/*#frag", true)]
+    [InlineData("&path=/*", true)]
+    public void AFragment_DoesNotExtendTheQueryTheSubstitutionMustLandIn(string tail, bool established)
+    {
+        string url =
+            $"{AzureItems}versionType=commit&version={Sha}{tail}";
+
+        var result = Determine(MapFor(url), "/_/A.cs", "/_/B.cs");
+
+        Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// Pins the round-17 bypass: a live format character in a host label is refused outright.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Uri.Host</c> does not escape the way <c>Uri.AbsolutePath</c> does. A raw <c>U+2066</c>
+    /// in an <c>account.visualstudio.com</c> label survives into <c>Uri.Host</c> unchanged,
+    /// passes the <c>.visualstudio.com</c> suffix rule, and — before this — reached the reported
+    /// repository URL as a live bidi control. The inertness gate did not catch it because every
+    /// row it had was a <em>percent-encoded</em> escape, and those really are neutralized by the
+    /// path reader; the raw form was the case nobody had written down.
+    /// </para>
+    /// <para>
+    /// The rule is refusal, not encoding, so this asserts the origin is refused rather than that
+    /// it is reported inertly. No legitimate repository needs a bidi control in its name, and
+    /// the threat model settles on reject-don't-sanitize.
+    /// </para>
+    /// <para>
+    /// <c>U+202E</c> is deliberately absent from the refused rows: <see cref="Uri"/> normalizes
+    /// it out of a host before this code sees it, so asserting a refusal for it would pin
+    /// someone else's behaviour and would start failing if that normalization changed. The
+    /// inertness gate covers it instead.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("\u2066", "U+2066")]  // LEFT-TO-RIGHT ISOLATE, the Trojan Source class
+    [InlineData("\u200B", "U+200B")]  // ZERO WIDTH SPACE
+    [InlineData("\u00AD", "U+00AD")]  // SOFT HYPHEN
+    public void ALiveFormatCharacterInAHostLabel_IsNotAttributable(string scalar, string expected)
+    {
+        string url =
+            $"https://a{scalar}ccount.visualstudio.com/project/_apis/git/repositories/core/items"
+            + $"?versionType=commit&version={Sha}&path=/*";
+
+        var result = Determine(MapFor(url), "/_/A.cs");
+
+        Assert.False(result.IsEstablished);
+
+        // The reason names the code point and the component, never the value: a message that
+        // reproduced the character would carry the hazard onto the diagnostic channel.
+        Assert.Contains(expected, result.Reason, StringComparison.Ordinal);
+        Assert.Contains("host", result.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(scalar, result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>

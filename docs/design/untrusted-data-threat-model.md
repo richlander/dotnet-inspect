@@ -310,6 +310,16 @@ one that was here, and it had gone stale by two.
   GitHub's index. A port other than the scheme's default is refused; an explicit
   `:443` is the same origin and stays accepted. Neither generator emits a port
   for these hosts, so nothing generated is refused.
+- The reported origin is itself artifact text, and one component of it is not
+  escaped by the parser. `Uri.AbsolutePath` neutralizes a hostile path segment
+  by leaving its percent-escape escaped, but `Uri.Host` does not: a raw `U+2066`
+  in `a<U+2066>ccount.visualstudio.com` survives into `Uri.Host`, passes the
+  `.visualstudio.com` suffix rule, and reached the rendered `RepositoryUrl` as a
+  live bidi control — a Trojan Source code point aimed at the reader's terminal
+  rather than at the fetch. `TryCheckOriginTextIsInert` now refuses any origin
+  component carrying `Cc`, `Cf`, `Cs`, `Zl` or `Zp`, at one choke point after
+  any origin is read, so a future host reader inherits the rule. Gated by
+  `SourceLinkProvenanceTests.ALiveFormatCharacterInAHostLabel_IsNotAttributable`.
 
 Two consequences are deliberate scope, not gaps, and are gated as decisions so
 that changing them is visible:
@@ -333,7 +343,7 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Gates. `SourceLinkProvenanceTests` covers all twenty as named tests, plus the
+Gates. `SourceLinkProvenanceTests` covers all twenty-one as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason. Where a refusal has more than one possible
 cause, the test asserts the *reason* and not merely that the URL was refused: an
@@ -463,16 +473,35 @@ reported `RepositoryUrl`, which `AssemblyInspector` writes to
 downloaded package's PDB, so a hostile map can aim `ESC`, `CR`/`LF`, or a bidi
 override at it.
 
-It is inert, but **incidentally**. `Uri.AbsolutePath` leaves a percent-escape
-escaped, so `%1b` stays the three characters `%`, `1`, `b`, and a raw `U+202E`
-comes back as `%E2%80%AE`; measured, `https://github.com/ow%1bner/repo` and
-`https://github.com/ow%E2%80%AEner/repo` are what get reported. Nothing declared
-that, which is the shape of a safety property that dies silently — switching to
-`UnescapeDataString`, or to a URL property that decodes, would break it with
-every test green. `AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink`
-is the gate; `TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous`
-pins that its rows still establish, because a gate whose every row is refused
-asserts nothing.
+The **path** components are inert incidentally. `Uri.AbsolutePath` leaves a
+percent-escape escaped, so `%1b` stays the three characters `%`, `1`, `b`, and a
+raw `U+202E` comes back as `%E2%80%AE`; measured,
+`https://github.com/ow%1bner/repo` and `https://github.com/ow%E2%80%AEner/repo`
+are what get reported.
+
+The **host** is not, and assuming otherwise was a real bypass (round 17,
+twenty-first entry). `Uri.Host` does not escape the way `Uri.AbsolutePath` does:
+a raw `U+2066` in an `account.visualstudio.com` label survives into `Uri.Host`
+unchanged, passes the `.visualstudio.com` suffix rule, and reached the reported
+URL as a live bidi control — one of the code points `rustc` made a hard error
+after Trojan Source. The first gate written for this missed it because every row
+it had was a *percent-encoded* escape, and those really are neutralized by the
+path reader; nobody had written down the raw form.
+
+So the rule is no longer "the readers happen to escape". `TryCheckOriginTextIsInert`
+refuses, at a single choke point after any origin is read, an origin any of whose
+components carries a scalar in `Cc`, `Cf`, `Cs`, `Zl` or `Zp` — by category, not
+by a list, because `Cf` is what a list misses. Refusal rather than encoding
+follows the strategy above: no legitimate repository needs a bidi control in its
+name. The rejection names the component and the code point and never the value,
+so the diagnostic channel does not carry the hazard it is reporting.
+
+The gates: `ALiveFormatCharacterInAHostLabel_IsNotAttributable` pins the refusal,
+`AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink` pins that anything
+still reported is inert, and
+`TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous` pins that its
+rows still establish, because a gate whose every row is refused asserts nothing.
+Disabling the check fails six of them.
 
 `SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
 Its messages quote artifact text throughout — the query, the path, the host, a

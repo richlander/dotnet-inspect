@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Reflection.Metadata;
 
@@ -139,6 +140,13 @@ public static class SourceLinkProvenance
             resolvedCount++;
 
             if (!TryReadOrigin(url, out SourceLinkOrigin origin, out string rejection))
+            {
+                return new SourceLinkProvenanceResult(
+                    null,
+                    $"a resolved source URL has no attributable origin: {rejection}");
+            }
+
+            if (!TryCheckOriginTextIsInert(origin, out rejection))
             {
                 return new SourceLinkProvenanceResult(
                     null,
@@ -336,6 +344,107 @@ public static class SourceLinkProvenance
             "document text is substituted outside it, so every document resolves to the same file";
         return false;
     }
+
+    /// <summary>
+    /// Refuses an origin whose own text carries a scalar that can act on whatever displays it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The reported origin is artifact text: it is assembled from a URL that came out of a
+    /// downloaded package's PDB, and <c>AssemblyInspector</c> renders <c>RepositoryUrl</c>. So a
+    /// hostile map can aim a terminal escape or a bidi override at the reader unless something
+    /// stops it.
+    /// </para>
+    /// <para>
+    /// Most components are inert by accident rather than by rule. <see cref="Uri.AbsolutePath"/>
+    /// leaves a percent-escape escaped, so <c>%1b</c> stays the three characters <c>%</c>,
+    /// <c>1</c>, <c>b</c>, and a raw <c>U+202E</c> in a path segment comes back as
+    /// <c>%E2%80%AE</c>. <see cref="Uri.Host"/> does not do that: a raw <c>U+2066</c> in a
+    /// <c>*.visualstudio.com</c> label survives into <see cref="Uri.Host"/> unchanged, is
+    /// accepted by the suffix rule, and reaches the reported URL as a live bidi control. That
+    /// was a real bypass, found in round 17, and it is why this is a rule at the choke point
+    /// rather than a property each reader is trusted to preserve.
+    /// </para>
+    /// <para>
+    /// This refuses rather than encodes, because that is the strategy the threat model settles
+    /// on: an encoder has to be right about the whole set of dangerous forms and is silent when
+    /// it is wrong, and no legitimate origin needs a control character in its name. Encoding
+    /// belongs on the presentation path, where text that must be shown is made inert; here the
+    /// text does not have to be shown at all.
+    /// </para>
+    /// <para>
+    /// Refused by Unicode general category rather than by a list of characters. A list written
+    /// against terminal escapes misses <c>Cf</c>, which is where every Trojan Source code point
+    /// (CVE-2021-42574) lives — including <c>U+2066</c>, the one that got through.
+    /// </para>
+    /// <para>
+    /// The rejection names the component and the code point, never the value. Reproducing the
+    /// text in a message that may itself be displayed would reintroduce the problem on the
+    /// diagnostic channel, and for a homoglyph the code point says strictly more than the
+    /// character does.
+    /// </para>
+    /// </remarks>
+    private static bool TryCheckOriginTextIsInert(SourceLinkOrigin origin, out string rejection)
+    {
+        // Every component, not only the rendered URL: a caller may report any of them, and the
+        // identity used as a cache key is built from them too.
+        (string Name, string Value)[] components =
+        [
+            ("host", origin.Host),
+            ("organization", origin.Organization),
+            ("repository", origin.Repository),
+            ("revision", origin.Revision),
+            ("repository URL", origin.RepositoryUrl),
+        ];
+
+        foreach ((string name, string value) in components)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+
+            int index = 0;
+
+            foreach (Rune scalar in value.EnumerateRunes())
+            {
+                if (IsNonGraphic(scalar))
+                {
+                    rejection =
+                        $"the {name} carries U+{scalar.Value:X4} " +
+                        $"({Rune.GetUnicodeCategory(scalar)}) at index {index}, which can act on " +
+                        "whatever displays it";
+                    return false;
+                }
+
+                index += scalar.Utf16SequenceLength;
+            }
+        }
+
+        rejection = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Reports whether <paramref name="scalar"/> falls in a category that can act on a sink.
+    /// </summary>
+    /// <remarks>
+    /// <c>Cc</c> reaches terminal control sequences, <c>Cf</c> reaches the bidi algorithm and
+    /// carries the Trojan Source set, <c>Cs</c> breaks UTF-8 conversion, and <c>Zl</c>/<c>Zp</c>
+    /// reach line-oriented consumers. This is what <c>InertText.TextPolicy.Field</c> will own
+    /// once it lands (#3563); it is spelled out here because this assembly cannot depend on an
+    /// unmerged library, and it is defined by category rather than by a list so that the two
+    /// cannot drift in what they mean.
+    /// </remarks>
+    private static bool IsNonGraphic(Rune scalar)
+        => Rune.GetUnicodeCategory(scalar) switch
+        {
+            UnicodeCategory.Control => true,
+            UnicodeCategory.Format => true,
+            UnicodeCategory.Surrogate => true,
+            UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator => true,
+            _ => false,
+        };
 
     /// <summary>
     /// Returns the index just past the URL's authority in its raw text, so that offsets into the
