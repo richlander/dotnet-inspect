@@ -28,7 +28,47 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class LibraryCommand
 {
+    /// <summary>
+    /// Discovery must know which metadata tables carry rows, or the whole <c>@Metadata</c> category
+    /// filters out of the catalog: its sections are explicit-only, so no verbosity requests them,
+    /// and their applicability is the scanned row count. The scan is deliberately the cheap half of
+    /// the lens — table row counts, never rows — so listing the category accurately costs a header
+    /// read rather than a projection.
+    ///
+    /// Passed into <see cref="SectionPipeline.GetRequiredScanners"/> rather than added to its result,
+    /// so the one method that computes the requested set is also the one that records it.
+    /// </summary>
+    private static readonly (string Reason, string Scanner)[] DiscoveryScanners =
+        [("discovery catalog", LibrarySections.ScannerMetadata)];
+
     public static async Task<int> ExecuteAsync(LibraryOptions options)
+    {
+        if (!options.Trace)
+            return await ExecuteCoreAsync(options, trace: null);
+
+        // Rendered in a finally so a failed run still reports the work it did before failing —
+        // which is exactly when "what did this actually scan?" is worth knowing.
+        var trace = new InspectionTrace
+        {
+            Command = "library",
+            Target = Path.GetFileName(
+                options.AssemblyName
+                    ?? options.PackagePath
+                    ?? options.PlatformAssembly
+                    ?? string.Empty),
+        };
+
+        try
+        {
+            return await ExecuteCoreAsync(options, trace);
+        }
+        finally
+        {
+            Console.Error.Write(trace.Render());
+        }
+    }
+
+    private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
         var pipeline = LibrarySections.CreatePipeline();
@@ -276,16 +316,11 @@ public class LibraryCommand
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
         // Compute which scanners are needed for the requested sections
+        if (trace is not null)
+            trace.Verbosity = options.Verbosity.ToString();
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview);
-
-        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
-        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
-        // them, and their applicability is the scanned row count. The scan is deliberately the
-        // cheap half of the lens -- table row counts, never rows -- so listing the category
-        // accurately costs a header read rather than a projection.
-        if (effectiveDiscovery)
-            scanners.Add(LibrarySections.ScannerMetadata);
+            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
+            effectiveDiscovery ? DiscoveryScanners : null);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -354,7 +389,7 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
+                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
@@ -436,7 +471,7 @@ public class LibraryCommand
                 // Inspect all assemblies
                 var inspections = await CollectPackageInspectionsAsync(
                     assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery);
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
                 {
@@ -508,7 +543,7 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
+                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
@@ -1934,7 +1969,7 @@ public class LibraryCommand
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
-        bool discoveryOnly = false)
+        bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
 
@@ -1942,7 +1977,7 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly);
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly, trace: trace);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");

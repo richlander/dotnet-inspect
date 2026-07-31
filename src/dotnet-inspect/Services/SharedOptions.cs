@@ -31,6 +31,7 @@ public class SharedOptions
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
+    public Option<bool> Trace { get; } = new("--trace") { Description = "Report which sections were selected, which scanners ran and for how long, and which expensive resources were built, on stderr" };
     public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options

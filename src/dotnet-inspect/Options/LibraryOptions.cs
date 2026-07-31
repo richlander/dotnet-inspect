@@ -143,6 +143,13 @@ public record LibraryOptions : IProjectionOptions
     public bool Verbose { get; init; }
 
     /// <summary>
+    /// Report the work the run actually did — selected sections, the scanners they demanded, what
+    /// prerequisite expansion added, execution times, and expensive resource acquisition — on
+    /// stderr. Diagnostic only: stdout is unchanged, so a caller parsing the document is unaffected.
+    /// </summary>
+    public bool Trace { get; init; }
+
+    /// <summary>
     /// Output verbosity level.
     /// </summary>
     public Verbosity Verbosity { get; init; } = Verbosity.Normal;
