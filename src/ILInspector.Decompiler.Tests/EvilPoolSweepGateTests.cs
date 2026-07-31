@@ -83,8 +83,7 @@ public class EvilPoolSweepGateTests
 
         // The pool is only reproducible if what the sweep reports is what it wrote.
         Assert.Equal(pooled, File.ReadAllText(world.PooledListPath).Trim());
-        var manifested = JsonNode.Parse(File.ReadAllText(world.ManifestPath))!;
-        var entry = manifested["Packages"]!.AsArray()[0]!;
+        var entry = world.ReportedEntry(sweep);
         Assert.Equal("selected", entry["Status"]!.GetValue<string>());
         Assert.Equal(world.FixtureSha256, entry["Sha256"]!.GetValue<string>());
 
@@ -248,9 +247,16 @@ public class EvilPoolSweepGateTests
             Assert.Empty(PooledAssemblies(world.OutputDirectory));
 
             // Reported as this package failing, not as a pool that was simply smaller.
-            var manifested = JsonNode.Parse(File.ReadAllText(world.ManifestPath))!;
-            Assert.Equal(0, manifested["SelectedPackageCount"]!.GetValue<int>());
-            Assert.NotEqual("selected", manifested["Packages"]!.AsArray()[0]!["Status"]!.GetValue<string>());
+            Assert.Equal(0, world.ReportedManifest(sweep)["SelectedPackageCount"]!.GetValue<int>());
+            Assert.NotEqual("selected", world.ReportedStatus(sweep));
+
+            // The other half of the delta's own claim: this failure happens before the
+            // temporary exists, so the sweep must say so rather than report a cleanup it
+            // never performed. Without this, a sweep whose "did I create one" flag was
+            // stuck true reported "removed" here -- File.Delete swallows a missing file
+            // even in a directory it could not have written -- and nothing in the class
+            // read the value that would have said otherwise.
+            Assert.Equal("none", world.ReportedWriteTemporary(sweep));
         }
         finally
         {
@@ -296,11 +302,31 @@ public class EvilPoolSweepGateTests
     /// did create its temporary as one that never did. Measured here, reproducibly.</para>
     ///
     /// <para>So the sweep says what became of it instead, in the manifest, beside the
-    /// staging-directory cleanup it already reported: <c>removed</c> against <c>none</c>
-    /// separates a cleanup that ran from one that was never needed, and <c>left-behind</c>
-    /// is the answer an operator actually wants when a failed sweep may have dropped a
-    /// partial assembly in the pool. Deterministic, on every platform, and observable for
-    /// the same reason the rest of this file reads statuses rather than prose.</para>
+    /// staging-directory cleanup it already reported. <c>removed</c> against <c>none</c>
+    /// separates a cleanup that ran from one that was never needed, and both halves are
+    /// gated: this case requires <c>removed</c>, and
+    /// <see cref="ASweepCountsAPackageWhoseCopyFailedAsFailed"/> -- whose write fails
+    /// before the temporary exists -- requires <c>none</c>. Deterministic, on every
+    /// platform, and read for the same reason the rest of this file reads statuses rather
+    /// than prose.</para>
+    ///
+    /// <para><c>left-behind</c> is the third value and is <em>not</em> gated, deliberately
+    /// and not silently. It needs <c>File.Delete</c> to throw on a file <c>CreateNew</c>
+    /// had just made, and on Linux the two need the same directory permission, so no
+    /// black-box case can arrange it. It is worth reporting anyway -- it is the answer an
+    /// operator wants when a failed sweep may have dropped a partial assembly in the pool
+    /// -- but nothing here proves the sweep would say it, and that is stated rather than
+    /// left to read as covered. The set difference in
+    /// <see cref="SweepWorld.AssertNoTemporaryLeftBehind"/> is what actually catches the
+    /// leak; <c>left-behind</c> is how it would be explained.</para>
+    ///
+    /// <para>The value is derived from creation downward -- <c>created ? "left-behind" :
+    /// "none"</c> -- so a cleanup that stopped being called reports a leak rather than
+    /// reporting that no temporary was ever made. That direction is a defensive choice for
+    /// the operator reading the manifest, not a property this gate enforces: reverting it
+    /// leaves every case green, because the two derivations differ only on the
+    /// <c>left-behind</c> path that nothing can reach. Measured, and recorded here so the
+    /// next reader does not mistake the argument for a covered claim.</para>
     /// </summary>
     [Fact]
     public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
@@ -669,7 +695,22 @@ public class EvilPoolSweepGateTests
         /// Asking the row who it is about is what makes the status an answer to the
         /// question the case put.</para>
         /// </summary>
-        public string ReportedStatus((int ExitCode, string Output, string Errors) sweep)
+        public string ReportedStatus((int ExitCode, string Output, string Errors) sweep) =>
+            ReportedEntry(sweep)["Status"]!.GetValue<string>();
+
+        /// <summary>
+        /// The manifest's one row, having established that it is about the package this
+        /// world asked for.
+        ///
+        /// <para>Every read of the manifest goes through here, which is the point. A status
+        /// is a value, not a subject, so a row reporting the right outcome for some other
+        /// package satisfies any reader that takes the value and never asks whose it is --
+        /// measured: rewriting every recorded package name left all nine cases green, and
+        /// after the check was added to the status reader alone it still left two of them
+        /// green, because those two indexed the array themselves. One door, so a case
+        /// cannot get the value without the question having been put.</para>
+        /// </summary>
+        public JsonNode ReportedEntry((int ExitCode, string Output, string Errors) sweep)
         {
             Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
             var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
@@ -681,21 +722,25 @@ public class EvilPoolSweepGateTests
                 recorded == _requestedPackage,
                 Explain(sweep, $"a manifest reporting on '{recorded}' when '{_requestedPackage}' was asked for"));
 
-            return packages[0]!["Status"]!.GetValue<string>();
+            return packages[0]!;
+        }
+
+        /// <summary>The manifest as a whole, for the fields that are not the one row.</summary>
+        public JsonNode ReportedManifest((int ExitCode, string Output, string Errors) sweep)
+        {
+            Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
+            return JsonNode.Parse(File.ReadAllText(ManifestPath))!;
         }
 
         /// <summary>
-        /// What the sweep recorded became of the temporary the failing write went through:
-        /// <c>moved</c>, <c>removed</c>, <c>left-behind</c>, or <c>none</c>.
+        /// What the sweep recorded became of the temporary a failing write went through:
+        /// <c>removed</c>, <c>left-behind</c>, or <c>none</c> -- and <c>null</c> on any row
+        /// that is not a <c>copy-failed</c>, which is the only status the sweep records it
+        /// on. <c>moved</c> is a value the write returns and the manifest never carries,
+        /// because a write that landed has no temporary to account for.
         /// </summary>
-        public string? ReportedWriteTemporary((int ExitCode, string Output, string Errors) sweep)
-        {
-            Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
-            var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
-            var packages = manifested["Packages"]!.AsArray();
-            Assert.True(packages.Count == 1, Explain(sweep, $"a manifest holding {packages.Count} packages"));
-            return packages[0]!["WriteTemporary"]?.GetValue<string>();
-        }
+        public string? ReportedWriteTemporary((int ExitCode, string Output, string Errors) sweep) =>
+            ReportedEntry(sweep)["WriteTemporary"]?.GetValue<string>();
 
         /// <summary>
         /// Replaces the inputs so the sweep is asked for some other package, pinned to
