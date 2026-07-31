@@ -182,7 +182,7 @@ internal static class LibraryMetadataService
                 }
                 catch (Exception ex)
                 {
-                    logger.Log($"Warning: Error opening {path} for scanning: {ex.Message}");
+                    logger.LogWarning($"Error opening {path} for scanning: {ex.Message}");
                     if (inspection.ExtensionMemberInspection is null)
                     {
                         inspection.SetExtensionMemberInspection(
@@ -290,7 +290,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
+            logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
             return null;
         }
     }
@@ -606,7 +606,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
             return new ExtensionMemberScan(
                 FailedInspection<ExtensionMemberObservation>(
                     path, MetadataFindings.ExtensionMemberDescriptor, ex),
@@ -630,7 +630,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning extensions in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
             return new ExtensionMemberScan(
                 FailedInspection<ExtensionMemberObservation>(
                     path, MetadataFindings.ExtensionMemberDescriptor, ex),
@@ -650,7 +650,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
             return ClassifiedMethodScan.FromInspectionOnly(
                 FailedInspection<ClassifiedMethodObservation>(
                     path, MetadataFindings.ClassifiedMethodDescriptor, ex));
@@ -667,7 +667,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning classified methods in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning classified methods in {path}: {ex.Message}");
             return ClassifiedMethodScan.FromInspectionOnly(
                 FailedInspection<ClassifiedMethodObservation>(
                     path, MetadataFindings.ClassifiedMethodDescriptor, ex));
@@ -754,13 +754,13 @@ internal static class LibraryMetadataService
                 .ToList();
 
             foreach (var diagnostic in index.Diagnostics)
-                logger.Log($"Warning: unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
+                logger.LogWarning($"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
 
             return rows.Count > 0 ? rows : null;
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning unsafe members in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning unsafe members in {path}: {ex.Message}");
             return null;
         }
     }
@@ -842,7 +842,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning leverage in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning leverage in {path}: {ex.Message}");
             return null;
         }
     }
@@ -876,8 +876,8 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log(
-                $"Warning: Error building leverage selectors for {context.AssemblyPath}: {ex.Message}");
+            logger.LogWarning(
+                $"Error building leverage selectors for {context.AssemblyPath}: {ex.Message}");
         }
         return map;
 
@@ -946,7 +946,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning optimization opportunities in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning optimization opportunities in {path}: {ex.Message}");
             return null;
         }
     }
@@ -1436,7 +1436,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning OpenTelemetry support in {path}: {ex.Message}");
             return FailedInspection<OpenTelemetrySignalInfo>(
                 path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
         }
@@ -1451,7 +1451,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning ecosystem integrations in {path}: {ex.Message}");
             MarkIntegrationFailuresIfMissing(path, inspection, ex);
         }
     }
@@ -1471,7 +1471,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning integration opportunities in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
             MarkIntegrationFailuresIfMissing(path, inspection, ex);
         }
     }
@@ -1490,7 +1490,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning integration opportunities in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
             MarkIntegrationFailuresIfMissing(path, inspection, ex);
         }
     }
@@ -1508,7 +1508,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning OpenTelemetry support in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning OpenTelemetry support in {path}: {ex.Message}");
             return FailedInspection<OpenTelemetrySignalInfo>(
                 path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
         }
@@ -1527,7 +1527,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning ecosystem integrations in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning ecosystem integrations in {path}: {ex.Message}");
             return FailedInspection<EcosystemIntegrationSignalInfo>(
                 path, MetadataFindings.EcosystemIntegrationDescriptor, ex);
         }
@@ -1547,7 +1547,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
             return FailedInspection<MetadataResource>(
                 path, MetadataFindings.ResourceDescriptor, ex);
         }
@@ -1566,7 +1566,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning resources in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
             return FailedInspection<MetadataResource>(
                 path, MetadataFindings.ResourceDescriptor, ex);
         }
@@ -1598,7 +1598,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning switches in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
             return FailedInspection<SwitchInfo>(
                 path, MetadataFindings.SwitchDescriptor, ex);
         }
@@ -1633,7 +1633,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning custom attributes in {path}: {ex.Message}");
             return new AssemblyAttributeScan(
                 FailedInspection<AssemblyAttributeInfo>(
                     path, MetadataFindings.AssemblyAttributeDescriptor, ex),
@@ -1654,7 +1654,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning custom attributes in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning custom attributes in {path}: {ex.Message}");
             return new AssemblyAttributeScan(
                 FailedInspection<AssemblyAttributeInfo>(
                     path, MetadataFindings.AssemblyAttributeDescriptor, ex),
@@ -1673,7 +1673,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning union types in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
             return FailedInspection<UnionTypeInfo>(
                 path, MetadataFindings.UnionTypeDescriptor, ex);
         }
@@ -1692,7 +1692,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning union types in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning union types in {path}: {ex.Message}");
             return FailedInspection<UnionTypeInfo>(
                 path, MetadataFindings.UnionTypeDescriptor, ex);
         }
@@ -1710,7 +1710,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
             return FailedInspection<TypeForwarderInfo>(
                 path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
@@ -1726,7 +1726,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning type forwarders in {path}: {ex.Message}");
+            logger.LogWarning($"Error scanning type forwarders in {path}: {ex.Message}");
             return FailedInspection<TypeForwarderInfo>(
                 path, MetadataFindings.TypeForwarderDescriptor, ex);
         }
@@ -1755,7 +1755,7 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error reading metadata image of {path}: {ex.Message}");
+            logger.LogWarning($"Error reading metadata image of {path}: {ex.Message}");
             inspection.MetadataOverview = null;
         }
     }

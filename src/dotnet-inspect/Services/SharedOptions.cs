@@ -584,13 +584,13 @@ public class SharedOptions
 
         if (jsonFlag)
         {
-            Console.Error.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
+            CommandError.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
             throw new OperationCanceledException();
         }
 
         if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            CommandError.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

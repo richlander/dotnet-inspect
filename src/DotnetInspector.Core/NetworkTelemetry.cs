@@ -493,17 +493,24 @@ internal static class NetworkClientKinds
 // pipeline, so a write that targeted the ambient Console.Error could land after a
 // test had swapped/disposed it (issue #705); binding the sink up front removes that
 // coupling, and the caller scopes the subscription's lifetime around the sink's.
-internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink) : IObserver<NetworkRequestObservation>
+//
+// The observed URL carries the package id the user asked for, so every line here is
+// attacker-reachable and lands on stderr at column 0. Containment is a required
+// constructor parameter for the same reason it is one on RequestMermaidDiagram: this
+// assembly cannot reach ILInspector.CSharp (runfaster depends on Core and must not
+// grow a metadata dependency), and a defaulted seam is one a caller can forget.
+internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink, Func<string, string> contain)
+    : IObserver<NetworkRequestObservation>
 {
     public void OnNext(NetworkRequestObservation observation)
     {
-        sink.WriteLine(
-            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}");
+        sink.WriteLine(contain(
+            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}"));
 
         if (observation is { TrafficKind: NetworkTrafficKind.VulnerabilityData, IsAllowedByPolicy: false })
         {
-            sink.WriteLine(
-                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}");
+            sink.WriteLine(contain(
+                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}"));
         }
     }
 
@@ -588,14 +595,35 @@ public sealed class RequestMermaidDiagram :
         _breadcrumbSubscription.Dispose();
     }
 
-    public void WriteTo(TextWriter writer)
+    public void WriteTo(TextWriter writer, Func<string, string> containLabel)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        writer.Write(ToMermaid());
+        ArgumentNullException.ThrowIfNull(containLabel);
+        writer.Write(ToMermaid(containLabel));
     }
 
-    public string ToMermaid()
+    /// <summary>
+    /// Renders the diagram, containing every node label with
+    /// <paramref name="containLabel"/>.
+    /// </summary>
+    /// <remarks>
+    /// A label carries the request URL and the cache key, both built from the
+    /// package reference the user asked for, so it is untrusted text on a
+    /// stream whose other lines are structure. Escaping only the two Mermaid
+    /// metacharacters left that text able to end its line: <c>package
+    /// "Hostile\nError: FORGED"</c> printed <c>Error: FORGED"]</c> unindented
+    /// on stderr, which reads as a real diagnostic.
+    ///
+    /// Containment is a required parameter rather than a default because this
+    /// assembly deliberately does not reference the containment library --
+    /// runfaster depends on it and should not grow a metadata dependency -- and
+    /// a defaulted seam is one a caller can forget. There is no spelling of
+    /// this call that renders a raw label.
+    /// </remarks>
+    public string ToMermaid(Func<string, string> containLabel)
     {
+        ArgumentNullException.ThrowIfNull(containLabel);
+
         List<string> nodes;
         lock (_gate)
         {
@@ -616,7 +644,7 @@ public sealed class RequestMermaidDiagram :
         for (var i = 0; i < nodes.Count; i++)
         {
             var node = $"n{i + 1}";
-            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(nodes[i])}\"]");
+            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(containLabel(nodes[i]))}\"]");
             builder.AppendLine($"  {previous} --> {node}");
             previous = node;
         }

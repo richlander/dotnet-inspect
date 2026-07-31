@@ -75,8 +75,8 @@ internal static class MemberSourceLocationCollector
                     new MemberSourceQuery(new HashSet<int> { token }));
                 if (tokenInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
                 {
-                    logger.Log(
-                        $"Warning: Failed to resolve source location for {members[0].Member.Name}: "
+                    logger.LogWarning(
+                        $"Failed to resolve source location for {members[0].Member.Name}: "
                         + failed.Error.Reason);
                     continue;
                 }
@@ -94,7 +94,7 @@ internal static class MemberSourceLocationCollector
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
             return null;
         }
     }
