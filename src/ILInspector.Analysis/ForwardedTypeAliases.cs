@@ -1531,6 +1531,8 @@ public sealed class ForwardedTypeAliases
     /// </remarks>
     static string CensusSpellingOf(string path, IEnumerable<string> censusPaths)
     {
+        string? directory = Path.GetDirectoryName(path);
+        string name = Path.GetFileName(path);
         string? unique = null;
 
         foreach (string candidate in censusPaths)
@@ -1541,7 +1543,18 @@ public sealed class ForwardedTypeAliases
             if (string.Equals(candidate, path, StringComparison.Ordinal))
                 return path;
 
-            if (!string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
+            // Only the FILE NAME may differ by case. The volume question below is answered by
+            // enumerating ONE directory, which reports on the leaf names inside it and says
+            // nothing about whether the PARENT distinguishes case. Comparing whole paths
+            // case-insensitively while checking only the leaf let a sibling in a case-variant
+            // DIRECTORY inherit the exemption: `TargetDir\A.dll` and `targetdir\A.dll` are two
+            // files on a case-sensitive volume, yet the enumeration of `TargetDir` sees a single
+            // `A.dll` and folded them together (executed in review of `abfb8b24`). Requiring the
+            // directory to match exactly keeps the fold inside the scope the evidence covers.
+            if (!string.Equals(Path.GetDirectoryName(candidate), directory, StringComparison.Ordinal))
+                continue;
+
+            if (!string.Equals(Path.GetFileName(candidate), name, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             // A second case-variant spelling: both were opened, so the volume is holding two files
@@ -1555,33 +1568,36 @@ public sealed class ForwardedTypeAliases
             unique = candidate;
         }
 
-        if (unique is null || VolumeDistinguishesCase(path))
+        if (unique is null || VolumeDistinguishesCase(directory, name))
             return path;
 
         return unique;
     }
 
     /// <summary>
-    /// Whether the volume holding <paramref name="path"/> treats two spellings differing only by
-    /// case as two files, answered by asking the directory rather than by inferring it.
+    /// Whether the directory holding <paramref name="name"/> treats two spellings of that name as
+    /// two files, answered by asking the directory rather than by inferring it.
     /// </summary>
     /// <remarks>
-    /// <para>More than one real directory entry matching the file name case-insensitively can only
+    /// <para>More than one real entry matching <paramref name="name"/> case-insensitively can only
     /// occur on a case-sensitive volume, so that answer is exact. Exactly one entry means the two
     /// spellings cannot both name existing files, so either they denote that single entry or the
     /// caller's spelling denotes nothing — and a target path that denotes nothing yields no
     /// identity, which declines outright.</para>
     ///
-    /// <para>Only the file-name component is resolved; a directory component differing in case is
-    /// left unmatched. That residual is a DROP — the pre-#3419 answer — never a fabrication.
-    /// A directory that cannot be enumerated is likewise treated as distinguishing case, so an
-    /// unknown answer declines.</para>
+    /// <para>This reports on ONE directory's leaf names only. Its caller is what keeps that
+    /// sufficient, by refusing to fold two paths whose directory components differ at all; a
+    /// caller that compared whole paths case-insensitively would be reading this answer as
+    /// evidence about a directory it never enumerated.</para>
+    ///
+    /// <para>A directory that cannot be enumerated is treated as distinguishing case, so an
+    /// unknown answer declines. The catch list matches <see cref="Normalize"/>'s, widened to the
+    /// enumeration's own failures: a narrower list here would let a hostile path that survived
+    /// normalization throw out of the public entry point instead of degrading to the pre-#3419
+    /// answer.</para>
     /// </remarks>
-    static bool VolumeDistinguishesCase(string path)
+    static bool VolumeDistinguishesCase(string? directory, string name)
     {
-        string? directory = Path.GetDirectoryName(path);
-        string name = Path.GetFileName(path);
-
         if (string.IsNullOrEmpty(directory) || name.Length == 0)
             return true;
 
@@ -1602,6 +1618,8 @@ public sealed class ForwardedTypeAliases
         }
         catch (Exception ex) when (ex is IOException
                                       or UnauthorizedAccessException
+                                      or ArgumentException
+                                      or NotSupportedException
                                       or System.Security.SecurityException)
         {
             return true;

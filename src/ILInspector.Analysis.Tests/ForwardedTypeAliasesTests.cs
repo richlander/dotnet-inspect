@@ -3573,6 +3573,81 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// A sibling whose path differs from the target's only in the case of a DIRECTORY component is
+    /// not the target. Round 25 answered the case question by enumerating one directory, but the
+    /// caller still compared whole paths case-insensitively — so a sibling in <c>targetdir\</c>
+    /// matched a target in <c>TargetDir\</c>, and the enumeration of <c>TargetDir</c> saw a single
+    /// leaf and folded them together. Found by GPT-5.6 Terra in round 26; it FABRICATES.
+    ///
+    /// <para>The evidence and the comparison must cover the same ground: one directory listing can
+    /// only speak for the leaf names inside that directory, so only the leaf may be folded.</para>
+    ///
+    /// <para>Runs only on a case-sensitive volume, which the Analysis suite is executed against a
+    /// second time (<c>fsutil file setCaseSensitiveInfo</c>) for exactly this class of question.</para>
+    /// </summary>
+    [Fact]
+    public void ACaseVariantDirectoryDoesNotMakeASiblingTheTarget()
+    {
+        string root = NewTempDirectory();
+        try
+        {
+            Assert.SkipUnless(
+                IsCaseSensitive(root),
+                "volume is case-insensitive; the two directories are one directory here");
+
+            string upper = Path.Combine(root, "TargetDir");
+            string lower = Path.Combine(root, "targetdir");
+            Directory.CreateDirectory(upper);
+            Directory.CreateDirectory(lower);
+
+            // The case-sensitivity flag is per-directory on Windows and inherited by children, so
+            // confirm the two really stayed distinct rather than assuming the root's answer.
+            Assert.SkipUnless(
+                Directory.GetDirectories(root).Length == 2,
+                "the two directory spellings collapsed into one");
+
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(upper, "Contoso.Target.dll");
+            string facadePath = Path.Combine(upper, "Contoso.Facade.dll");
+            string siblingPath = Path.Combine(lower, "Contoso.Target.dll");
+
+            WriteDefiner(
+                upper, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            WriteForwarderToVersion(
+                upper, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Facade",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(1, 0, 0, 0));
+
+            // Same identity as the target, at the target's own version so that it genuinely
+            // refutes when not exempted, and silent about the type.
+            File.WriteAllBytes(
+                siblingPath,
+                SerializePE(NewAssembly("Contoso.Target", null, new Version(1, 0, 0, 0), null)));
+
+            // The control: with the real target in scope the facade answers, so the refusal below
+            // is the sibling's doing and not a fixture that never resolved.
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, new[] { facadePath, targetPath }, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+
+            // The attack: only the directory's case differs, and the leaf-level evidence cannot
+            // speak to it.
+            Assert.False(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, new[] { facadePath, siblingPath }, seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Two silent claimants of the target's identity refute the same in either walk order. The
     /// round-24 reviewer (Claude Opus 4.8) cleared the new ceiling's order-independence by
     /// reasoning — <c>RefutedAt</c> keeps the higher ceiling, and max is commutative — but did not
