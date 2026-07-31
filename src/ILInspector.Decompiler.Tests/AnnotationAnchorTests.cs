@@ -251,12 +251,13 @@ public class AnnotationAnchorTests
     [Fact]
     public void CaretExtent_KeepsTheRealExpression_WhenTheStandInIsRecordedAfterIt()
     {
-        // The printer records a parent before its children, so the existing
-        // stand-in test only ever sees the stand-in AFTER the allocation has
-        // won. The opposite order -- a stand-in arriving once a real expression
-        // already holds the offset -- is a different branch of the rule, and
-        // deleting it changes 8 extents in CoreLib. A hand-built map is the only
-        // way to pin the order.
+        // The printer records children before their parents -- verified against
+        // the real printer, which emits LoadStackSlot, then NewObject, then
+        // Return -- so the existing stand-in test only ever sees the stand-in
+        // BEFORE the allocation. The opposite order, a stand-in arriving once a
+        // real expression already holds the offset, is a different branch of the
+        // rule, and deleting it changes 8 extents in CoreLib. A hand-built map
+        // is the only way to pin the order.
         const int Offset = 5;
         const string Output = "return new Holder(S_0);\n";
         var objectType = TypeRef.CoreLib("System", "Object");
@@ -303,8 +304,8 @@ public class AnnotationAnchorTests
     public void CaretExtent_KeepsTheFirstOfTwoEqualWidthCandidates()
     {
         // Width is the tie-break, so two real expressions of equal width sharing
-        // an offset must not swap places on a later pass: the printer records
-        // outermost first, and the descendant that follows is no more precise.
+        // an offset must not swap places on a later pass: the one recorded first
+        // stays, and the equally wide candidate that follows is no more precise.
         // Loosening the comparison to a strict one moves 96 extents in CoreLib.
         const int Offset = 5;
         const string Output = "Sink(aaa, bbb);\n";

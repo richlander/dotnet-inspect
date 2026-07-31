@@ -195,13 +195,14 @@ public static class AnnotationCaret
     /// <para>
     /// So narrowing is all-or-nothing per line, and the fallback is not a
     /// failure: the statement is exactly the smallest span that is true of every
-    /// fact on it. Measured over that corpus, 25,682 of 31,641 caret-bearing
-    /// lines (81.17%) narrow, 10.71% carry facts that disagree, and 8.12% have
-    /// no fact with a printed node to point at.
+    /// fact on it. Measured over that corpus as the annotated-source view
+    /// prints it, 25,628 of 31,640 caret-bearing lines (81.00%) narrow, 10.70%
+    /// carry facts that disagree, and 8.30% have no fact with a printed node to
+    /// point at.
     /// </para>
     /// <para>
     /// That headline is carried by the common case, and it is worth being plain
-    /// about the shape: 27,413 of those lines hold a single fact and 92.4% of
+    /// about the shape: 27,414 of those lines hold a single fact and 92.1% of
     /// them narrow, while narrowing falls to 12.1% at two facts, 1.1% at three,
     /// and 0% at four or more. Density and disagreement are the same thing —
     /// more facts on a line means more distinct offsets on it — so the dense
