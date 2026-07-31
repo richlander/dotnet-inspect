@@ -95,6 +95,14 @@ Roughly 300 ms of each figure is the NativeAOT process floor, so the scan work i
 
 Note that `@Performance` is **not** a generic door. The tabular and JSONL group paths flatten it into a single kind-labeled table over exactly `PerformanceKinds.Sections`, so adding a differently-shaped section to it stops the group rendering as one table at all.
 
+### Two cost axes, and which one the ladder reads
+
+A section's effective cost has two inputs: the cost of its scanner, and any cost the descriptor declares itself. The raise is one-way, so **the descriptor axis can move a section off the ladder without the scanner axis changing at all**. A gate that reads `registry.CostOf(section.ScannerKey)` therefore checks only half the mechanism.
+
+`SectionPipeline.SectionCosts` exposes the effective per-entry cost — the value `IsCuratedAutoRendered` consults — so `LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily` can pin the decision input rather than one of its sources. It asserts the effective axis (which subsumes the scanner axis, because a scanner raise always raises the entry) and the scanner axis separately, so a failure names which declaration moved.
+
+Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
+
 ## Data Flow
 
 ```text
