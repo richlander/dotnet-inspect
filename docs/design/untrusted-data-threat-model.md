@@ -317,9 +317,20 @@ one that was here, and it had gone stale by two.
   `.visualstudio.com` suffix rule, and reached the rendered `RepositoryUrl` as a
   live bidi control — a Trojan Source code point aimed at the reader's terminal
   rather than at the fetch. `TryCheckOriginTextIsInert` now refuses any origin
-  component carrying `Cc`, `Cf`, `Cs`, `Zl` or `Zp`, at one choke point after
-  any origin is read, so a future host reader inherits the rule. Gated by
-  `SourceLinkProvenanceTests.ALiveFormatCharacterInAHostLabel_IsNotAttributable`.
+  component carrying `Cc`, `Cf`, `Cs`, `Zl` or `Zp`. It runs from
+  `TryEmitOrigin`, the single point at which an origin becomes visible to a
+  caller, so the rule is a property of the value rather than of one code path:
+  the first fix placed it in `Determine`, and the re-review found that
+  `BrowseUrl` — a rendered product path, reached from
+  `SourceLinkResolver.ConvertToGitHubBrowseUrl` and emitted as
+  `GitHubBrowseUrl` — reads an origin without going through `Determine`. Gated
+  by `SourceLinkProvenanceTests.ALiveFormatCharacterInAHostLabel_IsNotAttributable`
+  and `…NoOriginIsEverProducedCarryingAScalarThatCanActOnASink`. The second
+  asserts at the construction seam rather than over rendered text on purpose:
+  `BrowseUrl`'s own output is inert for an unrelated reason — every hostile
+  scalar in a path is percent-escaped by `Uri.AbsolutePath`, and its host must
+  equal `raw.githubusercontent.com` exactly — so a test over what it prints
+  would pass whether or not the check exists.
 
 Two consequences are deliberate scope, not gaps, and are gated as decisions so
 that changing them is visible:
@@ -489,19 +500,31 @@ it had was a *percent-encoded* escape, and those really are neutralized by the
 path reader; nobody had written down the raw form.
 
 So the rule is no longer "the readers happen to escape". `TryCheckOriginTextIsInert`
-refuses, at a single choke point after any origin is read, an origin any of whose
-components carries a scalar in `Cc`, `Cf`, `Cs`, `Zl` or `Zp` — by category, not
-by a list, because `Cf` is what a list misses. Refusal rather than encoding
+refuses an origin any of whose components carries a scalar in `Cc`, `Cf`, `Cs`,
+`Zl` or `Zp` — by category, not by a list, because `Cf` is what a list misses.
+It runs from `TryEmitOrigin`, the one place an origin becomes visible to a
+caller, and not from `Determine`: `Determine` is where the round-17 fix put it,
+and the re-review pointed out that `BrowseUrl` reads an origin without going
+through `Determine` and is rendered as `GitHubBrowseUrl`. A rule enforced by one
+consumer is a rule the next consumer does not inherit — the same shape of defect
+as the one it was written to close. Refusal rather than encoding
 follows the strategy above: no legitimate repository needs a bidi control in its
 name. The rejection names the component and the code point and never the value,
 so the diagnostic channel does not carry the hazard it is reporting.
 
+Refusal by category was checked against legitimate input rather than assumed
+safe: repository names in Japanese, Chinese, Korean, Cyrillic, Greek, Arabic,
+Hebrew, Devanagari, Thai and Vietnamese, plus an emoji, a combining sequence and
+its precomposed form, all still attribute.
+
 The gates: `ALiveFormatCharacterInAHostLabel_IsNotAttributable` pins the refusal,
-`AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink` pins that anything
-still reported is inert, and
+`NoOriginIsEverProducedCarryingAScalarThatCanActOnASink` pins the invariant at the
+construction seam so it covers `BrowseUrl` and the cache identity as well as the
+reported URL, `AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink` pins
+that anything still reported is inert, and
 `TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous` pins that its
 rows still establish, because a gate whose every row is refused asserts nothing.
-Disabling the check fails six of them.
+Disabling the check fails nine of them.
 
 `SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
 Its messages quote artifact text throughout — the query, the path, the host, a

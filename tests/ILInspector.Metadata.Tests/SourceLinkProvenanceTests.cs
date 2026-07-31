@@ -1559,6 +1559,59 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// Pins that no <c>SourceLinkOrigin</c> is ever produced carrying a scalar that can act on a
+    /// sink — a property of the value, not of one consumer's code path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Round 17 placed the inertness rule in <c>Determine</c>. The re-review found that
+    /// <c>BrowseUrl</c> reads an origin without going through <c>Determine</c>, and it is a
+    /// rendered product path: <c>SourceLinkResolver.ConvertToGitHubBrowseUrl</c> calls it and the
+    /// result is emitted as <c>GitHubBrowseUrl</c>. The rule now runs at <c>TryEmitOrigin</c>,
+    /// the single point where an origin becomes visible to any caller, so both paths and any
+    /// future third host inherit it.
+    /// </para>
+    /// <para>
+    /// This reads the origin at that seam rather than through a renderer on purpose. Measured:
+    /// every hostile scalar aimed at <c>BrowseUrl</c>'s output is already percent-escaped by
+    /// <see cref="Uri.AbsolutePath"/> (<c>U+2066</c> in an owner comes back as
+    /// <c>%E2%81%A6</c>), and its host must equal <c>raw.githubusercontent.com</c> exactly, so a
+    /// test that asserted over rendered text would pass whether or not the check exists. That is
+    /// the same "holds for the wrong reason" failure this round was called on; asserting at the
+    /// seam is what makes deleting the check fail something.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(HostileOriginUrls))]
+    public void NoOriginIsEverProducedCarryingAScalarThatCanActOnASink(string urlTemplate)
+    {
+        string url = urlTemplate.Replace("*", "A.cs", StringComparison.Ordinal);
+
+        if (!SLF.SourceLinkProvenance.TryReadOrigin(url, out var origin, out _))
+        {
+            return;
+        }
+
+        foreach (string component in
+            (string[])[origin.Host, origin.Organization, origin.Repository, origin.Revision, origin.RepositoryUrl, origin.Identity])
+        {
+            foreach (System.Text.Rune scalar in (component ?? "").EnumerateRunes())
+            {
+                System.Globalization.UnicodeCategory category =
+                    System.Text.Rune.GetUnicodeCategory(scalar);
+
+                Assert.False(
+                    category is System.Globalization.UnicodeCategory.Control
+                        or System.Globalization.UnicodeCategory.Format
+                        or System.Globalization.UnicodeCategory.Surrogate
+                        or System.Globalization.UnicodeCategory.LineSeparator
+                        or System.Globalization.UnicodeCategory.ParagraphSeparator,
+                    $"U+{scalar.Value:X4} ({category}) reached a produced origin component");
+            }
+        }
+    }
+
+    /// <summary>
     /// Pins that provenance has one owner, so an unanchored URL match cannot reappear elsewhere.
     /// </summary>
     /// <remarks>

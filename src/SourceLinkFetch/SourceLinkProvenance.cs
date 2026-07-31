@@ -146,13 +146,6 @@ public static class SourceLinkProvenance
                     $"a resolved source URL has no attributable origin: {rejection}");
             }
 
-            if (!TryCheckOriginTextIsInert(origin, out rejection))
-            {
-                return new SourceLinkProvenanceResult(
-                    null,
-                    $"a resolved source URL has no attributable origin: {rejection}");
-            }
-
             if (!TryCheckSubstitutionSelectsContent(
                     url, origin, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
             {
@@ -362,8 +355,12 @@ public static class SourceLinkProvenance
     /// <c>%E2%80%AE</c>. <see cref="Uri.Host"/> does not do that: a raw <c>U+2066</c> in a
     /// <c>*.visualstudio.com</c> label survives into <see cref="Uri.Host"/> unchanged, is
     /// accepted by the suffix rule, and reaches the reported URL as a live bidi control. That
-    /// was a real bypass, found in round 17, and it is why this is a rule at the choke point
-    /// rather than a property each reader is trusted to preserve.
+    /// was a real bypass, found in round 17, and it is why this is a rule applied wherever an
+    /// origin is produced rather than a property each reader is trusted to preserve. It is
+    /// invoked from <see cref="TryEmitOrigin"/>, which is the only place an origin becomes
+    /// visible to a caller — round 17's re-review established that placing it in
+    /// <see cref="Determine"/> instead left <see cref="BrowseUrl"/>, a rendered product path,
+    /// reading origins the rule had never seen.
     /// </para>
     /// <para>
     /// This refuses rather than encodes, because that is the strategy the threat model settles
@@ -626,14 +623,15 @@ public static class SourceLinkProvenance
                 return false;
             }
 
-            origin = new SourceLinkOrigin(
-                host,
-                segments[0],
-                segments[1],
-                segments[2],
-                $"https://github.com/{segments[0]}/{segments[1]}");
-            rejection = "";
-            return true;
+            return TryEmitOrigin(
+                new SourceLinkOrigin(
+                    host,
+                    segments[0],
+                    segments[1],
+                    segments[2],
+                    $"https://github.com/{segments[0]}/{segments[1]}"),
+                out origin,
+                out rejection);
         }
 
         if (string.Equals(host, AzureDevOpsHost, StringComparison.Ordinal) ||
@@ -823,13 +821,48 @@ public static class SourceLinkProvenance
             return false;
         }
 
-        origin = new SourceLinkOrigin(
-            host,
-            organization,
-            repository,
-            revision,
-            $"https://{host}/{organization}/_git/{repository}");
-        rejection = "";
+        return TryEmitOrigin(
+            new SourceLinkOrigin(
+                host,
+                organization,
+                repository,
+                revision,
+                $"https://{host}/{organization}/_git/{repository}"),
+            out origin,
+            out rejection);
+    }
+
+    /// <summary>
+    /// The single point at which a <see cref="SourceLinkOrigin"/> becomes visible to a caller.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The inertness rule is enforced here rather than in <see cref="Determine"/> so that it is a
+    /// property of the value and not of one code path. <see cref="BrowseUrl"/> reads an origin
+    /// without going through <see cref="Determine"/>, and its result is rendered as
+    /// <c>GitHubBrowseUrl</c>; the cache identity is built from the same components. A rule that
+    /// only one consumer applies is a rule the next consumer will not inherit.
+    /// </para>
+    /// <para>
+    /// Gated by
+    /// <c>SourceLinkProvenanceTests.NoOriginIsEverProducedCarryingAScalarThatCanActOnASink</c>,
+    /// which reads the origin at this seam rather than through a renderer, because every renderer
+    /// this reader has today happens to percent-escape the components it prints — so a test aimed
+    /// at rendered text would pass whether or not this check exists.
+    /// </para>
+    /// </remarks>
+    private static bool TryEmitOrigin(
+        SourceLinkOrigin candidate,
+        out SourceLinkOrigin origin,
+        out string rejection)
+    {
+        if (!TryCheckOriginTextIsInert(candidate, out rejection))
+        {
+            origin = default;
+            return false;
+        }
+
+        origin = candidate;
         return true;
     }
 
