@@ -153,6 +153,69 @@ public class AnnotationGestureTests
     }
 
     [Fact]
+    public void CaretWidensWhenTwoFactsOnTheLineDisagreeAboutTheExtent()
+    {
+        // The other half of the all-or-nothing rule: both facts narrow, but to
+        // different characters. Stacking two carets was rejected as a design, so
+        // the only correct answer is the statement -- the smallest span true of
+        // both. Distinct from the partial case below, which is a missing entry
+        // rather than a conflicting one, and gated by a different branch.
+        const string Line = "        Sink(new object(), new int[1]);";
+        var first = Fact(Alloc, "object");
+        var second = Fact(Unsafety, "array");
+
+        int firstColumn = Line.IndexOf("new object()", StringComparison.Ordinal);
+        int secondColumn = Line.IndexOf("new int[1]", StringComparison.Ordinal);
+        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>
+        {
+            [first] = new AnnotationAnchor.CaretExtent(firstColumn, "new object()".Length),
+            [second] = new AnnotationAnchor.CaretExtent(secondColumn, "new int[1]".Length),
+        };
+
+        // Non-vacuity: each extent narrows on its own, and to a different place.
+        Assert.NotEqual(firstColumn, secondColumn);
+        Assert.Equal(firstColumn, AnnotationCaret.Render(Line, "    ", [first], extents: extents)[0].IndexOf('^'));
+        Assert.Equal(secondColumn, AnnotationCaret.Render(Line, "    ", [second], extents: extents)[0].IndexOf('^'));
+
+        string shared = AnnotationCaret.Render(Line, "    ", [first, second], extents: extents)[0];
+        int statementColumn = Line.Length - Line.TrimStart().Length;
+        Assert.Equal(statementColumn, shared.IndexOf('^'));
+        Assert.Equal(Line.Trim().Length, shared.Count(c => c == '^'));
+    }
+
+    [Fact]
+    public void CaretWidensWhenOnlySomeFactsOnTheLineHaveAnExtent()
+    {
+        // The agreement rule is all-or-nothing, and the case that matters is
+        // PARTIAL: one fact narrows, another has no printed node to point at.
+        // Narrowing there would underline an expression that is true of only
+        // some of the facts sharing the caret. 609 lines in CoreLib mix facts
+        // with and without extents, 498 of them with a single surviving extent,
+        // so this is the difference between right and wrong on real output.
+        const string Line = "        Sink(new object());";
+        var narrowed = Fact(Alloc, "has-extent");
+        var bare = Fact(Unsafety, "no-extent");
+
+        int column = Line.IndexOf("new", StringComparison.Ordinal);
+        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>
+        {
+            [narrowed] = new AnnotationAnchor.CaretExtent(column, "new object()".Length),
+        };
+
+        // Non-vacuity: alone, this fact really does narrow.
+        string alone = AnnotationCaret.Render(Line, "    ", [narrowed], extents: extents)[0];
+        Assert.Equal(column, alone.IndexOf('^'));
+        Assert.Equal("new object()".Length, alone.Count(c => c == '^'));
+
+        // Together with a fact that has no extent, the caret must widen back to
+        // the whole statement rather than keep the one extent that survived.
+        string shared = AnnotationCaret.Render(Line, "    ", [narrowed, bare], extents: extents)[0];
+        int statementColumn = Line.Length - Line.TrimStart().Length;
+        Assert.Equal(statementColumn, shared.IndexOf('^'));
+        Assert.Equal(Line.Trim().Length, shared.Count(c => c == '^'));
+    }
+
+    [Fact]
     public void NothingIsRenderedForABlankLineOrNoFacts()
     {
         Assert.Empty(AnnotationCaret.Render("        Work();", "    ", []));

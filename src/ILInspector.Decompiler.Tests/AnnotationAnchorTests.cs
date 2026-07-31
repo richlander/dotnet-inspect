@@ -249,6 +249,105 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    public void CaretExtent_KeepsTheRealExpression_WhenTheStandInIsRecordedAfterIt()
+    {
+        // The printer records a parent before its children, so the existing
+        // stand-in test only ever sees the stand-in AFTER the allocation has
+        // won. The opposite order -- a stand-in arriving once a real expression
+        // already holds the offset -- is a different branch of the rule, and
+        // deleting it changes 8 extents in CoreLib. A hand-built map is the only
+        // way to pin the order.
+        const int Offset = 5;
+        const string Output = "return new Holder(S_0);\n";
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+
+        IrExpression slot = new LoadStackSlot(0, objectType);
+        slot.SetSourceOffset(Offset);
+        var allocation = new NewObject(
+            new MethodRef(holder, ".ctor", TypeRef.CoreLib("System", "Void"), [objectType], HasThis: true),
+            [slot]);
+        allocation.SetSourceOffset(Offset);
+        var statement = new Return(allocation);
+        statement.SetSourceOffset(Offset);
+
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(holder, [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        var ranges = new PrintedRangeMap();
+        ranges.Record(statement, 0, 23);
+        // The allocation first, so it holds the offset; then the narrower
+        // stand-in, which must not displace it on width.
+        ranges.Record(allocation, 7, 22);
+        ranges.Record(slot, 18, 21);
+        ranges.Complete(Output);
+
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+
+        var extent = Assert.Contains(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+        Assert.Equal("new Holder(S_0)", Output.Substring(extent.Column, extent.Length));
+    }
+
+    [Fact]
+    public void CaretExtent_KeepsTheFirstOfTwoEqualWidthCandidates()
+    {
+        // Width is the tie-break, so two real expressions of equal width sharing
+        // an offset must not swap places on a later pass: the printer records
+        // outermost first, and the descendant that follows is no more precise.
+        // Loosening the comparison to a strict one moves 96 extents in CoreLib.
+        const int Offset = 5;
+        const string Output = "Sink(aaa, bbb);\n";
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+
+        var first = new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true), []);
+        first.SetSourceOffset(Offset);
+        var second = new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true), []);
+        second.SetSourceOffset(Offset);
+        var statement = new ExpressionStatement(first);
+        statement.SetSourceOffset(Offset);
+
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        var ranges = new PrintedRangeMap();
+        ranges.Record(statement, 0, 15);
+        // Both three characters wide: "aaa" then "bbb".
+        ranges.Record(first, 5, 8);
+        ranges.Record(second, 10, 13);
+        ranges.Complete(Output);
+
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+
+        var extent = Assert.Contains(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+        Assert.Equal("aaa", Output.Substring(extent.Column, extent.Length));
+    }
+
+    [Fact]
     public void CaretExtent_IsWithheldWhenTheTrimRejectsTheRange()
     {
         // The caller must honour a rejected trim rather than storing the raw
