@@ -196,6 +196,36 @@ public class AnnotationAnchorTests
         Assert.Equal(line.Trim(), line.Substring(extent.Column, extent.Length));
     }
 
+    [Theory]
+    // Leading indent only — what a statement's own printed range looks like.
+    [InlineData("    new object();", 0, 17, 4, 13)]
+    // Trailing padding. No printer output produces this today, which is exactly
+    // why it needs a direct gate: the corpus cannot tell whether the trailing
+    // loop still works, so a regression there would be invisible.
+    [InlineData("    x   ", 4, 4, 4, 1)]
+    [InlineData("    x   ", 0, 8, 4, 1)]
+    // Already tight: trimming must not move an extent that names an expression.
+    [InlineData("    new object();", 4, 12, 4, 12)]
+    public void TryTrimToPrinted_ShrinksOntoPrintedCharactersAtBothEnds(
+        string lineText, int column, int length, int expectedColumn, int expectedLength)
+    {
+        Assert.True(AnnotationAnchor.TryTrimToPrinted(lineText, ref column, ref length));
+        Assert.Equal(expectedColumn, column);
+        Assert.Equal(expectedLength, length);
+    }
+
+    [Theory]
+    // All whitespace, and a degenerate range: there is nothing to point at, so
+    // the caller must fall back to the statement rather than draw a caret.
+    [InlineData("        ", 0, 8)]
+    [InlineData("    x", 0, 4)]
+    [InlineData("    x", 2, 0)]
+    [InlineData("    x", -1, 3)]
+    [InlineData("    x", 9, 3)]
+    public void TryTrimToPrinted_RefusesARangeWithNoPrintedCharacters(
+        string lineText, int column, int length)
+        => Assert.False(AnnotationAnchor.TryTrimToPrinted(lineText, ref column, ref length));
+
     [Fact]
     public void ResearchRegistry_RunsAllocationProducer()
     {

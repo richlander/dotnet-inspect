@@ -188,7 +188,7 @@ public static class AnnotationAnchor
     /// statement-wide default rather than mis-drawing, and leaves every extent
     /// that already named an expression untouched.
     /// </remarks>
-    static bool TryTrimToPrinted(string lineText, ref int column, ref int length)
+    internal static bool TryTrimToPrinted(string lineText, ref int column, ref int length)
     {
         if (column < 0 || length <= 0 || column >= lineText.Length)
             return false;
