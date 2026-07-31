@@ -909,21 +909,50 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
-    /// Source local-variable names for a method from its portable PDB, indexed
-    /// by IL local slot. No PDB returns an empty array. Present PDB entries with
-    /// no recorded name, a compiler-generated (debugger-hidden) local, or a name
-    /// that is not a usable identifier stay null, and the printer renders
-    /// <c>V_index</c>.
+    /// Source names and declaration scopes for a method's local slots from its
+    /// portable PDB, indexed by IL local slot. No PDB returns two empty arrays.
+    /// Present PDB entries with no recorded name, a compiler-generated
+    /// (debugger-hidden) local, or a name that is not a usable identifier stay null,
+    /// and the printer renders <c>V_index</c>. A slot with no scope entry at all — a
+    /// compiler temp the source never declared — keeps a null scope, which is itself
+    /// usable evidence that the slot is synthetic.
     /// </summary>
-    internal ImmutableArray<string?> LocalNames(MethodDefinitionHandle methodHandle, int localCount)
+    /// <remarks>
+    /// Names and scopes come from the same <c>LocalScope</c> rows, so they are read in
+    /// one walk: splitting them would traverse the table twice per method and let the
+    /// two views disagree about which entries were skipped.
+    /// <para>
+    /// The two halves fail differently, so a malformed table is not handled the same
+    /// way for both. A missing name degrades visibly to <c>V_index</c> and affects
+    /// nothing else, so a partial name array is kept. A scope drives where the printer
+    /// puts a declaration, so a <em>partial</em> scope array would make output shape a
+    /// function of where the corruption happened to stop. Scopes are therefore dropped
+    /// wholesale on a decode failure, which yields exactly the documented no-PDB
+    /// behavior: no evidence, no sinking, byte-stable output.
+    /// </para>
+    /// <para>
+    /// This fallback is <b>unverified by test</b>. It is not reachable from any
+    /// fixture the repository can build: a truncated or otherwise malformed portable
+    /// PDB throws in <c>MetadataReaderProvider.FromPortablePdbStream</c> and is handled
+    /// by <see cref="PdbReader"/>'s own catch, which disables symbols entirely, and a
+    /// PDB belonging to a different assembly returns empty scopes without throwing
+    /// (measured over 18,242 method handles). Reaching this catch needs a PDB that
+    /// opens cleanly and then fails mid-walk.
+    /// </para>
+    /// </remarks>
+    internal (ImmutableArray<string?> Names, ImmutableArray<LocalSlotScope?> Scopes) LocalDeclarations(
+        MethodDefinitionHandle methodHandle,
+        int localCount)
     {
         if (localCount == 0)
-            return [];
+            return ([], []);
         var pdb = PdbReader();
         if (pdb is null)
-            return [];
+            return ([], []);
 
         var names = new string?[localCount];
+        var scopes = new LocalSlotScope?[localCount];
+        bool scopesUsable = true;
         try
         {
             foreach (var scopeHandle in pdb.GetLocalScopes(methodHandle))
@@ -934,15 +963,26 @@ public sealed class MetadataSource : IDisposable
                     var variable = pdb.GetLocalVariable(varHandle);
                     if ((variable.Attributes & LocalVariableAttributes.DebuggerHidden) != 0)
                         continue;
-                    if (variable.Index >= 0 && variable.Index < localCount)
-                        names[variable.Index] = pdb.GetString(variable.Name);
+                    if (variable.Index < 0 || variable.Index >= localCount)
+                        continue;
+                    names[variable.Index] = pdb.GetString(variable.Name);
+                    // A slot listed in more than one scope is malformed or merged
+                    // metadata. Keep the narrowest range: it is the weaker claim about
+                    // how far the declaration reaches, so it cannot widen a scope.
+                    var candidate = new LocalSlotScope(scope.StartOffset, scope.EndOffset);
+                    if (scopes[variable.Index] is not { } existing || candidate.Length < existing.Length)
+                        scopes[variable.Index] = candidate;
                 }
             }
         }
-        catch
+        catch (BadImageFormatException)
         {
-            // Malformed scope table — keep whatever names were read.
+            // Malformed scope table. Keep the names read so far, but discard the
+            // scopes: a partial set would silently place some declarations from
+            // evidence and others from the fallback. Anything other than a decode
+            // failure is a bug here and is left to propagate.
+            scopesUsable = false;
         }
-        return [.. names];
+        return ([.. names], scopesUsable ? [.. scopes] : []);
     }
 }
