@@ -3260,17 +3260,164 @@ public partial class CommandExecutionTests
 
         // The type-listing pipeline publishes NO Info sections, so its bare -S resolves to an empty
         // include set and IsRequested falls through to the verbosity ladder. That is how this view
-        // has always worked; this slice does not touch it, which is why the fixed-overview guard is
-        // scoped rather than global. Pinning the empty declaration is the point of the test: if
-        // listing ever gains an Info or Fixed section (slice 4c), this fails and forces a decision
-        // instead of silently changing which sections bare -S renders.
+        // has always worked; slice 4c added a Fixed section to this pipeline but deliberately did
+        // NOT wire bare -S to it, so this behavior is still unchanged. The FixedOverviewSectionNames
+        // pin below is what fails when slice 4d does the wiring, forcing that decision to be made
+        // explicitly instead of silently changing which sections bare -S renders.
         var sections = SectionHeadings(output);
         var listPipeline = ApiTypeSectionDescriptors.CreatePipeline();
 
         Assert.Empty(listPipeline.InfoSectionNames);
-        Assert.Empty(listPipeline.FixedOverviewSectionNames);
+        Assert.Equal([SectionNames.ApiInfo], listPipeline.FixedOverviewSectionNames);
         Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.DoesNotContain(SectionNames.ApiInfo, sections);
         Assert.Contains("Classes", sections);
+    }
+
+    [Theory]
+    [InlineData("System.Private.CoreLib")]
+    [InlineData("System.Text.Json")]
+    public async Task Type_Listing_ApiInfo_IsExplicitOnlyAndStaysOffEveryDefaultView(string library)
+    {
+        // The section is a promotion of the inline identity line into a selectable section, not a
+        // second copy of it in the default view. ExplicitOnly is what keeps it off the ladder; this
+        // pins that across the whole ladder rather than at one verbosity, because this pipeline is
+        // not a curated catalog and its ladder selects by POSITION -- and the descriptor sits in
+        // first position, which is exactly where a missing ExplicitOnly would surface.
+        foreach (var verbosity in new[] { "-v:q", "-v:m", "-v:n", "-v:d" })
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "type", "--platform", library, verbosity, "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(SectionNames.ApiInfo, SectionHeadings(output));
+        }
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_RestatesTheInlineIdentityLineExactly()
+    {
+        // ApiOutputFormatter populates the section from the same fields as the inline line and
+        // claims in a comment that the two can never disagree. This is the gate for that claim: a
+        // reader who selects the section and a reader who reads the line must get the same answers.
+        // Without it, the two could drift to different sources and every other test here would
+        // still pass.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var inline = output.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inlineFields = inline
+            .Split('|')
+            .Select(part => part.Trim().Split(':', 2))
+            .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.Ordinal);
+
+        var rows = output.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Where(l => l.StartsWith("| ", StringComparison.Ordinal))
+            .Select(l => l.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()).ToArray())
+            .Where(cells => cells.Length == 2 && cells[0] != "Field" && !cells[0].StartsWith('-'))
+            .ToDictionary(cells => cells[0], cells => cells[1], StringComparer.Ordinal);
+
+        Assert.NotEmpty(rows);
+        Assert.Equal(inlineFields.Count, rows.Count);
+        foreach (var (field, value) in inlineFields)
+            Assert.Equal(value, rows[field]);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_DoesNotGrowWithTheAssembly()
+    {
+        // Bounded means the row set does not depend on the target. CoreLib lists 1353 types and
+        // System.Text.Json lists 89; the three counts are counts rather than enumerations, so each
+        // contributes exactly one row at either size. A future field that enumerated anything would
+        // fail here rather than quietly making the overview unbounded.
+        var (bigExit, big, _) = await RunAppAsync(
+            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo, "--tips", "q");
+        var (smallExit, small, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+
+        Assert.Equal(0, bigExit);
+        Assert.Equal(0, smallExit);
+
+        static int SectionLines(string output) => output.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Count(l => l.Trim().Length > 0);
+
+        Assert.Equal(SectionLines(small), SectionLines(big));
+        Assert.True(SectionLines(big) > 1, "Section rendered no rows, so the comparison is vacuous.");
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_ProjectsTheSameRowsInEveryMachineMode()
+    {
+        // The listing tabular view filters by mapping section names to type KINDS, so a selection
+        // it cannot map leaves the filter empty -- and an empty filter means "no filter", which
+        // emitted every type in the assembly under --tsv/--jsonl while the markdown rendering and
+        // --count of the same invocation answered the question that was actually asked. Three
+        // renderers disagreeing about one -S is the failure this pins, and it is invisible to any
+        // test that only checks markdown.
+        var (mdExit, markdown, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+        var (tsvExit, tsv, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", "--tips", "q");
+        var (jsonlExit, jsonl, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl", "--tips", "q");
+        var (countExit, count, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count", "--tips", "q");
+
+        Assert.Equal(0, mdExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, countExit);
+
+        var tsvLines = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("field\tvalue", tsvLines[0]);
+
+        // The wrong answer was type rows, so name it: this must never be the surface projection.
+        Assert.DoesNotContain("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
+
+        // Machine modes carry no prose: the inline identity line is a document-level field, and
+        // serializing the whole view rather than the section leaked it into --tsv output.
+        Assert.DoesNotContain("Library:", tsv, StringComparison.Ordinal);
+
+        var markdownRows = markdown.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Count(l => l.StartsWith("| ", StringComparison.Ordinal) && !l.Contains("---", StringComparison.Ordinal))
+            - 1; // header row
+
+        var jsonlRows = jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        Assert.Equal(markdownRows, tsvLines.Length - 1);
+        Assert.Equal(markdownRows, jsonlRows);
+        Assert.Equal(markdownRows.ToString(), count.Trim());
+    }
+
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData("Structs")]
+    public async Task Type_Listing_KindSections_StillProjectTypeRows(string section)
+    {
+        // Negative case for the fact-table routing above: it is scoped to one section name, so the
+        // per-kind tables must keep their existing surface projection. A predicate that widened to
+        // "any single section" would silently convert these to field/value rows.
+        var (exit, tsv, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", section, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_IsAdvertisedByDiscovery()    {
+        // The discovery manifest is a second renderer fed by the option-filtered view, so a section
+        // that renders under -S but never appears under -D is undiscoverable in practice.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
     }
 
     [Fact]

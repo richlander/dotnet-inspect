@@ -593,6 +593,23 @@ public class ApiCommand
         }
         else if (options.Tabular)
         {
+            if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
+            {
+                var writerOpts = ApiOutputFormatter.BuildWriterOptions(api, options);
+                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
+                    (writer, formatter) =>
+                    {
+                        var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
+                        // Non-null because BuildFullApiView populates it unconditionally; a null
+                        // here is a bug, and throwing is preferable to falling through to the
+                        // surface projection, which would answer a different question and exit 0.
+                        ApiViewContext.Default.Serialize(view.ApiInfo!, markoutWriter);
+                        markoutWriter.Flush();
+                    }, options.Rows);
+                return 0;
+            }
+
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
