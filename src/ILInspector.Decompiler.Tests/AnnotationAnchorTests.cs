@@ -97,7 +97,7 @@ public class AnnotationAnchorTests
         // offset as the newobj it feeds. The stand-in is the narrower node, so
         // width alone would underline the argument instead of the allocation the
         // fact reports. Measured over System.Private.CoreLib, that mistake
-        // affected 50 of 10,664 alloc.new underlines for the stack-slot form;
+        // affected 50 of 10,646 alloc.new underlines for the stack-slot form;
         // __exception has the same shape and is excluded for the same reason.
         const int Offset = 5;
         var objectType = TypeRef.CoreLib("System", "Object");

@@ -246,7 +246,7 @@ public static class AnnotationAnchor
     /// nothing else carries the offset, which is the case where it genuinely is
     /// the value on the line (<c>_ = S_0;</c>). Measured over
     /// <c>System.Private.CoreLib</c>, preferring real expressions moves 50 of
-    /// 10,664 <c>alloc.new</c> underlines onto the allocation; no fact in that
+    /// 10,646 <c>alloc.new</c> underlines onto the allocation; no fact in that
     /// corpus shares an offset with a printed <c>__exception</c>, which is
     /// excluded because it is the same shape, not because it was observed.
     /// </remarks>
