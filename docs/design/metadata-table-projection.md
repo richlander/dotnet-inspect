@@ -562,6 +562,31 @@ work — and its obligations are exactly these:
   legend described below without keeping its own copy of the spelling table.
 - **Not responsible for structural escaping.** That belongs to each
   serializer's grammar and stays mandatory in every mode.
+- **Available as a value, not only as a returned `string`.** The encoded result
+  is offered as a distinct type, constructible only by applying a predicate. A
+  sink that accepts only that type cannot be handed untreated text by accident,
+  which turns "is this path safe" from a call-graph trace into a type search.
+  There is no conversion *from* `string`. Conversion *to* `string` is
+  unrestricted, and is safe here in a way it usually is not: the customary
+  objection is that `ToString` launders the wrapper, but that assumes the
+  payload is dangerous and the wrapper is what restrains it. Here the payload
+  is already inert, so losing the wrapper loses provenance, not protection.
+
+That last obligation pays for itself immediately. Encoding on its own is
+transactional — a `string` goes in and a `string` comes out — so a treated
+value and an untreated one have the same type, and deciding whether a sink is
+safe means tracing every path that reaches it, again after every change.
+Retyping a single return value on the NuGet failure path (#3563) turned a live
+hole into a build error: a package name, which arrives from a command line or a
+dependency graph, was being interpolated into a printed message untouched, and
+it had survived review.
+
+Composition has to be part of that contract, or callers fall back to
+`$"...{treated}..."` and drop the guarantee at the moment it matters most. An
+interpolated string handler that applies the predicate to each part as it is
+appended covers this. It must encode *literals* as well as holes — an invariant
+with an exception in it has to be re-argued at every use — and must append an
+already-treated part as it is rather than encoding it a second time.
 
 Survey names the code point and its general category, both of which .NET
 supplies. It deliberately does not name the *script* — "Cyrillic" would read
