@@ -1931,6 +1931,17 @@ public class SectionPipelineTests
         // second MethodBodyInspectionSession.OpenWithFeatures overload that opened an index left
         // the pinned set below unchanged, so the gate stayed green while a new opener existed.
         //
+        // Generic arity is part of that signature, and omitting it was the same bug once more.
+        // Review escaped the parameter-typed version with `LibraryBodyIndex.Open<T>(string)`,
+        // whose parameter list is identical to the existing `Open(string)`, so a brand new opener
+        // folded silently into an already-pinned entry. Arity is what separates them.
+        //
+        // Callees key on OpenSignatureParameters rather than ParameterTypes. That is this
+        // repository's own answer to the same problem -- see the doc comment on
+        // MemberRef.OpenParameterTypes, which exists so that cross-assembly caller-graph identity
+        // reduces a constructed call site and the open definition it targets to one key instead
+        // of letting them drift apart per instantiation.
+        //
         // Signatures turn out to be load-bearing a second time, across the assembly boundary.
         // ResourceLifecycleAnalysis has two InspectAssembly overloads and they sit on opposite
         // sides of this gate: InspectAssembly(string, ...) opens an index itself, while the
@@ -1939,13 +1950,22 @@ public class SectionPipelineTests
         // the two collapse into one node, and the sanctioned ResourceTriage path gets reported as
         // a violation, which would then have to be excused by an allow list. An allow list here
         // would be the hole: it is exactly where a real escape would go to hide.
+        static string SignatureKey(
+            ILInspector.Analysis.TypeRef declaringType,
+            string name,
+            int genericArity,
+            IEnumerable<ILInspector.Analysis.TypeRef> parameterTypes)
+            => $"{declaringType.Namespace}.{declaringType.Name}::{name}"
+                + (genericArity > 0 ? $"`{genericArity}" : "")
+                + $"({string.Join(",", parameterTypes)})";
+
         static string CallerKey(ILInspector.Analysis.MethodIdentity method)
-            => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}"
-                + $"({string.Join(",", method.ParameterTypes)})";
+            => SignatureKey(
+                method.DeclaringType, method.Name, method.GenericArity, method.ParameterTypes);
 
         static string CalleeKey(ILInspector.Analysis.MemberRef callee)
-            => $"{callee.DeclaringType.Namespace}.{callee.DeclaringType.Name}::{callee.Name}"
-                + $"({string.Join(",", callee.ParameterTypes)})";
+            => SignatureKey(
+                callee.DeclaringType, callee.Name, callee.GenericArity, callee.OpenSignatureParameters);
 
         static bool OpensAnIndex(ILInspector.Analysis.DirectCall call)
             => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
@@ -1959,8 +1979,8 @@ public class SectionPipelineTests
             .ToHashSet(StringComparer.Ordinal);
 
         // Edges run callee -> caller, so the walk below is a reverse reachability from the
-        // openers. An edge is recorded only when the callee resolves to a method defined in one
-        // of these two assemblies; anything else is outside the graph by construction.
+        // openers. An edge is recorded only when the callee resolves to a method defined in the
+        // product closure; anything else is outside the graph by construction.
         var callersByCallee = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         void AddEdge(string calleeKey, string callerKey)
         {
@@ -1987,6 +2007,59 @@ public class SectionPipelineTests
                 callerKey);
         }
 
+        // A compiler-generated closure or state machine is *constructed* by the method it was
+        // generated for -- `newobj ResearchDiff+<BodyIndexEntries>d__26::.ctor(int32)` -- and that
+        // newobj is a recorded edge. What is missing is the link from the generated type's own
+        // members back to that constructor: an iterator's MoveNext is driven by the runtime
+        // through an interface, so no IL instruction connects the two. The walk could therefore
+        // see who builds a state machine and never reach the body that does the work.
+        //
+        // This is not hypothetical. GPT's ResearchDiff.CompareAssemblies exploit survived the
+        // product-closure fix on exactly this hole: the opener is
+        // `ResearchDiff+<BodyIndexEntries>d__26::MoveNext()`, and without this edge no scanner
+        // that calls CompareAssemblies is reachable from it.
+        //
+        // Attribution goes through the constructor rather than through the origin name the
+        // compiler encodes in `<Origin>d__N` / `<Origin>b__N`, because a name carries no
+        // signature and so collapses overloads. ResourceLifecycleAnalysis is the live case:
+        // InspectAssembly(string, FindingSubject) opens an index through a display-class lambda,
+        // while InspectAssembly(Func<LibraryBodyIndex>, FindingSubject) -- the overload
+        // ScanResourceTriage actually calls -- opens nothing. Name-keyed attribution reports the
+        // sanctioned path as a violation and would need an allow list, which is precisely where a
+        // real escape would hide. The constructor is signature-exact and IL-grounded, and lambdas
+        // need no special case at all: `ldftn` is already a recorded edge.
+        static bool IsCompilerGenerated(ILInspector.Analysis.TypeRef type)
+        {
+            var name = type.Name;
+            var nested = name.LastIndexOf('+');
+            return nested >= 0 && nested + 1 < name.Length && name[nested + 1] == '<';
+        }
+
+        var constructorsByType = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var caller in calls.Select(call => call.Caller))
+        {
+            if (caller.Name != ".ctor" || !IsCompilerGenerated(caller.DeclaringType))
+                continue;
+
+            var owner = $"{caller.DeclaringType.Namespace}.{caller.DeclaringType.Name}";
+            if (!constructorsByType.TryGetValue(owner, out var constructors))
+                constructorsByType[owner] = constructors = new HashSet<string>(StringComparer.Ordinal);
+
+            constructors.Add(CallerKey(caller));
+        }
+
+        foreach (var generated in calls.Select(call => call.Caller).DistinctBy(CallerKey))
+        {
+            if (generated.Name is ".ctor" or ".cctor"
+                || !constructorsByType.TryGetValue(
+                    $"{generated.DeclaringType.Namespace}.{generated.DeclaringType.Name}",
+                    out var constructors))
+                continue;
+
+            foreach (var constructor in constructors)
+                AddEdge(CallerKey(generated), constructor);
+        }
+
         var openerKeys = calls
             .Where(OpensAnIndex)
             .Select(call => CallerKey(call.Caller))
@@ -2011,7 +2084,7 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 "DotnetInspector.Commands.DiffCommand::AcquireAuthoredSourceInspectionsAsync(IReadOnlyList<string>,IReadOnlyDictionary<string, ResearchSubjectKey>,DiffOptions,bool,HttpClient,VerboseLogger)",
-                "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies(IReadOnlyList<string>,string,string,bool,FindingDescriptor,FindingSubject,Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>>)",
+                "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies`1(IReadOnlyList<string>,string,string,bool,FindingDescriptor,FindingSubject,Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>>)",
                 "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures(string,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver,IReadOnlySet<int>,Func<TypeRef, bool>)",
                 "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithPrefetchedImage(string,PdbContext,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver)",
                 "ILInspector.Analysis.LeakTriageAnalyzer::AnalyzeAssemblyDetailed(string)",

@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Five routes into the same defect
+### Eight routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and five different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and eight different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -116,19 +116,23 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A prerequisite list is mutated through an alias the caller still holds | copy-on-registration into `ImmutableArray<string>` |
 | A scanner reaches `LibraryBodyIndex.Open` without going through the gated accessor | a pinned opener set plus a reverse-reachability gate, over the compiled product assemblies |
 | A caller outside any scanner run takes the body index unchecked | default-deny in `RequireUnboundedDeclaration` (below) |
+| A helper in another product assembly opens the index internally | the assembly set derived as the CLI's product reference closure |
+| A second overload of a pinned opener collapses into its sibling | opener identity keyed by full signature, not by `Type::Method` |
+| A generic opener (`Open<T>(string)`) collapses into its non-generic namesake | generic arity carried in the identity key |
 
-That the enumeration reached five is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached eight is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
 The fourth is the only one no seam can intercept. `ctx.AssemblyPath` is a `string`, and a static `LibraryBodyIndex.Open(path)` call bypasses `RequireUnboundedDeclaration` entirely while doing the same seconds of whole-assembly work. Unlike deliberate subversion through `ImmutableCollectionsMarshal`, this route is reachable from ordinary code, so it is a genuine drift path.
 
-`NoSectionReachesTheBodyIndexExceptThroughTheGatedAccessor` closes it by running this repository's own IL analysis over its own compiled assemblies. Getting it right took five attempts, and the four failures are worth recording because all four looked convincing:
+`NoSectionReachesTheBodyIndexExceptThroughTheGatedAccessor` closes it by running this repository's own IL analysis over its own compiled assemblies. Getting it right took six attempts, and the five failures are worth recording because all five looked convincing:
 
 1. **Direct callers only.** The first version asserted that no caller of `LibraryBodyIndex.Open` lived in `DotnetInspector.Sections`. Review broke it in one line: scanners already route their work through `LibraryMetadataService`, so a scanner calling a helper *there* that opens an index passed untouched. The gate was checking the one spelling nobody would use.
 2. **Reachability only.** The second version walked the call graph backwards from every opener. Review broke that too, by calling a helper on a **constructed generic type** — `Helper<int>.Open()` goes through a `MemberRef` on a `TypeSpec`, and `DirectCalls` records *no edge at all* for it. Not a wrong edge: no edge. No backwards walk can find a caller that the graph does not contain. A static constructor is invisible for a second reason — the CLR runs a type initializer on first use and no IL instruction references it.
 3. **One assembly, and keyed by name.** The third version pinned the openers, which fixed the graph problem, but pinned them by `Type::Method` within `dotnet-inspect` alone. Both halves of that were escapable: a second overload of an already-pinned opener collapsed into its sibling, and a helper in `ILInspector.Analysis` was outside the graph entirely.
 4. **A hand-listed assembly set.** The fourth version merged in the assembly whose helper had just been used to escape it. That fixed the instance and left the shape: review pointed at a third assembly the next round. The set had to stop being a list and start being derived.
+5. **A derived assembly set, but an incomplete graph.** The fifth version derived the closure and still let a *public, reachable* `ResearchDiff.CompareAssemblies` through, because the opener behind it is an **iterator state machine**. The graph problem from failure 2 had a third form nobody had enumerated.
 
 The generalizable move is in the second failure: when a gate keeps being escaped, check whether the evidence it rests on can even *see* the escape. Two rounds went into improving matching inside a graph that structurally lacked the edge. Prefer a claim over a **declared set** to a claim over a **derived relation**, because the set fails closed when the analysis is incomplete.
 
@@ -138,9 +142,17 @@ So the gate now leads with a claim that does not depend on the call graph being 
 
 Signatures are load-bearing twice over, which is why the earlier name-keyed version was still broken. Review added a second `MethodBodyInspectionSession.OpenWithFeatures` overload that opened an index: projecting to `Type::Method` and calling `Distinct()` collapsed it into the existing entry, so a new opener changed nothing the gate could see. The same collapse also produces false positives — `ResourceLifecycleAnalysis` has two `InspectAssembly` overloads that sit on *opposite* sides of this gate, one that opens an index itself and one that merely invokes the `Func<LibraryBodyIndex>` it was handed. Keyed by name they are one node, and the sanctioned `ResourceTriage` path would be reported as a violation needing an allow list — and the allow list would be exactly where a real escape would hide.
 
-A reverse-reachability walk then adds the claim the pinned set cannot make: no section reaches one of those openers **except through** `ScannerContext.BodyIndex`/`DrillMap`. Calling a sanctioned opener from a scanner adds no new opener, so only the walk catches it. Neither claim subsumes the other. The walk still over-approximates by adding an edge from every call site to the type initializer of the type it touches, because a spurious edge can only make this gate redder, never blind.
+Generic arity is part of the signature for the same reason and had to be added separately: without it `LibraryBodyIndex.Open<T>(string)` and `Open(string)` produce the same key, so a generic opener hides behind a non-generic namesake that is already pinned. Callee keys use `MemberRef.OpenSignatureParameters`, which exists in this repository precisely so a constructed call site and the open definition reduce to the same generic shape.
 
-Cutting the walk at the accessor is what keeps it precise. Without the cut it reports seven `Sections` members, and all seven are legitimate: the accessor itself, the four `Unbounded` scanner lambdas that use it, and their enclosing factory. A gate that flagged those would need an allow list, and the allow list would become the hole.
+A reverse-reachability walk then adds the claim the pinned set cannot make: no section reaches one of those openers **except through** `ScannerContext.BodyIndex`/`DrillMap`. Calling a sanctioned opener from a scanner adds no new opener, so only the walk catches it. Neither claim subsumes the other.
+
+The walk over-approximates in two places, both in the direction that can only make the gate redder rather than blind. It adds an edge from every call site to the type initializer of the type it touches, because a static constructor has no caller edge. And it adds an edge from every member of a compiler-generated nested type to that type's own constructor, because a state machine's `MoveNext` is driven by the runtime through an interface and nothing in IL connects the two.
+
+That second edge is not defensive tidying. Review escaped the derived-closure version with a `NetworkFree` scanner calling the public `ResearchDiff.CompareAssemblies`, whose opener is `ResearchDiff+<BodyIndexEntries>d__26::MoveNext()`. The walk could see who *builds* the state machine — `newobj` is a recorded edge — and never reach the body that does the work, so both claims stayed green while the CLI spent 6.3 s in a section declared `NetworkFree`.
+
+Attribution deliberately goes through the generated type's **constructor** rather than through the origin name the compiler encodes in `<Origin>d__N`. A name carries no signature, so parsing it re-creates the overload collapse that signatures were introduced to fix: `ResourceLifecycleAnalysis.InspectAssembly` has two overloads, and name-based attribution reports the sanctioned one as a violation. The constructor is signature-exact and grounded in a real IL edge. Lambdas need no special case at all — `ldftn` is already recorded, so the origin already reaches them.
+
+Cutting the walk at the accessor is what keeps it precise. Without the cut it reports legitimate `Sections` members: the accessor itself, the `Unbounded` scanner lambdas that use it, and their enclosing factory. A gate that flagged those would need an allow list, and the allow list would become the hole.
 
 Its boundary used to be the assembly, and that boundary was a live hole rather than a theoretical one. A `NetworkFree` scanner calling `LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath)` left both claims green while the real CLI spent 5.1 s building an index — ordinary typed code, not subversion, because `ILInspector.Analysis` opens the index *inside* a helper this assembly's call graph knows nothing about. The gate had named that boundary and called it unverified; naming it was not enough.
 
