@@ -1787,6 +1787,33 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt()
+    {
+        // GPT's re-review asked whether the re-registration guard reaches one level down: can
+        // CostOf's max-over-closure change for a key whose own registration never moved, by
+        // raising one of its *prerequisites* after the fact? That is the same defect displaced,
+        // and the guard on Add would not obviously cover it.
+        //
+        // It does, but only in combination with the existing unregistered-prerequisite throw, so
+        // both halves are pinned here rather than left to be re-derived.
+        var registry = new ScannerRegistry();
+        registry.Add("Prereq", SectionCost.NetworkFree, _ => { });
+        registry.Add("Consumer", SectionCost.NetworkFree, _ => { }, "Prereq");
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Consumer"));
+
+        Assert.Throws<InvalidOperationException>(
+            () => registry.Add("Prereq", SectionCost.Unbounded, _ => { }));
+
+        // The other way a closure could move is a forward reference: declare a prerequisite that
+        // does not exist yet, snapshot the cheap cost, then register the prerequisite expensively.
+        // CostOf refuses to answer at all while the prerequisite is missing, so no entry can
+        // snapshot a cost that a later registration would invalidate.
+        var forward = new ScannerRegistry();
+        forward.Add("Early", SectionCost.NetworkFree, _ => { }, "Later");
+        Assert.Throws<InvalidOperationException>(() => forward.CostOf("Early"));
+    }
+
+    [Fact]
     public void SectionCost_OrdersFromCheapestToMostExpensive()
     {
         // Raised by GPT review of #3626. The raise-only logic and CostOf both compare tiers with
