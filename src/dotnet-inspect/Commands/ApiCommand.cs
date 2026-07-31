@@ -145,8 +145,9 @@ public class ApiCommand
         // into an error. Slice 4c gives listing a Fixed section and can then adopt this guard.
         if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
         {
-            Console.Error.WriteLine("Error: this view publishes no bare -S overview sections.");
-            Console.Error.WriteLine("Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
             return (null!, 1);
         }
 
