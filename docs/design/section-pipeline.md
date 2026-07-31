@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Eleven routes into the same defect
+### Twelve routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and eleven different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twelve different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -122,8 +122,9 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A scanner opens the index by **reflection**, which no IL walk can follow | the reflection API surface reachable from `Sections` is pinned instead |
 | A helper in another assembly does the reflecting on the scanner's behalf | the pin walks *forward* over the whole product closure, not just `Sections` |
 | `Delegate.CreateDelegate` names the target with a **string**, so there is no `ldftn` to follow and `System.Delegate` is neither `Type` nor `Activator` | the allowed BCL **type** surface is pinned, so any late-binding type is new |
+| The opener is called through an **interface or virtual member**, so the reverse walk dead-ends at the implementation | hierarchy edges from each product ancestor member to its implementations |
 
-That the enumeration reached eleven is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached twelve is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
@@ -167,7 +168,11 @@ Naming a *second* assembly was not enough either, and for a reason worth keeping
 
 Deriving it also settles a question a directory scan would get wrong. `DotnetInspector.Fixtures` sits in the same output directory and matches the same name prefix, so a glob would sweep test-support code into the pinned opener set. The closure excludes it because the CLI does not reference it — a property, not an exception, and one the gate asserts.
 
-What remains outside is interface dispatch that never resolves to a definition. That is **unverified, not closed**, and the gate says so where it is written.
+What remains outside is dispatch through a type the product reference closure does not contain. That is **unverified, not closed** — and that phrase now carries a warning, because this document has used it four times and been wrong all four: the unscoped caller, the cross-assembly helper, reflection, and interface dispatch were each described as a limit of the walk and then read as a limit of the gate. Naming a hole is not closing it.
+
+Interface and virtual dispatch was the fourth. A scanner holding an interface emits `callvirt IBodyOpener::Open`, and the reverse walk dead-ends at the implementation with no edge connecting it back — measured at 366.8 ms → 954.7 ms with every test green. The missing link is a *type* relationship, and `DirectCalls` records only call sites, so it has to come from elsewhere: these assemblies are already loaded in order to be walked, so their hierarchy supplies it. Each product interface a type implements, and each product base class it derives from, yields an edge from the ancestor's member to the implementing member — recorded as though the ancestor *called* the implementation, which is the direction that makes the reverse walk continue.
+
+Closing it exposed a second, quieter defect worth recording: the graph's node set was derived from methods that *make* calls, so a bodyless interface member was not a node at all. That silently dropped both the real `callvirt` edge into it and the new hierarchy edge out of it, and the first attempt at this fix stayed green for that reason alone. **A node set defined by "has outgoing edges" cannot represent abstract declarations** — product members appearing only as callees are now nodes too, with the namespace filter keeping the BCL out.
 
 Reflection used to be on that list, and taking it off is the most useful thing this review produced. `typeof(LibraryBodyIndex).GetMethod("Open").Invoke(...)` from a `NetworkFree` scanner cost a measured 290.2 ms with both claims green, and the obvious reading is that it condemns every static IL gate equally and therefore cannot be fixed here.
 

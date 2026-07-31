@@ -1978,6 +1978,18 @@ public class SectionPipelineTests
             .Select(call => CallerKey(call.Caller))
             .ToHashSet(StringComparer.Ordinal);
 
+        // A caller-derived node set only contains members that have a body. An interface member
+        // does not, so `IBodyOpener::Open` was not a node at all -- which silently dropped both the
+        // real `callvirt` edge into it and the hierarchy edge out of it, and is why the first
+        // attempt at closing interface dispatch stayed green. Product members that appear only as
+        // callees are added so abstract and interface declarations can carry edges. The product
+        // namespace filter is what keeps the BCL out of the graph.
+        definedKeys.UnionWith(calls
+            .Select(call => call.Callee)
+            .Where(callee => callee.DeclaringType.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                || callee.DeclaringType.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal))
+            .Select(CalleeKey));
+
         // Edges run callee -> caller, so the walk below is a reverse reachability from the
         // openers. An edge is recorded only when the callee resolves to a method defined in the
         // product closure; anything else is outside the graph by construction.
@@ -2006,6 +2018,96 @@ public class SectionPipelineTests
                 $"{call.Callee.DeclaringType.Namespace}.{call.Callee.DeclaringType.Name}::.cctor()",
                 callerKey);
         }
+
+        // Interface dispatch was the last thing this gate described as "unverified, not closed",
+        // and Gemini Pro's review walked straight through it: a `DotnetInspector.Hack.IBodyOpener`
+        // interface with a `BodyOpener` implementation calling the already-pinned
+        // LeakTriageAnalyzer.AnalyzeAssemblyDetailed. The scanner holds the *interface*, so the IL
+        // records `callvirt IBodyOpener::Open` and the reverse walk dead-ends at `BodyOpener::Open`
+        // with nothing connecting it back to any section. 366.8 ms -> 954.7 ms, all 175 green.
+        //
+        // Naming a hole is not closing it. That has now been the wrong call four times out of four
+        // on this gate -- callers outside a scanner run, the cross-assembly helper, reflection, and
+        // now this -- so the honest reading is that "unverified" here was never a boundary, only an
+        // unwritten test.
+        //
+        // The missing edge is a *type* relationship, and DirectCalls only carries call sites, so it
+        // has to come from somewhere else. These assemblies are already loaded above to be walked,
+        // so their hierarchy is available directly: for each product type, every product interface
+        // it implements and every product base class it derives from yields an edge from the
+        // declaring member to the member that overrides or implements it.
+        //
+        // Direction matters. Edges run callee -> caller, so an implementation is recorded as though
+        // the base or interface member *called* it: reaching `BodyOpener::Open` then reaches
+        // `IBodyOpener::Open`, and from there its real callers. Feeding the same pairs to the
+        // forward walk keeps the two claims consistent.
+        //
+        // Keying by declaring type plus the member's own signature is an over-approximation -- it
+        // links members that merely share a signature across a hierarchy, not only true overrides.
+        // That is the safe direction: a spurious edge can make this gate redder, never blind.
+        var hierarchyEdges = new List<(string CallerKey, string CalleeKey)>();
+        var derivedByAncestor = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var assembly in productAssemblies.Values)
+        {
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch (System.Reflection.ReflectionTypeLoadException loadFailure)
+            {
+                types = loadFailure.Types.Where(type => type is not null).ToArray()!;
+            }
+
+            foreach (var type in types)
+            {
+                if (type.FullName is not { } derivedName)
+                    continue;
+
+                var ancestors = type.GetInterfaces().AsEnumerable();
+                for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+                    ancestors = ancestors.Append(baseType);
+
+                foreach (var ancestor in ancestors)
+                {
+                    if (ancestor.FullName is not { } ancestorName
+                        || !IsProductAssembly(ancestor.Assembly.GetName().Name))
+                    {
+                        continue;
+                    }
+
+                    if (!derivedByAncestor.TryGetValue(ancestorName, out var derived))
+                        derivedByAncestor[ancestorName] = derived = new HashSet<string>(StringComparer.Ordinal);
+
+                    derived.Add(derivedName);
+                }
+            }
+        }
+
+        foreach (var definedKey in definedKeys)
+        {
+            var separator = definedKey.IndexOf("::", StringComparison.Ordinal);
+            if (separator < 0
+                || !derivedByAncestor.TryGetValue(definedKey[..separator], out var derivedTypes))
+            {
+                continue;
+            }
+
+            var member = definedKey[separator..];
+            foreach (var derivedType in derivedTypes)
+            {
+                var overrideKey = derivedType + member;
+                if (definedKeys.Contains(overrideKey))
+                    hierarchyEdges.Add((definedKey, overrideKey));
+            }
+        }
+
+        // Non-vacuity: generic type names differ between reflection (`Foo`1`) and the IL keys, and
+        // a silent mismatch would leave this list empty while looking correct.
+        Assert.NotEmpty(hierarchyEdges);
+
+        foreach (var (callerKey, calleeKey) in hierarchyEdges)
+            AddEdge(calleeKey, callerKey);
 
         // A compiler-generated closure or state machine is *constructed* by the method it was
         // generated for -- `newobj ResearchDiff+<BodyIndexEntries>d__26::.ctor(int32)` -- and that
@@ -2249,6 +2351,17 @@ public class SectionPipelineTests
             callees.Add(calleeKey);
         }
 
+        foreach (var (callerKey, calleeKey) in hierarchyEdges)
+        {
+            if (!definedKeys.Contains(calleeKey))
+                continue;
+
+            if (!forwardCalls.TryGetValue(callerKey, out var callees))
+                forwardCalls[callerKey] = callees = new HashSet<string>(StringComparer.Ordinal);
+
+            callees.Add(calleeKey);
+        }
+
         var reachableFromSections = new HashSet<string>(StringComparer.Ordinal);
         var forwardPending = new Queue<string>();
         foreach (var key in definedKeys.Where(key =>
@@ -2414,13 +2527,25 @@ public class SectionPipelineTests
             reachableFromSections,
             key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
 
-        // Boundary, stated rather than implied. This walk sees the CLI's product reference
-        // closure, so interface dispatch that never resolves to a definition remains
-        // **unverified, not closed**. Reflection was on that list until the assertion just above
-        // took it off -- not by making the walk follow a reflective call, which is impossible,
-        // but by pinning the far smaller set of reflection APIs section code may touch at all.
-        // What is no longer a boundary is the assembly: a helper anywhere in the product is in
-        // scope.
+        // Boundary, stated rather than implied -- and this comment has now been wrong about its
+        // own boundary four times, so it is worth saying what the pattern was. Every item this
+        // gate has described as "unverified, not closed" has later turned out to be reachable and
+        // closable: the unscoped caller, the cross-assembly helper, reflection, and interface
+        // dispatch. In each case "unverified" described a limit of the *walk* and was then read as
+        // a limit of the gate. Naming a hole is not closing it, and on this defect it has not once
+        // been the end of the story.
+        //
+        // Interface and virtual dispatch came off the list via hierarchy edges above; reflection
+        // came off it not by making the walk follow a reflective call, which is impossible, but by
+        // pinning the far smaller BCL type and reflection surfaces section code may touch at all.
+        // The assembly stopped being a boundary earlier still: a helper anywhere in the product is
+        // in scope.
+        //
+        // What remains genuinely outside is dispatch through a type the product reference closure
+        // does not contain -- an interface implemented only by an assembly loaded at runtime. That
+        // is bounded by the product's own constraints rather than by this test: `dynamic` does not
+        // compile here (IL2026/IL3050 under IsAotCompatible), and the type pin above admits no
+        // loader API. Treat it as unverified, and expect that reading to be wrong too.
         //
         // What is *not* an open edge any more is the unscoped caller. An earlier revision of this
         // comment said the cut asserts only that sections route through the accessor, and that a
