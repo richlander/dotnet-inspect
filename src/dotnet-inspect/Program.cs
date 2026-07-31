@@ -301,8 +301,8 @@ catch (NuGetFetch.UnsupportedSourceException ex)
     // them, and resolution runs after parsing. The option validators catch the common case
     // early with the same message; this reports the rest as the same clean error rather than
     // the stack trace the generic handler below would print.
-    Console.Error.WriteLine($"Error: {ex.Message}");
-    exitCode = 1;
+    CommandError.Write(ex);
+    return 1;
 }
 catch (OperationCanceledException)
 {
