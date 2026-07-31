@@ -187,9 +187,21 @@ public static class AnnotationAnchor
     /// 25,682 narrowed lines. Trimming makes such an extent coincide with the
     /// statement-wide default rather than mis-drawing, and leaves every extent
     /// that already named an expression untouched.
+    /// <para>
+    /// The clamp on the far end is defensive rather than load-bearing today:
+    /// <see cref="PrintedRangeMap.TryGetLineColumn"/> refuses a range that
+    /// crosses a line break (16,895 in the same corpus), so none of the 359,584
+    /// that reach here overhang the line. It is kept, and gated, because this is
+    /// an internal helper taking a caller-supplied range: the cost is one
+    /// <see cref="Math.Min(int, int)"/> and the alternative is an out-of-range
+    /// read the first time a second caller passes a range this one would not.
+    /// </para>
     /// </remarks>
     internal static bool TryTrimToPrinted(string lineText, ref int column, ref int length)
     {
+        // length <= 0 is redundant with the end <= start rejection below, and is
+        // kept because this is a documented precondition of an internal helper,
+        // not an accident of the loop bounds.
         if (column < 0 || length <= 0 || column >= lineText.Length)
             return false;
         int end = Math.Min(column + length, lineText.Length);

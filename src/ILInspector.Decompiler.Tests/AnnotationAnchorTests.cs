@@ -206,6 +206,15 @@ public class AnnotationAnchorTests
     [InlineData("    x   ", 0, 8, 4, 1)]
     // Already tight: trimming must not move an extent that names an expression.
     [InlineData("    new object();", 4, 12, 4, 12)]
+    // Reaching exactly the last character, so a clamp that stopped one short
+    // would silently drop it. 87,400 of the corpus's printed ranges end here.
+    [InlineData("    new object();", 4, 13, 4, 13)]
+    // Overhanging the end of the line. ComputeCaretExtents cannot deliver this
+    // today -- TryGetLineColumn rejects every range that crosses a line break,
+    // 16,895 of them in the corpus, so 0 of 359,584 survivors overhang -- but
+    // the clamp is the reason an overhang is survivable at all, and an internal
+    // helper is not entitled to assume it keeps only its current caller.
+    [InlineData("    x", 4, 99, 4, 1)]
     public void TryTrimToPrinted_ShrinksOntoPrintedCharactersAtBothEnds(
         string lineText, int column, int length, int expectedColumn, int expectedLength)
     {
