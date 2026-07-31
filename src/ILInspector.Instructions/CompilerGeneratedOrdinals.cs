@@ -460,11 +460,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         continue;
 
                     methodNames[methodHandle] = elided;
-                    // A method name never carries arity at all: the CLI encodes a method's
-                    // generic parameter count in its signature only. Roslyn-emitted local
-                    // functions whose containing methods differ in arity are spelled
-                    // `<L>g__a|0_0` and `<L>g__a|1_0` and elide to one name, so the count
-                    // is the only thing separating them here.
+                    // A method records its arity twice, in GenericParam and in its
+                    // signature, and nothing in the format ties the two together. The
+                    // operand renderer reads the signature, so a well-formed generic
+                    // method still differs after its name folds; this term carries the
+                    // case where the signature says non-generic and the renderer therefore
+                    // spells no arity tick. Gated by
+                    // MethodsWhoseSignatureHidesTheirArity_DoNotFold, not by the
+                    // Roslyn-shaped control next to it.
                     Add(
                         methods,
                         ambiguousMethods,

@@ -919,24 +919,19 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Generic arity is part of a member's identity and is absent from its name. The CLI
-    /// encodes a method's generic parameter count in its signature only, so a local
-    /// function declared in <c>L&lt;T&gt;</c> and one declared in <c>L&lt;T, U&gt;</c> are
-    /// spelled <c>&lt;L&gt;g__a|0_0</c> and <c>&lt;L&gt;g__a|1_0</c> — differing in nothing
-    /// but the ordinal this correspondence elides. Measured against Roslyn rather than
-    /// assumed: compiling two such overloads emits exactly that pair.
+    /// Two generic methods differing only in arity stay distinct. The barrier here is the
+    /// operand renderer, not this correspondence: a well-formed generic method declares its
+    /// count in its signature, and <c>IlBodyDiff.FormatCall</c> spells that as an arity
+    /// tick, so <c>&lt;M&gt;g__L|#_0`1</c> and <c>&lt;M&gt;g__L|#_0`2</c> differ even after
+    /// both names fold to one.
     /// </summary>
     /// <remarks>
-    /// Deleting the arity term from the method key fails this test and nothing else.
-    /// <para>
-    /// This is defence in depth rather than the only barrier. At a Roslyn-emitted call site
-    /// the rendered operand carries the arity tick and the generic arguments
-    /// (<c>&lt;L&gt;g__a|#_0`1&lt;!!0&gt;</c> against <c>...`2&lt;!!0, !!1&gt;</c>), so the
-    /// difference survives the fold and the comparison still reports a difference. That
-    /// second barrier belongs to the signature formatter and is not this type's to
-    /// guarantee; keying on arity keeps the correspondence sound on its own terms, for
-    /// operand renderings that do not carry a signature.
-    /// </para>
+    /// This test therefore does <em>not</em> gate the arity term in the method key —
+    /// deleting that term leaves it green. It is stated here because the distinction is
+    /// easy to get backwards: this is the Roslyn-shaped case, and Roslyn's shape is safe
+    /// for a reason that belongs to the renderer.
+    /// <see cref="MethodsWhoseSignatureHidesTheirArity_DoNotFold"/> is the case the key
+    /// term actually carries.
     /// </remarks>
     [Fact]
     public void MethodsDifferingOnlyInGenericArity_DoNotFold()
@@ -950,21 +945,33 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The type analogue, which unlike the method one is reachable through an operand that
-    /// carries no signature. A generic type's arity is spelled in its name by the
-    /// <c>`N</c> convention, and <c>TryElideOrdinal</c> refuses the non-digit tail that
-    /// convention leaves, so a Roslyn-emitted generic state machine never folds at all.
+    /// The case the method key's arity term carries. A method's arity is recorded twice —
+    /// in the <c>GenericParam</c> table and in the signature — and nothing in the format
+    /// ties the two together. When the signature says non-generic, the renderer spells no
+    /// arity tick, so two methods differing only in their <c>GenericParam</c> rows produce
+    /// operands that are identical once their names fold.
     /// </summary>
     /// <remarks>
-    /// The convention is not a runtime rule, and this tool reads untrusted assemblies: a
-    /// hand-built image may declare a generic type named <c>&lt;M&gt;d__3</c> with no tick,
-    /// which does elide. Two such types differing only in arity are distinct identities,
-    /// and an operand that names one without instantiating it — <c>ldtoken</c> — renders
-    /// nothing else that could separate them.
+    /// Roslyn never emits this, but this tool reads untrusted assemblies, and folding here
+    /// would report a changed call target as unchanged. Deleting the arity term from the
+    /// method key fails this test and nothing else.
     /// <para>
-    /// Deleting the arity term from the type key fails this test and nothing else.
+    /// Discovered by review: the original version of this control used a fixture that
+    /// emitted <c>GenericParam</c> rows without declaring them in the signature, so it was
+    /// testing this case while claiming to test the Roslyn-shaped one above.
     /// </para>
     /// </remarks>
+    [Fact]
+    public void MethodsWhoseSignatureHidesTheirArity_DoNotFold()
+    {
+        var result = Compare(
+            [GenericGeneratedWithNonGenericSignature("<M>g__L|3_0", 1)],
+            [GenericGeneratedWithNonGenericSignature("<M>g__L|7_0", 2)],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
     [Fact]
     public void TypesDifferingOnlyInGenericArity_DoNotFold()
     {
@@ -975,6 +982,57 @@ public class CompilerGeneratedOrdinalTests
             newTypeArities: [2]);
 
         Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The fixture builder really attaches the requested generic parameters to the
+    /// requested owners. Without this, a builder that silently emitted arity 0 everywhere
+    /// would make both arity controls vacuous while still passing them — and passing their
+    /// tampers too, because a key term computed from zero is as constant as no term at all.
+    /// </summary>
+    /// <remarks>
+    /// This reads the arity back out of the produced image rather than trusting the builder,
+    /// and asserts the owners are distinguished: the method arity must not land on the type
+    /// or vice versa. <c>GenericParam</c> is sorted by coded owner under
+    /// <c>TypeOrMethodDef</c>, where TypeDef precedes MethodDef, so a builder that emitted
+    /// the rows in declaration order would produce an image whose table is out of order;
+    /// <see cref="MetadataReader"/> would still read it, which is why this asserts the
+    /// association rather than merely that the rows exist.
+    /// </remarks>
+    [Fact]
+    public void BuildImage_AttachesGenericParametersToTheRequestedOwners()
+    {
+        byte[] image = BuildImage(
+            "Probe",
+            [GenericGenerated("<M>g__L|3_0", 2), Generated("<M>g__P|4_0")],
+            generatedTypes: ["<M>d__3", "<M>d__9"],
+            generatedTypeArities: [1, 0]);
+
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+
+        Assert.Equal(2, ArityOfMethod(reader, "<M>g__L|3_0"));
+        Assert.Equal(0, ArityOfMethod(reader, "<M>g__P|4_0"));
+        Assert.Equal(1, ArityOfType(reader, "<M>d__3"));
+        Assert.Equal(0, ArityOfType(reader, "<M>d__9"));
+
+        static int ArityOfMethod(MetadataReader reader, string name)
+        {
+            foreach (var typeHandle in reader.TypeDefinitions)
+            {
+                foreach (var handle in reader.GetTypeDefinition(typeHandle).GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(handle);
+                    if (reader.GetString(method.Name) == name)
+                        return method.GetGenericParameters().Count;
+                }
+            }
+
+            throw new InvalidOperationException($"no method named {name}");
+        }
+
+        static int ArityOfType(MetadataReader reader, string name)
+            => reader.GetTypeDefinition(GeneratedTypeHandle(reader, name)).GetGenericParameters().Count;
     }
 
     static Member Generated(string name) => new(name, CompilerGenerated: true);
@@ -999,7 +1057,8 @@ public class CompilerGeneratedOrdinalTests
         bool CompilerGenerated,
         string? AttributeNamespace = null,
         string? AttributeName = null,
-        int GenericArity = 0);
+        int GenericArity = 0,
+        bool SignatureDeclaresArity = true);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -1008,6 +1067,16 @@ public class CompilerGeneratedOrdinalTests
     /// </summary>
     static Member GenericGenerated(string name, int arity)
         => new(name, CompilerGenerated: true, GenericArity: arity);
+
+    /// <summary>
+    /// A compiler-generated member whose <c>GenericParam</c> rows say it is generic while
+    /// its signature says it is not. Roslyn never emits this, but the two counts live in
+    /// different tables and nothing in the format ties them together, so an untrusted
+    /// assembly can disagree with itself. It matters here because the correspondence keys
+    /// on the <c>GenericParam</c> count while the operand renderer reads the signature.
+    /// </summary>
+    static Member GenericGeneratedWithNonGenericSignature(string name, int arity)
+        => new(name, CompilerGenerated: true, GenericArity: arity, SignatureDeclaresArity: false);
 
     /// <summary>
     /// How a fixture spells the constructor of the attribute it applies to its generated
@@ -1171,6 +1240,11 @@ public class CompilerGeneratedOrdinalTests
 
         // Each generated type owns exactly one method, laid out after the caller and the
         // members so the MethodList ranges stay contiguous and ascending.
+        // GenericParam rows are emitted in one sorted pass below rather than as their
+        // owners are declared: the table is sorted by coded owner, and TypeDef and
+        // MethodDef interleave under TypeOrMethodDef exactly as they do for
+        // CustomAttribute, so declaration order is not sorted order.
+        var genericParameters = new List<(EntityHandle Owner, int Index)>();
         string[] extraTypes = generatedTypes ?? [];
         var generatedTypeHandles = new List<TypeDefinitionHandle>();
         for (int i = 0; i < extraTypes.Length; i++)
@@ -1183,17 +1257,9 @@ public class CompilerGeneratedOrdinalTests
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
 
-            // GenericParam is sorted by coded owner, and TypeDef sorts ahead of MethodDef
-            // under TypeOrMethodDef, so type parameters are emitted before any member's.
             int arity = generatedTypeArities is { } arities && i < arities.Length ? arities[i] : 0;
             for (int g = 0; g < arity; g++)
-            {
-                metadata.AddGenericParameter(
-                    generatedTypeHandles[i],
-                    GenericParameterAttributes.None,
-                    metadata.GetOrAddString($"T{g}"),
-                    g);
-            }
+                genericParameters.Add((generatedTypeHandles[i], g));
         }
 
         // An assembly may define CompilerGeneratedAttribute itself — System.Private.CoreLib
@@ -1212,6 +1278,13 @@ public class CompilerGeneratedOrdinalTests
         }
 
         var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
+
+        // A generic method's signature carries GENERIC (0x10) and its own parameter count,
+        // which is what the operand renderer reads. A member may deliberately omit it to
+        // model an assembly whose two arity records disagree.
+        BlobHandle SignatureFor(Member member) => member is { GenericArity: > 0, SignatureDeclaresArity: true }
+            ? metadata.GetOrAddBlob(new byte[] { 0x10, (byte)member.GenericArity, 0x00, 0x01 })
+            : signature;
 
         // A reference to a type named `C` scoped to this module renders under the same
         // scope and type as the definition above, so only the member name distinguishes
@@ -1282,17 +1355,11 @@ public class CompilerGeneratedOrdinalTests
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(members[i].Name),
-                signature,
+                SignatureFor(members[i]),
                 memberOffsets[i],
                 MetadataTokens.ParameterHandle(1));
             for (int g = 0; g < members[i].GenericArity; g++)
-            {
-                metadata.AddGenericParameter(
-                    handle,
-                    GenericParameterAttributes.None,
-                    metadata.GetOrAddString($"T{g}"),
-                    g);
-            }
+                genericParameters.Add((handle, g));
 
             if (members[i].CompilerGenerated)
             {
@@ -1362,6 +1429,23 @@ public class CompilerGeneratedOrdinalTests
                 ctor,
                 metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 }));
         }
+
+        // TypeOrMethodDef puts TypeDef at tag 0 and MethodDef at tag 1, so the coded owner
+        // is (row << 1) | tag and the two kinds interleave: MethodDef row 2 codes to 5 and
+        // sorts ahead of TypeDef row 5, which codes to 10. Sorting on the code rather than
+        // emitting per owner is what keeps the table valid for an image that carries both.
+        foreach (var (owner, index) in genericParameters.OrderBy(CodedOwner).ThenBy(e => e.Index))
+        {
+            metadata.AddGenericParameter(
+                owner,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                index);
+        }
+
+        static int CodedOwner((EntityHandle Owner, int Index) entry)
+            => (MetadataTokens.GetRowNumber(entry.Owner) << 1)
+                | (entry.Owner.Kind == HandleKind.MethodDefinition ? 1 : 0);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
