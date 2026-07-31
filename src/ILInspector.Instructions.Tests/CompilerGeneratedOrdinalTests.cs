@@ -8,15 +8,28 @@ namespace ILInspector.Instructions.Tests;
 
 /// <summary>
 /// Controls for <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>.
-/// Most cases are expressed as a whole-image comparison through the public diff seam, so
-/// the eligibility rules, the <c>CompilerGeneratedAttribute</c> gate and the two-sided
-/// uniqueness requirement are exercised together rather than asserted about a helper.
-/// The exceptions assert a property of the metadata rather than of a comparison —
-/// <see cref="PlaceholderCannotBeSpelledByAMetadataName"/> and
-/// <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> build one image and read the
-/// names back out of it, because the claim they carry is that a hostile name cannot exist
-/// at all, which no comparison can show.
+/// Most cases are expressed as a whole-image comparison through the public diff seam
+/// (<c>IlAssemblyDiff.CompareMembers</c>), so the eligibility rules, the
+/// <c>CompilerGeneratedAttribute</c> gate and the two-sided uniqueness requirement are
+/// exercised together rather than asserted about a helper.
 /// </summary>
+/// <remarks>
+/// Exactly five cases do not, because their claim is not about a comparison. Measured by
+/// making <c>CompareMembers</c> throw and listing what still passed, rather than by
+/// reading:
+/// <list type="bullet">
+/// <item><see cref="PlaceholderCannotBeSpelledByAMetadataName"/> and
+/// <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> build one image and read the
+/// names back out of it, because they claim a hostile name cannot exist at all.</item>
+/// <item><see cref="DefaultStringDecoder_StillFolds"/> and
+/// <see cref="NonDefaultStringDecoder_FoldsNothing"/> call
+/// <see cref="CompilerGeneratedOrdinalCorrespondence.Build"/> directly, because the check
+/// they cover is on <c>MetadataReader.UTF8Decoder</c> and the comparison helpers construct
+/// their own readers.</item>
+/// <item><see cref="AStringDecoderCanReturnANameContainingNul"/> calls the hostile decoder
+/// itself; it pins that the hazard is real and asserts nothing about this product.</item>
+/// </list>
+/// </remarks>
 public class CompilerGeneratedOrdinalTests
 {
     const IlBodyDiffNormalization Ordinals =
@@ -804,13 +817,21 @@ public class CompilerGeneratedOrdinalTests
     /// operands would render as the elided form and this would compare exact, hiding a
     /// real difference in the call target.
     /// <para>
-    /// This is an artifact canary, not a new gate: the ambiguity checks are already gated
-    /// by <see cref="UniqueAgainstAmbiguous_DoesNotManufactureADifference"/> and its
-    /// mirror, which fail when either check is deleted. What this adds is that the shape
-    /// those controls model is one Roslyn actually emits. Measured by compiling the
-    /// overload pair and reading the names back out of the image, because the claim that
-    /// two different local functions can differ only in the scope ordinal is a claim about
-    /// the compiler, not about this assembly.
+    /// This is an artifact canary, not a new gate. The method-side ambiguity checks are
+    /// already gated by
+    /// <see cref="UniqueAgainstAmbiguous_DoesNotFoldOntoAnArbitraryCounterpart"/> and
+    /// <see cref="AmbiguousAgainstUnique_DoesNotFoldOntoAnArbitraryCounterpart"/>, which
+    /// discriminate the two sides: measured, deleting the new-side check alone fails the
+    /// first and nothing else, and deleting the old-side check alone fails the second and
+    /// nothing else. Deleting both fails those two plus
+    /// <see cref="AmbiguousOnBothSides_KeepsDistinctMembersDistinct"/> and this test. So
+    /// this adds no discrimination the class already lacks.
+    /// </para>
+    /// <para>
+    /// What it does add is that the shape those controls model is one Roslyn actually
+    /// emits. Measured by compiling the overload pair and reading the names back out of
+    /// the image, because the claim that two different local functions can differ only in
+    /// the scope ordinal is a claim about the compiler, not about this assembly.
     /// </para>
     /// </remarks>
     [Fact]
