@@ -867,23 +867,41 @@ public class EvilPoolSweepGateTests
         /// Nothing here now knows what a temporary is called, so nothing here goes stale
         /// when that changes -- what it knows is that the pool and the record must agree,
         /// and the record is the product's.</para>
+        ///
+        /// <para>Over the whole output directory, not <c>packages/</c>. Narrowed to the
+        /// subtree the pool lives in, a cleanup that moved its temporary one level up
+        /// instead of deleting it left the file sitting beside <c>packages/</c> with all
+        /// nine cases green -- measured. The sweep's output directory has exactly three
+        /// kinds of occupant, and naming all three is what makes anything else a failure:
+        /// the manifest, the record, and the assemblies the record lists.</para>
+        ///
+        /// <para>The record has to exist, rather than being read as empty when it is
+        /// absent. Mapping a missing file to no entries makes "the sweep wrote no record"
+        /// indistinguishable from "the sweep recorded pooling nothing", and the first of
+        /// those is a sweep that did not finish -- measured: suppressing the write whenever
+        /// the pool came out empty left every case green.</para>
         /// </summary>
         public void AssertNoTemporaryLeftBehind()
         {
             if (!Directory.Exists(OutputDirectory))
                 return;
 
-            string pool = Path.Combine(OutputDirectory, "packages");
-            string[] present = Directory.Exists(pool)
-                ? [.. Directory.GetFiles(pool, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)]
-                : [];
-            string[] recorded = File.Exists(PooledListPath)
-                ? [.. File.ReadAllLines(PooledListPath)
-                    .Where(line => line.Length > 0)
-                    .Order(StringComparer.Ordinal)]
-                : [];
+            Assert.True(
+                File.Exists(PooledListPath),
+                $"the sweep left an output directory behind without writing '{PooledListPath}', "
+                + "so there is no record to hold the pool against.");
 
-            Assert.Equal(recorded, present);
+            string[] present =
+                [.. Directory.GetFiles(OutputDirectory, "*", SearchOption.AllDirectories)
+                    .Order(StringComparer.Ordinal)];
+            string[] expected =
+                [.. File.ReadAllLines(PooledListPath)
+                    .Where(line => line.Length > 0)
+                    .Append(PooledListPath)
+                    .Append(ManifestPath)
+                    .Order(StringComparer.Ordinal)];
+
+            Assert.Equal(expected, present);
         }
 
         public void Dispose()
