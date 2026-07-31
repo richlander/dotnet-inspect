@@ -1880,83 +1880,96 @@ public class SectionPipelineTests
         // legitimate (the accessor itself, the four Unbounded scanner lambdas that use it, and
         // their enclosing factory). Those are the sanctioned path, not violations.
         //
-        // This uses the repository's own IL analysis over its own compiled assembly because no
+        // This uses the repository's own IL analysis over its own compiled assemblies, because no
         // seam can intercept a static call.
-        var index = ILInspector.Analysis.LibraryBodyIndex.Open(
-            typeof(ScannerRegistry).Assembly.Location);
+        //
+        // Two assemblies, not one. The GPT re-review of ca1ac260 escaped the single-assembly
+        // version of this gate with ordinary typed code: a NetworkFree scanner calling
+        // LeakTriageAnalyzer.AnalyzeAssembly(ctx.AssemblyPath). That helper lives in
+        // ILInspector.Analysis and opens the index internally, so this assembly's call graph shows
+        // nothing but a call to a method it knows nothing about -- and the real CLI did 5.1 s of
+        // undeclared work with both claims below still green. Merging the analysis assembly's
+        // graph in is what makes such a call visible as a call to an opener.
+        var assemblyPaths = new[]
+        {
+            typeof(ScannerRegistry).Assembly.Location,
+            typeof(ILInspector.Analysis.LibraryBodyIndex).Assembly.Location,
+        };
+
+        var calls = assemblyPaths
+            .SelectMany(path => ILInspector.Analysis.LibraryBodyIndex.Open(path).DirectCalls)
+            .ToList();
+
+        // Identity is the *signature*, not the name. GPT's other blocking finding on ca1ac260 was
+        // that projecting to Type::Method and calling Distinct() collapses overloads: adding a
+        // second MethodBodyInspectionSession.OpenWithFeatures overload that opened an index left
+        // the pinned set below unchanged, so the gate stayed green while a new opener existed.
+        //
+        // Signatures turn out to be load-bearing a second time, across the assembly boundary.
+        // ResourceLifecycleAnalysis has two InspectAssembly overloads and they sit on opposite
+        // sides of this gate: InspectAssembly(string, ...) opens an index itself, while the
+        // InspectAssembly(Func<LibraryBodyIndex>, ...) overload that ScanResourceTriage actually
+        // calls opens nothing -- it invokes the gated accessor it was handed. Keyed by name alone
+        // the two collapse into one node, and the sanctioned ResourceTriage path gets reported as
+        // a violation, which would then have to be excused by an allow list. An allow list here
+        // would be the hole: it is exactly where a real escape would go to hide.
+        static string CallerKey(ILInspector.Analysis.MethodIdentity method)
+            => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}"
+                + $"({string.Join(",", method.ParameterTypes)})";
+
+        static string CalleeKey(ILInspector.Analysis.MemberRef callee)
+            => $"{callee.DeclaringType.Namespace}.{callee.DeclaringType.Name}::{callee.Name}"
+                + $"({string.Join(",", callee.ParameterTypes)})";
 
         static bool OpensAnIndex(ILInspector.Analysis.DirectCall call)
             => call.Callee.DeclaringType.Name == "LibraryBodyIndex"
                 && call.Callee.Name is "Open" or "OpenFromPrefetchedImage";
 
-        static bool IsGatedAccessor(ILInspector.Analysis.MethodIdentity method)
-            => method.DeclaringType.Name == "ScannerContext"
-                && method.Name is "BodyIndex" or "DrillMap";
+        const string BodyIndexGate = "DotnetInspector.Sections.ScannerContext::BodyIndex()";
+        const string DrillMapGate = "DotnetInspector.Sections.ScannerContext::DrillMap()";
 
-        // CalleeDefinitionToken is the intra-assembly MethodDef token a call targets *when the
-        // analysis can peel to one*. It cannot always: the GPT review of #3626 escaped an earlier
-        // version of this walk twice, and both escapes are edges that must be added by hand.
-        //
-        //  - A call on a *constructed generic declaring type* (Helper<int>.Open) goes through a
-        //    MemberRef on a TypeSpec. Peeling handles MethodSpec (a generic *method*), not this,
-        //    so the token edge simply does not exist.
-        //  - A static constructor has no caller edge at all. The CLR runs a type initializer on
-        //    first use, and no IL instruction references it, so a helper whose .cctor opens an
-        //    index is reachable at runtime and invisible in the call graph.
-        //
-        // Both are closed by over-approximating: name-matched edges for any callee whose short
-        // type and method name correspond to a method defined here, and an edge from every call
-        // site to the type initializer of the type it touches. Over-approximation is the safe
-        // direction -- a spurious edge can only make this gate redder, never blind.
-        var methodsByToken = new Dictionary<int, ILInspector.Analysis.MethodIdentity>();
-        var tokensByName = new Dictionary<(string Type, string Method), HashSet<int>>();
-        foreach (var call in index.DirectCalls)
+        var definedKeys = calls
+            .Select(call => CallerKey(call.Caller))
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Edges run callee -> caller, so the walk below is a reverse reachability from the
+        // openers. An edge is recorded only when the callee resolves to a method defined in one
+        // of these two assemblies; anything else is outside the graph by construction.
+        var callersByCallee = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        void AddEdge(string calleeKey, string callerKey)
         {
-            var caller = call.Caller;
-            methodsByToken[caller.MetadataToken] = caller;
+            if (!definedKeys.Contains(calleeKey))
+                return;
 
-            var name = (caller.DeclaringType.Name, caller.Name);
-            if (!tokensByName.TryGetValue(name, out var tokens))
-                tokensByName[name] = tokens = [];
-            tokens.Add(caller.MetadataToken);
+            if (!callersByCallee.TryGetValue(calleeKey, out var callers))
+                callersByCallee[calleeKey] = callers = new HashSet<string>(StringComparer.Ordinal);
+
+            callers.Add(callerKey);
         }
 
-        var callersByCallee = new Dictionary<int, HashSet<int>>();
-        void AddEdge(int calleeToken, int callerToken)
+        foreach (var call in calls)
         {
-            if (!callersByCallee.TryGetValue(calleeToken, out var callers))
-                callersByCallee[calleeToken] = callers = [];
-            callers.Add(callerToken);
+            var callerKey = CallerKey(call.Caller);
+            AddEdge(CalleeKey(call.Callee), callerKey);
+
+            // Touching any member of a type can run that type's initializer, and a static
+            // constructor has no caller edge of its own: the CLR runs it on first use and no IL
+            // instruction references it. Over-approximating here is the safe direction -- a
+            // spurious edge can only make this gate redder, never blind.
+            AddEdge(
+                $"{call.Callee.DeclaringType.Namespace}.{call.Callee.DeclaringType.Name}::.cctor()",
+                callerKey);
         }
 
-        foreach (var call in index.DirectCalls)
-        {
-            var callerToken = call.Caller.MetadataToken;
-            AddEdge(call.CalleeDefinitionToken, callerToken);
+        var openerKeys = calls
+            .Where(OpensAnIndex)
+            .Select(call => CallerKey(call.Caller))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
 
-            // Name-matched edge, covering the constructed-generic case the token misses.
-            if (tokensByName.TryGetValue((call.Callee.DeclaringType.Name, call.Callee.Name), out var byName))
-            {
-                foreach (var token in byName)
-                    AddEdge(token, callerToken);
-            }
-
-            // Touching any member of a type can run that type's initializer.
-            if (tokensByName.TryGetValue((call.Callee.DeclaringType.Name, ".cctor"), out var cctors))
-            {
-                foreach (var token in cctors)
-                    AddEdge(token, callerToken);
-            }
-        }
-
-        var gateTokens = methodsByToken
-            .Where(entry => IsGatedAccessor(entry.Value))
-            .Select(entry => entry.Key)
-            .ToHashSet();
-
-        var openers = index.DirectCalls.Where(OpensAnIndex).Select(call => call.Caller).ToList();
-
-        // PRIMARY CLAIM: the set of methods in this assembly that open a body index is pinned.
+        // PRIMARY CLAIM: the set of methods that open a body index is pinned, across both
+        // assemblies and keyed by signature.
         //
         // This is deliberately not a reachability argument, because reachability rests on the call
         // graph being complete and it is not. The GPT review of #3626 escaped an earlier walk by
@@ -1967,32 +1980,30 @@ public class SectionPipelineTests
         // initializer on first use and no IL instruction references it.
         //
         // Pinning the openers sidesteps both. Every escape of that kind has to *add an opener*
-        // somewhere in this assembly, and an opener is visible no matter how it is reached. So the
-        // enforcement does not depend on knowing who calls it.
-        var openerNames = openers
-            .Select(method => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}")
-            .Distinct()
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToList();
-
+        // somewhere in one of these assemblies, and an opener is visible no matter how it is
+        // reached, so the enforcement does not depend on knowing who calls it.
         Assert.Equal(
             [
-                "DotnetInspector.Commands.DiffCommand::AcquireAuthoredSourceInspectionsAsync",
-                "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies",
-                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures",
-                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithPrefetchedImage",
+                "DotnetInspector.Commands.DiffCommand::AcquireAuthoredSourceInspectionsAsync(IReadOnlyList<string>,IReadOnlyDictionary<string, ResearchSubjectKey>,DiffOptions,bool,HttpClient,VerboseLogger)",
+                "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies(IReadOnlyList<string>,string,string,bool,FindingDescriptor,FindingSubject,Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>>)",
+                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures(string,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver,IReadOnlySet<int>,Func<TypeRef, bool>)",
+                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithPrefetchedImage(string,PdbContext,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver)",
+                "ILInspector.Analysis.LeakTriageAnalyzer::AnalyzeAssemblyDetailed(string)",
+                "ILInspector.Analysis.LibraryBodyIndex::Open(string)",
+                "ILInspector.Analysis.LibraryBodyIndex::Open(string,IAssemblyReferenceResolver,bool,bool,IReadOnlySet<int>,Func<TypeRef, bool>)",
+                "ILInspector.Analysis.ResourceLifecycleAnalysis+<>c__DisplayClass0_0::<InspectAssembly>b__0()",
             ],
-            openerNames);
+            openerKeys);
 
-        var reached = new HashSet<int>();
-        var pending = new Queue<int>();
-        foreach (var opener in openers)
+        var reached = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>();
+        foreach (var opener in openerKeys)
         {
-            if (!gateTokens.Contains(opener.MetadataToken) && reached.Add(opener.MetadataToken))
-                pending.Enqueue(opener.MetadataToken);
+            if (opener != BodyIndexGate && opener != DrillMapGate && reached.Add(opener))
+                pending.Enqueue(opener);
         }
 
-        var gatesOnAPath = new HashSet<int>();
+        var gatesOnAPath = new HashSet<string>(StringComparer.Ordinal);
         while (pending.Count > 0)
         {
             if (!callersByCallee.TryGetValue(pending.Dequeue(), out var callers))
@@ -2003,7 +2014,7 @@ public class SectionPipelineTests
                 // Stop at the gated accessor rather than walking past it. Its callers reach the
                 // body index only by going through RequireUnboundedDeclaration, which is the
                 // whole point of the mechanism.
-                if (gateTokens.Contains(caller))
+                if (caller == BodyIndexGate || caller == DrillMapGate)
                     gatesOnAPath.Add(caller);
                 else if (reached.Add(caller))
                     pending.Enqueue(caller);
@@ -2011,47 +2022,59 @@ public class SectionPipelineTests
         }
 
         var ungatedSectionCallers = reached
-            .Where(methodsByToken.ContainsKey)
-            .Select(token => methodsByToken[token])
-            .Where(method => method.DeclaringType.Namespace.StartsWith(
-                "DotnetInspector.Sections", StringComparison.Ordinal))
-            .Select(method => $"{method.DeclaringType.Namespace}.{method.DeclaringType.Name}::{method.Name}")
-            .Distinct()
-            .OrderBy(name => name, StringComparer.Ordinal)
+            .Where(key => key.StartsWith("DotnetInspector.Sections", StringComparison.Ordinal))
+            .OrderBy(key => key, StringComparer.Ordinal)
             .ToList();
 
-        // SECONDARY CLAIM: no section reaches one of those four sanctioned openers except through
-        // the gated accessor. The pinned set above cannot catch this case, because calling
-        // MethodBodyInspectionSession.OpenWithFeatures from a scanner adds no new opener.
+        // SECONDARY CLAIM: no section reaches one of those sanctioned openers except through the
+        // gated accessor. The pinned set cannot catch this case, because a scanner calling
+        // MethodBodyInspectionSession.OpenWithFeatures -- or LeakTriageAnalyzer.AnalyzeAssembly --
+        // adds no new opener. Neither claim subsumes the other, which is why both are kept.
+        //
+        // Cutting at the accessor is what makes this precise: without the cut the walk reports
+        // legitimate Sections members (the accessor itself, the Unbounded scanner lambdas that use
+        // it, and their enclosing factory), and excusing those would require an allow list.
         Assert.Empty(ungatedSectionCallers);
 
-        // Three non-vacuity assertions, because every gate in this PR that lacked one turned out
-        // to be asserting nothing at all.
+        // Non-vacuity assertions, because every gate in this PR that lacked one turned out to be
+        // asserting nothing at all.
 
         // The walk must be able to see openers, or Assert.Empty passes by finding nothing.
-        Assert.NotEmpty(openers);
+        Assert.NotEmpty(openerKeys);
 
-        // Both gated members must still exist under these names. A rename would silently empty
-        // gateTokens, turning the cut into a no-op -- which happens to fail safe here, but would
-        // leave the message above describing a mechanism that no longer exists.
-        Assert.Equal(2, gateTokens.Count);
+        // The second assembly must actually be in the graph. If it silently failed to merge, the
+        // cross-assembly claim would evaporate and everything above would still pass.
+        Assert.Contains(
+            definedKeys,
+            key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
+        Assert.Contains(
+            openerKeys,
+            key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
+
+        // Both gated members must still exist under these exact signatures. A rename or an added
+        // parameter would silently stop matching, turning the cut into a no-op -- which happens to
+        // fail safe here, but would leave the reasoning above describing a mechanism that is no
+        // longer wired to anything.
+        Assert.Contains(BodyIndexGate, definedKeys);
+        Assert.Contains(DrillMapGate, definedKeys);
 
         // And the cut must be load-bearing: the accessor has to actually sit on a path to an
         // opener. If it stopped reaching one, cutting there would prove nothing about Sections.
         Assert.NotEmpty(gatesOnAPath);
 
-        // Boundary, stated rather than implied: this walk sees only this assembly. A helper in
-        // ILInspector.Analysis that opens an index internally (LeakTriageAnalyzer.AnalyzeAssembly
-        // is the live example) is invisible here, as are reflection and interface dispatch that
-        // never resolves to a definition token. Those residual routes are unverified, not closed.
+        // Boundary, stated rather than implied. This walk sees these two assemblies, so a helper
+        // that opens an index from some third assembly would be invisible, as are reflection and
+        // interface dispatch that never resolves to a definition. Those residual routes are
+        // unverified, not closed.
         //
-        // And note what the cut asserts: that sections *route* through the gated accessor, not
-        // that the check always fires. RequireUnboundedDeclaration returns without throwing when
-        // no scanner is running, so a Func captured during a scan and invoked later -- while
-        // rendering -- passes it. That is deliberate (ScannerDeclaration_DoesNotOutliveTheRun pins
-        // the scoping), and no model stores such a Func today: the accessors are only ever handed
-        // to scan methods as parameters. Deferred invocation is an open edge of the mechanism,
-        // unverified rather than closed.
+        // What is *not* an open edge any more is the unscoped caller. An earlier revision of this
+        // comment said the cut asserts only that sections route through the accessor, and that a
+        // Func captured during a scan and invoked later -- while rendering, when no scanner is
+        // running -- would pass the check. That was true of the permissive gate, and GPT reached
+        // it from a descriptor's CanRender predicate for 5.2 s of undeclared work.
+        // RequireUnboundedDeclaration now refuses outright when no scanner is running, so the
+        // deferred call fails instead of passing; UnscopedCallers_AreRefusedTheBodyIndex and
+        // ScannerDeclaration_DoesNotOutliveTheRun pin both halves of that behaviour.
     }
 
     [Fact]
