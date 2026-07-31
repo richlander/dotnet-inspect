@@ -508,6 +508,67 @@ a six-pattern deny list — `..`, `/`, `\`, `:`, `NUL`, rooted — which admits
 `ESC`, Cyrillic, and zero-width joiners without comment. Replacing it with the
 allow list for its class is the first concrete application of this section.
 
+### The predicate and the speller are separate
+
+Deny lists and allow lists differ in what they *permit*, but not in how a
+violation is written down. Keeping those two concerns apart is what lets one
+shared component serve both, and it is the difference between a re-spelling
+library and a policy library:
+
+- The **predicate** answers "is this scalar permitted *here*?" It is per-sink
+  and it is where policy lives. Deny-shaped for free-form text (is it in a
+  hazard category), allow-shaped for constrained identifiers (is it in the
+  grammar).
+- The **speller** answers "how do I write a scalar that is not permitted?" It
+  is one shared function, **total over Unicode**, and it never learns *why* a
+  scalar was refused.
+
+Because the speller is total, no per-hazard spelling table is needed anywhere.
+That is what makes the allow-list case work at all: an allow-list sink has no
+hazard set to consult, and needs none — anything outside the grammar is spelled
+by the same function.
+
+That yields the payoff for the two continue-anyway modes, where the allow list
+*is* the encoding predicate:
+
+- **`--survey`** reports the coordinate and the classification, never the
+  rendered character: an offset, the code point as `U+XXXX`, and its category.
+  `U+XXXX` is ASCII, so it is inert by construction, and for a homoglyph it is
+  strictly more informative than the character would be — printing `е` conveys
+  nothing, because it is indistinguishable from `e`. Only violations are
+  reported, never every scalar in the field, so survey output cannot
+  reconstruct the value.
+- **`--dangerously-skip-checks`** renders the value with every non-conforming
+  scalar spelled. A hijacked `Nеwtonsoft.Json` carrying a Cyrillic `е` displays
+  as `N\u0435wtonsoft.Json`: the mode that says "show me anyway" shows exactly
+  why the tool objected, in a form that cannot lie.
+
+A category-based predicate cannot produce that second line. Cyrillic `е` is
+`Ll` and sits in no hazard category, so a deny-shaped encoder renders it raw
+and the substitution stays invisible. Identity is only recoverable when the
+predicate is the grammar.
+
+The speller belongs in a shared, dependency-free component — the `InertText`
+work — and its obligations are exactly these:
+
+- **Total.** Defined on every Unicode scalar, including the 127 encoded
+  scalars above the BMP.
+- **Injective and invertible.** Ships with its decoder and the round-trip
+  sweep described below.
+- **Scalar-based, not code-unit-based.** See the surrogate rule below.
+- **Policy-free.** It takes the predicate as input. A speller that hard-codes a
+  hazard set has absorbed policy and cannot serve an allow-list sink.
+- **Able to report which forms it emitted**, so the caller can write the stderr
+  legend described below without keeping its own copy of the spelling table.
+- **Not responsible for structural escaping.** That belongs to each
+  serializer's grammar and stays mandatory in every mode.
+
+Survey names the code point and its general category, both of which .NET
+supplies. It deliberately does not name the *script* — "Cyrillic" would read
+far better for a typosquat, but .NET exposes no script lookup, so it means
+owning and maintaining a table. See the recognizability rule below for the
+second reason it stays out.
+
 ### Visual encoding, not neutralization
 
 The rendering axis does not remove or replace dangerous characters; it
@@ -587,8 +648,49 @@ PDP-6 up-arrow the 1967 ASCII revision replaced with `^` — inside it.
 | --- | --- | --- |
 | C0 (`U+0000`–`U+001F`) | `\^` + (code point + `0x40`); `ESC` is `\^[` | `vis(3)` + caret notation |
 | `DEL` (`U+007F`) | `\^?` | `vis(3)` + caret notation |
-| every other encoded code point | `\u` plus four hex digits; `U+202E` is `\u202E` | `vis(3)` shape, C# spelling |
+| every other encoded scalar in the BMP | `\u` plus four hex digits; `U+202E` is `\u202E` | `vis(3)` shape, C# spelling |
+| every other encoded scalar above the BMP | `\U` plus eight hex digits; `U+13430` is `\U00013430` | `vis(3)` shape, C# spelling |
 | literal `\` | `\\` | `vis(3)` |
+
+Past the two caret rows, the speller is not a table at all: it is the code
+point printed in hex. There is nothing to enumerate, nothing to maintain, and
+no character it can fail to name.
+
+**A mapping table has to earn its place, and the test is recognizability.** A
+small table with real audit value is worth having — the two caret rows are two
+lines of arithmetic, and `\^[` is the spelling the terminal-security literature
+actually uses for `ESC`. But a mapping is only worth its cost if the reader
+recognizes what it produced. `\^[` is obvious to someone who knows `cat -v` and
+opaque to everyone else, and a spelling the reader cannot decode is worse than
+no spelling: it looks like data. So the rule is that any table beyond the plain
+code-point form must come with the legend that makes it readable.
+
+**The legend goes to stderr.** Stdout is the data channel and stays exactly
+what the sink asked for, so a legend there would corrupt structured output and
+break pipelines. Stderr is where a human at a terminal will see it and where a
+pipe discards it, which is precisely the split we want. Three constraints keep
+the legend honest:
+
+- **Emit it only when something was encoded**, so ordinary runs stay quiet.
+- **Derive it from the forms actually emitted**, not from a second copy of the
+  table. A legend written independently drifts; one projected from the encoder
+  cannot. That is also its gate: assert that every form present in the output
+  is named in the legend.
+- **Name forms, never values.** The legend says what `\^[` means; it never
+  repeats the field it came from. Artifact data does not belong on the
+  diagnostic channel.
+
+This is also the second, independent reason the script table stays out: ~160
+scripts is not small, and naming a script is not a spelling, so no legend can
+rescue it.
+
+`\uXXXX` alone is **not** total: it reaches only the BMP, and 127 code points
+in the encoded categories live above it — `U+110BD` KAITHI NUMBER SIGN, the
+Egyptian hieroglyph format controls `U+13430`–`U+1343F`, the musical-symbol
+format characters. A speller that stops at `\uXXXX` cannot express any of them,
+so it is neither total nor invertible on exactly the inputs an attacker would
+reach for. C#'s `\UXXXXXXXX` covers the rest and keeps the spelling within one
+borrowed vocabulary.
 
 The `\uXXXX` form diverges from `vis(3)`'s meta notation deliberately: meta
 notation describes a *byte* with its high bit set, and our input is a .NET
@@ -627,11 +729,11 @@ obligations that compose; neither substitutes for the other, and structural
 escaping stays mandatory in every mode, including raw.
 
 Those three are an asserted property, so the encoding ships with the gate that
-proves them: a decoder, plus a round-trip over every single code unit in
-`U+0000`–`U+FFFF`, plus a round-trip-and-injectivity sweep over strings built
-from the characters that can collide — `\`, `^`, `u`, `?`, `@`, `[`, hex
-digits, and a representative of each encoded category — plus a paired-surrogate
-case, so that the scalar-versus-code-unit bug above fails the gate instead of
+proves them: a decoder, plus a round-trip over every scalar in `U+0000`–
+`U+10FFFF`, plus a round-trip-and-injectivity sweep over strings built from the
+characters that can collide — `\`, `^`, `u`, `U`, `?`, `@`, `[`, hex digits,
+and a representative of each encoded category — plus a paired-surrogate case,
+so that the scalar-versus-code-unit bug above fails the gate instead of
 shipping. The category rule needs its own gate, asserting membership for the
 nine `rustc` code points and the twelve `Bidi_Control` code points by name
 rather than by category lookup, so that a future narrowing of the rule fails
