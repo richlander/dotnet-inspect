@@ -127,6 +127,14 @@ options and is cheap to audit by grep, but it is the weaker of the two shapes,
 and new hardening should prefer the stronger one where the value crosses a
 layer boundary.
 
+The stronger shape now exists. `InertText.InertString` (#3636) is a type whose
+construction *is* the encoding, so treated text has a different type from
+untreated text and survives composition — a site that merely passes a value
+along cannot drop the property, and forgetting becomes a compile error rather
+than a missing line in a hand-maintained list. It is the primitive this section
+argues for; prefer it over a new `HardenedJson`-shaped static entry point when
+the thing being contained is text bound for a sink.
+
 One thing this rule does **not** forbid is escaping and encoding. Escaping a
 value on the way into a sink — JSON string escapes, `vis(3)`-style visual
 encoding of control characters — is a property of the *encoding*, applied
@@ -393,6 +401,9 @@ structure and must not interpret inspected text as authority.
 > unconditionally and continues, with no flags on either axis. See open work
 > item 10, and
 > [metadata-table-projection.md](metadata-table-projection.md#status).
+>
+> The rendering axis has a primitive as of #3636: `InertText.InertString`
+> supplies the encoded default. The flags, and the trust axis, remain unbuilt.
 
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.

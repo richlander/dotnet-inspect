@@ -549,7 +549,8 @@ and the substitution stays invisible. Identity is only recoverable when the
 predicate is the grammar.
 
 The speller belongs in a shared, dependency-free component — the `InertText`
-work — and its obligations are exactly these:
+work, which shipped as that component in #3636 — and its obligations are
+exactly these:
 
 - **Total.** Defined on every Unicode scalar, including the 127 encoded
   scalars above the BMP.
