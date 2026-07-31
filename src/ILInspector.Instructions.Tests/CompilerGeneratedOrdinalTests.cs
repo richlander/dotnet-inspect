@@ -744,6 +744,30 @@ public class CompilerGeneratedOrdinalTests
         Assert.False(CompareTypes(["<A>d__3"], ["<B>d__3"], Ordinals).IsExact);
     }
 
+    /// <summary>
+    /// The local-function separator is found from the right. No Roslyn-emitted name needs
+    /// this — a local function nested inside another is named after the outermost method,
+    /// so it carries exactly one separator — but IL may spell a name with several, and
+    /// which one is chosen decides whether such a name folds at all.
+    /// </summary>
+    /// <remarks>
+    /// This exists because the choice was previously invisible: scanning from the left
+    /// passed the entire suite. A reviewer then explained the code's use of
+    /// <c>LastIndexOf</c> by supposing Roslyn emits <c>&lt;M&gt;g__Outer|Inner|N_K</c> for
+    /// nested local functions. It does not; compiling one emits
+    /// <c>&lt;M&gt;g__Inner|0_1</c>. The rationale was wrong and nothing contradicted it,
+    /// which is the failure this control closes — the behavior is now pinned by a test
+    /// rather than by a plausible story.
+    /// </remarks>
+    [Fact]
+    public void MultiplePipesInAGeneratedName_SplitAtTheLast()
+    {
+        Assert.True(Compare(
+            [Generated("<M>g__a|b|1_2")],
+            [Generated("<M>g__a|b|3_2")],
+            Ordinals).IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
     /// <summary>
     /// A member carrying a real custom attribute that is not

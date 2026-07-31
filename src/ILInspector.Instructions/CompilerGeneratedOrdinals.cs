@@ -321,6 +321,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         if (!rest.StartsWith("g__", StringComparison.Ordinal))
             return null;
 
+        // Split at the last separator, not the first. Roslyn emits exactly one — a local
+        // function nested in another local function is still named after the *outermost*
+        // method, so `<M>g__Inner|0_1`, not `<M>g__Outer|Inner|0_1`. Measured against the
+        // compiler rather than assumed: see MultiplePipesInAGeneratedName_SplitAtTheLast,
+        // which pins this choice for a hand-written IL name that does carry two.
         int bar = rest.LastIndexOf('|');
         if (bar < 3)
             return null;
