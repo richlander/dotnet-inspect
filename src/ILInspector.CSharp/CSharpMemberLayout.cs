@@ -1,4 +1,5 @@
 using System.Text;
+using ILInspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -47,7 +48,7 @@ public static class CSharpMemberLayout
         string pad = new(' ', indent);
         if (body is null)
         {
-            sb.AppendLine(LayOutHead(pad, head, ";", ";", disableSignatureWrapping));
+            sb.AppendLf(LayOutHead(pad, head, ";", ";", disableSignatureWrapping));
             return;
         }
         if (bodyIsSingleExpressionBody
@@ -60,19 +61,19 @@ public static class CSharpMemberLayout
         {
             if (wrapExpressionBodyArrow)
             {
-                sb.AppendLine(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
-                sb.AppendLine($"{pad}    => {expression};");
+                sb.AppendLf(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
+                sb.AppendLf($"{pad}    => {expression};");
             }
             else
             {
-                sb.AppendLine(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping));
+                sb.AppendLf(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping));
             }
             return;
         }
-        sb.AppendLine(LayOutHead(pad, head, "", " {", disableSignatureWrapping));
-        sb.AppendLine($"{pad}{{");
+        sb.AppendLf(LayOutHead(pad, head, "", " {", disableSignatureWrapping));
+        sb.AppendLf($"{pad}{{");
         AppendIndentedBody(sb, body, indent + 4);
-        sb.AppendLine($"{pad}}}");
+        sb.AppendLf($"{pad}}}");
     }
 
     /// <summary>
@@ -94,12 +95,12 @@ public static class CSharpMemberLayout
         string valueLine = expressionLines[0];
         if (wrapExpressionBodyArrow)
         {
-            sb.AppendLine(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
-            sb.AppendLine($"{pad}    => {valueLine}");
+            sb.AppendLf(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
+            sb.AppendLf($"{pad}    => {valueLine}");
         }
         else
         {
-            sb.AppendLine(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping));
+            sb.AppendLf(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping));
         }
 
         string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
@@ -109,13 +110,13 @@ public static class CSharpMemberLayout
             bool last = i == expressionLines.Count - 1;
             if (line.Length == 0)
             {
-                sb.AppendLine();
+                sb.AppendLf();
                 continue;
             }
             sb.Append(continuationPad).Append(line);
             if (last)
                 sb.Append(';');
-            sb.AppendLine();
+            sb.AppendLf();
         }
     }
 
@@ -409,9 +410,9 @@ public static class CSharpMemberLayout
         {
             string trimmed = line.TrimEnd();
             if (trimmed.Length == 0)
-                sb.AppendLine();
+                sb.AppendLf();
             else
-                sb.AppendLine($"{pad}{trimmed}");
+                sb.AppendLf($"{pad}{trimmed}");
         }
     }
 }

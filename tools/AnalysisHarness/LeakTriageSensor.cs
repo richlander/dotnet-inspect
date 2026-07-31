@@ -138,7 +138,7 @@ public static class LeakTriageSensor
 
     public static string Format(LeakTriageReport report, int maxExamples, LeakTriageFormat format)
     {
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == LeakTriageFormat.Markdown)
         {
             MarkoutSerializer.Serialize(

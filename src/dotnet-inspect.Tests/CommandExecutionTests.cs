@@ -8086,7 +8086,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var lines = SplitOutputLines(output)
             .Where(line => line.Contains("section", StringComparison.Ordinal))
             .ToArray();
         var names = lines.Select(ExtractSectionName).ToArray();
@@ -8119,7 +8119,7 @@ public partial class CommandExecutionTests
         // alphabetical order, and every category row precedes every section row. @Metadata is
         // among them because --schema surfaces the whole catalog, including the explicit-only
         // lens the curated top-level -D still leaves out.
-        var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
@@ -8127,7 +8127,7 @@ public partial class CommandExecutionTests
             new[] { "@Audit", "@Integrations", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
-        var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var raw = SplitOutputLines(output);
         var lastCategoryIndex = Array.FindLastIndex(raw, line => line.Contains("category", StringComparison.Ordinal));
         var firstSectionIndex = Array.FindIndex(raw, line => line.Contains("section", StringComparison.Ordinal));
         Assert.True(lastCategoryIndex >= 0 && firstSectionIndex >= 0);
@@ -8179,8 +8179,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var members = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var members = SplitOutputLines(output)
             .Where(line => line.Contains("| section", StringComparison.Ordinal))
             .Select(ExtractSectionName)
             .ToArray();
@@ -9723,10 +9722,27 @@ public partial class CommandExecutionTests
         return rows;
     }
 
+    /// <summary>
+    /// Splits captured CLI output into non-empty lines independently of the host's line ending.
+    /// </summary>
+    /// <remarks>
+    /// Product printers emit LF on every platform, while some console paths still terminate with
+    /// the ambient newline. Splitting on <see cref="Environment.NewLine"/> therefore yields a
+    /// single line on Windows against LF output, which does not fail loudly — it makes every
+    /// per-line assertion vacuous, so <c>Where(...)</c> filters simply match nothing. Splitting on
+    /// '\n' and trimming '\r' is correct for either ending and stays correct as the remaining
+    /// CRLF console paths move to LF in #3596.
+    /// </remarks>
+    private static string[] SplitOutputLines(string output) =>
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length > 0)
+            .ToArray();
+
     private static List<(string Name, string Kind)> ExtractDiscoveryRows(string output)
     {
         List<(string Name, string Kind)> rows = [];
-        foreach (var line in output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in SplitOutputLines(output))
         {
             if (!line.StartsWith('|'))
                 continue;
@@ -9746,8 +9762,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var sectionHeaders = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var sectionHeaders = SplitOutputLines(output)
             .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
             .Select(line => line[3..])
             .ToArray();
@@ -9853,9 +9868,9 @@ public partial class CommandExecutionTests
 
     private static string? TryExtractSectionBody(string output, string sectionName)
     {
-        // Split on '\n' and strip '\r' rather than on Environment.NewLine: captured output does
-        // not always carry the host's line ending, and a mismatch would silently yield one line
-        // and report every section as missing.
+        // Blank lines are significant to body extraction, so this splits without
+        // RemoveEmptyEntries rather than reusing SplitOutputLines — but for the same
+        // ending-agnostic reason documented there.
         var lines = output.Split('\n').Select(l => l.TrimEnd('\r'));
         var header = "## " + sectionName;
         List<string> body = [];
@@ -9888,8 +9903,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var sections = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var sections = SplitOutputLines(output)
             .Where(line => line.StartsWith("| ", StringComparison.Ordinal)
                 && !line.StartsWith("| Section ", StringComparison.Ordinal)
                 && !line.StartsWith("| ---", StringComparison.Ordinal))
@@ -10354,7 +10368,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--jsonl");
 
             Assert.Equal(0, exit);
-            var documents = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            var documents = SplitOutputLines(output)
                 .Select(line => JsonDocument.Parse(line))
                 .ToArray();
             Assert.Contains(documents, document =>
@@ -13169,8 +13183,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
 
-            var sectionHeaders = output
-                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            var sectionHeaders = SplitOutputLines(output)
                 .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
                 .Select(line => line[3..])
                 .ToArray();
