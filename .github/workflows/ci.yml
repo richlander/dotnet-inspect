@@ -151,6 +151,11 @@ jobs:
               .github/workflows/ci.yml) ILDIFF=true ;;
             esac
             case "$file" in
+              # The lint *configuration* is not a `.md` file, so it needs its
+              # own case: editing `.markdownlint.yaml` changes how every
+              # document is linted, and without this the lint job skips and the
+              # new configuration is never exercised.
+              .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
@@ -231,6 +236,20 @@ jobs:
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
           done <<< "$FILES"
+          # `ilroundtrip` does not have a job of its own: its two steps live
+          # inside the `test` job, which is gated on `code`. So an input that
+          # sets only `ilroundtrip` computes an output nothing can act on --
+          # the job never starts and the steps never run. Every other member of
+          # the ilroundtrip list happens to set `code` too, which is why this
+          # was invisible; `eng/restore-ilassembler.sh` did not, and its
+          # validation silently never ran.
+          #
+          # State the implication once here rather than duplicating `code` into
+          # each ilroundtrip case, so a future addition to that list cannot
+          # reintroduce the gap by forgetting it.
+          if [ "$ILROUNDTRIP" = true ]; then
+            CODE=true
+          fi
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "csharpdiff=$CSHARPDIFF" >> "$GITHUB_OUTPUT"
           echo "decompiler=$DECOMPILER" >> "$GITHUB_OUTPUT"
