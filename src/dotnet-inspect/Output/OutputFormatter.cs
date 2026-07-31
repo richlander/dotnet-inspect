@@ -276,12 +276,12 @@ public static class OutputFormatter
         bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var view = new InspectionResultView(result, includeTitleVersion: false);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
+            writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
         else if (selectInfo)
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
-        markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            writerOptions.SectionOrder = pipeline.InfoSectionNames;
+        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (!options.Count)
             return markdown;
 
