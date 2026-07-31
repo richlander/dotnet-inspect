@@ -1630,8 +1630,9 @@ public class SourceLinkProvenanceTests
     /// rewrite an origin from outside. It does not claim reflection cannot reach the backing
     /// fields — it can, and no .NET type can prevent that; the same call rewrites
     /// <see cref="Uri"/>'s private <c>_string</c> and makes <c>OriginalString</c> return a live
-    /// <c>U+2066</c>. Code in this process is on the trusted side of every boundary in
-    /// <c>docs/design/untrusted-data-threat-model.md</c>, which records why. The decay this
+    /// <c>U+2066</c>. Reflection is not the entry point any control here stands in front of —
+    /// the untrusted input in this threat model is artifact data, not a caller — and
+    /// <c>docs/design/untrusted-data-threat-model.md</c> records why. The decay this
     /// guards against is a contributor writing normal code, not an attacker running some.
     /// </remarks>
     [Fact]

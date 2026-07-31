@@ -44,14 +44,16 @@ process-created temporary directories are trusted roots; names appended beneath
 them are not trusted unless derived from a cryptographic key or validated
 component.
 
-**Code running in this process is trusted, and reflection is not an attack.**
+**Code running in this process is not the boundary these controls defend.**
 The untrusted input in every row above is *data* — an artifact, a feed
 response, a file. It is not a caller. So a control that a `BindingFlags.NonPublic`
 call can undo is not thereby broken, because a party who can execute arbitrary
 code in this process does not need to smuggle text through a type to reach a
-sink; it can write to the sink. This is not a self-serving line: no .NET type
-meets the other standard. Measured, the same technique that rewrites a private
-backing field on `SourceLinkOrigin` rewrites one on `System.Uri` —
+sink; it can write to the sink. The claim is that narrow, and deliberately so:
+not that reflection is harmless in general, but that it is not the entry point
+any control here stands in front of. This is also not a self-serving line — no
+.NET type meets the other standard. Measured, the same technique that rewrites
+a private backing field on `SourceLinkOrigin` rewrites one on `System.Uri` —
 
 ```text
 Uri backing field: _string
