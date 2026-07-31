@@ -88,6 +88,54 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    public void CaretExtent_PrefersTheAllocation_OverAStackSlotStandInSharingItsOffset()
+    {
+        // `return new Holder(S_0);` where the raise could not recover the
+        // argument, so it prints a stack-slot stand-in that carries the same
+        // instruction offset as the newobj it feeds. S_0 is the narrower node,
+        // so width alone would underline the argument instead of the allocation
+        // the fact reports. Measured over System.Private.CoreLib, that mistake
+        // affected 50 of 10,664 alloc.new underlines.
+        const int Offset = 5;
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+        var slot = new LoadStackSlot(0, objectType);
+        slot.SetSourceOffset(Offset);
+        var allocation = new NewObject(
+            new MethodRef(holder, ".ctor", TypeRef.CoreLib("System", "Void"), [objectType], HasThis: true),
+            [slot]);
+        allocation.SetSourceOffset(Offset);
+        var statement = new Return(allocation);
+        statement.SetSourceOffset(Offset);
+
+        var block = new Block(0);
+        block.Add(statement);
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(holder, [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        CSharpPrinter.PrintRaised(function, out var ranges);
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+
+        var extent = Assert.Contains(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+        Assert.True(AnnotationAnchor.TryGetPrintedLine(statement, ranges, out int lineIndex));
+        string line = ranges.Output.Split('\n')[lineIndex].TrimEnd('\r');
+
+        // The stand-in is on the line and is the narrower node, so a width-only
+        // rule underlines it; this asserts the allocation wins instead.
+        Assert.Contains("S_0", line, StringComparison.Ordinal);
+        Assert.StartsWith("new ", line.Substring(extent.Column, extent.Length), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ResearchRegistry_RunsAllocationProducer()
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
