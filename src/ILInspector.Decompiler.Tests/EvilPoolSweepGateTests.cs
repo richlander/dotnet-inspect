@@ -31,14 +31,25 @@ namespace ILInspector.Decompiler.Tests;
 /// through a symlink planted at the destination while the sweep exited 0. Every case below
 /// is one of those probes, kept.</para>
 ///
-/// <para>These run a real sweep and are still hermetic. The sweep resolves its inputs from
-/// the repository root above its working directory, so a directory holding a
-/// <c>dotnet-inspect.slnx</c> and a <c>docs/data</c> feeds a real run a one-package list
-/// and pin of this suite's choosing -- no product path override is involved. It is pointed
-/// at a scratch cache holding one synthetic package and told to stay offline, so it reads
-/// no shared cache and opens no socket. Offline is what keeps that honest: a case that
-/// stopped being served from the seeded cache would reach for the network and fail here
-/// rather than quietly passing on whatever the machine happened to have.</para>
+/// <para>These run a real sweep, and what they isolate is the sweep's own acquisition.
+/// It resolves its inputs from the repository root above its working directory, so a
+/// directory holding a <c>dotnet-inspect.slnx</c> and a <c>docs/data</c> feeds a real run
+/// a one-package list and pin of this suite's choosing -- no product path override is
+/// involved. It is pointed at a scratch cache holding one synthetic package and told to
+/// stay offline, so <em>it</em> acquires over no network and reads no shared cache, and
+/// nothing it writes lands outside the scratch directory. Offline is what keeps that
+/// honest: a case that stopped being served from the seeded cache would reach for the
+/// network and fail here rather than quietly passing on whatever the machine happened to
+/// have.</para>
+///
+/// <para>The claim stops there, deliberately. Each case launches the sweep with
+/// <c>dotnet run</c>, and a file-based app is restored and built before it runs, which
+/// reads the ordinary NuGet package cache and may go to the network to fill it. That is
+/// true of every build in this repository and of the sweep runs in
+/// <see cref="EvilPoolPinTests"/>; it is not something these cases control, so they do
+/// not claim a process that opens no socket. What is gated is narrower and is the part
+/// that matters: no package <em>the sweep pools</em> can come from anywhere but the
+/// fixture seeded below.</para>
 /// </summary>
 [Trait("Area", "Corpus")]
 public class EvilPoolSweepGateTests
@@ -179,8 +190,7 @@ public class EvilPoolSweepGateTests
         string destination = Path.Combine(
             world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        if (!TryPlantSymbolicLink(destination, outsider))
-            return;
+        PlantSymbolicLink(destination, outsider);
 
         var sweep = world.Run();
 
@@ -215,8 +225,7 @@ public class EvilPoolSweepGateTests
         string destinationDirectory = Path.Combine(
             world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion);
         Directory.CreateDirectory(destinationDirectory);
-        if (!TryMakeUnwritable(destinationDirectory))
-            return;
+        MakeUnwritable(destinationDirectory);
 
         try
         {
@@ -279,35 +288,56 @@ public class EvilPoolSweepGateTests
     static string Sha256Of(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     /// <summary>
-    /// Plants a symlink, or returns false where the platform will not make one. Returning
-    /// false drops the case rather than weakening it: on Windows an unprivileged process
-    /// cannot create a symlink, and a case that quietly asserted something else would be
-    /// worse than a case that did not run.
+    /// Plants a symlink at <paramref name="path"/>.
+    ///
+    /// <para>Only Windows is allowed to duck this, and it does so as a <em>skip</em>. An
+    /// unprivileged Windows process cannot create a symlink, but a case that returned
+    /// early and let the test pass would report the sweep's most serious historical defect
+    /// as gated on a platform where nothing had run -- a green result covering an empty
+    /// one. Everywhere else a failure to plant the link is a real failure and is thrown,
+    /// because on those platforms this always works, and the reason it stopped working is
+    /// something the run should say out loud rather than swallow.</para>
     /// </summary>
-    static bool TryPlantSymbolicLink(string path, string target)
+    static void PlantSymbolicLink(string path, string target)
     {
-        try
-        {
-            File.CreateSymbolicLink(path, target);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            return false;
-        }
+        if (OperatingSystem.IsWindows())
+            Assert.Skip("planting a symlink needs privileges an unelevated Windows process lacks.");
+
+        File.CreateSymbolicLink(path, target);
     }
 
     /// <summary>
-    /// Makes a directory refuse new files, or returns false where that cannot be arranged.
-    /// Unix mode bits are the only mechanism here; on Windows this case does not run.
+    /// Makes <paramref name="directory"/> refuse new files, skipping visibly where that
+    /// cannot be arranged.
+    ///
+    /// <para>Unix mode bits are the mechanism, so Windows skips. So does running as root,
+    /// which ignores them: the check is not that the bits were set but that they now
+    /// <em>bite</em>, because a case that believed the chmod and ran anyway would watch
+    /// the copy succeed and report a failing copy as being accounted for.</para>
     /// </summary>
-    static bool TryMakeUnwritable(string directory)
+    static void MakeUnwritable(string directory)
     {
         if (OperatingSystem.IsWindows())
-            return false;
+        {
+            Assert.Skip("making a directory refuse writes here needs Unix mode bits.");
+            return;
+        }
 
         File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-        return true;
+
+        string probe = Path.Combine(directory, "probe");
+        try
+        {
+            File.WriteAllText(probe, "");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        File.Delete(probe);
+        RestoreWritable(directory);
+        Assert.Skip("this process can write to a directory it just made read-only (running as root?).");
     }
 
     /// <summary>
