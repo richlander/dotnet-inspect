@@ -21,10 +21,17 @@ public delegate bool ScalarPolicy(Rune scalar);
 /// <summary>
 /// Identifies a scalar a policy refused, by position and classification rather than by content.
 /// </summary>
+/// <remarks>
+/// <paramref name="Scalar"/> is an <see cref="int"/> rather than a <see cref="Rune"/> because an
+/// unpaired surrogate is one of the things this has to name, and <see cref="Rune"/> cannot hold
+/// one — its invariant excludes <c>D800</c>–<c>DFFF</c>, so constructing it throws. Reporting
+/// through <see cref="Rune"/> forced the replacement character in that arm, which named the
+/// wrong code point for the 2048 values whose identity matters most.
+/// </remarks>
 /// <param name="Index">The index in the source string where the scalar begins.</param>
-/// <param name="Scalar">The refused scalar.</param>
+/// <param name="Scalar">The refused scalar, or the raw code unit for an unpaired surrogate.</param>
 /// <param name="Category">The scalar's Unicode general category.</param>
-public readonly record struct ScalarViolation(int Index, Rune Scalar, UnicodeCategory Category)
+public readonly record struct ScalarViolation(int Index, int Scalar, UnicodeCategory Category)
 {
     /// <summary>
     /// Describes the violation without reproducing the character.
@@ -37,7 +44,7 @@ public readonly record struct ScalarViolation(int Index, Rune Scalar, UnicodeCat
     public override string ToString()
         => string.Create(
             CultureInfo.InvariantCulture,
-            $"U+{Scalar.Value:X4} ({Category}) at {Index}");
+            $"U+{Scalar:X4} ({Category}) at {Index}");
 }
 
 /// <summary>
@@ -80,9 +87,14 @@ public static class TextPolicy
     /// </summary>
     /// <remarks>
     /// <c>Cc</c> (C0, DEL, C1) attacks terminal control sequences; <c>Cf</c> attacks visual
-    /// order and includes every character Trojan Source used; <c>Cs</c> covers unpaired
-    /// surrogates, which break UTF-8 conversion; <c>Zl</c> and <c>Zp</c> attack line-oriented
-    /// and JS-adjacent consumers.
+    /// order and includes every character Trojan Source used; <c>Zl</c> and <c>Zp</c> attack
+    /// line-oriented and JS-adjacent consumers.
+    ///
+    /// The <c>Cs</c> arm is unreachable and kept only for totality of the switch. No
+    /// <see cref="Rune"/> can carry that category, because the type's invariant excludes the
+    /// surrogate range outright. Unpaired surrogates are caught ahead of any policy, in the
+    /// decode step, so an allow-shaped policy written against this method does not need to —
+    /// and cannot — handle them itself.
     /// </remarks>
     public static bool IsNonGraphic(Rune scalar)
         => Rune.GetUnicodeCategory(scalar) switch

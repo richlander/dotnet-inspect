@@ -154,13 +154,15 @@ public static class VisualEncoder
 
             if (isUnpairedSurrogate)
             {
-                violation = new ScalarViolation(i, scalar, UnicodeCategory.Surrogate);
+                // The raw code unit, not the decoded scalar: DecodeAt yields U+FFFD here,
+                // and the whole point of the report is to name the code point exactly.
+                violation = new ScalarViolation(i, value[i], UnicodeCategory.Surrogate);
                 return false;
             }
 
             if (!permits(scalar))
             {
-                violation = new ScalarViolation(i, scalar, Rune.GetUnicodeCategory(scalar));
+                violation = new ScalarViolation(i, scalar.Value, Rune.GetUnicodeCategory(scalar));
                 return false;
             }
 
@@ -230,6 +232,15 @@ public static class VisualEncoder
                 case 'u':
                     if (!TryReadHex(encoded, i + 1, 4, out uint bmp))
                     {
+                        return false;
+                    }
+
+                    if (bmp <= 0x1F || bmp is 0x7F or '\\')
+                    {
+                        // Those three ranges have a canonical spelling — \^X, \^? and \\ — so
+                        // accepting \uXXXX for them too would give one scalar two encodings,
+                        // the same loss of injectivity the \U arm rejects below. Encode never
+                        // emits these, so no round trip depends on them.
                         return false;
                     }
 

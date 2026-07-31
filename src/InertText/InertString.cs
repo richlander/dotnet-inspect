@@ -18,8 +18,13 @@ namespace InertText;
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
 /// explicit. One would restore exactly the confusion the type removes. Text enters through
-/// <see cref="Encode"/> or <see cref="Format"/>, both of which apply a policy, so the invariant
-/// holds by construction: an <see cref="InertString"/> contains no scalar its policy refused.
+/// <see cref="Encode"/> or <see cref="Format"/>, both of which apply a policy, so every value
+/// has been through the encoder under some policy.
+///
+/// Note the "some": the type records that a policy was applied, not which one, because a value
+/// is routinely built for one sink and spliced into a message bound for another. That makes
+/// the useful invariant a property of composition rather than of storage — see
+/// <see cref="Conform"/>, which re-spells a spliced value under the policy actually in force.
 ///
 /// Conversion <em>to</em> <see cref="string"/> through <see cref="ToString"/> is unrestricted,
 /// which is safe here in a way it usually is not. The customary objection to a wrapper — that
@@ -101,7 +106,10 @@ public readonly struct InertString : IEquatable<InertString>
     /// Exempting the separator would be a hole exactly the size of one caller's mistake.
     /// </remarks>
     /// <param name="separator">The text placed between values.</param>
-    /// <param name="permits">The per-sink policy applied to <paramref name="separator"/>.</param>
+    /// <param name="permits">
+    /// The per-sink policy, applied to <paramref name="separator"/> and to any value that does
+    /// not already satisfy it.
+    /// </param>
     /// <param name="values">The values to join.</param>
     public static InertString Join(string separator, ScalarPolicy permits, IEnumerable<InertString> values)
     {
@@ -123,8 +131,8 @@ public readonly struct InertString : IEquatable<InertString>
                 forms |= separatorForms;
             }
 
-            builder.Append(value.ToString());
-            forms |= value.Forms;
+            builder.Append(Conform(value, permits, out VisualForm valueForms));
+            forms |= valueForms;
             first = false;
         }
 
@@ -134,9 +142,43 @@ public readonly struct InertString : IEquatable<InertString>
     /// <summary>Names the spellings this value contains, one line each.</summary>
     public IReadOnlyList<string> DescribeLegend() => VisualEncoder.DescribeLegend(Forms);
 
+    /// <summary>
+    /// Restates <paramref name="value"/> under <paramref name="permits"/>, re-encoding it if it
+    /// carries anything that policy refuses.
+    /// </summary>
+    /// <remarks>
+    /// The type records that <em>a</em> policy was applied, not <em>which</em> one, so a value
+    /// produced under a laxer policy can carry a scalar a stricter sink refuses — <see
+    /// cref="TextPolicy.Prose"/> permits the line feed that <see cref="TextPolicy.Field"/>
+    /// exists to remove. Splicing such a value in unexamined would put a raw newline into a
+    /// single-line message and report <see cref="VisualForm.None"/> for it, which is the log
+    /// injection this library exists to prevent, with the type appearing to vouch for it.
+    ///
+    /// This is the second thing invertibility buys. Because <see cref="VisualEncoder.TryDecode"/>
+    /// recovers the original exactly, a mismatched piece can be taken back to its source text
+    /// and re-spelled under the policy actually in force, rather than rejected or trusted.
+    /// </remarks>
+    internal static string Conform(InertString value, ScalarPolicy permits, out VisualForm forms)
+    {
+        string text = value.ToString();
+
+        if (VisualEncoder.IsPermitted(text, permits))
+        {
+            forms = value.Forms;
+            return text;
+        }
+
+        // Falling back to the encoded text when decoding fails cannot happen for a value this
+        // library produced; it is here so the failure mode is over-encoding rather than a leak.
+        string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
+        return VisualEncoder.Encode(original, permits, out forms);
+    }
+
     /// <inheritdoc/>
     public bool Equals(InertString other)
-        => string.Equals(_text, other._text, StringComparison.Ordinal);
+        // Compared through ToString so that Empty and Encode("") agree, since IsEmpty,
+        // ToString and GetHashCode already treat them as the same value.
+        => string.Equals(ToString(), other.ToString(), StringComparison.Ordinal);
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is InertString other && Equals(other);
@@ -185,7 +227,15 @@ public ref struct InertStringHandler
     public void AppendLiteral(string value) => Append(value);
 
     /// <summary>Appends an interpolation hole.</summary>
-    public void AppendFormatted<T>(T value) => Append(value?.ToString());
+    /// <remarks>
+    /// Formatted under the invariant culture, matching the format-specifier overload. A message
+    /// whose decimal separator depends on the ambient culture is a message that cannot be
+    /// grepped, and these are diagnostics rather than presentation.
+    /// </remarks>
+    public void AppendFormatted<T>(T value)
+        => Append(value is IFormattable formattable
+            ? formattable.ToString(null, CultureInfo.InvariantCulture)
+            : value?.ToString());
 
     /// <summary>Appends an interpolation hole that carries a format specifier.</summary>
     public void AppendFormatted<T>(T value, string? format)
@@ -201,12 +251,14 @@ public ref struct InertStringHandler
     /// </summary>
     /// <remarks>
     /// Without this overload the generic case would run the encoder over text that has already
-    /// been through it, doubling every backslash the first pass introduced.
+    /// been through it, doubling every backslash the first pass introduced. The value is still
+    /// checked against this sink's policy, because being inert under some policy is not the
+    /// same as being inert under this one; see <see cref="InertString.Conform"/>.
     /// </remarks>
     public void AppendFormatted(InertString value)
     {
-        _builder.Append(value.ToString());
-        _forms |= value.Forms;
+        _builder.Append(InertString.Conform(value, _permits, out VisualForm forms));
+        _forms |= forms;
     }
 
     /// <summary>

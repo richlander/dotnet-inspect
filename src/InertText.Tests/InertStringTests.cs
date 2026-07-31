@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 
 namespace InertText.Tests;
@@ -201,5 +202,89 @@ public class InertStringTests
             .ToArray();
 
         Assert.Empty(conversions);
+    }
+
+    [Fact]
+    public void Splice_ReEncodesAValueThatThisPolicyRefuses()
+    {
+        // Built for a multi-line sink, so the line feed survived encoding.
+        InertString prose = InertString.Encode("first\nsecond", TextPolicy.Prose);
+        Assert.Equal("first\nsecond", prose.ToString());
+
+        // Spliced into a single-line sink, it must not carry the line feed in with it.
+        InertString field = InertString.Format(TextPolicy.Field, $"source: {prose}");
+
+        Assert.DoesNotContain('\n', field.ToString());
+        Assert.Contains(@"\^J", field.ToString(), StringComparison.Ordinal);
+        Assert.True(VisualEncoder.IsPermitted(field.ToString(), TextPolicy.Field));
+        Assert.True(field.Forms.HasFlag(VisualForm.Caret));
+    }
+
+    [Fact]
+    public void Splice_LeavesAConformingValueByteForByteAlone()
+    {
+        InertString piece = InertString.Encode("a\u202Eb", TextPolicy.Field);
+        InertString message = InertString.Format(TextPolicy.Field, $"{piece}");
+
+        // The repair path must not fire here, or every splice would pay a decode/re-encode.
+        Assert.Equal(piece.ToString(), message.ToString());
+        Assert.Equal(piece.Forms, message.Forms);
+    }
+
+    [Fact]
+    public void Join_ReEncodesValuesThatThePolicyRefuses()
+    {
+        InertString[] values =
+        [
+            InertString.Encode("one\ntwo", TextPolicy.Prose),
+            InertString.Encode("three", TextPolicy.Field),
+        ];
+
+        InertString joined = InertString.Join(", ", TextPolicy.Field, values);
+
+        Assert.DoesNotContain('\n', joined.ToString());
+        Assert.True(VisualEncoder.IsPermitted(joined.ToString(), TextPolicy.Field));
+        Assert.True(joined.Forms.HasFlag(VisualForm.Caret));
+    }
+
+    [Fact]
+    public void Splice_ReportsEveryFormTheRepairIntroduced()
+    {
+        InertString prose = InertString.Encode("a\nb", TextPolicy.Prose);
+        Assert.Equal(VisualForm.None, prose.Forms);
+
+        InertString field = InertString.Format(TextPolicy.Field, $"{prose}");
+
+        // Forms would be None if the splice trusted the incoming value's flags.
+        Assert.NotEqual(VisualForm.None, field.Forms);
+        Assert.NotEmpty(field.DescribeLegend());
+    }
+
+    [Fact]
+    public void Empty_EqualsAnEncodedEmptyString()
+    {
+        InertString encoded = InertString.Encode("", TextPolicy.Field);
+
+        Assert.Equal(InertString.Empty, encoded);
+        Assert.True(InertString.Empty == encoded);
+        Assert.Equal(InertString.Empty.GetHashCode(), encoded.GetHashCode());
+    }
+
+    [Fact]
+    public void Holes_FormatUnderTheInvariantCultureWithOrWithoutASpecifier()
+    {
+        CultureInfo original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+            double value = 1234.5;
+
+            Assert.Equal("1234.5", InertString.Format(TextPolicy.Field, $"{value}").ToString());
+            Assert.Equal("1234.5", InertString.Format(TextPolicy.Field, $"{value:F1}").ToString());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 }

@@ -86,7 +86,7 @@ public class VisualEncoderTests
         // reporting success.
         Assert.Equal(@"A\U00013430B", VisualEncoder.Encode("A\U00013430B", TextPolicy.Field));
         Assert.False(VisualEncoder.IsPermitted("A\U00013430B", TextPolicy.Field, out var violation));
-        Assert.Equal(0x13430, violation!.Value.Scalar.Value);
+        Assert.Equal(0x13430, violation!.Value.Scalar);
         Assert.Equal(UnicodeCategory.Format, violation.Value.Category);
     }
 
@@ -240,7 +240,7 @@ public class VisualEncoderTests
                 or (>= '0' and <= '9') or '.' or '-' or '_';
 
         Assert.False(VisualEncoder.IsPermitted(hijacked, PackageId, out var violation));
-        Assert.Equal(0x0435, violation!.Value.Scalar.Value);
+        Assert.Equal(0x0435, violation!.Value.Scalar);
         Assert.Equal(@"N\u0435wtonsoft.Json", VisualEncoder.Encode(hijacked, PackageId));
     }
 
@@ -254,10 +254,14 @@ public class VisualEncoderTests
 
         IReadOnlyList<string> legend = VisualEncoder.DescribeLegend(forms);
 
-        Assert.Equal(5, legend.Count);
-        foreach (string introducer in new[] { @"\^X", @"\^?", @"\uXXXX", @"\UXXXXXXXX", @"\\" })
+        // Derived from the enum rather than hand-listed: adding a VisualForm and forgetting
+        // either the sample input or its DescribeLegend arm has to fail here, not pass quietly.
+        VisualForm[] every = Enum.GetValues<VisualForm>().Where(f => f != VisualForm.None).ToArray();
+        Assert.Equal(every.Length, legend.Count);
+        foreach (VisualForm form in every)
         {
-            Assert.Contains(legend, line => line.StartsWith(introducer, StringComparison.Ordinal));
+            Assert.True(forms.HasFlag(form), $"the sample input no longer produces {form}");
+            Assert.NotEmpty(VisualEncoder.DescribeLegend(form));
         }
 
         // The legend names forms, never values.
@@ -313,5 +317,53 @@ public class VisualEncoderTests
 
             current = next;
         }
+    }
+
+    [Fact]
+    public void Violation_NamesTheActualCodeUnitForAnUnpairedSurrogate()
+    {
+        Assert.False(VisualEncoder.IsPermitted("ab\uD800cd", TextPolicy.Field, out ScalarViolation? violation));
+
+        // Rune cannot hold a lone surrogate, so reporting through it named U+FFFD here --
+        // one wrong answer, identically, for all 2048 values whose identity is the finding.
+        Assert.Equal(0xD800, violation!.Value.Scalar);
+        Assert.Equal(UnicodeCategory.Surrogate, violation.Value.Category);
+        Assert.Equal(2, violation.Value.Index);
+        Assert.Equal("U+D800 (Surrogate) at 2", violation.Value.ToString());
+    }
+
+    [Fact]
+    public void Violation_AgreesWithTheSpellingTheEncoderChooses()
+    {
+        const string input = "ab\uDFFFcd";
+        Assert.False(VisualEncoder.IsPermitted(input, TextPolicy.Field, out ScalarViolation? violation));
+
+        string encoded = VisualEncoder.Encode(input, TextPolicy.Field, out _);
+
+        Assert.Contains(
+            string.Create(CultureInfo.InvariantCulture, $"\\u{violation!.Value.Scalar:X4}"),
+            encoded,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(@"\u005C")]
+    [InlineData(@"\u0000")]
+    [InlineData(@"\u001B")]
+    [InlineData(@"\u007F")]
+    public void Decode_RejectsBmpHexForScalarsWithACanonicalSpelling(string encoded)
+    {
+        // Encode spells these \\, \^X and \^?, so accepting \uXXXX too would mean one scalar
+        // with two encodings.
+        Assert.False(VisualEncoder.TryDecode(encoded, out _));
+    }
+
+    [Fact]
+    public void Decode_StillAcceptsBmpHexForScalarsAPolicyMayRefuse()
+    {
+        // 'A' has no canonical short spelling, and a restrictive policy is free to encode it,
+        // so the canonicality check must not reach this far.
+        Assert.True(VisualEncoder.TryDecode(@"\u0041", out string? decoded));
+        Assert.Equal("A", decoded);
     }
 }

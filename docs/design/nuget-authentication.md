@@ -382,8 +382,21 @@ provenance, not protection.
 Composition is the part that has to work, or callers fall back to `$"...{treated}..."` and drop
 the guarantee at the moment it matters most. `InertString.Format` is an interpolated string
 handler that encodes each part as it is appended: holes because they are untrusted, literals too,
-because an invariant with an exception in it must be re-argued at every use. An already-inert hole
-is appended as-is rather than encoded twice.
+because an invariant with an exception in it must be re-argued at every use.
+
+An already-inert hole is not encoded twice — but neither is it trusted. The type records that
+*a* policy was applied, not *which* one, and a value built for one sink is routinely spliced into
+a message bound for another. `Prose` permits the line feed that `Field` exists to remove, so
+appending a `Prose` value into a `Field` message unexamined would put a raw newline into a
+single-line log record and report no encoded forms for it — log injection, with the type
+appearing to vouch for it. Splices are therefore checked against the policy in force and
+re-spelled under it when they do not satisfy it, in `Format` and in `Join` alike.
+
+That repair is the second thing invertibility buys. `TryDecode` recovers the original text
+exactly, so a mismatched piece can be taken back to its source and re-encoded rather than either
+rejected or trusted. It is also why the decoder refuses spellings the encoder never emits: `\U`
+for a BMP scalar, and `\uXXXX` for a scalar with a canonical short form such as `\\`, `\^X` or
+`\^?`. One scalar, one encoding, in both directions.
 
 The type also changed what the compiler could see. `FeedFailureCollector.DescribeFailure` built
 its message with ordinary interpolation, which passed the *package name* through untouched — and
