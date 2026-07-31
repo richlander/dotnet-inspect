@@ -36,7 +36,8 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         HashSet<string>? scanners = null,
         ScannerRegistry? scannerRegistry = null,
-        bool discoveryOnly = false)
+        bool discoveryOnly = false,
+        Sections.InspectionTrace? trace = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -47,6 +48,8 @@ internal static class LibraryMetadataService
             var requiredScanners = scannerRegistry is not null && scanners is not null
                 ? scannerRegistry.ExpandRequired(scanners)
                 : scanners;
+            if (requiredScanners is not null)
+                trace?.RecordClosure(requiredScanners);
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
@@ -160,6 +163,7 @@ internal static class LibraryMetadataService
                     Logger = logger,
                     MetadataContext = pdbContext,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
+                    Trace = trace,
                 };
                 scannerRegistry.RunScanners(requiredScanners, scannerContext);
             }

@@ -80,8 +80,8 @@ internal static class MetadataLensRenderer
             return null;
 
         var selected = sections!;
-        var output = new StringWriter();
-        var caveats = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
+        var caveats = new StringWriter { NewLine = "\n" };
         bool first = true;
 
         if (selected.Contains(MetadataSectionNames.Image, StringComparer.OrdinalIgnoreCase)

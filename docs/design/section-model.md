@@ -154,8 +154,9 @@ requires `-v:m`; every other bounded network-free section first renders at
 
 ### Bare `-S` — the network-free fixed overview
 
-Bare `-S` (the `-S` flag with no value, which parses to the lone `@Default`
-preset) is the ergonomic **network-free fixed overview**. Instead of the `-v:m`
+Bare `-S` (the `-S` flag with no value) is the ergonomic **network-free fixed
+overview**. It is a request for the command's default preset, carried as its own
+flag rather than as a selector value, so it has no spelling a caller can type. Instead of the `-v:m`
 target-only view, the library command renders only the sections whose declared
 growth class is `Fixed` and whose cost is `NetworkFree` — today the `Library
 Info`, `Signals`, and `Symbols` fact tables. Because membership is a function of
@@ -279,7 +280,7 @@ count > 0 and drops categories that become empty. `--schema` is the exhaustive
 escape hatch — the full section graph plus every topical door, still without
 annotations. `@All`/`@Hidden` are internal computed poles: `@All` is the flat
 standalone set, `@Hidden` is its complement, and neither is a user-facing door
-(`@Default`/`@All`/`@Hidden`/`@Switches` never appear in `-D`).
+(`@All`/`@Hidden`/`@Switches` never appear in `-D`).
 
 ### Invariants
 
@@ -356,12 +357,11 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 ```
 
 Curated catalogs lead with the topical doors, then list sections alphabetically.
-The `package` command goes further and drops the computed `@All` and `@Default`
-poles entirely (`WithoutComputedPoles`), so they are unresolvable rather than
-merely unlisted: its sections are reachable by name, by door, and by verbosity,
-and a pole that renders a superset nobody asked for is a surface no discovery
-output describes. `@Default` survives only as the internal encoding of bare
-`-S`, which is short-circuited before selector resolution. `SourceLink: Files` is absent from the
+The `package` command goes further and drops the computed `@All` pole entirely
+(`WithoutComputedPoles`), so it is unresolvable rather than merely unlisted: its
+sections are reachable by name, by door, and by verbosity, and a pole that
+renders a superset nobody asked for is a surface no discovery output describes.
+`SourceLink: Files` is absent from the
 section rows for the same reason a `Performance:` leaf is on the library
 command: the door above it is the entry point.
 

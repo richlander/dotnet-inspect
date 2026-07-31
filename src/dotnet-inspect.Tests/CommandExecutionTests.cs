@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -17,8 +18,10 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -1534,6 +1537,28 @@ public partial class CommandExecutionTests
     // ── api command ──────────────────────────────────────────────────
 
     [Fact]
+    public async Task ApiShim_BareSelect_ForwardsThePresetToTypeOptions()
+    {
+        // ApiCommand.ExecuteAsync's `_ =>` arm rebuilds a TypeOptions field by field for direct
+        // callers (the CLI always constructs TypeOptions/MemberOptions itself, so it never lands
+        // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
+        // for free; a dedicated flag has to be copied deliberately, and omitting it silently
+        // downgrades the shim from the bare-select preset to the default tree view.
+        var options = new ApiOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            SelectDefault = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Method Groups", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Api_PlatformLibrary_ListsTypes()
     {
         var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
@@ -2958,11 +2983,220 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("├─", output);
     }
 
+    /// <summary>
+    /// <c>Type Info</c> is the type view's identity fact table, and the only section on the type
+    /// pipeline that does not grow with the type under inspection.
+    /// </summary>
     [Fact]
-    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()
+    public async Task Type_TypeInfoSection_RendersIdentityFactsRatherThanMembers()
     {
         var options = new TypeOptions
         {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
+        Assert.Contains("| Kind | class |", output);
+        Assert.Contains("| Library | System.Text.Json |", output);
+        // Identity, not inventory: the member sections stay out.
+        Assert.DoesNotContain("## Methods", output);
+        Assert.DoesNotContain("## Method Groups", output);
+    }
+
+    /// <summary>
+    /// The section is <c>ExplicitOnly</c>, so it must not join the default markdown view, where
+    /// the same facts already render as the inline identity line. This is the gate for the
+    /// "new sections do not enter the default -v:m view" rule for this section.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotEnterTheDefaultMarkdownView()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MarkdownExplicitlySet = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Type Info", output);
+        // The identity facts are present, just inline rather than as a section.
+        Assert.Contains("Kind: class", output);
+    }
+
+    /// <summary>
+    /// The boundedness claim: the row set is a function of which facts apply to the type, never of
+    /// how many members it has. A 200+ member type must not produce a materially larger section
+    /// than an 8-member enum, and every label it emits must come from the same fixed vocabulary.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotGrowWithTheType()
+    {
+        var large = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "String");
+        var small = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "DayOfWeek");
+
+        Assert.NotEmpty(large);
+        Assert.NotEmpty(small);
+
+        // The vocabulary is derived from TypeInfoSection's declaration rather than copied here, so
+        // the declaration drives the gate: a row whose label is not a declared property fails, and
+        // the bound tracks the property count instead of a hand-maintained literal that goes stale.
+        var vocabulary = DeclaredTypeInfoLabels();
+
+        // Deriving the vocabulary keeps it from going stale, but on its own it would absorb a new
+        // property silently - including an unbounded one. Pinning the count makes any addition fail
+        // here, so whoever adds a property has to state that it is a fixed fact about the type and
+        // not a per-member row. Bump this only alongside that judgement.
+        Assert.Equal(11, vocabulary.Count);
+
+        Assert.All(large, label => Assert.Contains(label, vocabulary));
+        Assert.All(small, label => Assert.Contains(label, vocabulary));
+
+        // The bound that makes the section Fixed: one row per declared property, never one per
+        // member. String has 250+ members and DayOfWeek has 7; both stay inside a constant.
+        Assert.True(
+            large.Count <= vocabulary.Count,
+            $"Type Info grew past its declared vocabulary: {string.Join(", ", large)}");
+    }
+
+    /// <summary>
+    /// The labels <c>Type Info</c> can render, read off the section's own declaration. Markout
+    /// titles a property with <c>[MarkoutPropertyName]</c> when present and splits PascalCase
+    /// otherwise.
+    /// </summary>
+    private static IReadOnlyCollection<string> DeclaredTypeInfoLabels()
+    {
+        var labels = typeof(TypeInfoSection)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property =>
+                property.GetCustomAttribute<MarkoutPropertyNameAttribute>()?.Name
+                    ?? SplitPascalCase(property.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(labels);
+        return labels;
+
+        static string SplitPascalCase(string name) =>
+            Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])", " ");
+    }
+
+    private static async Task<List<string>> RenderTypeInfoLabelsAsync(string assembly, string typeName)
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = assembly,
+            TypeName = typeName,
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|') && !line.StartsWith("| ---") && line != "| Field | Value |")
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries)[0].Trim())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Effective <c>-D</c> must list the fields <c>Type Info</c> actually renders. Two things can
+    /// break this and both did: the section is a <c>Field</c>/<c>Value</c> fact table, so matching
+    /// the schema against rendered *table columns* intersects nothing and reports the section as
+    /// having no queryable fields at all; and the discovery render manifest is built without
+    /// acquisition context, so the provenance rows are invisible to it unless that context is
+    /// threaded in. Either failure is silent — exit 0 with fields missing.
+    /// </summary>
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("System.Collections.Generic.List`1")]
+    // An enum is the case that catches a census computed off a different member list than the one
+    // discovery sees: DayOfWeek's only field is the compiler-generated `value__`.
+    [InlineData("System.DayOfWeek")]
+    // A readonly ref struct: BuildFilteredTypeForSections did not copy IsReadOnly/IsByRefLike, so
+    // discovery hid the Modifiers row that -S renders.
+    [InlineData("System.Span`1")]
+    [InlineData("System.DateTime")]
+    // Filters narrow the type discovery builds its manifest from. Type Info reports identity, not
+    // the filtered slice, so its field set must not move when a filter is active.
+    [InlineData("System.String", "-m", "Contains")]
+    [InlineData("System.String", "--all")]
+    [InlineData("System.String", "-m", "5")]
+    [InlineData("System.String", "-k", "property")]
+    [InlineData("System.Span`1", "--unsafe")]
+    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(
+        string typeName,
+        params string[] extraArgs)
+    {
+        string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
+        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
+
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
+        var (renderExit, renderOutput, _) = await RunAppAsync(renderArgs);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Equal(0, renderExit);
+
+        var advertised = ParseFirstColumn(discoverOutput, "Name");
+        var rendered = ParseFirstColumn(renderOutput, "Field");
+
+        Assert.NotEmpty(advertised);
+        Assert.NotEmpty(rendered);
+
+        // Structural facts the manifest can see from the type itself.
+        Assert.Contains("Kind", advertised);
+        // Provenance facts that only exist if acquisition context reached the manifest.
+        Assert.Contains("Library", advertised);
+        Assert.Contains("Source", advertised);
+
+        // Set equality, not containment: -D over-reporting a field -S never renders is the same
+        // contract break as under-reporting one, and only equality catches both.
+        Assert.Equal(
+            rendered.OrderBy(f => f, StringComparer.Ordinal),
+            advertised.OrderBy(f => f, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Type parameters are an identity fact, so an open generic must report them. The summary used
+    /// to be computed only at quiet verbosity for the inline header, which left the section's
+    /// declared field permanently empty and made <c>--fields "Type Parameters"</c> report no data.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_ReportsTypeParametersForOpenGenerics()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Type Parameters | T |", output);
+    }
+
+    private static List<string> ParseFirstColumn(string output, string headerLabel)
+    {
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|'))
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } cells
+                ? cells[0].Trim()
+                : string.Empty)
+            .Where(cell => cell.Length > 0 && cell != headerLabel && !cell.StartsWith('-'))
+            .ToList();
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()    {        var options = new TypeOptions        {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Properties"],
@@ -7713,6 +7947,29 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("SourceLink availability", output);
     }
 
+    /// <summary>
+    /// The default preset is reached only through bare <c>-S</c>. <c>@Default</c> was a computed
+    /// pole that restated what bare <c>-S</c> already meant, so it is gone — including on
+    /// pipelines that still publish <c>@All</c>. Bare <c>-S</c> keeps rendering the broader
+    /// network-free fixed overview, which the pole never matched anyway (#3547).
+    /// </summary>
+    [Fact]
+    public async Task LibraryCommand_DefaultPole_IsNotResolvable()
+    {
+        var (bareExit, bareOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
+        var (poleExit, poleOutput, poleError) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
+
+        Assert.Equal(1, poleExit);
+        Assert.Contains("'@Default' not found", poleError, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", poleOutput);
+
+        Assert.Equal(0, bareExit);
+        Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
+        Assert.Contains("## Library Info", bareOutput);
+        Assert.Contains("## Signals", bareOutput);
+        Assert.Contains("## Symbols", bareOutput);
+    }
+
     [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
@@ -8086,7 +8343,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var lines = SplitOutputLines(output)
             .Where(line => line.Contains("section", StringComparison.Ordinal))
             .ToArray();
         var names = lines.Select(ExtractSectionName).ToArray();
@@ -8119,7 +8376,7 @@ public partial class CommandExecutionTests
         // alphabetical order, and every category row precedes every section row. @Metadata is
         // among them because --schema surfaces the whole catalog, including the explicit-only
         // lens the curated top-level -D still leaves out.
-        var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
@@ -8127,7 +8384,7 @@ public partial class CommandExecutionTests
             new[] { "@Audit", "@Integrations", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
-        var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var raw = SplitOutputLines(output);
         var lastCategoryIndex = Array.FindLastIndex(raw, line => line.Contains("category", StringComparison.Ordinal));
         var firstSectionIndex = Array.FindIndex(raw, line => line.Contains("section", StringComparison.Ordinal));
         Assert.True(lastCategoryIndex >= 0 && firstSectionIndex >= 0);
@@ -8179,8 +8436,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var members = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var members = SplitOutputLines(output)
             .Where(line => line.Contains("| section", StringComparison.Ordinal))
             .Select(ExtractSectionName)
             .ToArray();
@@ -9723,10 +9979,27 @@ public partial class CommandExecutionTests
         return rows;
     }
 
+    /// <summary>
+    /// Splits captured CLI output into non-empty lines independently of the host's line ending.
+    /// </summary>
+    /// <remarks>
+    /// Product printers emit LF on every platform, while some console paths still terminate with
+    /// the ambient newline. Splitting on <see cref="Environment.NewLine"/> therefore yields a
+    /// single line on Windows against LF output, which does not fail loudly — it makes every
+    /// per-line assertion vacuous, so <c>Where(...)</c> filters simply match nothing. Splitting on
+    /// '\n' and trimming '\r' is correct for either ending and stays correct as the remaining
+    /// CRLF console paths move to LF in #3596.
+    /// </remarks>
+    private static string[] SplitOutputLines(string output) =>
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length > 0)
+            .ToArray();
+
     private static List<(string Name, string Kind)> ExtractDiscoveryRows(string output)
     {
         List<(string Name, string Kind)> rows = [];
-        foreach (var line in output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in SplitOutputLines(output))
         {
             if (!line.StartsWith('|'))
                 continue;
@@ -9746,8 +10019,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var sectionHeaders = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var sectionHeaders = SplitOutputLines(output)
             .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
             .Select(line => line[3..])
             .ToArray();
@@ -9853,9 +10125,9 @@ public partial class CommandExecutionTests
 
     private static string? TryExtractSectionBody(string output, string sectionName)
     {
-        // Split on '\n' and strip '\r' rather than on Environment.NewLine: captured output does
-        // not always carry the host's line ending, and a mismatch would silently yield one line
-        // and report every section as missing.
+        // Blank lines are significant to body extraction, so this splits without
+        // RemoveEmptyEntries rather than reusing SplitOutputLines — but for the same
+        // ending-agnostic reason documented there.
         var lines = output.Split('\n').Select(l => l.TrimEnd('\r'));
         var header = "## " + sectionName;
         List<string> body = [];
@@ -9888,8 +10160,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
 
-        var sections = output
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+        var sections = SplitOutputLines(output)
             .Where(line => line.StartsWith("| ", StringComparison.Ordinal)
                 && !line.StartsWith("| Section ", StringComparison.Ordinal)
                 && !line.StartsWith("| ---", StringComparison.Ordinal))
@@ -10354,7 +10625,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--jsonl");
 
             Assert.Equal(0, exit);
-            var documents = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            var documents = SplitOutputLines(output)
                 .Select(line => JsonDocument.Parse(line))
                 .ToArray();
             Assert.Contains(documents, document =>
@@ -10874,7 +11145,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The package command drops the computed <c>@All</c> and <c>@Default</c> poles
+    /// The package command drops the computed <c>@All</c> pole
     /// (<see cref="DotnetInspector.Sections.SectionPipeline{TModel}.WithoutComputedPoles"/>):
     /// its sections are reachable by name, by topical door, and by verbosity, so a pole that
     /// renders a superset nobody asked for is a surface no discovery output describes. This is
@@ -10890,15 +11161,109 @@ public partial class CommandExecutionTests
             Assert.Equal(1, allExit);
             Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            // @Default is still the internal encoding of bare -S, so it must not resolve as a
-            // category while bare -S keeps working.
+            // @Default is gone everywhere, not just here: it restated what bare -S already means
+            // and had no spelling worth keeping (#3547).
+            var (defaultExit, defaultOutput, defaultError) = await RunAppAsync("package", packagePath, "-S", "@Default");
+            Assert.Equal(1, defaultExit);
+            Assert.Contains("'@Default' not found", defaultError, StringComparison.Ordinal);
+            Assert.DoesNotContain("## Package Info", defaultOutput);
+
             var (comboExit, _, comboError) = await RunAppAsync("package", packagePath, "-S", "@Default,Manifest");
             Assert.Equal(0, comboExit);
             Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
 
-            var (bareExit, bareOutput, _) = await RunAppAsync("package", packagePath, "-S");
+            var (bareExit, bareOutput, bareError) = await RunAppAsync("package", packagePath, "-S");
             Assert.Equal(0, bareExit);
             Assert.Contains("## Package Info", bareOutput);
+            Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Bare <c>-S</c> is a request for the command's default preset, not a selector value, so it
+    /// never appears in diagnostics. It used to travel as the literal string <c>"@Default"</c>,
+    /// which meant that combining it with anything that contributes its own selector — here the
+    /// <c>--path</c> sugar, which appends the Files section — pushed the internal encoding through
+    /// resolution and leaked it as "Select value '@Default' not found" (#3547). The explicit
+    /// selection wins, as it always did; only the spurious warning is gone.
+    /// </summary>
+    [Fact]
+    public async Task Package_BareSelect_CombinedWithPathSugar_DoesNotLeakThePresetMarker()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "--path", "*.dll", "--paths");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+            Assert.Contains(".dll", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryMode_BareSelect_MatchesStandaloneLibraryBareSelect()
+    {
+        // The nested library view is constructed from the package options, so bare -S has to be
+        // carried across the boundary explicitly. Before #3547 it rode along inside Select as the
+        // "@Default" string and propagated for free; a dedicated flag does not, and dropping it
+        // silently downgrades the nested view to "no sections requested".
+        var (nestedExit, nestedOutput, _) = await RunAppAsync("package", "Markout", "--library", "-S");
+        var (standaloneExit, standaloneOutput, _) = await RunAppAsync("library", "Markout", "-S");
+
+        Assert.Equal(0, nestedExit);
+        Assert.Equal(0, standaloneExit);
+
+        static List<string> Headings(string output) => output
+            .Split('\n')
+            .Where(l => l.StartsWith("## ", StringComparison.Ordinal))
+            .Select(l => l.Trim())
+            .ToList();
+
+        Assert.NotEmpty(Headings(nestedOutput));
+        Assert.Equal(Headings(standaloneOutput), Headings(nestedOutput));
+    }
+
+    [Fact]
+    public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
+    {
+        // Both timeline sections grow with the version range, so there is no fixed/bounded subset
+        // for bare -S to mean. The refusal is preserved from before #3547; what changes is that
+        // the message no longer spells an internal marker at the user.
+        var (exit, _, error) = await RunAppAsync(
+            "timeline", "Markout@0.29.0..0.33.0", "Markout.MarkoutWriter", "-S");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+        Assert.Contains("Bare -S has no fixed sections for timeline", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_BareSelectWithDiscover_ListsSectionsRatherThanFailing()
+    {
+        // -S <name> -D has always listed the named section. Bare -S -D used to fail instead, but
+        // only because the marker was the string "@Default" and package drops the computed poles,
+        // so the discovery lookup missed. That is the same defect as gaps 2 and 3, so it clears
+        // with them rather than being a separate behavior decision.
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "-D");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+            Assert.Contains("| Package Info | section |", output, StringComparison.Ordinal);
         }
         finally
         {
@@ -13169,8 +13534,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
 
-            var sectionHeaders = output
-                .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            var sectionHeaders = SplitOutputLines(output)
                 .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
                 .Select(line => line[3..])
                 .ToArray();

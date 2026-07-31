@@ -182,6 +182,14 @@ static class AuthoredCorpusRatchet
     /// means the run did not report the field, so its soundness cannot be confirmed —
     /// and an unconfirmable row is not a baseline. Partition closure is pinned
     /// separately, as set equality, by <c>AuthoredCorpusHistoryCardTests</c>.</para>
+    ///
+    /// <para>Identity well-formedness is deliberately <em>not</em> checked here. This
+    /// predicate means "the row's own measurement was sound", and its disposition is to
+    /// skip the row and keep walking to an older one — which is right for an honest row
+    /// that measured less than it claimed, and catastrophically wrong for a malformed
+    /// one: skipping the newest row silently swaps in an older, weaker threshold and
+    /// turns a real regression into <c>RATCHET OK</c>. A malformed identity condemns the
+    /// whole file instead, in <see cref="RefuseMalformedIdentities"/>.</para>
     /// </summary>
     internal static bool IsTrustworthy(HistoryRun run)
     {
@@ -192,6 +200,67 @@ static class AuthoredCorpusRatchet
             run.Drift,
             run.Unsupported,
             run.UnknownOutcome ?? -1);
+    }
+
+    /// <summary>
+    /// Whether a recorded identity is absent, or is a digest <see cref="Digest"/> could
+    /// actually have produced: 64 lowercase hex characters.
+    ///
+    /// <para>Length is part of the rule, and it is the part that enforces a property
+    /// <see cref="Digest"/> only asserted in prose: the digests are deliberately
+    /// untruncated because a 64-bit identity falls to a birthday attack in about 2^32
+    /// operations. A row recording a truncated digest is a row whose identity can be
+    /// forged, so it is refused rather than compared.</para>
+    ///
+    /// <para>Case is part of the rule too, because the comparison is ordinal — an
+    /// uppercase copy of a real digest is a distinct identity for the same pool, which
+    /// reads as drift that never happened.</para>
+    /// </summary>
+    internal static bool IdentityIsWellFormed(string? sha256)
+    {
+        if (sha256 is null)
+            return true;
+
+        if (sha256.Length != 64)
+            return false;
+
+        foreach (char c in sha256)
+        {
+            if (c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Names the first row carrying an identity no run could have produced, or
+    /// <see langword="null"/> when every row is well formed.
+    ///
+    /// <para>This condemns the <em>whole</em> baseline, which is the point. Comparability
+    /// compares digests as opaque ordinal strings, so <c>""</c> is not read as "no
+    /// identity recorded" — it is read as an identity that equals every other <c>""</c>,
+    /// and two such rows compare clean over a pool neither identifies. Treating that as
+    /// a per-row defect and walking past it is no better: review demonstrated that
+    /// skipping a malformed <em>newest</em> row falls through to an older, weaker row
+    /// and reports <c>RATCHET OK</c> with exit 0 on a run that genuinely regressed. That
+    /// is the same fallthrough that made an unidentified baseline dangerous in the first
+    /// place. A file containing a malformed row is corrupt, not partially usable.</para>
+    /// </summary>
+    internal static string? RefuseMalformedIdentities(IReadOnlyList<HistoryRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        foreach (var run in runs)
+        {
+            string where = run.Date ?? "(undated)";
+            if (!IdentityIsWellFormed(run.PoolSha256))
+                return $"{where}: poolSha256 '{run.PoolSha256}' is not a digest a run could record";
+            if (!IdentityIsWellFormed(run.CorpusSha256))
+                return $"{where}: corpusSha256 '{run.CorpusSha256}' is not a digest a run could record";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -246,6 +315,12 @@ static class AuthoredCorpusRatchet
     {
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(baselines);
+
+        // Before any row is considered. A malformed identity is not a bad measurement to
+        // be walked past, it is a corrupt file: skipping the row that carries it hands
+        // the comparison to an older, weaker threshold.
+        if (RefuseMalformedIdentities(baselines) is { } malformed)
+            return Comparison.Skip($"baseline is malformed ({malformed})");
 
         HistoryRun? baseline = null;
         string? newestMismatch = null;

@@ -425,7 +425,8 @@ corpus; only EVIL rows populate it.
 The EVIL corpus draws from a much broader assembly pool than the 14 pinned
 real-world libraries. `eng/prepare-evil-corpus.sh` composes that pool: it runs
 the package sweep (`eng/prepare-decompiler-package-sweep.cs`, ranks 1..N from
-`docs/data/nuget-top-packages.json`, `EVIL_PACKAGE_COUNT` default 100) and
+`docs/data/nuget-top-packages.json` at the versions pinned in
+`docs/data/nuget-top-packages.lock.json`, `EVIL_PACKAGE_COUNT` default 100) and
 unions it with the 14 pinned real-world assemblies
 (`eng/prepare-decompiler-corpus.sh`) into a single deduped `assemblies.txt`,
 preserving the sweep `manifest.json` as `sweep-manifest.json`:
@@ -443,6 +444,35 @@ The result is vendored as `evil/corpus.jsonl` on the same
 restores both. Because it reuses `CorpusRecord`, the EVIL corpus is consumable
 by `--benchmark-authored-corpus` exactly like the CIVIL corpus; the
 difficulty profile is selection/analysis metadata the oracle ignores.
+
+The sweep also answers questions about a pin file without acquiring anything:
+
+```bash
+dotnet run eng/prepare-decompiler-package-sweep.cs -- \
+  --validate-pin docs/data/nuget-top-packages.lock.json
+```
+
+It prints one verdict per path and exits 2 if any file is malformed. This is the
+sweep's own shape check, not a second copy of it, which is the point:
+`EvilPoolPinTests` calls it rather than restating the rules, after three rounds of
+review on #3434 each found a rule the tests enforced and the sweep did not.
+
+It answers whether a file is a well-formed pin, not whether the pool that file pins
+covers any particular run. Coverage depends on the ranks a sweep is asked for, which
+the file alone does not decide, so a pin can be well formed here and still leave a run
+short at exit 1.
+
+It also names the rules it applies, one per line:
+
+```bash
+dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
+```
+
+`EvilPoolPinTests` holds each of those rules with a tampered pin file and asserts the
+set it covers equals the set named here. Round fourteen on #3434 added a rule with no
+such file and the suite stayed green over a check no input reached, so coverage is
+asked for rather than assumed: a rule with no case fails, and a case naming a rule
+that is gone fails too.
 
 The generated fixture ladder is intentionally staged:
 
@@ -468,7 +498,9 @@ the discovery pattern list while separately projecting correctness defect
 classes and package-promotion candidates.
 
 The weekly Deep Inspect `package-sweep` lane prepares ranks 1-10 from
-`docs/data/nuget-top-packages.json` with product-owned package acquisition and
+`docs/data/nuget-top-packages.json` with `--resolve-latest`, deliberately
+ignoring the version pin because this lane reports what ships today rather than
+what the EVIL corpus measures. It uses product-owned package acquisition and
 TFM selection, then runs this report with bounded method and semantic-validity
 caps. Its manifest records the resolved package version, TFM, selected assembly,
 cache status, and failures. This is current-package discovery evidence, not a

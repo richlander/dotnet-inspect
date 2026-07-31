@@ -182,7 +182,7 @@ public static class ApiOutputFormatter
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -205,7 +205,7 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -225,7 +225,7 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
@@ -345,16 +345,21 @@ public static class ApiOutputFormatter
         var modifiers = projection.Identity.Modifiers;
         string? baseType = projection.BaseType;
 
-        // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
-        string? typeParamsInline = null;
-        if (type.TypeParameters.Count > 0 && options.Verbosity == Verbosity.Quiet)
+        // Type parameter summary. Computed unconditionally because Type Info reports it as an
+        // identity fact at any verbosity; only the inline header placement is quiet-only, since
+        // at Minimal+ the section replaces the inline line.
+        string? typeParamsSummary = null;
+        if (type.TypeParameters.Count > 0)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
                     ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
                     : tp.DisplayName);
-            typeParamsInline = string.Join(", ", paramDescriptions);
+            typeParamsSummary = string.Join(", ", paramDescriptions);
         }
+
+        string? typeParamsInline = options.Verbosity == Verbosity.Quiet ? typeParamsSummary : null;
+
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
@@ -429,6 +434,20 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            TypeInfo = memberDetail ? null : new TypeInfoSection
+            {
+                Type = FormatGenericFullName(type),
+                Kind = type.Kind,
+                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = baseType,
+                TypeParameters = typeParamsSummary,
+                Interfaces = NullIfZero(type.Interfaces.Count),
+                Assembly = foundIn,
+                Package = packageName,
+                Version = packageVersion,
+                Tfm = selectedTfm,
+                Source = apiSource,
+            },
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;
@@ -2362,7 +2381,7 @@ public static class ApiOutputFormatter
     }
 
     private static string DiagnosticComment(Decompiler.DecompilerResult result)
-        => string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
+        => string.Join("\n", result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
 
     private static CodeSection FormatCSharpResult(
         ApiType type,
@@ -2452,7 +2471,7 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
         {
             return declarationTrailingComment is { Length: > 0 } bareComment
-                ? $"// {bareComment}{Environment.NewLine}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
+                ? $"// {bareComment}{"\n"}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
                 : Decompiler.Annotations.AnnotationCaret.Flatten(body);
         }
 
@@ -2476,7 +2495,7 @@ public static class ApiOutputFormatter
                 .Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[0]));
             for (int i = 1; i < multilineExpression.Count; i++)
             {
-                expression.Append(Environment.NewLine);
+                expression.Append("\n");
                 expression.Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[i]));
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
@@ -2495,13 +2514,13 @@ public static class ApiOutputFormatter
         // or the carets shear away from the code they point at.
         string bodyIndent = new(' ', Decompiler.Annotations.AnnotationCaret.BodyIndentWidth);
         var indentedBody = string.Join(
-            Environment.NewLine,
+            "\n",
             lines.Select(line =>
                 line.Length == 0 ? ""
                 : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
                 : bodyIndent + line));
 
-        return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+        return $"{Annotate(declaration)}{"\n"}{{{"\n"}{indentedBody}{"\n"}}}";
     }
 
     private static string FormatMemberDeclaration(
@@ -2579,6 +2598,7 @@ public static class ApiOutputFormatter
     };
 
     private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
+
 
     private static readonly string[] MemberKinds =
     [

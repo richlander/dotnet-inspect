@@ -36,19 +36,58 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          # Full history. Change detection diffs against github.event.before,
+          # which is not always the immediate parent: a push advances main by
+          # more than one commit whenever two PRs merge back to back or a
+          # batch is pushed. fetch-depth: 2 left that commit outside the
+          # shallow clone and the diff died with "Invalid symmetric difference
+          # expression", taking the whole run with it.
+          fetch-depth: 0
 
       - name: Detect changes
         id: filter
         run: |
+          # This step must never fail. Every downstream job is gated on its
+          # outputs, so failing here does not just lose the filter -- it SKIPS
+          # the entire build and test matrix, landing an unvalidated commit on
+          # main. So when the change set cannot be determined, force every
+          # output true: CI over-runs instead of silently vanishing. Enforced
+          # by the fallback branch below, which runs no fallible command, not
+          # by an automated gate.
+          FILES=""
+          RESOLVED=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
-          else
-            BEFORE=${{ github.event.before }}
-            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-              BEFORE=HEAD~1
+            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only); then
+              RESOLVED=true
             fi
-            FILES=$(git diff --name-only "$BEFORE"..."${{ github.sha }}")
+          else
+            BEFORE="${{ github.event.before }}"
+            # The zero SHA means a new branch or a force push with no prior tip.
+            if [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              # Two dots, not three. A symmetric difference has to compute a
+              # merge base, which is a second way to fail and is not what
+              # change detection is asking. "What differs between the old tip
+              # and the new tip" is exactly the two-dot diff, and for the
+              # fast-forward pushes main receives the two agree anyway.
+              if FILES=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+                RESOLVED=true
+              fi
+            fi
+          fi
+          if [ "$RESOLVED" != "true" ]; then
+            # Force every gate on and stop here. Deliberately NOT "list every
+            # tracked file and classify it": that would put another fallible
+            # git call -- and a dependency on every case pattern below matching
+            # something -- on the one path whose entire job is to be
+            # infallible. `git ls-files` exits 128 on an unreadable index.
+            # Keep this list in sync with the `outputs:` block above.
+            echo "::warning title=Change detection fell back::Could not determine the changed files for ${{ github.sha }}; running every job so that no validation is skipped."
+            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped; do
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            done
+            echo "Change detection fell back; every job filter forced true."
+            exit 0
           fi
           CODE=false
           CSHARPDIFF=false

@@ -288,7 +288,7 @@ internal static class MemberCodeProvider
                         IReadOnlyList<Decompiler.SourceLine> ilLines = instructions
                             .Select(i => new Decompiler.SourceLine(i.ToString(), i.Offset))
                             .ToList();
-                        ilText = string.Join(Environment.NewLine, ilLines.Select(line => line.Text));
+                        ilText = string.Join("\n", ilLines.Select(line => line.Text));
                     }
                 }
                 catch (Exception ex)

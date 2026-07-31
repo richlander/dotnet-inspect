@@ -89,6 +89,27 @@ public sealed record MethodRef(
     public int SafeTrailingElidableCount { get; init; }
 
     /// <summary>
+    /// The callee is a constructor with no observable effect beyond allocating the
+    /// fresh instance: its body is exactly <c>ldarg.0; call instance void
+    /// System.Object::.ctor(); ret</c> (a direct-<c>Object</c> parameterless ctor
+    /// that touches nothing — no field writes, no other calls, no static access, no
+    /// branches, no exception regions) AND its declaring type declares no static
+    /// constructor, so <c>newobj</c> triggers no type-initializer side effect. Set
+    /// only for a same-assembly <see cref="System.Reflection.Metadata.MethodDefinitionHandle"/>
+    /// constructor whose body proves the shape (see
+    /// <see cref="ConstructorConfinementFacts"/>); a cross-assembly, unresolvable,
+    /// or non-trivial ctor stays <see langword="false"/>.
+    ///
+    /// <para>Consumed by <see cref="Passes.ObjectInitializerPass"/> to admit hoisting
+    /// the enclosing call's <c>this</c>-field receiver read across the <c>newobj</c>
+    /// when folding an object-initializer argument. The proof is <em>Roslyn-faithful</em>,
+    /// not arbitrary-IL-sound: it assumes a non-null <c>this</c> (a hand-crafted
+    /// <c>call</c> with null <c>this</c> could make the receiver read throw), matching
+    /// the compiler-emitted IL the decompiler targets.</para>
+    /// </summary>
+    public bool ConstructorEffectFree { get; init; }
+
+    /// <summary>
     /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
     /// rules a member declared <c>unsafe</c>/<c>extern</c> is stamped with
     /// <c>RequiresUnsafeAttribute</c>, and every call site needs an unsafe
