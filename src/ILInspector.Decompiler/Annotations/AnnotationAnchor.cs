@@ -211,17 +211,21 @@ public static class AnnotationAnchor
     /// queries it.
     /// </summary>
     /// <remarks>
-    /// A <see cref="LoadStackSlot"/> prints as <c>S_n</c>: a stand-in the raise
-    /// emits where it could not recover the value an instruction produced. It
-    /// carries that instruction's offset, so on a line like
+    /// A <see cref="LoadStackSlot"/> prints as <c>S_n</c> and a
+    /// <see cref="CaughtException"/> as <c>__exception</c>: stand-ins the raise
+    /// emits where it could not recover the value an instruction produced, or
+    /// where the value has no C# spelling. Each carries the offset of the
+    /// instruction that consumed it, so on a line like
     /// <c>return new ConstructorInvoker(S_0);</c> it is narrower than the
     /// <c>new</c> it sits inside and would win on width alone, underlining the
     /// argument instead of the allocation the fact is about. Width is therefore
-    /// only the tie-break among real expressions; a slot stand-in wins only when
+    /// only the tie-break among real expressions; a stand-in wins only when
     /// nothing else carries the offset, which is the case where it genuinely is
     /// the value on the line (<c>_ = S_0;</c>). Measured over
     /// <c>System.Private.CoreLib</c>, preferring real expressions moves 50 of
-    /// 10,664 <c>alloc.new</c> underlines onto the allocation.
+    /// 10,664 <c>alloc.new</c> underlines onto the allocation; no fact in that
+    /// corpus shares an offset with a printed <c>__exception</c>, which is
+    /// excluded because it is the same shape, not because it was observed.
     /// </remarks>
     static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
     {
@@ -233,7 +237,7 @@ public static class AnnotationAnchor
             int offset = printed.Node.SourceOffset;
             if (offset < 0)
                 continue;
-            bool slot = printed.Node is LoadStackSlot;
+            bool slot = printed.Node is LoadStackSlot or CaughtException;
             if (widths.TryGetValue(offset, out int best))
             {
                 bool bestIsSlot = standIn.Contains(offset);

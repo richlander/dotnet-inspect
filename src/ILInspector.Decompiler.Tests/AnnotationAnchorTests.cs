@@ -87,19 +87,24 @@ public class AnnotationAnchorTests
         Assert.Contains(statementNodes, n => n is NewArray);
     }
 
-    [Fact]
-    public void CaretExtent_PrefersTheAllocation_OverAStackSlotStandInSharingItsOffset()
+    [Theory]
+    [InlineData("S_0")]
+    [InlineData("__exception")]
+    public void CaretExtent_PrefersTheAllocation_OverAStandInSharingItsOffset(string standInText)
     {
         // `return new Holder(S_0);` where the raise could not recover the
-        // argument, so it prints a stack-slot stand-in that carries the same
-        // instruction offset as the newobj it feeds. S_0 is the narrower node,
-        // so width alone would underline the argument instead of the allocation
-        // the fact reports. Measured over System.Private.CoreLib, that mistake
-        // affected 50 of 10,664 alloc.new underlines.
+        // argument, so it prints a stand-in that carries the same instruction
+        // offset as the newobj it feeds. The stand-in is the narrower node, so
+        // width alone would underline the argument instead of the allocation the
+        // fact reports. Measured over System.Private.CoreLib, that mistake
+        // affected 50 of 10,664 alloc.new underlines for the stack-slot form;
+        // __exception has the same shape and is excluded for the same reason.
         const int Offset = 5;
         var objectType = TypeRef.CoreLib("System", "Object");
         var holder = TypeRef.CoreLib("Test", "Holder");
-        var slot = new LoadStackSlot(0, objectType);
+        IrExpression slot = standInText == "S_0"
+            ? new LoadStackSlot(0, objectType)
+            : new CaughtException(objectType);
         slot.SetSourceOffset(Offset);
         var allocation = new NewObject(
             new MethodRef(holder, ".ctor", TypeRef.CoreLib("System", "Void"), [objectType], HasThis: true),
@@ -131,8 +136,64 @@ public class AnnotationAnchorTests
 
         // The stand-in is on the line and is the narrower node, so a width-only
         // rule underlines it; this asserts the allocation wins instead.
-        Assert.Contains("S_0", line, StringComparison.Ordinal);
+        Assert.Contains(standInText, line, StringComparison.Ordinal);
         Assert.StartsWith("new ", line.Substring(extent.Column, extent.Length), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CaretExtent_TrimsAStatementWideExtentOffTheLineIndent()
+    {
+        // When the statement itself is the narrowest node carrying the offset,
+        // its printed range starts at the line's indent, so an untrimmed extent
+        // would draw carets left of the code. Nest the statement so the indent
+        // is non-zero and give only the statement the offset, leaving the
+        // expression inside it without one.
+        const int Offset = 7;
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var holder = TypeRef.CoreLib("Test", "Holder");
+        var allocation = new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true),
+            []);
+        var statement = new ExpressionStatement(allocation);
+        statement.SetSourceOffset(Offset);
+
+        // A second offset inside the same block widens the if's span past the
+        // statement's, so Best picks the statement rather than the if.
+        var second = new ExpressionStatement(new NewObject(
+            new MethodRef(objectType, ".ctor", TypeRef.CoreLib("System", "Void"), [], HasThis: true),
+            []));
+        second.SetSourceOffset(Offset + 2);
+
+        var inner = new Block(1);
+        inner.Add(statement);
+        inner.Add(second);
+        var outer = new Block(0);
+        outer.Add(new IfStatement(new Constant(true, TypeRef.CoreLib("System", "Boolean")), inner, null));
+        outer.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(outer);
+        var function = new IrFunction(
+            "M", holder,
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [], container);
+
+        CSharpPrinter.PrintRaised(function, out var ranges);
+        var annotation = new Annotation(
+            new AnnotationDescriptor("alloc.new", AnnotationCategory.Allocation, "allocation"),
+            Offset);
+
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            [annotation], AnnotationAnchor.ComputeSpans(function), ranges);
+        var extent = Assert.Contains(annotation, (IDictionary<IAnnotation, AnnotationAnchor.CaretExtent>)extents);
+
+        Assert.True(AnnotationAnchor.TryGetPrintedLine(statement, ranges, out int lineIndex));
+        string line = ranges.Output.Split('\n')[lineIndex].TrimEnd('\r');
+
+        // The line is indented, so an untrimmed extent would start at column 0.
+        Assert.NotEqual(0, line.Length - line.AsSpan().TrimStart().Length);
+        Assert.False(char.IsWhiteSpace(line[extent.Column]));
+        Assert.False(char.IsWhiteSpace(line[extent.Column + extent.Length - 1]));
+        Assert.Equal(line.Trim(), line.Substring(extent.Column, extent.Length));
     }
 
     [Fact]
