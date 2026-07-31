@@ -878,6 +878,40 @@ public class CompilerGeneratedOrdinalTests
             Ordinals).IsExact);
     }
 
+    /// <summary>
+    /// The collision that survives the <c>#Strings</c> heap. The three
+    /// <c>PlaceholderColliding*</c> controls forge names containing the placeholder's NUL,
+    /// which the heap truncates — so the forged method name arrives as
+    /// <c>&lt;M&gt;g__L|#</c>, having lost its <c>_0</c>, and differs from the elided form
+    /// under any comparison. A hostile assembly would instead spell the collision
+    /// <em>without</em> the NUL: <c>&lt;M&gt;g__L|#_0</c> is a legal metadata name, reaches
+    /// the comparison intact, and is equal to the elided <c>&lt;M&gt;g__L|#\0_0</c> under
+    /// every culture-sensitive comparison, because NUL is collation-ignorable.
+    /// </summary>
+    /// <remarks>
+    /// This is the method-side gate for the ordinal-comparison dependency documented on
+    /// <c>OrdinalPlaceholder</c>. Making <c>IlBodyDiff.CanonicalEquals</c> culture-sensitive
+    /// fails this test and
+    /// <see cref="PlaceholderCollidingTypeName_DoesNotHideARealTargetChange"/>, and nothing
+    /// else; the two NUL-bearing method controls cannot observe it, for the truncation
+    /// reason above. The type control observes it only incidentally — its placeholder is
+    /// last in the name, so truncation leaves exactly the collating prefix.
+    /// <para>
+    /// Ordinally the two names differ, so the changed call target stays visible, which is
+    /// what this asserts.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void CollationCollidingName_DoesNotHideARealTargetChange()
+    {
+        var result = Compare(
+            [Generated("<M>g__L|3_0")],
+            [Plain("<M>g__L|#_0"), Generated("<M>g__L|7_0")],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     /// <summary>

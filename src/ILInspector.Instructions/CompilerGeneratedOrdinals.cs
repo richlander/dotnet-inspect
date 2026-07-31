@@ -193,9 +193,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// comparison that matters is <c>IlBodyDiff.CanonicalEquals</c>, which compares
     /// <see cref="IlOperandIdentity"/> by record equality, and the key lookups here, which
     /// use <see cref="StringComparer.Ordinal"/> explicitly. Making
-    /// <c>CanonicalEquals</c> culture-sensitive fails
-    /// <c>PlaceholderCollidingName_DoesNotHideARealTargetChange</c> and both of its
-    /// siblings, so those three controls gate this dependency as well as the collision.
+    /// <c>CanonicalEquals</c> culture-sensitive fails exactly two controls:
+    /// <c>CollationCollidingName_DoesNotHideARealTargetChange</c>, which forges the
+    /// NUL-free name <c>&lt;M&gt;g__L|#_0</c> a hostile assembly can actually spell, and
+    /// <c>PlaceholderCollidingTypeName_DoesNotHideARealTargetChange</c>, whose placeholder
+    /// is last in the name so heap truncation happens to leave the collating prefix. The
+    /// two NUL-bearing <em>method</em> controls cannot gate this: the heap truncates their
+    /// forgeries to <c>&lt;M&gt;g__L|#</c>, which is not collation-equal to the elided
+    /// <c>&lt;M&gt;g__L|#\0_0</c> either.
     /// </para>
     /// <para>
     /// The NUL is invisible where a folded name reaches output, which happens only when a
