@@ -63,6 +63,16 @@ namespace InertText;
 /// </remarks>
 public readonly struct InertString : IEquatable<InertString>
 {
+    // A constructor is the only thing that assigns this, and both constructors assign encoder
+    // output, so every value that a caller can build carries text. The `?` describes the single
+    // state no constructor can reach: default(InertString), whose field the CLR zeroes without
+    // running any constructor at all. A struct cannot suppress its zero value, so a non-nullable
+    // annotation here would be unverifiable -- it compiles without a warning, because the
+    // compiler does not track default(T) through to fields -- and would promise every reader
+    // something the runtime is free to contradict.
+    //
+    // No downstream code is defensive about it. Text is the sole reader and maps the zero value
+    // to empty; a reflection test fails any public member that reads around it.
     private readonly string? _text;
 
     /// <summary>
@@ -71,18 +81,15 @@ public readonly struct InertString : IEquatable<InertString>
     /// </summary>
     /// <remarks>
     /// The only way text enters the type, and the reason no member of it can take text without
-    /// also taking a policy — a reflection test enforces that. Encoding happens here rather
-    /// than through a factory because a factory would have been a constructor with a different
-    /// spelling; what is worth separating is not the call shape but the ability to reverse it,
-    /// which lives in <see cref="VisualEncoder"/> and in its own namespace.
+    /// also taking a policy — a reflection test enforces that.
+    ///
+    /// Forwards to <see cref="VisualEncoder"/> rather than duplicating the loop, and exists so
+    /// that producing inert text does not require naming the capability namespace. That is what
+    /// keeps the decoder out of the files that merely make inert text, and it is gated.
     /// </remarks>
     /// <param name="value">The untreated text.</param>
     /// <param name="permits">The per-sink policy deciding what may pass through.</param>
-    public InertString(string value, ScalarPolicy permits)
-    {
-        _text = VisualEncoder.Encode(value, permits, out VisualForm forms);
-        Forms = forms;
-    }
+    public InertString(string value, ScalarPolicy permits) => this = VisualEncoder.Encode(value, permits);
 
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
     // invariant. Internal because composition needs it: Join and the interpolation handler
@@ -186,7 +193,7 @@ public readonly struct InertString : IEquatable<InertString>
         ArgumentNullException.ThrowIfNull(separator);
         ArgumentNullException.ThrowIfNull(values);
 
-        string encodedSeparator = VisualEncoder.Encode(separator, permits, out VisualForm separatorForms);
+        InertString encodedSeparator = VisualEncoder.Encode(separator, permits);
         StringBuilder builder = new();
         VisualForm forms = VisualForm.None;
         bool first = true;
@@ -197,12 +204,13 @@ public readonly struct InertString : IEquatable<InertString>
             // single-element join cannot report a form the output does not contain.
             if (!first)
             {
-                builder.Append(encodedSeparator);
-                forms |= separatorForms;
+                builder.Append(encodedSeparator.ToString());
+                forms |= encodedSeparator.Forms;
             }
 
-            builder.Append(Conform(value, permits, out VisualForm valueForms));
-            forms |= valueForms;
+            InertString conformed = Conform(value, permits);
+            builder.Append(conformed.ToString());
+            forms |= conformed.Forms;
             first = false;
         }
 
@@ -288,20 +296,19 @@ public readonly struct InertString : IEquatable<InertString>
     /// splice path is observable — the same source text can render differently depending on
     /// where it was encoded — which is a deliberate trade, not an oversight.
     /// </remarks>
-    internal static string Conform(InertString value, ScalarPolicy permits, out VisualForm forms)
+    internal static InertString Conform(InertString value, ScalarPolicy permits)
     {
         string text = value.ToString();
 
         if (IsPermitted(text, permits))
         {
-            forms = value.Forms;
-            return text;
+            return value;
         }
 
         // Falling back to the encoded text when decoding fails cannot happen for a value this
         // library produced; it is here so the failure mode is over-encoding rather than a leak.
         string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
-        return VisualEncoder.Encode(original, permits, out forms);
+        return VisualEncoder.Encode(original, permits);
     }
 
     /// <inheritdoc/>
@@ -389,8 +396,9 @@ public ref struct InertStringHandler
     /// </remarks>
     public void AppendFormatted(InertString value)
     {
-        _builder.Append(InertString.Conform(value, _permits, out VisualForm forms));
-        _forms |= forms;
+        InertString conformed = InertString.Conform(value, _permits);
+        _builder.Append(conformed.ToString());
+        _forms |= conformed.Forms;
     }
 
     /// <summary>
@@ -415,7 +423,8 @@ public ref struct InertStringHandler
         if (string.IsNullOrEmpty(value))
             return;
 
-        _builder.Append(VisualEncoder.Encode(value, _permits, out VisualForm forms));
-        _forms |= forms;
+        InertString encoded = VisualEncoder.Encode(value, _permits);
+        _builder.Append(encoded.ToString());
+        _forms |= encoded.Forms;
     }
 }

@@ -29,10 +29,17 @@ namespace InertText.Encoder;
 public static class VisualEncoder
 {
     /// <summary>
-    /// Returns <paramref name="value"/> with every scalar <paramref name="permits"/> refuses
-    /// visually encoded, reporting which spellings were used.
+    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, visually spelling every
+    /// scalar the policy refuses.
     /// </summary>
     /// <remarks>
+    /// Returns the currency type rather than a <see cref="string"/> and a form set, because the
+    /// two are one result: <see cref="InertString.Forms"/> is exactly what an <c>out</c>
+    /// parameter would have reported, and splitting them lets a caller keep the text while
+    /// dropping the record of what was done to it — which is the confusion this library exists to
+    /// remove. <see cref="InertString"/>'s constructor forwards here, so the two spellings cannot
+    /// diverge.
+    ///
     /// A literal backslash is always rewritten, whatever <paramref name="permits"/> says, because
     /// it introduces every other spelling and the transform would not otherwise invert. An
     /// unpaired surrogate is likewise always encoded: it is not a scalar at all, so no policy is
@@ -40,13 +47,16 @@ public static class VisualEncoder
     /// </remarks>
     /// <param name="value">The text to encode.</param>
     /// <param name="permits">The per-sink policy deciding what may pass through.</param>
-    /// <param name="formsUsed">The spellings actually emitted, for a caller-written legend.</param>
-    public static string Encode(string value, ScalarPolicy permits, out VisualForm formsUsed)
+    /// <returns>
+    /// The encoded text as an <see cref="InertString"/>, which carries the spellings that were
+    /// emitted. Text that needed no encoding is returned as the original instance.
+    /// </returns>
+    public static InertString Encode(string value, ScalarPolicy permits)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(permits);
 
-        formsUsed = VisualForm.None;
+        VisualForm formsUsed = VisualForm.None;
         StringBuilder? builder = null;
 
         int i = 0;
@@ -79,7 +89,7 @@ public static class VisualEncoder
             i += width;
         }
 
-        return builder?.ToString() ?? value;
+        return new InertString(builder?.ToString() ?? value, formsUsed);
     }
 
     /// <summary>
