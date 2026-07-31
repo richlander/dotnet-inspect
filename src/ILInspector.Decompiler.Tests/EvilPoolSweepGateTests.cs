@@ -284,16 +284,22 @@ public class EvilPoolSweepGateTests
     /// reached the copy is what makes the absence afterwards mean the cleanup happened.
     /// </para>
     ///
-    /// <para><em>Not</em> gated, and deliberately not: that the temporary was created at
-    /// all. Reaching the copy and failing there is as close as a black-box case gets --
-    /// a failure raised inside <c>ReplaceOrReport</c> before the file is created reports
-    /// the same <c>copy-failed</c>, and this case would pass with the cleanup deleted.
-    /// Closing that needs the temporary to be observable, and it is deliberately not: the
-    /// name is randomized precisely so nothing can predict or occupy it, and it exists for
-    /// the length of one write. The property this case does carry is that the current
-    /// implementation's post-creation failure leaves nothing behind; a refactor moving the
-    /// failure earlier would weaken it silently, and that is the known limit rather than a
-    /// claim being made.</para>
+    /// <para>The creation itself is watched, rather than inferred. Reaching the copy is
+    /// not the same as having created the temporary: a failure raised inside
+    /// <c>ReplaceOrReport</c> before the file exists reports the same
+    /// <c>copy-failed</c>, and a case stopping at the status would pass with the cleanup
+    /// deleted. An earlier revision of this comment claimed that gap could not be closed
+    /// from outside, because the temporary's name is randomized and lives for one write.
+    /// That was wrong, and a reviewer disproved it by doing it: a watcher needs no name.
+    /// </para>
+    ///
+    /// <para>Watched only where the mechanism is dependable, which is the same bargain
+    /// <see cref="PlantSymbolicLink"/> makes. On Linux this is inotify and the event is
+    /// reliable for a file created in a watched directory; the other backends are laxer,
+    /// and a missed event here would fail a run that did nothing wrong. So elsewhere the
+    /// observation is skipped and the case keeps its weaker form, which is stated rather
+    /// than quietly assumed. CI runs Linux, so the strong form is the one that gates.
+    /// </para>
     /// </summary>
     [Fact]
     public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
@@ -304,13 +310,31 @@ public class EvilPoolSweepGateTests
             world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
         Directory.CreateDirectory(destination);
 
+        // Armed before the sweep runs, on the directory the temporary is a sibling in.
+        // The pool's other writes go to a different directory, so this sees the assembly
+        // write and nothing else.
+        using var created = new ManualResetEventSlim(false);
+        using var watcher = new FileSystemWatcher(Path.GetDirectoryName(destination)!, "*.tmp");
+        watcher.Created += (_, _) => created.Set();
+        watcher.EnableRaisingEvents = true;
+
         var sweep = world.Run();
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a directory standing at the destination"));
 
-        // Reached the copy and failed there, so a temporary really was created and the
-        // absence below is the cleanup rather than an earlier exit.
+        // Reached the copy and failed there, rather than exiting earlier.
         Assert.Equal("copy-failed", world.ReportedStatus(sweep));
+
+        if (OperatingSystem.IsLinux())
+        {
+            // Events are delivered on the watcher's own thread, so the sweep exiting does
+            // not mean the notification has arrived. The wait is for that hand-off only --
+            // the creation is already over by now, so a full wait here means it never
+            // happened rather than that it was slow.
+            Assert.True(
+                created.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken),
+                world.Explain(sweep, "a run that never created the temporary this case is about"));
+        }
 
         world.AssertNoTemporaryLeftBehind();
     }
@@ -334,33 +358,24 @@ public class EvilPoolSweepGateTests
     /// <c>pin-mismatch</c> are the sweep's own recorded statuses, and they separate the two
     /// without depending on how any layer words its message.</para>
     ///
-    /// <para>Half of its power is ambient, so the case checks for it rather than assuming
-    /// it. The network half holds anywhere. The shared-NuGet-cache half only bites where
-    /// that cache actually holds this package: somewhere it does not, a sweep with
-    /// <c>skipNuGetCache</c> regressed misses the cache, falls through to a severed
-    /// network, and fails exactly as it should have -- a green result that gated nothing.
-    /// The precondition is a visible skip instead, because the alternative is a case that
-    /// looks like it is covering the regression and is not.</para>
+    /// <para>Half of its power is ambient, and the case runs anyway rather than skipping.
+    /// The network half holds anywhere: a sweep that regressed <c>Initialize(false)</c>
+    /// downloads this package from nuget.org and reaches <c>pin-mismatch</c> on any
+    /// machine. The shared-NuGet-cache half only bites where that cache actually holds the
+    /// package; somewhere it does not, a sweep with <c>skipNuGetCache</c> regressed misses
+    /// the cache, falls through to a severed network, and fails exactly as it should have.
+    /// Skipping the whole case over that used to throw away the network half with it --
+    /// measured: on a machine whose cache lacks the package, bypassing the old skip left
+    /// the case discriminating correctly (<c>acquisition-failed</c> against the regressed
+    /// sweep's <c>pin-mismatch</c>). So the assertion is unconditional, and the ambient
+    /// half it may be missing is reported by
+    /// <see cref="TheSharedNuGetCacheHoldsWhatTheIsolationCaseNeeds"/> instead.</para>
     /// </summary>
     [Fact]
     public void ASweepCannotReachAPackageTheSeededCacheDoesNotHold()
     {
-        // Present in the shared NuGet cache of any machine that has built this repository,
-        // and on nuget.org. Reachable by either knob's absence, and by neither's presence.
-        const string Package = "newtonsoft.json";
-        const string Version = "13.0.4";
-
-        // Read through the product, and only read: this directory is shared, and the one
-        // thing a test may never do to it is write.
-        if (!Directory.Exists(Path.Combine(NuGetCache.GetNuGetCachePath(), Package, Version)))
-        {
-            Assert.Skip(
-                $"{Package} {Version} is not in the shared NuGet cache, so this case cannot " +
-                "tell an isolated sweep from one that merely found nothing.");
-        }
-
         using var world = SweepWorld.Create();
-        world.PinInstead(Package, Version, "net6.0");
+        world.PinInstead(IsolationProbePackage, IsolationProbeVersion, "net6.0");
 
         var sweep = world.Run();
 
@@ -371,6 +386,55 @@ public class EvilPoolSweepGateTests
         Assert.Equal("acquisition-failed", world.ReportedStatus(sweep));
 
         Assert.Empty(PooledAssemblies(world.OutputDirectory));
+    }
+
+    /// <summary>
+    /// Present in the shared NuGet cache of any machine that has built this repository,
+    /// and on nuget.org: reachable by either isolation knob's absence, and by neither's
+    /// presence. Which is what makes it the probe
+    /// <see cref="ASweepCannotReachAPackageTheSeededCacheDoesNotHold"/> uses.
+    /// </summary>
+    const string IsolationProbePackage = "newtonsoft.json";
+
+    const string IsolationProbeVersion = "13.0.4";
+
+    /// <summary>
+    /// The shared NuGet cache holds the package the isolation case probes with.
+    ///
+    /// <para>Not a property of the product: a precondition of one case's coverage, asserted
+    /// separately so that losing it is a visible skip rather than a silent narrowing.
+    /// <see cref="ASweepCannotReachAPackageTheSeededCacheDoesNotHold"/> keeps gating the
+    /// network knob without this; what it loses is the cache knob, because a sweep that
+    /// regressed <c>skipNuGetCache</c> can only be caught reaching a cache that has
+    /// something to give it.</para>
+    ///
+    /// <para>Asked of the product, and asked as the product asks it. Whether a directory
+    /// exists is not whether the package is there to be served: an empty
+    /// <c>newtonsoft.json/13.0.4/</c> satisfies <c>Directory.Exists</c> and is rejected by
+    /// the cache lookup, so a precondition spelled that way declares power the case does
+    /// not have -- measured, and it left the isolation case green over a regression it
+    /// could no longer see. These are the same two calls
+    /// <see cref="NuGetCache.TryGetCachedPackage"/> makes on its NuGet-cache branch, so
+    /// this and the sweep cannot disagree about what is cached.</para>
+    ///
+    /// <para>Read-only, deliberately. The directory is shared with every other agent and
+    /// with the developer, and the one thing a test may never do to it is write -- seeding
+    /// it to make this precondition true would be a test repairing its own coverage by
+    /// damaging the machine.</para>
+    /// </summary>
+    [Fact]
+    public void TheSharedNuGetCacheHoldsWhatTheIsolationCaseNeeds()
+    {
+        string cached = Path.Combine(
+            NuGetCache.GetNuGetCachePath(), IsolationProbePackage, IsolationProbeVersion);
+
+        if (!Directory.Exists(cached) || !NuGetCache.IsCachedPackageValid(cached, IsolationProbePackage))
+        {
+            Assert.Skip(
+                $"The shared NuGet cache cannot serve {IsolationProbePackage} {IsolationProbeVersion}, so " +
+                $"{nameof(ASweepCannotReachAPackageTheSeededCacheDoesNotHold)} gates the network knob but " +
+                "not the cache knob on this machine.");
+        }
     }
 
     static IReadOnlyList<string> PooledAssemblies(string outputDirectory) =>
@@ -461,6 +525,7 @@ public class EvilPoolSweepGateTests
     sealed class SweepWorld : IDisposable
     {
         string? _cachedAssemblyPath;
+        string _requestedPackage = FixturePackage;
 
         SweepWorld(string scratch, string cacheDirectory, byte[] fixtureBytes)
         {
@@ -611,6 +676,13 @@ public class EvilPoolSweepGateTests
         /// prose any layer happens to render. A case asserting on message text fails when
         /// wording changes and behavior does not, which trains the next reader to edit the
         /// assertion rather than read it.</para>
+        ///
+        /// <para>The entry has to be about the package that was asked for. A status is a
+        /// value, not a subject, so a manifest whose one row reports the right outcome for
+        /// some other package satisfies every caller of this that reads only the status --
+        /// measured: rewriting every recorded package name left all eight cases green.
+        /// Asking the row who it is about is what makes the status an answer to the
+        /// question the case put.</para>
         /// </summary>
         public string ReportedStatus((int ExitCode, string Output, string Errors) sweep)
         {
@@ -618,6 +690,12 @@ public class EvilPoolSweepGateTests
             var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
             var packages = manifested["Packages"]!.AsArray();
             Assert.True(packages.Count == 1, Explain(sweep, $"a manifest holding {packages.Count} packages"));
+
+            var recorded = packages[0]!["RequestedPackage"]?.GetValue<string>();
+            Assert.True(
+                recorded == _requestedPackage,
+                Explain(sweep, $"a manifest reporting on '{recorded}' when '{_requestedPackage}' was asked for"));
+
             return packages[0]!["Status"]!.GetValue<string>();
         }
 
@@ -627,6 +705,7 @@ public class EvilPoolSweepGateTests
         /// </summary>
         public void PinInstead(string package, string version, string tfm)
         {
+            _requestedPackage = package;
             string data = Path.Combine(FakeRoot, "docs", "data");
             var list = new JsonArray(
                 new JsonObject
