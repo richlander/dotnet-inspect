@@ -38,6 +38,59 @@ public enum StyleOptionTier
 }
 
 /// <summary>
+/// The product-owned presentation of one <see cref="StyleOptionTier"/>: the
+/// category level of the catalog, sitting one level above
+/// <see cref="StyleOptionDescriptor"/>. A host grouping the catalog by tier reads
+/// its label, blurb, and display position from here instead of restating a
+/// taxonomy the product already owns, so a knob in a newly added tier surfaces
+/// without a consumer edit.
+///
+/// <para>The <see cref="Id"/> is the stable grouping key; <see cref="Title"/> and
+/// <see cref="Summary"/> are presentation and may be reworded. Every tier has
+/// exactly one descriptor, which
+/// <c>StyleOptionCatalogTests.Tiers_CoverEveryTierExactlyOnce</c> enforces by set
+/// equality against <see cref="StyleOptionTier"/> — a new enum value with no
+/// descriptor fails there rather than silently vanishing from a picker.</para>
+/// </summary>
+public sealed record StyleOptionTierDescriptor
+{
+    /// <summary>
+    /// The tier this describes. The enum token is the stable, never-localized
+    /// grouping key a host keys presentation and persisted selections off.
+    /// </summary>
+    public required StyleOptionTier Id { get; init; }
+
+    /// <summary>Short human-facing label for a group heading in a picker.</summary>
+    public required string Title { get; init; }
+
+    /// <summary>
+    /// One-sentence statement of the fidelity contract every knob in this tier
+    /// honors, so a host can explain a group and not merely name it.
+    /// </summary>
+    public required string Summary { get; init; }
+
+    /// <summary>
+    /// Explicit display position, ascending, most conservative contract first.
+    /// First-class rather than an <see cref="StyleOptionTier"/> ordinal so the
+    /// enum's declaration order and the presentation order can move
+    /// independently.
+    /// </summary>
+    public required int Order { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> when every knob in this tier is byte-divergent —
+    /// the tier-level statement of the contract
+    /// <see cref="StyleOptionDescriptor.ByteDivergent"/> carries per knob. A host
+    /// can warn about a whole group without inspecting its members.
+    /// <c>StyleOptionCatalogTests.ByteDivergence_IsATierProperty</c> enforces the
+    /// agreement in both directions, so
+    /// <see cref="StyleOptionTier.Lens"/> being the only byte-divergent tier is a
+    /// gated claim rather than a comment.
+    /// </summary>
+    public required bool ByteDivergent { get; init; }
+}
+
+/// <summary>
 /// One selectable value on a <see cref="StyleOptionDescriptor"/>'s axis: its
 /// stable token, optional human label, oracle endorsement, and the
 /// <c>.dotnet-inspectconfig</c> key (if any) that selects it. A boolean knob has
@@ -257,6 +310,66 @@ public static class StyleOptionCatalog
     private const string VarStyleBuiltInTypes = "var-for-built-in-types";
     private const string VarStyleWhenApparent = "var-when-type-apparent";
     private const string VarStyleElsewhere = "var-elsewhere";
+
+    /// <summary>
+    /// Every <see cref="StyleOptionTier"/> as a presentation descriptor, in
+    /// display order (most conservative contract first). This is the category
+    /// level of the catalog: a host renders a grouped picker by walking these and
+    /// filtering <see cref="Options"/> on <see cref="StyleOptionDescriptor.Tier"/>,
+    /// with no locally-held label, blurb, or ordering. The list is exhaustive and
+    /// duplicate-free by gate (<c>StyleOptionCatalogTests</c>), so a tier added to
+    /// the enum cannot silently drop out of a consumer's layout.
+    /// </summary>
+    public static IReadOnlyList<StyleOptionTierDescriptor> Tiers { get; } =
+    [
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Formatting,
+            Title = "Formatting",
+            Summary = "Layout only — whitespace and line breaks. Token- and byte-identical to the shipped default.",
+            Order = 1,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Spelling,
+            Title = "Spelling",
+            Summary = "An equally faithful token choice, such as this. qualification or var. Byte-preserving (IL-identical).",
+            Order = 2,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Synthesis,
+            Title = "Name synthesis",
+            Summary = "Readable synthesized names. The emitted IL is unchanged, but Annotated-IL name alignment is traded.",
+            Order = 3,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Lens,
+            Title = "Style lenses",
+            Summary = "Behavior-faithful but not opcode-faithful: output recompiles to different bytes than the shipped default, so it never feeds the compile-back fidelity gates.",
+            Order = 4,
+            ByteDivergent = true,
+        },
+    ];
+
+    /// <summary>
+    /// The presentation descriptor for <paramref name="tier"/>. Throws rather than
+    /// returning null for an unregistered tier: the registry is exhaustive by
+    /// gate, so a miss is a catalog defect and stays visible instead of degrading
+    /// into an unlabeled group.
+    /// </summary>
+    public static StyleOptionTierDescriptor GetTier(StyleOptionTier tier)
+    {
+        foreach (var descriptor in Tiers)
+            if (descriptor.Id == tier)
+                return descriptor;
+
+        throw new ArgumentOutOfRangeException(nameof(tier), tier, "No style-option tier descriptor is registered for this tier.");
+    }
 
     /// <summary>
     /// Every opt-in knob, in a stable presentation order (formatting and spelling
