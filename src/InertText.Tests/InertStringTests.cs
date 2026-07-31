@@ -458,9 +458,16 @@ public class InertStringTests
     /// guards against is an <em>addition</em> — a convenience overload that hands back the
     /// decoded form — and a test that asserts specific members exist would not notice one.
     ///
-    /// The boundary is auditable, not unforgeable. A file can add the import or write the name
-    /// out in full, and this test does not stop it. What it does stop is the capability
-    /// arriving somewhere that looks like it has not got it.
+    /// The boundary is auditable, not unforgeable. A file can name the capability namespace and
+    /// this test does not stop it. What it does stop is the capability arriving somewhere that
+    /// looks like it has not got it.
+    ///
+    /// The search string is <c>InertText.Encoder</c>, not <c>using InertText.Encoder</c>. A
+    /// using directive is one of two ways to reach a namespace, and the other leaves the import
+    /// block untouched — <c>InertText.Encoder.VisualEncoder.TryDecode(...)</c> compiles in a file
+    /// whose only directive is <c>using InertText</c>. Searching for the directive would show a
+    /// clean import list for a file that decodes. The bare namespace catches both, because a
+    /// fully-qualified call has to spell it too.
     /// </remarks>
     [Fact]
     public void NoPublicMemberOfTheCurrencyNamespaceReturnsText()
@@ -547,16 +554,16 @@ public class InertStringTests
     /// search is only worth running if its answer is small. That is a property of the
     /// <em>producing</em> side, not the decoding side. If the only way to make an
     /// <see cref="InertString"/> were to call the encoder, then every file that produces inert
-    /// text would carry <c>using InertText.Encoder</c>, the decoder would sit one member access
-    /// away in all of them, and the search would return the whole producer set. The signal would
-    /// survive in form and be worthless in practice.
+    /// text would name <c>InertText.Encoder</c>, the decoder would sit one member access away in
+    /// all of them, and the search would return the whole producer set. The signal would survive
+    /// in form and be worthless in practice.
     ///
     /// Measured on the tree that introduced this: four production files produce inert text and
-    /// <em>none</em> imports the capability namespace. Routing production through the encoder
+    /// <em>none</em> names the capability namespace. Routing production through the encoder
     /// would make that four out of five, so the constructor is not sugar over
     /// <c>VisualEncoder.Encode</c> — it is what keeps the false-positive rate at zero.
     ///
-    /// The claim is about <em>production</em> code, and deliberately so. This test file imports
+    /// The claim is about <em>production</em> code, and deliberately so. This test file names
     /// <c>InertText.Encoder</c> itself, as do the encoder's own tests: invertibility is a
     /// contract, so something has to decode in order to check it. A test that can decode is the
     /// system working, not a leak — the search that matters is over the files that ship. Read
@@ -568,7 +575,7 @@ public class InertStringTests
     /// that the constructor "just forwards".</item>
     /// <item>Moving <c>ScalarPolicy</c> or <c>TextPolicy</c> next to the encoder, on the grounds
     /// that the policy is "part of encoding". The creation path would still exist and would
-    /// still drag the import in with it.</item>
+    /// still drag the namespace in with it.</item>
     /// </list>
     /// </remarks>
     [Fact]
