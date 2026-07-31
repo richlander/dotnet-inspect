@@ -3251,16 +3251,74 @@ public partial class CommandExecutionTests
     /// boundary of the change rather than leaving it to inference.
     /// </summary>
     [Fact]
-    public async Task Type_Listing_BareSelect_KeepsTheInfoSet()
+    public async Task Type_Listing_BareSelect_IsUnchangedAndFallsThroughToTheLadder()
     {
         var (exit, output, _) = await RunAppAsync(
             "type", "--platform", "System.Private.CoreLib", "-S", "--tips", "q");
 
         Assert.Equal(0, exit);
 
+        // The type-listing pipeline publishes NO Info sections, so its bare -S resolves to an empty
+        // include set and IsRequested falls through to the verbosity ladder. That is how this view
+        // has always worked; this slice does not touch it, which is why the fixed-overview guard is
+        // scoped rather than global. Pinning the empty declaration is the point of the test: if
+        // listing ever gains an Info or Fixed section (slice 4c), this fails and forces a decision
+        // instead of silently changing which sections bare -S renders.
         var sections = SectionHeadings(output);
+        var listPipeline = ApiTypeSectionDescriptors.CreatePipeline();
+
+        Assert.Empty(listPipeline.InfoSectionNames);
+        Assert.Empty(listPipeline.FixedOverviewSectionNames);
         Assert.DoesNotContain(SectionNames.TypeInfo, sections);
         Assert.Contains("Classes", sections);
+    }
+
+    [Fact]
+    public void Type_FixedOverview_IsExactlyTypeInfo()
+    {
+        // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
+        // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
+        // rejects, so without this pin a future descriptor change could make bare -S error while the
+        // output tests kept passing for the wrong reason.
+        var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
+
+        Assert.Equal([SectionNames.TypeInfo], fixedOverview);
+    }
+
+    [Theory]
+    [InlineData(true, new string[0], new string[0], true)]
+    [InlineData(true, new string[0], new[] { "Type Info" }, false)]
+    [InlineData(false, new string[0], new string[0], false)]
+    [InlineData(true, new[] { "Fields" }, new string[0], false)]
+    public void BareSelect_WithNoOverviewSections_IsRejected(
+        bool selectDefault, string[] select, string[] overview, bool expected)
+    {
+        // An empty overview set must not reach SelectResolver: it hands back an empty-but-non-null
+        // include set, which IsRequested reads as "no filter" and answers with the full verbosity
+        // ladder -- more output than asked for, exit 0, no diagnostic. Explicit -S values are a
+        // legitimate fallback, so they must not trip the guard.
+        var options = new TypeOptions
+        {
+            TypeName = "System.String",
+            SelectDefault = selectDefault,
+            Select = select.Length == 0 ? null : select
+        };
+
+        Assert.Equal(expected, ApiCommand.HasNoBareSelectOverview(options, overview));
+    }
+
+    [Fact]
+    public async Task Type_BareSelect_StaysBoundedAtWorstCaseArity()
+    {
+        // The bounded claim is about how many LINES the overview has, not how wide they are.
+        // Func`17 is the worst arity in the platform, and its `Type Parameters` cell reaches ~492
+        // characters -- one row, rendered identically by explicit `-S "Type Info"` on main, so it
+        // is a property of the section rather than of this selection change. See #3616.
+        var (exit, output, _) = await RunAppAsync("type", "System.Func`17", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal([SectionNames.TypeInfo], SectionHeadings(output));
+        Assert.True(output.Split('\n').Length <= 16, $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
     }
 
     [Fact]
