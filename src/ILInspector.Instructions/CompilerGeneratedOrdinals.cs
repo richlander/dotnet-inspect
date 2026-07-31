@@ -460,7 +460,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         continue;
 
                     methodNames[methodHandle] = elided;
-                    Add(methods, ambiguousMethods, typeKeyPrefix + KeySeparator + elided, methodHandle);
+                    // A method name never carries arity at all: the CLI encodes a method's
+                    // generic parameter count in its signature only. Roslyn-emitted local
+                    // functions whose containing methods differ in arity are spelled
+                    // `<L>g__a|0_0` and `<L>g__a|1_0` and elide to one name, so the count
+                    // is the only thing separating them here.
+                    Add(
+                        methods,
+                        ambiguousMethods,
+                        typeKeyPrefix + KeySeparator + elided + KeySeparator +
+                            method.GetGenericParameters().Count,
+                        methodHandle);
                 }
             }
 
@@ -528,7 +538,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 if (i == 0)
                     builder.Append(reader.GetString(type.Namespace));
 
-                builder.Append(KeySeparator).Append(name);
+                // Generic arity is part of a type's identity but is not reliably part of
+                // its name. The `N suffix is a language convention, not a runtime rule, so
+                // an untrusted assembly may declare a generic type whose name omits it and
+                // whose elided form therefore collides with a different arity's. Key on the
+                // declared count so two arities can never share a slot.
+                builder.Append(KeySeparator).Append(name)
+                    .Append(KeySeparator).Append(type.GetGenericParameters().Count);
             }
 
             return builder.ToString();

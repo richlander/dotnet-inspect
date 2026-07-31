@@ -373,11 +373,17 @@ public class CompilerGeneratedOrdinalTests
     /// of call target reads as identical. The names here are unspellable in C# but legal
     /// in metadata, and this tool reads untrusted assemblies.
     /// <para>
-    /// This control and its two siblings also gate the ordinal-comparison dependency the
-    /// placeholder rests on. NUL is collation-ignorable under ICU, so a culture-sensitive
-    /// comparison anywhere on the diff path reports the colliding raw name and the folded
-    /// form as equal and restores the collision. Making <c>IlBodyDiff.CanonicalEquals</c>
-    /// culture-sensitive fails all three.
+    /// This control does <em>not</em> gate the ordinal-comparison dependency, though its
+    /// shape suggests it might. NUL is collation-ignorable, so a culture-sensitive
+    /// comparison on the diff path would equate a colliding raw name with the folded form
+    /// — but the forgery here carries the placeholder's NUL, and the <c>#Strings</c> heap
+    /// truncates it there, so what reaches the comparison is <c>&lt;M&gt;g__L|#</c>, which
+    /// has lost its <c>_0</c> and equals the folded form under no comparison at all. The
+    /// controls that do gate it are
+    /// <see cref="CollationCollidingName_DoesNotHideARealTargetChange"/>, whose forgery
+    /// omits the NUL and so survives the heap, and
+    /// <see cref="PlaceholderCollidingTypeName_DoesNotHideARealTargetChange"/>, whose
+    /// placeholder is last in the name so truncation leaves exactly the collating prefix.
     /// </para>
     /// <para>
     /// The colliding name is derived from <see cref="CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder"/>
@@ -912,6 +918,65 @@ public class CompilerGeneratedOrdinalTests
         Assert.False(result.IsExact);
     }
 
+    /// <summary>
+    /// Generic arity is part of a member's identity and is absent from its name. The CLI
+    /// encodes a method's generic parameter count in its signature only, so a local
+    /// function declared in <c>L&lt;T&gt;</c> and one declared in <c>L&lt;T, U&gt;</c> are
+    /// spelled <c>&lt;L&gt;g__a|0_0</c> and <c>&lt;L&gt;g__a|1_0</c> — differing in nothing
+    /// but the ordinal this correspondence elides. Measured against Roslyn rather than
+    /// assumed: compiling two such overloads emits exactly that pair.
+    /// </summary>
+    /// <remarks>
+    /// Deleting the arity term from the method key fails this test and nothing else.
+    /// <para>
+    /// This is defence in depth rather than the only barrier. At a Roslyn-emitted call site
+    /// the rendered operand carries the arity tick and the generic arguments
+    /// (<c>&lt;L&gt;g__a|#_0`1&lt;!!0&gt;</c> against <c>...`2&lt;!!0, !!1&gt;</c>), so the
+    /// difference survives the fold and the comparison still reports a difference. That
+    /// second barrier belongs to the signature formatter and is not this type's to
+    /// guarantee; keying on arity keeps the correspondence sound on its own terms, for
+    /// operand renderings that do not carry a signature.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void MethodsDifferingOnlyInGenericArity_DoNotFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|3_0", 1)],
+            [GenericGenerated("<M>g__L|7_0", 2)],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The type analogue, which unlike the method one is reachable through an operand that
+    /// carries no signature. A generic type's arity is spelled in its name by the
+    /// <c>`N</c> convention, and <c>TryElideOrdinal</c> refuses the non-digit tail that
+    /// convention leaves, so a Roslyn-emitted generic state machine never folds at all.
+    /// </summary>
+    /// <remarks>
+    /// The convention is not a runtime rule, and this tool reads untrusted assemblies: a
+    /// hand-built image may declare a generic type named <c>&lt;M&gt;d__3</c> with no tick,
+    /// which does elide. Two such types differing only in arity are distinct identities,
+    /// and an operand that names one without instantiating it — <c>ldtoken</c> — renders
+    /// nothing else that could separate them.
+    /// <para>
+    /// Deleting the arity term from the type key fails this test and nothing else.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TypesDifferingOnlyInGenericArity_DoNotFold()
+    {
+        var result = CompareTypes(
+            ["<M>d__3"],
+            ["<M>d__7"],
+            oldTypeArities: [1],
+            newTypeArities: [2]);
+
+        Assert.False(result.IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     /// <summary>
@@ -933,7 +998,16 @@ public class CompilerGeneratedOrdinalTests
         string Name,
         bool CompilerGenerated,
         string? AttributeNamespace = null,
-        string? AttributeName = null);
+        string? AttributeName = null,
+        int GenericArity = 0);
+
+    /// <summary>
+    /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
+    /// A method's arity lives in its signature and never in its name, so two of these are
+    /// indistinguishable by name alone.
+    /// </summary>
+    static Member GenericGenerated(string name, int arity)
+        => new(name, CompilerGenerated: true, GenericArity: arity);
 
     /// <summary>
     /// How a fixture spells the constructor of the attribute it applies to its generated
@@ -965,13 +1039,17 @@ public class CompilerGeneratedOrdinalTests
     static IlBodyDiffResult CompareTypes(
         string[] oldTypes,
         string[] newTypes,
-        IlBodyDiffNormalization normalization,
-        bool typesAttributed = true)
+        IlBodyDiffNormalization normalization = Ordinals,
+        bool typesAttributed = true,
+        int[]? oldTypeArities = null,
+        int[]? newTypeArities = null)
     {
-        using var oldPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", [], generatedTypes: oldTypes, typesAttributed: typesAttributed)));
-        using var newPe = new PEReader(new MemoryStream(
-            BuildImage("Probe", [], generatedTypes: newTypes, typesAttributed: typesAttributed)));
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe", [], generatedTypes: oldTypes, typesAttributed: typesAttributed,
+            generatedTypeArities: oldTypeArities)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe", [], generatedTypes: newTypes, typesAttributed: typesAttributed,
+            generatedTypeArities: newTypeArities)));
         return Compare(oldPe, newPe, normalization);
     }
 
@@ -1026,7 +1104,8 @@ public class CompilerGeneratedOrdinalTests
         bool typesAttributed = true,
         AttributeCtorSpelling ctorSpelling = AttributeCtorSpelling.TypeReference,
         string localAttributeNamespace = "System.Runtime.CompilerServices",
-        string localAttributeName = "CompilerGeneratedAttribute")
+        string localAttributeName = "CompilerGeneratedAttribute",
+        int[]? generatedTypeArities = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1103,6 +1182,18 @@ public class CompilerGeneratedOrdinalTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
+
+            // GenericParam is sorted by coded owner, and TypeDef sorts ahead of MethodDef
+            // under TypeOrMethodDef, so type parameters are emitted before any member's.
+            int arity = generatedTypeArities is { } arities && i < arities.Length ? arities[i] : 0;
+            for (int g = 0; g < arity; g++)
+            {
+                metadata.AddGenericParameter(
+                    generatedTypeHandles[i],
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{g}"),
+                    g);
+            }
         }
 
         // An assembly may define CompilerGeneratedAttribute itself — System.Private.CoreLib
@@ -1194,6 +1285,15 @@ public class CompilerGeneratedOrdinalTests
                 signature,
                 memberOffsets[i],
                 MetadataTokens.ParameterHandle(1));
+            for (int g = 0; g < members[i].GenericArity; g++)
+            {
+                metadata.AddGenericParameter(
+                    handle,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{g}"),
+                    g);
+            }
+
             if (members[i].CompilerGenerated)
             {
                 // A nil constructor means "the CompilerGeneratedAttribute one", resolved
