@@ -239,6 +239,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: SCRATCH force failure to prove the gate blocks
+        run: exit 1
+
   # Lint markdown files
   markdownlint:
     needs: changes
