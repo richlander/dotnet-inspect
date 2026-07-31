@@ -2988,8 +2988,8 @@ public class ForwardedTypeAliasesTests
     /// <c>aliases . IncludesIgnoringWithdrawals(x)</c>, since C# allows whitespace around the dot.
     /// All were real compiling call sites that the gate reported clean. So this counts every
     /// non-comment line mentioning the member and requires the set to be exactly the declaration:
-    /// a call site is an extra line however it is spelled, with a receiver or without, on one line
-    /// or split across several, with or without space around the dot.</para>
+    /// a call site is an extra line whether or not it has a receiver, on one line or split across
+    /// several, with or without space around the dot.</para>
     ///
     /// <para>Round 22 then evaded even that, and the evasion named the remaining principle. This
     /// skipped a line whose trimmed form began <c>*</c>, meaning to skip block-comment
@@ -3012,6 +3012,27 @@ public class ForwardedTypeAliasesTests
     /// does not depend on <c>Directory.EnumerateFiles</c> order — unspecified, and free to differ
     /// between Windows and the Linux CI runner — if a second legitimate occurrence is ever
     /// added.</para>
+    ///
+    /// <para><strong>What this gate does not claim.</strong> It is a line scanner, not a C# parser,
+    /// and it does not defeat deliberate obfuscation — rounds 21 and 22 were both spent falsifying
+    /// an earlier version of this comment that claimed a call is caught "however it is spelled".
+    /// That claim was wrong, and stating it invited a search for the counter-example instead of a
+    /// judgement about whether the residual risk matters. So, precisely: the property being
+    /// protected is <em>no product code answers a bucket-membership question without honouring
+    /// withdrawals</em>, and the gates that enforce it are (1) the rename, which makes the
+    /// accidental form <c>error CS7036</c>, and (2)
+    /// <see cref="PrefilterRefusesASpellingItWithdrewEvenWhenAVerifiedSiblingSharesItsBucket"/>,
+    /// which fails on a misuse at the single load-bearing call site whatever the call looks like.
+    /// This scan is a third, weaker layer that reports ordinary formattings early and with a better
+    /// message. Its residual gap is a caller who deliberately formats a call to evade a test that
+    /// exists to protect them, which is not a threat worth more machinery. A future reviewer who
+    /// finds another exotic formatting has found a real gap in <em>this</em> scan and not a defect
+    /// in the property; the useful response is to check (1) and (2) still hold.</para>
+    ///
+    /// <para>A type-level barrier would be better than any of this, and is not available: the
+    /// hazardous member and the product code that must not call it live in the same assembly, so
+    /// <c>internal</c>, <c>private</c>, and a test-only accessor all fail to separate them. The
+    /// member has five call sites, all in tests, and none in the product.</para>
     ///
     /// <para>This gate is defence in depth, not the only line. Round-21 review demonstrated the
     /// misuse and reported that
