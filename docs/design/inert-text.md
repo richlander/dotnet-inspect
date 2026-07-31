@@ -110,15 +110,31 @@ type name finds mentions rather than capabilities.
 
 So the decoder lives in its own namespace:
 
-| Namespace | Contains | A file that imports it can |
+| Namespace | Contains | A file naming it can |
 | --- | --- | --- |
 | `InertText` | `InertString`, `ScalarPolicy`, `TextPolicy`, `VisualForm` | build, compose, compare and print inert text |
 | `InertText.Encoder` | `VisualEncoder` | additionally recover the original text |
 
 Text enters through `InertString`'s constructor and leaves through `ToString`
 already spelled, so the currency namespace is sufficient for every ordinary use.
-A file that imports `InertText` and not `InertText.Encoder` has no path back to
-the original of any value it handles — and that is legible in its import list.
+
+**The audit is one search, and the string is `InertText.Encoder`.** Not
+`using InertText.Encoder` — a using directive is only one of the two ways to
+reach a namespace, and the other one leaves the import block untouched:
+
+```csharp
+using InertText;                    // the only directive in the file
+
+InertText.Encoder.VisualEncoder.TryDecode(inert.ToString(), out string? original);
+```
+
+That compiles and recovers the original. A reviewer who greps for the directive
+sees a clean import list and concludes the file cannot decode, which is the
+opposite of the truth. Greping the bare namespace catches both forms, because a
+fully-qualified call has to spell the namespace too — there is no third way in.
+
+So: a file that does not mention `InertText.Encoder` at all has no path back to
+the original of any value it handles.
 
 A reflection test enumerates every public member of the `InertText` namespace
 that returns text and accounts for each one: `ToString` (the encoded form),
@@ -127,10 +143,10 @@ that returns text and accounts for each one: `ToString` (the encoded form),
 `int` rather than the character, so a survey can name what it refused without
 echoing it). Adding a decode convenience to the currency type fails that test.
 
-**This is an audit boundary, not a capability barrier.** A file can add the
-import or write the name out in full, and nothing should stop it — decoding is a
-legitimate operation with legitimate callers. What the boundary buys is that the
-reversing half cannot arrive unnoticed.
+**This is an audit boundary, not a capability barrier.** A file can name the
+namespace either way, and nothing should stop it — decoding is a legitimate
+operation with legitimate callers. What the boundary buys is that the reversing
+half cannot arrive unnoticed *by a reviewer who searches correctly*.
 
 ## Composition
 
