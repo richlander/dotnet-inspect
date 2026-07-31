@@ -434,6 +434,11 @@ until every required fixed-head review is clean.
   [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Treat CI as confirmation, not discovery: run relevant local checks first.
+- One check blocks merges: `ci-required`, an aggregate that fails if any job in
+  `ci.yml` failed or was cancelled. It passes `skipped`, because most jobs are
+  path-gated, so a green `ci-required` means "nothing that ran went wrong", not
+  "everything ran". Never require a path-gated job directly — a required check
+  that does not run blocks the merge forever.
 - Do not broaden CI without a measured need. The PR `test` job validates the
   merge path; `pack` is path-gated; release artifacts are built by
   `release.yml`.

@@ -434,10 +434,13 @@ the job survives, letting the checker run and fail loudly on the missing or
 truncated report.
 
 > [!NOTE]
-> This job does not block merges today. The `main` ruleset declares no required
-> status checks at all, so no job in `ci.yml` blocks a merge; this one is
-> exactly as enforcing as the existing `test` job. Closing that gap is a
-> repository-wide change tracked separately.
+> This job blocks merges through the aggregate `ci-required` job in `ci.yml`,
+> which is the single context the `main` ruleset requires. It cannot be
+> required directly: it is path-gated, and a required check that does not run
+> on a given PR is reported as "Expected" forever and blocks the merge
+> permanently. `ci-required` passes a `skipped` dependency and fails a
+> `cancelled` one, so this gate skipping on a docs-only PR is fine while this
+> gate hitting its timeout is not (#3523).
 
 `pre-merge` deliberately selects three classes rather than the whole `Fidelity`
 area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not

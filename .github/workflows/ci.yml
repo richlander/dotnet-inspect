@@ -887,3 +887,118 @@ jobs:
 
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
+
+  # The single check the `main` ruleset requires.
+  #
+  # Every other job here is path-gated, so none of them can be required
+  # directly: a required check that does not run on a given PR is reported as
+  # "Expected" forever and blocks the merge permanently. This job always runs
+  # and collapses the others into one result, so the ruleset has exactly one
+  # stable context to require.
+  #
+  # Three details carry the whole contract, and each is easy to get backwards:
+  #
+  # 1. `if: always()` is mandatory. Without it this job inherits the default
+  #    `success()` condition, is skipped the moment any dependency fails, and a
+  #    skipped required check does not block a merge -- the failure it exists to
+  #    catch would be exactly what silences it.
+  #
+  # 2. `skipped` must pass but `cancelled` must not. Path-gated jobs are skipped
+  #    on most PRs and that is correct. A cancelled job is a job that hit its
+  #    timeout, and this repository has already been burned by that distinction
+  #    twice: the Deep Inspect notifier stayed silent because a cancelled job
+  #    satisfies neither `failure()` nor a failed conclusion (#3432), and seven
+  #    decompiler test classes sat at a 45-minute timeout unnoticed (#3489-#3493).
+  #    Treating `cancelled` as success would rebuild that hole at the merge gate.
+  #
+  # 3. The check is an allow list, not a deny list. Only `success` and `skipped`
+  #    pass; anything else blocks. A deny list of `failure|cancelled` would admit
+  #    any result state GitHub adds later, which is the fail-open direction. This
+  #    fails closed, matching the repository rule that failure stays visible.
+  #
+  # `changes` is in `needs` deliberately. If it fails, every downstream job is
+  # skipped, so a check that looked only at the gated jobs would see nothing but
+  # `skipped` and pass a PR on which no test ran at all. `changes` reporting
+  # `failure` is what closes that path.
+  ci-required:
+    needs:
+      - changes
+      - markdownlint
+      - test
+      - build-net10
+      - decompiler-gates
+      - csharp-diff-smoke
+      - il-diff-smoke
+      - pack
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    env:
+      # Defined once and consumed by both the self-test and the real check, so
+      # the thing proven non-vacuous is the same thing that gates the merge.
+      RESULT_FILTER: >-
+        to_entries[]
+        | select(.value.result != "success" and .value.result != "skipped")
+        | "\(.key)=\(.value.result)"
+    steps:
+      - uses: actions/checkout@v6
+
+      # A hand-maintained `needs` list is an allow list, and an allow list that
+      # nothing checks goes stale silently: add a job to this workflow, forget
+      # this line, and the merge gate stops covering it while still reporting
+      # green. That is the same shape as #3584, where a one-directional docket
+      # un-gated 46 fixture rows. So the workflow's own job list drives the
+      # required set, and both directions fail -- a job missing from `needs`
+      # and a `needs` entry naming a job that no longer exists.
+      - name: Verify this gate depends on every other job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          python3 -c '
+          import json, os, sys, yaml
+          with open(".github/workflows/ci.yml") as f:
+              jobs = set(yaml.safe_load(f)["jobs"])
+          jobs.discard("ci-required")
+          needs = set(json.loads(os.environ["NEEDS"]))
+          missing = sorted(jobs - needs)
+          extra = sorted(needs - jobs)
+          if missing:
+              print("::error::ci-required does not depend on: " + ", ".join(missing))
+          if extra:
+              print("::error::ci-required depends on unknown jobs: " + ", ".join(extra))
+          sys.exit(1 if missing or extra else 0)
+          '
+          echo "Gate covers every job in the workflow."
+
+      # A gate that accepted everything would be indistinguishable from a green
+      # run, so the filter's discrimination is asserted rather than assumed.
+      # This is that assertion: if the filter stops selecting bad results, this
+      # step fails even when every real job is green.
+      - name: Self-test the result filter
+        run: |
+          set -euo pipefail
+          probe='{"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
+          got=$(printf '%s' "$probe" | jq -r "$RESULT_FILTER" | paste -sd, -)
+          expected='broke=failure,timeout=cancelled,future=neutral'
+          if [ "$got" != "$expected" ]; then
+            echo "::error::Result filter no longer discriminates. Expected [$expected], got [$got]."
+            exit 1
+          fi
+          echo "Filter discriminates correctly: [$got]"
+
+      - name: Verify no required job failed or was cancelled
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script body so job outputs can never terminate the shell string.
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS"
+          blocking=$(printf '%s' "$NEEDS" | jq -r "$RESULT_FILTER")
+          if [ -n "$blocking" ]; then
+            echo "::error::CI is not green; these jobs did not succeed or skip:"
+            printf '%s\n' "$blocking"
+            exit 1
+          fi
+          echo "All required jobs succeeded or were correctly skipped."
