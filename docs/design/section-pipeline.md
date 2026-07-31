@@ -70,6 +70,8 @@ This inverts the previous arrangement, in which each section restated the cost o
 
 `CostOf(key)` is the maximum over the transitive prerequisite closure, so a cheap scanner that requires an expensive one costs what the run will actually do. `AddBundle` takes no cost for the same reason: a bundle does no work of its own, and letting it declare one would let it under-state what it pulls in.
 
+`CostOf` throws rather than guessing in the two cases where a guess would be silently wrong: an unregistered key (a stale or misspelled `ScannerKey` would otherwise resolve to the cheapest tier and keep an expensive section on the ladder), and a registered non-bundle scanner with no declared cost. The second throw is what makes `SectionPipelineTests.LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner` bite: without it, registering a scanner through a cost-less path leaves that gate green.
+
 ### The declaration is enforced where the cost is incurred
 
 The registry cannot see that a scanner touches the body index. `ctx.BodyIndex` is handed to scan methods as a lazily-invoked method group bound to `Func<LibraryBodyIndex>`, which is exactly how those nine sections drifted. A declared-cost enum alone would let the next one drift the same way.
@@ -78,14 +80,18 @@ So one declaration does both jobs: **only a scanner registered as `Unbounded` ma
 
 ### What `Unbounded` means for selection
 
-`Unbounded` sections leave the `-v:d` render ladder and the `@All` pole entirely. They stay reachable by exact `-S` name and through any category door that lists them. The measured effect on `library <assembly> -v:d`:
+`Unbounded` sections leave the `-v:n` and `-v:d` render ladders and the `@All` pole entirely — the tier means "never auto-run by any verbosity". They stay reachable by exact `-S` name and through any category door that lists them.
 
-| Assembly | Before | After |
-| --- | --- | --- |
-| `ILInspector.Decompiler.dll` (1.7 MB) | 4,000.2 ms | 153.2 ms |
-| `System.Private.CoreLib.dll` (15.3 MB) | 9,067.1 ms | 395.1 ms |
+Only the four scanners that build the whole-assembly IL body index are `Unbounded`: `UnsafeMembers`, `TopLeverage`, `OptimizationOpportunities`, and `ResourceTriage`. Every other library scanner is `NetworkFree`, including `Switches`, which is offline and never opens the body index (128.7 ms on `ILInspector.Decompiler.dll`). There is deliberately no tier meaning "locally expensive but offline"; adding one is future work, not a gap this change papers over.
 
-Measured with a NativeAOT publish, min-of-N warm runs, timings read from `--trace`.
+Measured on `library <assembly>`, NativeAOT publish, min of 3 warm runs, wall clock:
+
+| Assembly | `-v:n` before | `-v:n` after | `-v:d` before | `-v:d` after |
+| --- | --- | --- | --- | --- |
+| `ILInspector.Decompiler.dll` (1.7 MB) | 2,928.3 ms | 355.3 ms | 2,856.2 ms | 368.4 ms |
+| `System.Private.CoreLib.dll` (12.4 MB) | 7,146.7 ms | 730.9 ms | 7,374.6 ms | 797.3 ms |
+
+Roughly 300 ms of each figure is the NativeAOT process floor, so the scan work itself falls by more than the wall-clock ratio suggests. No section is *added* at any verbosity by this change.
 
 Note that `@Performance` is **not** a generic door. The tabular and JSONL group paths flatten it into a single kind-labeled table over exactly `PerformanceKinds.Sections`, so adding a differently-shaped section to it stops the group rendering as one table at all.
 

@@ -157,7 +157,7 @@ public static class LibrarySections
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
-            .Add(ScannerSwitches, SectionCost.Moderated, ctx =>
+            .Add(ScannerSwitches, SectionCost.NetworkFree, ctx =>
                 ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))

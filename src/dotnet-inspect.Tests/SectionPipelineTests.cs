@@ -1662,11 +1662,69 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily()
+    {
+        // GPT review of #3626 caught Switches silently leaving -v:n: its scanner had been declared
+        // Moderated, and Moderated means "auto-runs only at -v:d". Nothing failed. The regression
+        // was visible only by building origin/main and diffing rendered output, which is far too
+        // expensive a way to notice that a section changed verbosity ladder.
+        //
+        // The literal list is the point: it is a human-reviewed statement of which sections are
+        // deliberately not cheap. Any cost change that moves a section across the NetworkFree
+        // boundary now fails here and has to be justified in review.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var aboveCheap = pipeline.ScannerBoundSections
+            .Where(section => registry.CostOf(section.ScannerKey) > SectionCost.NetworkFree)
+            .Select(section => section.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        string[] expected =
+        [
+            SectionNames.ArrayPoolEscapes,
+            SectionNames.PerformanceHotspots,
+            SectionNames.PerformanceArrays,
+            SectionNames.PerformanceAsync,
+            SectionNames.PerformanceBoxing,
+            SectionNames.PerformanceClosures,
+            SectionNames.PerformanceEnumerators,
+            SectionNames.PerformanceLoops,
+            SectionNames.PerformanceOther,
+            SectionNames.TopLeverage,
+            SectionNames.UnsafeMembers,
+        ];
+
+        Assert.Equal(expected.OrderBy(name => name, StringComparer.Ordinal), aboveCheap);
+    }
+
+    [Fact]
+    public void SectionCost_OrdersFromCheapestToMostExpensive()
+    {
+        // Raised by GPT review of #3626. The raise-only logic and CostOf both compare tiers with
+        // `>`, so the entire mechanism silently inverts if the enum members are reordered or a new
+        // one is inserted in the middle. Swapping Moderated and Unbounded left the whole suite
+        // green, which means nothing was pinning the one property all of it rests on.
+        Assert.True(SectionCost.NetworkFree < SectionCost.Moderated);
+        Assert.True(SectionCost.Moderated < SectionCost.Unbounded);
+
+        // Enum.GetValues returns members in numeric order, so this also catches a reordering that
+        // preserves the names, and forces a new tier to be placed deliberately rather than
+        // appended where its numeric rank would be wrong.
+        Assert.Equal(
+            [SectionCost.NetworkFree, SectionCost.Moderated, SectionCost.Unbounded],
+            Enum.GetValues<SectionCost>());
+    }
+
+    [Fact]
     public void LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner()
     {
-        // Set equality against the registry's own key list, so a scanner added without a cost --
-        // impossible today, since Add requires one -- would fail here rather than defaulting to
-        // the cheapest tier if that requirement were ever relaxed.
+        // Every registered key must resolve. CostOf throws both for an unregistered key and for a
+        // real scanner registered without a declared cost, so this walk is what makes those two
+        // holes fail here. GPT review of #3626 showed the earlier version of this test was
+        // vacuous: with CostOf defaulting to NetworkFree, adding a costless registration overload
+        // and routing a scanner through it left the full suite green.
         var registry = LibrarySections.CreateScannerRegistry();
 
         foreach (var key in registry.RegisteredKeys)

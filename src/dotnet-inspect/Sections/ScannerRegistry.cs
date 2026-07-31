@@ -317,6 +317,14 @@ public sealed class ScannerRegistry
                 $"No scanner is registered for key '{key}', so its cost cannot be determined. " +
                 "A section declaring this ScannerKey would silently keep the cheapest cost.");
 
+        // A bundle legitimately has no cost of its own -- it is exactly what it pulls in. A real
+        // scanner without one would resolve to the cheapest tier by omission, which is the same
+        // silent under-declaration as an unknown key. Add requires a cost today, so this can only
+        // fire if another registration path appears; that is the point.
+        if (_scanners[key] is not null && !_costs.ContainsKey(key))
+            throw new InvalidOperationException(
+                $"Scanner '{key}' was registered without a declared cost.");
+
         var cost = SectionCost.NetworkFree;
         foreach (var member in ExpandRequired([key]))
         {
