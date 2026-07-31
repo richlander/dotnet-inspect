@@ -67,8 +67,15 @@ namespace ILInspector.Instructions;
 /// <para>
 /// That bound is only real because the key's flattening is injective. When the separator
 /// was spellable it was not, and a forged attribute could equate members of two different
-/// types — see <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>, which is the
-/// gate for this paragraph's claim as much as for <see cref="KeySeparator"/>.
+/// types. The gate for this paragraph's claim is
+/// <c>KeySeparatorCannotBeSpelledByAMetadataName</c>, which drives the assertion from
+/// <see cref="KeySeparator"/> itself and so fails for <em>any</em> spellable separator.
+/// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> exhibits the concrete
+/// historical shape but does not gate the general claim: its forged name is written
+/// against the old <c>.</c>/<c>+</c>/<c>::</c> joining, so changing the separator to an
+/// arbitrary spellable character leaves it passing. Measured, not assumed — with the
+/// separator set to <c>'@'</c>, <c>KeySeparatorCannotBeSpelledByAMetadataName</c> is the
+/// only test in this assembly that fails.
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
@@ -137,8 +144,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// pass the two-sided ambiguity check and fold onto each other — and because the
     /// rendered operand concatenates the same way, the two genuinely different targets
     /// render identically and a real difference is hidden. Separating with NUL makes the
-    /// flattening injective, because no segment can contain the separator. Pinned by
-    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>.
+    /// flattening injective, because no segment can contain the separator. That general
+    /// property is pinned by <c>KeySeparatorCannotBeSpelledByAMetadataName</c>, which
+    /// drives its assertion from this constant and so fails for any spellable value.
+    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> pins only the concrete
+    /// historical <c>.</c>/<c>+</c>/<c>::</c> shape and does not fire for an arbitrary
+    /// spellable separator.
     /// <para>
     /// Keys are never rendered — only <c>MethodNames</c> and <c>TypeNames</c> reach the
     /// compared text — so this costs nothing in output.

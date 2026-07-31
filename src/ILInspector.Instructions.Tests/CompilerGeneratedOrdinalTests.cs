@@ -8,9 +8,14 @@ namespace ILInspector.Instructions.Tests;
 
 /// <summary>
 /// Controls for <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>.
-/// Every case is expressed as a whole-image comparison through the public diff seam, so
+/// Most cases are expressed as a whole-image comparison through the public diff seam, so
 /// the eligibility rules, the <c>CompilerGeneratedAttribute</c> gate and the two-sided
 /// uniqueness requirement are exercised together rather than asserted about a helper.
+/// The exceptions assert a property of the metadata rather than of a comparison —
+/// <see cref="PlaceholderCannotBeSpelledByAMetadataName"/> and
+/// <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> build one image and read the
+/// names back out of it, because the claim they carry is that a hostile name cannot exist
+/// at all, which no comparison can show.
 /// </summary>
 public class CompilerGeneratedOrdinalTests
 {
@@ -460,8 +465,11 @@ public class CompilerGeneratedOrdinalTests
 
     /// <summary>
     /// A decoder that really does return a name containing NUL. Under the default decoder
-    /// such a name cannot exist, which is the whole basis for <c>OrdinalPlaceholder</c> and
-    /// <c>KeySeparator</c> being safe to embed in compared text.
+    /// such a name cannot exist, which is what makes <c>OrdinalPlaceholder</c> safe to
+    /// embed in compared text and <c>KeySeparator</c> safe to flatten keys with. The two
+    /// consequences differ: the placeholder does reach the rendered operand, while keys
+    /// are never rendered, so the separator's safety is about injectivity rather than
+    /// about output.
     /// </summary>
     sealed class NulReturningDecoder() : MetadataStringDecoder(Encoding.UTF8)
     {
@@ -758,6 +766,21 @@ public class CompilerGeneratedOrdinalTests
     /// <c>&lt;M&gt;g__Inner|0_1</c>. The rationale was wrong and nothing contradicted it,
     /// which is the failure this control closes — the behavior is now pinned by a test
     /// rather than by a plausible story.
+    /// <para>
+    /// A later reviewer read this test the other way, as a soundness hole: two attributed
+    /// methods <c>&lt;M&gt;g__a|b|1_2</c> and <c>&lt;M&gt;g__a|b|3_2</c> are distinct
+    /// members and this asserts they compare equal. They do — and so do
+    /// <c>&lt;M&gt;g__a|1_2</c> against <c>&lt;M&gt;g__a|3_2</c>, and <c>&lt;M&gt;d__1</c>
+    /// against <c>&lt;M&gt;d__3</c>, which is the whole feature: a pair differing in
+    /// nothing but the member ordinal is exactly what folds, per
+    /// <see cref="LocalFunctionOrdinal_FoldsWhenTheKeyIsUniqueOnBothSides"/>. Declining
+    /// multiple separators would therefore buy no safety, because the same forged pair
+    /// spelled with one separator still folds. What bounds the residue is the two-sided
+    /// uniqueness requirement — two <em>genuinely</em> different local functions sharing a
+    /// containing-method name and slot (overloaded <c>M</c>, each with a local <c>a</c>)
+    /// differ only in the scope ordinal too, and are refused because the elided key is
+    /// then ambiguous on both sides.
+    /// </para>
     /// </remarks>
     [Fact]
     public void MultiplePipesInAGeneratedName_SplitAtTheLast()
@@ -768,7 +791,39 @@ public class CompilerGeneratedOrdinalTests
             Ordinals).IsExact);
     }
 
+    /// <summary>
+    /// The pair the previous test's remarks appeal to, taken from the compiler rather than
+    /// invented: two overloads of <c>M</c> each declaring a local function <c>a</c> emit
+    /// <c>&lt;M&gt;g__a|0_0</c> and <c>&lt;M&gt;g__a|1_0</c> — genuinely different members
+    /// differing in nothing but the scope ordinal. Both elide to the same key, so each
+    /// side is ambiguous and neither folds.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Compare"/> makes the caller target the <em>first</em> member, so the two
+    /// sides here call different local functions. Were the ambiguous key folded, both
+    /// operands would render as the elided form and this would compare exact, hiding a
+    /// real difference in the call target.
+    /// <para>
+    /// This is an artifact canary, not a new gate: the ambiguity checks are already gated
+    /// by <see cref="UniqueAgainstAmbiguous_DoesNotManufactureADifference"/> and its
+    /// mirror, which fail when either check is deleted. What this adds is that the shape
+    /// those controls model is one Roslyn actually emits. Measured by compiling the
+    /// overload pair and reading the names back out of the image, because the claim that
+    /// two different local functions can differ only in the scope ordinal is a claim about
+    /// the compiler, not about this assembly.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void RealOverloadShape_IsRefusedAsAmbiguous()
+    {
+        Assert.False(Compare(
+            [Generated("<M>g__a|0_0"), Generated("<M>g__a|1_0")],
+            [Generated("<M>g__a|1_0"), Generated("<M>g__a|0_0")],
+            Ordinals).IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
+
     /// <summary>
     /// A member carrying a real custom attribute that is not
     /// <c>CompilerGeneratedAttribute</c>, so the attribute inspection runs and has to
@@ -810,9 +865,12 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Compares two assemblies whose caller invokes a method on the first
-    /// <c>CompilerGeneratedAttribute</c>-bearing <em>type</em>, so the rendered operand
-    /// carries the declaring type's name and the type index decides the outcome.
+    /// Compares two assemblies whose caller invokes a method on the first generated
+    /// <em>type</em>, so the rendered operand carries the declaring type's name and the
+    /// type index decides the outcome. <paramref name="typesAttributed"/> chooses whether
+    /// those types actually carry <c>CompilerGeneratedAttribute</c>; passing
+    /// <see langword="false"/> is how the type-side eligibility controls present a
+    /// generated <em>name</em> with no attribute behind it.
     /// </summary>
     static IlBodyDiffResult CompareTypes(
         string[] oldTypes,
@@ -862,9 +920,12 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Emits an assembly whose first method calls the first of the supplied members. The
-    /// remaining members exist only to populate the type, which is what makes a key
-    /// ambiguous.
+    /// Emits an assembly whose first method calls one other method, chosen in this order:
+    /// the member reference named by <paramref name="callReferenceNamed"/>; otherwise the
+    /// first of <paramref name="generatedTypes"/>, so the rendered operand carries that
+    /// type's name; otherwise the first of <paramref name="members"/>. The members and
+    /// types that are not called exist only to populate the image, which is what makes a
+    /// key ambiguous.
     /// </summary>
     static byte[] BuildImage(
         string assemblyName,
