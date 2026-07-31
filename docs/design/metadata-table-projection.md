@@ -554,7 +554,10 @@ work — and its obligations are exactly these:
 - **Total.** Defined on every Unicode scalar, including the 127 encoded
   scalars above the BMP.
 - **Injective and invertible.** Ships with its decoder and the round-trip
-  sweep described below.
+  sweep described below. Injectivity is a claim about *both* directions: the
+  decoder must refuse spellings the encoder never emits, or one scalar has
+  several encodings and the transform is no longer unique. Where a scalar has a
+  canonical short form, the long form of it is such a spelling.
 - **Scalar-based, not code-unit-based.** See the surrogate rule below.
 - **Policy-free.** It takes the predicate as input. A speller that hard-codes a
   hazard set has absorbed policy and cannot serve an allow-list sink.
@@ -585,8 +588,25 @@ Composition has to be part of that contract, or callers fall back to
 `$"...{treated}..."` and drop the guarantee at the moment it matters most. An
 interpolated string handler that applies the predicate to each part as it is
 appended covers this. It must encode *literals* as well as holes — an invariant
-with an exception in it has to be re-argued at every use — and must append an
-already-treated part as it is rather than encoding it a second time.
+with an exception in it has to be re-argued at every use.
+
+An already-treated part must not be encoded a second time, but it must not be
+trusted either, and the difference between those two is not obvious. The type
+records that *a* predicate was applied, not *which* one, and values are
+routinely built for one sink and spliced into a message bound for another. A
+prose predicate that permits a line feed and a field predicate that exists to
+remove one are both legitimate; splicing the first into the second unexamined
+puts a raw newline into a single-line record and reports no encoded forms for
+it. That is the injection the encoding exists to prevent, arriving with the
+type system apparently vouching for it. Two independent reviews of #3563 found
+this; it was reachable in a shipped API.
+
+So the rule is: on splice, re-check the part against the predicate in force,
+and where it does not satisfy that predicate, decode it and re-spell it. This
+is the second thing invertibility buys, and it is worth noticing that the
+requirement is unsatisfiable without a decoder — a mismatched part can only be
+repaired if the original text can be recovered exactly. Encode-without-a-decoder
+fails here a second time, having already failed the uniqueness test above.
 
 Survey names the code point and its general category, both of which .NET
 supplies. It deliberately does not name the *script* — "Cyrillic" would read
@@ -664,6 +684,16 @@ encodes all of them, turning 😀 into `\uD83D\uDE00`. Only an **unpaired**
 surrogate is a hazard. Enumerate `Rune`s and encode a surrogate only when it
 has no partner; the gate below must include a paired-surrogate case, or this
 bug ships looking correct.
+
+`Rune` is the right iteration type and the wrong *reporting* type, which is
+easy to get backwards. Its invariant excludes `U+D800`–`U+DFFF` outright, so it
+cannot carry the very thing the `Cs` rule exists to catch, and a violation
+record that names the offending scalar as a `Rune` has no way to say which
+unpaired surrogate it found. The natural workaround — decoding to the
+replacement character first — gives one wrong answer for all 2,048 of them, and
+pairs `U+FFFD` with a `Surrogate` category it does not have. Report the raw
+code unit as an integer. The check that catches this is that the reported code
+point and the encoder's own `\uXXXX` spelling of the same input must agree.
 
 **How it is spelled** is `vis(3)`'s: introduce with a backslash, and put
 standard **caret notation** — `cat -v`'s and `less`'s convention, dating to the
