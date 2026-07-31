@@ -48,7 +48,6 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
 
-    public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
 
@@ -67,12 +66,11 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Drops the computed <c>@All</c> and <c>@Default</c> poles from this pipeline's category map,
-    /// making them unresolvable as selectors rather than merely undiscoverable. They are artifacts
-    /// of the legacy catalog: <c>@All</c> renders a superset nobody asked for, and <c>@Default</c>
-    /// restates what bare <c>-S</c> already means. A command whose sections are reachable through
-    /// topical doors and verbosity does not need either, and keeping them resolvable-but-unlisted
-    /// leaves a surface no discovery output describes.
+    /// Drops the computed <c>@All</c> pole from this pipeline's category map, making it
+    /// unresolvable as a selector rather than merely undiscoverable. It is an artifact of the
+    /// legacy catalog: it renders a superset nobody asked for. A command whose sections are
+    /// reachable through topical doors and verbosity does not need it, and keeping it
+    /// resolvable-but-unlisted leaves a surface no discovery output describes.
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
@@ -229,7 +227,7 @@ public sealed class SectionPipeline<TModel>
         .Select(e => e.Name)
         .ToArray();
 
-    /// <summary>Sections in the curated @Default preset, in registration order.</summary>
+    /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
@@ -237,7 +235,6 @@ public sealed class SectionPipeline<TModel>
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
         if (_computedPoles)
         {
-            categories[DefaultCategory] = InfoSectionNames;
             categories[AllCategory] = _curatedCatalog
                 ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
                 : SelectableSectionNames;
@@ -287,7 +284,7 @@ public sealed class SectionPipeline<TModel>
     /// Maps each section name to a short annotation for discovery output:
     /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
     /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
-    /// sections that render only outside the compact <c>@Default</c> preset.
+    /// sections that render only outside the compact default preset.
     /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()

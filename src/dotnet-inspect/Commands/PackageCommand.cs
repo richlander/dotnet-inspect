@@ -57,19 +57,19 @@ public class PackageCommand
                 projection: options);
         }
 
-        // Bare -S (a lone @Default preset - i.e. `-S` with no value) selects the network-free
-        // "fixed" overview: only sections whose declared growth class is Fixed and whose cost is
-        // NetworkFree, so the rendered set is structurally identical for every package (absence
-        // means "not applicable", never "too long for this package"). Drop the preset marker and
-        // flag the fixed overview; keep display verbosity at Normal, and never downgrade a higher
-        // verbosity the user asked for - there the normal curated ladder applies instead.
-        if (!packageLibraryMode
-            && options.Discover == null
-            && options.Select is { Length: 1 }
-            && SelectResolver.IsInfoSelector(options.Select))
+        // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
+        // class is Fixed and whose cost is NetworkFree, so the rendered set is structurally
+        // identical for every package (absence means "not applicable", never "too long for this
+        // package"). Consume the marker so it never resolves as a section set; keep display
+        // verbosity at Normal, and never downgrade a higher verbosity the user asked for - there
+        // the normal curated ladder applies instead. Combined with an explicit selector (or with
+        // sugar such as --path that synthesizes one) the explicit selection wins and the marker is
+        // simply dropped, which is what it has always done - it used to emit a spurious
+        // "@Default not found" warning on the way. See #3547.
+        if (!packageLibraryMode && options.Discover == null && options.SelectDefault)
         {
-            options = options with { Select = null };
-            if (options.Verbosity == Verbosity.Minimal)
+            options = options with { SelectDefault = false };
+            if (options.Select is null && options.Verbosity == Verbosity.Minimal)
                 options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
@@ -83,7 +83,8 @@ public class PackageCommand
         {
             // -S/--select with values: resolve as section filter for backpressure
             var selectResult = SelectResolver.ResolveSelectAsSections(
-                options.Select, sectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+                options.Select, sectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
@@ -701,7 +702,7 @@ public class PackageCommand
                 if (hasProjection)
                 {
                     // Capture output for projection diagnostics
-                    var sw = new StringWriter();
+                    var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     var view = new InspectionResultView(result);
                     var rendered = OutputFormatter.RenderTable(!options.NoHeader,
@@ -2184,7 +2185,8 @@ public class PackageCommand
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
@@ -2289,6 +2291,7 @@ public class PackageCommand
             Discover = options.Discover,
             Tree = options.Tree,
             Select = options.Select,
+            SelectDefault = options.SelectDefault,
             Columns = options.Columns,
             Fields = options.Fields,
             Schema = options.Schema,

@@ -1,5 +1,6 @@
 using System.Text;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -236,20 +237,20 @@ internal static class CSharpDeclarationWriter
     {
         var sb = new StringBuilder();
         foreach (var ns in usings)
-            sb.AppendLine($"using {ns};");
+            sb.AppendLf($"using {ns};");
 
         if (usings.Count > 0)
-            sb.AppendLine();
+            sb.AppendLf();
 
         if (options.NamespaceMode == CSharpNamespaceMode.FileScoped
             && !string.IsNullOrWhiteSpace(options.ContainingNamespace))
         {
-            sb.AppendLine($"namespace {options.ContainingNamespace};");
-            sb.AppendLine();
+            sb.AppendLf($"namespace {options.ContainingNamespace};");
+            sb.AppendLf();
         }
 
         foreach (var line in bodyLines)
-            sb.AppendLine(line);
+            sb.AppendLf(line);
 
         return sb.ToString().TrimEnd();
     }

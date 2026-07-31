@@ -2910,7 +2910,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(30, pipeline.AllSectionNames.Length);
+        Assert.Equal(31, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -2927,6 +2927,7 @@ public class SectionPipelineTests
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
+        Assert.Contains("Type Info", names);
         Assert.Contains("Values", names);
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);

@@ -501,12 +501,24 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, @Default for bare -S, or populated array with section/category names.
+    /// Returns null if not specified or if bare (see <see cref="ParseSelectDefault"/>), otherwise
+    /// a populated array with section/category names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
         => IsBareFlag(parseResult, Select)
-            ? [SelectResolver.InfoSelector]
+            ? null
             : ParseCommaSeparatedList(parseResult.GetValue(Select));
+
+    /// <summary>
+    /// Whether <c>-S</c> was given with no value. Bare <c>-S</c> asks for the command's default
+    /// preset, which is a distinct request from naming a section or category — so it travels as
+    /// its own flag rather than as a selector string. Encoding it as the public value
+    /// <c>@Default</c> made the marker indistinguishable from a hand-typed selector, which leaked
+    /// the internal spelling into user-facing "not found" diagnostics and kept <c>@Default</c>
+    /// resolvable on commands that had dropped it. See #3547.
+    /// </summary>
+    public bool ParseSelectDefault(ParseResult parseResult)
+        => IsBareFlag(parseResult, Select);
 
     /// <summary>
     /// Parses discover flag from parse result.

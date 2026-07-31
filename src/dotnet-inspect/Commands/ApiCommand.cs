@@ -50,7 +50,8 @@ public class ApiCommand
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
-            Select = options.Select, Columns = options.Columns, Fields = options.Fields,
+            Select = options.Select, SelectDefault = options.SelectDefault,
+            Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RequestAllTaste = options.RequestAllTaste,
@@ -110,7 +111,8 @@ public class ApiCommand
             options.Select,
             knownSections,
             singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap());
+            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -293,7 +295,7 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
             return;
 
@@ -338,9 +340,19 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             Kind = type.Kind,
+            // Every identity fact carries over: this copy exists to narrow Members, and anything
+            // else it drops silently changes what sections and discovery see. Omitting the two
+            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
+            // every readonly/ref struct, because discovery builds its manifest from this copy.
+            Accessibility = type.Accessibility,
+            Attributes = type.Attributes,
+            EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            SourceAssemblyPath = type.SourceAssemblyPath,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
@@ -933,7 +945,7 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var sw = new StringWriter();
+            var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -951,7 +963,9 @@ public class ApiCommand
                 CommandError.Write(error);
                 return 1;
             }
-            sink.WriteLine(raw.TrimEnd());
+            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
+            // it with LF too so --bare stays byte-stable for machine consumers.
+            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
             return 0;
         }
 
@@ -994,7 +1008,7 @@ public class ApiCommand
             }
             else
             {
-                var sw = new StringWriter();
+                var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -1006,12 +1020,12 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
                 }
-                sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
@@ -1338,12 +1352,36 @@ public class ApiCommand
     /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedColumns"/> renders the
     /// type at the active options and keeps only columns that appear, dropping columns the
     /// active options never surface and columns with no data
-    /// (e.g. Obsolete when no member is obsolete).</item>
+    /// (e.g. Obsolete when no member is obsolete). Sections in
+    /// <see cref="TypeFieldLayoutSections"/> are matched on rendered field rows instead, because
+    /// their table columns are literally "Field" and "Value".</item>
     /// </list>
     /// This keeps effective discovery consistent with what the user can actually query and see.
     /// </summary>
+    /// <summary>
+    /// Type-view sections rendered as a <c>Field</c>/<c>Value</c> fact table rather than one
+    /// column per schema item. Effective discovery must match these on rendered field rows, not
+    /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
+    /// </summary>
+    private static readonly HashSet<string> TypeFieldLayoutSections =
+        new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+
+    /// <summary>
+    /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be
+    /// carried in from the command that resolved it. Effective discovery needs it because
+    /// <c>Type Info</c> reports these as identity facts; without it the render manifest cannot
+    /// observe them and <c>-D</c> under-reports fields that <c>-S</c> visibly renders.
+    /// </summary>
+    internal sealed record TypeAcquisitionContext(
+        string? FoundIn,
+        string? PackageName,
+        string? PackageVersion,
+        string? ApiSource,
+        string? SelectedTfm);
+
     internal static int ExecuteEffectiveDiscovery(
-        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options)
+        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
+        TypeAcquisitionContext? acquisition = null)
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
@@ -1356,7 +1394,7 @@ public class ApiCommand
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
-        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections);
+        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
@@ -1376,7 +1414,8 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
-        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(queryEffective, fullSchema, renderManifest);
+        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
+            queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
@@ -1391,7 +1430,7 @@ public class ApiCommand
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
         var documents = BuildTypeRenderDocuments(type, options, discoverySections);
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         for (int i = 0; i < documents.Count; i++)
         {
             if (i > 0)
@@ -1413,10 +1452,11 @@ public class ApiCommand
     internal static RenderedSectionManifest BuildTypeRenderManifest(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections = null)
+        IReadOnlyCollection<string>? discoverySections = null,
+        TypeAcquisitionContext? acquisition = null)
     {
         var formatter = new RenderManifestFormatter(GetTypeDocumentSchema(options));
-        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
+        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections, acquisition))
         {
             formatter.BeginDocument(document.WriterOptions);
             var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
@@ -1430,23 +1470,25 @@ public class ApiCommand
     private static IReadOnlyList<TypeRenderDocument> BuildTypeRenderDocuments(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections)
+        IReadOnlyCollection<string>? discoverySections,
+        TypeAcquisitionContext? acquisition = null)
     {
         if (discoverySections is not { Count: > 0 })
-            return [BuildTypeRenderDocument(type, options)];
+            return [BuildTypeRenderDocument(type, options, acquisition)];
 
         return
         [
-            BuildTypeRenderDocument(type, options with { Discover = null }),
+            BuildTypeRenderDocument(type, options with { Discover = null }, acquisition),
             BuildTypeRenderDocument(type, options with
             {
                 Discover = null,
                 IncludeSections = new HashSet<string>(discoverySections, StringComparer.OrdinalIgnoreCase),
-            })
+            }, acquisition)
         ];
     }
 
-    private static TypeRenderDocument BuildTypeRenderDocument(ApiType type, ApiOptions options)
+    private static TypeRenderDocument BuildTypeRenderDocument(
+        ApiType type, ApiOptions options, TypeAcquisitionContext? acquisition = null)
     {
         var renderOptions = options with
         {
@@ -1471,7 +1513,9 @@ public class ApiCommand
             }
         }
 
-        var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
+        var view = ApiOutputFormatter.BuildTypeView(
+            type, acquisition?.FoundIn, acquisition?.PackageName, acquisition?.PackageVersion,
+            acquisition?.ApiSource, acquisition?.SelectedTfm, renderOptions);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;

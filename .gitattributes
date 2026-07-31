@@ -1,0 +1,30 @@
+# Normalize line endings so a checkout is byte-identical on every platform.
+#
+# Without this file, Git for Windows' default core.autocrlf=true rewrites text
+# files to CRLF on checkout. Test expectations written as C# raw string literals
+# then carry CRLF, while the product printers emit "\n", so those tests fail on
+# Windows and pass on Linux CI. See #3526.
+#
+# eol=lf pins the working-tree ending rather than only the stored one, so the
+# literals stay LF on Windows too.
+* text=auto eol=lf
+
+# Shell scripts are executed by tooling that treats a trailing CR as part of the
+# interpreter path or argument, so they must stay LF regardless of the above.
+*.sh text eol=lf
+
+# Binary payloads must never be line-ending converted. fixture.nettrace is the
+# only such file committed today; the rest are listed because this repository
+# reads assemblies and package artifacts, and a future fixture that Git guessed
+# wrong about would be corrupted silently.
+*.nettrace binary
+*.dll binary
+*.exe binary
+*.pdb binary
+*.nupkg binary
+*.snupkg binary
+*.zip binary
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary

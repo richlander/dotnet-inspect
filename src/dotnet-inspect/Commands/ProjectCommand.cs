@@ -39,7 +39,8 @@ public class ProjectCommand
             options.Select,
             ProjectSectionNames,
             infoSections: [],
-            ProjectCategoryMap());
+            ProjectCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
 
@@ -230,8 +231,7 @@ public class ProjectCommand
     private static IReadOnlyDictionary<string, string[]> ProjectCategoryMap()
         => new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            [SelectResolver.AllSelector] = ProjectSectionNames,
-            [SelectResolver.InfoSelector] = []
+            [SelectResolver.AllSelector] = ProjectSectionNames
         };
 
     private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
