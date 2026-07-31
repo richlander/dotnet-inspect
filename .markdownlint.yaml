@@ -12,3 +12,5 @@ MD034: false
 
 # Padded table cells OK (generated Markdown optimizes readability)
 MD060: false
+
+# scratch control - do not merge
