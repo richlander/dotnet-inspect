@@ -23,3 +23,5 @@ fi
 
 git -C "$root" worktree add "$dest" "$branch"
 echo "Restored $branch at $dest"
+
+# scratch probe - do not merge
