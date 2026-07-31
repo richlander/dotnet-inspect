@@ -395,15 +395,33 @@ type=text/html; charset=utf-8
 
 The reported repository URL is still `https://dev.azure.com/contoso/widgets/_git/core`,
 so "read off the URL source is actually fetched from" is not true after a
-cross-host redirect. Content misattribution is nevertheless closed on the one
-product path that consumes fetched source: `AuthoredSourceAcquisition`
-re-verifies the PDB checksum in `FromContent` and returns `Failed` on a
-mismatch, so sign-in HTML is never shown as source. What remains is the
-provenance claim and the absence of any signal that the fetch went elsewhere.
-Fixing it means comparing the post-redirect `RequestMessage.RequestUri` against
-the attributed origin, which belongs to the fetch layer — `Determine` is
-deliberately offline, and making a static metadata read depend on a network
-round trip is a design change. Tracked by **#3618**.
+cross-host redirect.
+
+Content is **not** protected across the board. The authored-source path verifies:
+`AuthoredSourceAcquisition` re-checks the PDB checksum in `FromContent` and
+returns `Failed` on a mismatch, so redirected HTML cannot be shown as authored
+source there. But five CLI call sites fetch with `SourceFetcher.FetchSourceAsync`
+and render the result without any checksum check —
+`ApiCommand.cs:648` (the rendered **Original Source** section, whose text goes
+straight into `BodySlicer.ExtractMethodBody`), `ApiCommand.cs:1239`,
+`LibraryCommand.cs:1243`, and `SourceEnricher.cs:210` and `:333`. In
+`ApiCommand`, the *local repository* branch immediately above verifies a
+checksum and the network branch does not, so the asymmetry is visible in one
+screen. The slicer is a heuristic over line spans the PDB supplies, and the PDB
+is attacker-controlled, so it is not an authenticity boundary.
+
+Fixing this means comparing the post-redirect `RequestMessage.RequestUri`
+against the attributed origin, and requiring verification — or an explicit
+"unverified" label — at every consumer that renders fetched source. Both belong
+to the fetch and CLI layers: `Determine` is deliberately offline, and making a
+static metadata read depend on a network round trip is a design change. Tracked
+by **#3618**.
+
+This entry previously claimed `AuthoredSourceAcquisition` was the only consumer
+of fetched source and concluded that redirected HTML could never be rendered.
+That was false, and it was written while fixing a finding about ungated claims;
+round 18 caught it by enumerating `FetchSourceAsync` rather than the
+`…SourceBytesAsync` overloads the original search covered.
 
 Gates. `SourceLinkProvenanceTests` covers all twenty-one as named tests, plus the
 cache-identity distinction between forks and the requirement that every
