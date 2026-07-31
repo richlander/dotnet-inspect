@@ -2073,10 +2073,18 @@ public class SectionPipelineTests
             keys.Add(key);
         }
 
+        // A type in the global namespace has an empty `Namespace`, and interpolating
+        // `{Namespace}.{Name}` unconditionally would spell it `.GlobalBodyOpener` while reflection
+        // spells it `GlobalBodyOpener`. Gemini Pro's review used exactly that to make *both* edge
+        // mechanisms inert at once -- neither the implementation nor the constructors resolve, so
+        // there is nothing to be over-approximate about. Both sides go through this one helper.
+        static string CoarseTypeName(ILInspector.Analysis.TypeRef type)
+            => type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}";
+
         foreach (var call in calls)
         {
             IndexKey(
-                $"{call.Caller.DeclaringType.Namespace}.{call.Caller.DeclaringType.Name}",
+                CoarseTypeName(call.Caller.DeclaringType),
                 call.Caller.Name,
                 call.Caller.ParameterTypes.Count(),
                 call.Caller.GenericArity,
@@ -2087,7 +2095,7 @@ public class SectionPipelineTests
                 || callee.DeclaringType.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal))
             {
                 IndexKey(
-                    $"{callee.DeclaringType.Namespace}.{callee.DeclaringType.Name}",
+                    CoarseTypeName(callee.DeclaringType),
                     callee.Name,
                     callee.OpenSignatureParameters.Count(),
                     callee.GenericArity,
@@ -2122,6 +2130,7 @@ public class SectionPipelineTests
         var resolvedExplicit = 0;
         var resolvedInherited = 0;
         var resolvedGeneric = 0;
+        var reflectionTypeNames = new HashSet<string>(StringComparer.Ordinal);
 
         // Edges run callee -> caller, so an implementation is recorded as though its ancestor
         // *called* it: reaching `BodyOpener::Open` then reaches `IBodyOpener::Open`, and from there
@@ -2193,6 +2202,9 @@ public class SectionPipelineTests
 
             foreach (var type in types)
             {
+                if (type.FullName is { } reflectionName)
+                    reflectionTypeNames.Add(reflectionName);
+
                 if (type.IsInterface)
                     continue;
 
@@ -2243,12 +2255,29 @@ public class SectionPipelineTests
         // that point: the product contains plenty of ordinary interface implementations, so the
         // edge list stays non-empty even when the shapes that defeated the previous version resolve
         // to nothing. Each of the three is therefore counted separately against real product code.
-        // These are floors on shapes, not on a churning literal -- they fail if reflection stops
-        // agreeing with the IL key format for that shape, which is the failure this cannot survive.
+        // These are floors on shapes, not on a churning literal.
         Assert.NotEmpty(hierarchyEdges);
         Assert.True(resolvedExplicit > 0, "No explicit interface implementation resolved to an IL key.");
         Assert.True(resolvedInherited > 0, "No inherited interface implementation resolved to an IL key.");
         Assert.True(resolvedGeneric > 0, "No constructed-generic interface slot resolved to an IL key.");
+
+        // The shape floors above are still not enough, and Gemini Pro said so before demonstrating
+        // it: they are satisfied by incidental product code, so they cannot protect a *new* type
+        // whose name fails to resolve. The global-namespace escape was precisely that -- every
+        // floor stayed green while the attacking type resolved to nothing.
+        //
+        // The property that actually matters is population-wide: reflection and the IL walk must
+        // agree on how to spell *every* type, not on three sampled shapes. Any coarse name in the
+        // IL index that reflection cannot produce is a type the hierarchy mechanisms are blind to,
+        // whether or not anyone has thought of the shape that produces it.
+        var unresolvableTypes = keysByMember.Keys
+            .Select(member => member.Type)
+            .Distinct(StringComparer.Ordinal)
+            .Where(type => !reflectionTypeNames.Contains(type))
+            .OrderBy(type => type, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal([], unresolvableTypes);
 
         foreach (var (callerKey, calleeKey) in hierarchyEdges)
             AddEdge(calleeKey, callerKey);
