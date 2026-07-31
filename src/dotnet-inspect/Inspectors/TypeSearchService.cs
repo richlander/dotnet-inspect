@@ -71,7 +71,7 @@ internal static class TypeSearchService
             {
                 if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixMatches))
                 {
-                    Console.Error.WriteLine($"Note: No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
+                    CommandError.WriteNote($"No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
                     resultsByPattern[prefixPattern] = prefixMatches;
                     continue;
                 }
@@ -144,7 +144,7 @@ internal static class TypeSearchService
 
             if (TryGetNamespacePrefixMatches(pattern, allTypes, options, out var prefixPattern, out var prefixResults))
             {
-                Console.Error.WriteLine($"Note: No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
+                CommandError.WriteNote($"No exact matches for '{pattern}'. Showing prefix matches for '{prefixPattern}'.");
                 return ConvertToFindResults(
                     new Dictionary<string, List<TypeSearchResult>> { [prefixPattern] = prefixResults },
                     [],
@@ -287,7 +287,7 @@ internal static class TypeSearchService
             var outcome = corpus.SearchTypes(searchPatterns, options.IncludeAll, remaining);
 
             foreach (var skippedPath in outcome.SkippedAssemblies)
-                logger.Log($"Warning: Could not read {skippedPath}");
+                logger.LogWarning($"Could not read {skippedPath}");
 
             foreach (var match in outcome.Results)
             {

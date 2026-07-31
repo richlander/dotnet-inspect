@@ -24,9 +24,9 @@ public static class MemberCommand
             if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
                 return findIfMissExitCode;
 
-            Console.Error.WriteLine("Error: member requires a type name.");
-            Console.Error.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
-            Console.Error.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
+            CommandError.Write("member requires a type name.");
+            CommandError.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
+            CommandError.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.PlatformAssembly ?? "");
             return 1;
         }
@@ -68,7 +68,7 @@ public static class MemberCommand
                 apiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
             if (loaded == null)
             {
-                Console.Error.WriteLine("Error: Could not extract API from library.");
+                CommandError.Write("Could not extract API from library.");
                 return 1;
             }
 
@@ -79,7 +79,7 @@ public static class MemberCommand
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
-                lookupResult.WriteNotFoundError(Console.Error);
+                lookupResult.WriteNotFoundError();
                 return 1;
             }
 
@@ -140,7 +140,7 @@ public static class MemberCommand
                         }
                     }
 
-                    memberValidation.WriteError(Console.Error);
+                    memberValidation.WriteError();
                     return 1;
                 }
             }
@@ -173,9 +173,9 @@ public static class MemberCommand
             {
                 if (effectiveOptions.MemberFilter.Count != 1)
                 {
-                    Console.Error.WriteLine(string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                        ? "Error: --index/Name:N requires exactly one member name."
-                        : "Error: Name~digest requires exactly one member name.");
+                    CommandError.Write(string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
+                        ? "--index/Name:N requires exactly one member name."
+                        : "Name~digest requires exactly one member name.");
                     return 1;
                 }
 
@@ -189,7 +189,7 @@ public static class MemberCommand
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
-                    diagnostic.WriteError(Console.Error);
+                    CommandError.Write(diagnostic.Message, [.. diagnostic.CandidateDetails()]);
                     return 1;
                 }
 
@@ -214,8 +214,8 @@ public static class MemberCommand
                     var sectionLabel = singleOverloadSections.Count == 1
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
-                    Console.Error.WriteLine($"Error: {sectionLabel} a single selected overload for member '{memberName}'.");
-                    Console.Error.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    CommandError.Write($"{sectionLabel} a single selected overload for member '{memberName}'.");
+                    CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
                     return 1;
                 }
             }
@@ -240,7 +240,7 @@ public static class MemberCommand
                 }).ToList();
                 if (arityCandidates.Count == 0)
                 {
-                    Console.Error.WriteLine($"Error: No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
+                    CommandError.Write($"No members matched selector '{memberName}' with generic arity {effectiveOptions.MemberGenericArity.Value}.");
                     return 1;
                 }
 
@@ -427,7 +427,7 @@ public static class MemberCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
         finally

@@ -164,70 +164,80 @@ public sealed class InspectionTrace
     /// diagnostic surface, deliberately not a Markout section: it must not alter the stdout
     /// document a caller is parsing.
     /// </summary>
-    public string Render()
+    /// <remarks>
+    /// Yields lines rather than one terminated string because the report interpolates untrusted
+    /// text -- <see cref="Target"/> is argv, and resource details name paths and package entries.
+    /// Returning the report as text would force its writer to recover line boundaries by splitting
+    /// on terminators, and a splitter cannot tell the composer's newline from one the attacker put
+    /// inside a field: a target named <c>"ev\nError: FORGED"</c> then prints a forged unindented
+    /// error line of its own. Measured, on exactly that input, before this returned lines.
+    /// Emitting the boundaries the composer intended makes each line a unit the sink can contain
+    /// (issue #3319).
+    /// </remarks>
+    public IEnumerable<string> RenderLines()
     {
-        var text = new StringBuilder();
-        text.Append("trace: ").Append(Command ?? "inspect");
+        var head = new StringBuilder();
+        head.Append("trace: ").Append(Command ?? "inspect");
         if (Target is { Length: > 0 })
-            text.Append(' ').Append(Target);
+            head.Append(' ').Append(Target);
         if (Verbosity is { Length: > 0 })
-            text.Append(" [").Append(Verbosity).Append(']');
-        text.AppendLine();
+            head.Append(" [").Append(Verbosity).Append(']');
+        yield return head.ToString();
 
-        text.AppendLine("  sections demanding a scanner");
+        yield return "  sections demanding a scanner";
         if (_demand.Count == 0)
         {
-            text.AppendLine("    (none)");
+            yield return "    (none)";
         }
         else
         {
             foreach (var (section, scanner) in _demand)
-                text.Append("    ").Append(section).Append(" -> ").AppendLine(scanner);
+                yield return $"    {section} -> {scanner}";
         }
 
         if (_commandDemand.Count > 0)
         {
-            text.AppendLine("  demanded by the command");
+            yield return "  demanded by the command";
             foreach (var (reason, scanner) in _commandDemand)
-                text.Append("    ").Append(reason).Append(" -> ").AppendLine(scanner);
+                yield return $"    {reason} -> {scanner}";
         }
 
-        text.Append("  scanners requested   ").AppendLine(Join(_requested));
+        yield return "  scanners requested   " + Join(_requested);
 
         var added = _closure.Where(k => !_requested.Contains(k, StringComparer.Ordinal)).ToList();
-        text.Append("  added by prerequisite").Append(' ').AppendLine(Join(added));
+        yield return "  added by prerequisite " + Join(added);
 
-        text.AppendLine("  scanners executed");
+        yield return "  scanners executed";
         if (_executions.Count == 0)
         {
-            text.AppendLine("    (none)");
+            yield return "    (none)";
         }
         else
         {
             foreach (var execution in _executions)
             {
-                text.Append("    ")
+                var line = new StringBuilder()
+                    .Append("    ")
                     .Append(execution.Key.PadRight(28))
                     .Append(Format(execution.Elapsed));
                 if (execution.IsBundle)
-                    text.Append("  (bundle, no work of its own)");
-                text.AppendLine();
+                    line.Append("  (bundle, no work of its own)");
+                yield return line.ToString();
             }
         }
 
-        text.AppendLine("  resources acquired");
+        yield return "  resources acquired";
         if (_resources.Count == 0)
         {
-            text.AppendLine("    (none)");
+            yield return "    (none)";
         }
         else
         {
             foreach (var (resource, detail) in _resources)
-                text.Append("    ").Append(resource.PadRight(28)).AppendLine(detail);
+                yield return $"    {resource.PadRight(28)}{detail}";
         }
 
-        text.Append("  total scanner time   ").AppendLine(Format(TotalScannerTime));
-        return text.ToString();
+        yield return "  total scanner time   " + Format(TotalScannerTime);
     }
 
     private static string Join(IReadOnlyList<string> values)

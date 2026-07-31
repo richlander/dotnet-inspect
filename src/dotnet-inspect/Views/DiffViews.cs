@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -91,7 +92,41 @@ public record FindingTransitionRow(
     string To,
     string Old,
     string New,
-    string? Detail);
+    string? Detail)
+{
+    /// <inheritdoc cref="FindingTransitionRow"/>
+    public string Transition { get; init; } = Transition;
+
+    /// <inheritdoc cref="FindingTransitionRow"/>
+    public string Finding { get; init; } = Finding;
+
+    /// <summary>
+    /// The subject the finding is about, spelled from inspected metadata, so it
+    /// carries whatever the assembly author named its type or member. The
+    /// versions come from the nuspec and the detail embeds a failure message
+    /// that quotes them back, so all four are contained (issue #3319).
+    /// <c>Transition</c>, <c>Finding</c>, <c>Old</c>, and <c>New</c> are
+    /// tool-owned -- a fixed transition label, a descriptor id, and two
+    /// inspection-state enums -- and are left alone. Every positional property
+    /// is redeclared so the reflected order stays the constructor's.
+    /// </summary>
+    public string Target { get; init; } = CSharpIdentifier.ContainRenderedText(Target);
+
+    /// <inheritdoc cref="Target"/>
+    public string From { get; init; } = CSharpIdentifier.ContainRenderedText(From);
+
+    /// <inheritdoc cref="Target"/>
+    public string To { get; init; } = CSharpIdentifier.ContainRenderedText(To);
+
+    /// <inheritdoc cref="Target"/>
+    public string Old { get; init; } = Old;
+
+    /// <inheritdoc cref="Target"/>
+    public string New { get; init; } = New;
+
+    /// <inheritdoc cref="Target"/>
+    public string? Detail { get; init; } = Detail is null ? null : CSharpIdentifier.ContainRenderedText(Detail);
+}
 
 /// <summary>
 /// View model for full diff rendering. Uses GroupBy to partition changes
@@ -159,7 +194,30 @@ public record ImplementationDiffRow(
     string Mechanism,
     string Difference,
     string Change,
-    string Evidence);
+    string Evidence)
+{
+    /// <summary>
+    /// <c>Member</c> is the inspected member's display spelling and
+    /// <c>Evidence</c> is either a unified IL/source line or a change detail
+    /// that quotes metadata, so both are untrusted and contained here (issue
+    /// #3319). <c>Mechanism</c>, <c>Difference</c>, and <c>Change</c> are
+    /// stringified enums and are left alone. Every positional property is
+    /// redeclared so the reflected order stays the constructor's.
+    /// </summary>
+    public string Member { get; init; } = CSharpIdentifier.ContainRenderedText(Member);
+
+    /// <inheritdoc cref="Member"/>
+    public string Mechanism { get; init; } = Mechanism;
+
+    /// <inheritdoc cref="Member"/>
+    public string Difference { get; init; } = Difference;
+
+    /// <inheritdoc cref="Member"/>
+    public string Change { get; init; } = Change;
+
+    /// <inheritdoc cref="Member"/>
+    public string Evidence { get; init; } = CSharpIdentifier.ContainRenderedText(Evidence);
+}
 
 [MarkoutSerializable]
 public record DiffChangeRow(

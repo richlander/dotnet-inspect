@@ -23,7 +23,7 @@ public static class TimelineCommand
     {
         if (!TryValidate(options, out var range, out var descriptor, out var selectedSections, out var error))
         {
-            Console.Error.WriteLine($"Error: {error}");
+            CommandError.Write($"{error}");
             return 1;
         }
 
@@ -38,7 +38,7 @@ public static class TimelineCommand
                 options.IncludePrerelease);
             if (!TrySelectAddresses(vector, options.At, out var selectedAddresses, out error))
             {
-                Console.Error.WriteLine($"Error: {error}");
+                CommandError.Write($"{error}");
                 return 1;
             }
 
@@ -51,7 +51,7 @@ public static class TimelineCommand
             {
                 if (!TryResolveTypeName(options.TypeName, evaluations, out var typeFullName, out error))
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return 1;
                 }
 
@@ -74,7 +74,7 @@ public static class TimelineCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
