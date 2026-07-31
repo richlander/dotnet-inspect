@@ -379,6 +379,32 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
+One consequence is a real gap, tracked rather than closed here. Attribution is
+decided from the URL's text, offline; the fetch that follows is a separate step
+and does not compare where it *landed* with what was attributed.
+`CreateUntrustedFetchClient` follows redirects (five hops, SSRF-guarded per hop)
+and any 2xx is accepted, so a syntactically valid but nonexistent, private, or
+unauthenticated Azure route redirects to a sign-in page on another host and
+answers 203:
+
+```text
+final=https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com&...
+code=203
+type=text/html; charset=utf-8
+```
+
+The reported repository URL is still `https://dev.azure.com/contoso/widgets/_git/core`,
+so "read off the URL source is actually fetched from" is not true after a
+cross-host redirect. Content misattribution is nevertheless closed on the one
+product path that consumes fetched source: `AuthoredSourceAcquisition`
+re-verifies the PDB checksum in `FromContent` and returns `Failed` on a
+mismatch, so sign-in HTML is never shown as source. What remains is the
+provenance claim and the absence of any signal that the fetch went elsewhere.
+Fixing it means comparing the post-redirect `RequestMessage.RequestUri` against
+the attributed origin, which belongs to the fetch layer — `Determine` is
+deliberately offline, and making a static metadata read depend on a network
+round trip is a design change. Tracked by **#3618**.
+
 Gates. `SourceLinkProvenanceTests` covers all twenty-one as named tests, plus the
 cache-identity distinction between forks and the requirement that every
 unestablished result carry a reason. Where a refusal has more than one possible
