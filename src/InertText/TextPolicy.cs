@@ -8,7 +8,7 @@ namespace InertText;
 /// </summary>
 /// <remarks>
 /// The policy half of the split: it answers "is this scalar permitted <em>here</em>", which is
-/// a per-sink question, while <see cref="VisualEncoder"/> answers "how is a scalar that is not
+/// a per-sink question, while <see cref="InertString"/> answers "how is a scalar that is not
 /// permitted written down" and never learns why. Deny-shaped policies suit free-form text;
 /// allow-shaped policies suit fields whose grammar is externally defined, and only an
 /// allow-shaped one can catch a homoglyph, because Cyrillic <c>а</c> and Latin <c>a</c> are

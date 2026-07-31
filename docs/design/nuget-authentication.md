@@ -330,21 +330,30 @@ through it — but it passes `Cf` straight through, and `Cf` is where Trojan Sou
 lives. A right-to-left override in a feed name reorders the rest of the line.
 
 Every URL that reaches a message or a log is spelled by
-[`VisualEncoder`](../../src/InertText/VisualEncoder.cs) first:
+[`InertString`](../../src/InertText/InertString.cs) first:
 
 ```csharp
 InertString.Format(TextPolicy.Field, $"Source URL '{withoutCredentials}' embeds ...")
 ```
 
-The component splits policy from spelling, which is what lets one encoder serve every sink:
+The component splits policy from spelling, which is what lets one speller serve every sink:
 
 - The **predicate** (`ScalarPolicy`) answers "is this scalar permitted *here*". It is per-sink.
   `TextPolicy.Field` is deny-shaped and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`; `TextPolicy.Prose`
   is the same minus a `CR`/`LF`/`TAB` exemption. A field whose grammar is externally defined
   should supply an allow-shaped policy instead.
-- The **speller** (`VisualEncoder`) answers "how is a refused scalar written down". It is total
+- The **speller** (`InertString`) answers "how is a refused scalar written down". It is total
   over Unicode, never learns *why* a scalar was refused, and ships with its decoder, so the
   transform is lossless and invertible rather than a filter.
+
+The speller lives on `InertString` rather than in a class beside it. It holds no state, and
+every operation it offers either produces an `InertString` or asks whether text is already
+inert, so a separate static class would have been a namespace rather than an abstraction — and
+it is what made `Encode` and `DescribeLegend` exist twice, once on each type. Collapsing them
+also closes a hole: the old `VisualEncoder.Encode` was public and returned a bare `string`,
+handing back treated text with its provenance stripped, which is the confusion the value type
+was introduced to remove. Nothing in production called it. What stays separate is the
+predicate, because that is the half that genuinely varies.
 
 The split is not tidiness. A URL host is a constrained grammar, and the central typosquatting
 vector is a homoglyph: Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and

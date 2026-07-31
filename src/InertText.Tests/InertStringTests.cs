@@ -17,7 +17,7 @@ public class InertStringTests
     {
         InertString value = InertString.Encode(Hazard, TextPolicy.Field);
 
-        Assert.True(VisualEncoder.IsPermitted(value.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(value.ToString(), TextPolicy.Field));
         Assert.True(value.WasEncoded);
         Assert.Equal(VisualForm.BmpHex, value.Forms);
     }
@@ -27,7 +27,7 @@ public class InertStringTests
     {
         InertString value = InertString.Encode(Hazard, TextPolicy.Field);
 
-        Assert.True(VisualEncoder.TryDecode(value.ToString(), out string? decoded));
+        Assert.True(InertString.TryDecode(value.ToString(), out string? decoded));
         Assert.Equal(Hazard, decoded);
     }
 
@@ -37,7 +37,7 @@ public class InertStringTests
         InertString message = InertString.Format(TextPolicy.Field, $"url: {Hazard}");
 
         Assert.Equal("url: a\\u202Eb", message.ToString());
-        Assert.True(VisualEncoder.IsPermitted(message.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(message.ToString(), TextPolicy.Field));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class InertStringTests
         InertString outer = InertString.Format(TextPolicy.Field, $"[{inner}]");
 
         Assert.Equal("[a\\u202Eb]", outer.ToString());
-        Assert.True(VisualEncoder.TryDecode(outer.ToString(), out string? decoded));
+        Assert.True(InertString.TryDecode(outer.ToString(), out string? decoded));
         Assert.Equal($"[{Hazard}]", decoded);
     }
 
@@ -128,7 +128,7 @@ public class InertStringTests
         InertString outer = InertString.Format(TextPolicy.Field, $"[{inner}]");
 
         Assert.Equal("[a\\u202Eb]", outer.ToString());
-        Assert.True(VisualEncoder.TryDecode(outer.ToString(), out string? decoded));
+        Assert.True(InertString.TryDecode(outer.ToString(), out string? decoded));
         Assert.Equal($"[{Hazard}]", decoded);
     }
 
@@ -216,7 +216,7 @@ public class InertStringTests
 
         Assert.DoesNotContain('\n', field.ToString());
         Assert.Contains(@"\^J", field.ToString(), StringComparison.Ordinal);
-        Assert.True(VisualEncoder.IsPermitted(field.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Field));
         Assert.True(field.Forms.HasFlag(VisualForm.Caret));
     }
 
@@ -243,7 +243,7 @@ public class InertStringTests
         InertString joined = InertString.Join(", ", TextPolicy.Field, values);
 
         Assert.DoesNotContain('\n', joined.ToString());
-        Assert.True(VisualEncoder.IsPermitted(joined.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(joined.ToString(), TextPolicy.Field));
         Assert.True(joined.Forms.HasFlag(VisualForm.Caret));
     }
 
@@ -318,10 +318,20 @@ public class InertStringTests
     }
 
     [Fact]
-    public void ZeroValue_IsIndistinguishableFromAnEncodedEmptyStringAcrossTheWholeSurface()
+    public void EmptyValuesAreIndistinguishableAcrossTheWholeSurface()
     {
-        InertString zero = default;
-        InertString encoded = InertString.Encode("", TextPolicy.Field);
+        // Three field states now mean "empty": the CLR zero value, the constructed Empty, and
+        // an encode of "". Empty is deliberately no longer default, so their agreement is a
+        // real claim rather than a tautology, and every member has to honour it.
+        InertString[] empties =
+        [
+            default,
+            InertString.Empty,
+            InertString.Encode("", TextPolicy.Field),
+        ];
+
+        InertString zero = empties[0];
+        InertString encoded = empties[2];
 
         // Enumerated rather than spot-checked. The reviewed defect was exactly one member --
         // equality -- disagreeing with the other three about whether these are the same value,
@@ -335,14 +345,22 @@ public class InertStringTests
         Assert.NotEmpty(surface);
         foreach (MethodInfo member in surface)
         {
-            Assert.Equal(
-                Describe(member.Invoke(zero, null)),
-                Describe(member.Invoke(encoded, null)));
+            string[] answers = empties.Select(e => Describe(member.Invoke(e, null))).ToArray();
+            Assert.Equal(answers.Length, answers.Count(a => a == answers[0]));
+        }
+
+        foreach (InertString left in empties)
+        {
+            foreach (InertString right in empties)
+            {
+                Assert.True(left.Equals(right));
+                Assert.True(left == right);
+                Assert.False(left != right);
+                Assert.Equal(left.GetHashCode(), right.GetHashCode());
+            }
         }
 
         Assert.True(zero.Equals(encoded));
-        Assert.True(zero == encoded);
-        Assert.False(zero != encoded);
 
         static string Describe(object? value) => value switch
         {
@@ -353,21 +371,18 @@ public class InertStringTests
     }
 
     [Fact]
-    public void ToString_DoesNotCopyForAValueThisLibraryProduced()
+    public void ToString_DoesNotCopy()
     {
         InertString value = InertString.Encode("nothing to encode", TextPolicy.Field);
 
-        // The memory covers a whole string, so ToString hands that instance back. If a future
-        // change slices the memory this silently becomes an allocation on every sink write.
         Assert.Same(value.ToString(), value.ToString());
     }
 
     [Fact]
     public void Equality_ComparesTextRatherThanTheBackingInstance()
     {
-        // The representation holds a ReadOnlyMemory<char>, whose own Equals compares the
-        // backing object by reference. Delegating to it would be the obvious simplification
-        // and would answer False here, where the text is identical and the instances are not.
+        // Equality is by text, not by instance. Cheap to state and cheap to keep, and it
+        // pins the property that a representation change must not quietly drop.
         string one = "a\u202Eb";
         string other = string.Concat("a\u202E", "b");
         Assert.False(ReferenceEquals(one, other));
@@ -378,5 +393,49 @@ public class InertStringTests
         Assert.Equal(left, right);
         Assert.True(left == right);
         Assert.Equal(left.GetHashCode(), right.GetHashCode());
+    }
+
+    [Fact]
+    public void NoPublicEntryPointTakesTextWithoutAPolicy()
+    {
+        // The invariant is not "Encode is a static method." It is "text cannot become an
+        // InertString without a policy being applied to it." The conversion test above covers
+        // only op_Implicit and op_Explicit, so a public constructor or a factory taking a bare
+        // string would satisfy every other gate in this file while voiding the whole design.
+        List<string> unguarded = [];
+
+        foreach (ConstructorInfo ctor in typeof(InertString)
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (TakesText(ctor.GetParameters()) && !TakesPolicy(ctor.GetParameters()))
+            {
+                unguarded.Add($".ctor({Describe(ctor.GetParameters())})");
+            }
+        }
+
+        foreach (MethodInfo factory in typeof(InertString)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.ReturnType == typeof(InertString)))
+        {
+            if (TakesText(factory.GetParameters()) && !TakesPolicy(factory.GetParameters()))
+            {
+                unguarded.Add($"{factory.Name}({Describe(factory.GetParameters())})");
+            }
+        }
+
+        Assert.Empty(unguarded);
+
+        static bool TakesText(ParameterInfo[] parameters) => parameters.Any(p =>
+            p.ParameterType == typeof(string)
+            || p.ParameterType == typeof(char[])
+            || p.ParameterType == typeof(ReadOnlyMemory<char>)
+            || p.ParameterType == typeof(ReadOnlySpan<char>));
+
+        static bool TakesPolicy(ParameterInfo[] parameters) => parameters.Any(p =>
+            p.ParameterType == typeof(ScalarPolicy)
+            || p.ParameterType == typeof(InertStringHandler));
+
+        static string Describe(ParameterInfo[] parameters)
+            => string.Join(", ", parameters.Select(p => p.ParameterType.Name));
     }
 }

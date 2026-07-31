@@ -6,7 +6,7 @@ using System.Text;
 namespace InertText;
 
 /// <summary>
-/// The spellings <see cref="VisualEncoder"/> can emit.
+/// The spellings <see cref="InertString"/> can emit.
 /// </summary>
 /// <remarks>
 /// Reported so a caller can print a legend derived from what was actually emitted rather than
@@ -35,35 +35,25 @@ public enum VisualForm
     Backslash = 1 << 4,
 }
 
-/// <summary>
-/// Writes down a scalar a <see cref="ScalarPolicy"/> refused, so a sink cannot interpret it.
-/// </summary>
-/// <remarks>
-/// The speller half of the split. It is total over Unicode, and it never learns <em>why</em> a
-/// scalar was refused — which is what lets one component serve both a deny-shaped sink and an
-/// allow-shaped one. A speller with a built-in hazard set has absorbed policy and cannot serve
-/// an allow-list sink at all.
-///
-/// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
-/// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees
-/// what was actually there), and invertible (<see cref="TryDecode"/> recovers the original
-/// exactly). This is not neutralization, which has none of the three.
-///
-/// "Inert" is scoped, and the scope matters: no terminal interprets the output as control and
-/// no bidi algorithm reorders it. It does <em>not</em> mean the output is safe to drop into a
-/// structured format. A <c>|</c> still breaks a Markdown cell, a backtick still opens a span,
-/// and a <c>"</c> still terminates a JSON string — none is in any encoded category, and none
-/// should be, because escaping those for its own grammar is the serializer's job. Visual
-/// encoding and structural escaping compose; neither substitutes for the other.
-/// </remarks>
-public static class VisualEncoder
+// The speller half of InertString: the transform that makes text inert, the predicate that
+// asks whether it already is, and the decoder that proves the transform is invertible. Split
+// into its own file for readability only -- the type's documentation lives on the other part.
+public readonly partial struct InertString
 {
     /// <summary>
-    /// Returns <paramref name="value"/> with every scalar <paramref name="permits"/> refuses
-    /// visually encoded.
+    /// Encodes <paramref name="value"/> under <paramref name="permits"/>, yielding a value that
+    /// can be carried to a sink.
     /// </summary>
-    public static string Encode(string value, ScalarPolicy permits)
-        => Encode(value, permits, out _);
+    /// <remarks>
+    /// The only way into the type. There is deliberately no public form that hands back a bare
+    /// <see cref="string"/>: that would return treated text with its provenance stripped, which
+    /// is the confusion this type exists to remove.
+    /// </remarks>
+    public static InertString Encode(string value, ScalarPolicy permits)
+    {
+        string encoded = EncodeCore(value, permits, out VisualForm forms);
+        return new InertString(encoded, forms);
+    }
 
     /// <summary>
     /// Returns <paramref name="value"/> with every scalar <paramref name="permits"/> refuses
@@ -78,7 +68,7 @@ public static class VisualEncoder
     /// <param name="value">The text to encode.</param>
     /// <param name="permits">The per-sink policy deciding what may pass through.</param>
     /// <param name="formsUsed">The spellings actually emitted, for a caller-written legend.</param>
-    public static string Encode(string value, ScalarPolicy permits, out VisualForm formsUsed)
+    internal static string EncodeCore(string value, ScalarPolicy permits, out VisualForm formsUsed)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(permits);

@@ -5,21 +5,41 @@ using System.Text;
 namespace InertText;
 
 /// <summary>
-/// Text that has already been through <see cref="VisualEncoder"/>, carried as a value rather
-/// than as a <see cref="string"/>.
+/// Text with a <see cref="ScalarPolicy"/> applied to it, carried as a value rather than as a
+/// bare <see cref="string"/>.
 /// </summary>
 /// <remarks>
-/// This is the currency form, and it exists for auditability. The static encoder is
+/// This is the currency form, and it exists for auditability. Encoding on its own is
 /// transactional — a <see cref="string"/> goes in and a <see cref="string"/> comes out — so a
 /// treated value and an untreated one are the same type, and the only way to tell whether a
 /// sink is safe is to trace every call path that reaches it. A distinct type inverts that: the
 /// question becomes a type search, and a sink that accepts only <see cref="InertString"/>
-/// cannot be handed raw text by accident.
+/// cannot be handed raw text by accident. That is why <see cref="Encode"/> yields this type and
+/// why no public member hands treated text back as a <see cref="string"/>.
+///
+/// The speller lives in this same type rather than beside it. It holds no state, and every
+/// operation it offers either produces one of these values or asks whether text is already
+/// inert, so a separate class would have been a namespace wearing the costume of an
+/// abstraction. What is genuinely separate is <see cref="ScalarPolicy"/>: the speller never
+/// learns <em>why</em> a scalar was refused, which is what lets it serve a deny-shaped sink and
+/// an allow-shaped one alike. A speller with a built-in hazard set has absorbed policy.
+///
+/// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
+/// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees
+/// what was actually there), and invertible (<see cref="TryDecode"/> recovers the original
+/// exactly). This is not neutralization, which has none of the three.
+///
+/// "Inert" is scoped, and the scope matters: no terminal interprets the output as control and
+/// no bidi algorithm reorders it. It does <em>not</em> mean the output is safe to drop into a
+/// structured format. A <c>|</c> still breaks a Markdown cell, a backtick still opens a span,
+/// and a <c>"</c> still terminates a JSON string — none is in any encoded category, and none
+/// should be, because escaping those for its own grammar is the serializer's job. Visual
+/// encoding and structural escaping compose; neither substitutes for the other.
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
 /// explicit. One would restore exactly the confusion the type removes. Text enters through
-/// <see cref="Encode"/> or <see cref="Format"/>, both of which apply a policy, so every value
-/// has been through the encoder under some policy.
+/// <see cref="Encode"/>, <see cref="Format"/> or <see cref="Join"/>, all of which apply a
+/// policy, so every value has been spelled under some policy.
 ///
 /// Note the "some": the type records that a policy was applied, not which one, because a value
 /// is routinely built for one sink and spliced into a message bound for another. That makes
@@ -32,39 +52,45 @@ namespace InertText;
 /// holds it back. Here the payload is already inert, and the wrapper only records that fact.
 /// Losing the wrapper loses provenance, not protection.
 /// </remarks>
-public readonly struct InertString : IEquatable<InertString>
+public readonly partial struct InertString : IEquatable<InertString>
 {
-    private readonly ReadOnlyMemory<char> _text;
+    private readonly string? _text;
 
     internal InertString(string text, VisualForm forms)
     {
-        // Deliberately a string, and it must stay one. ReadOnlyMemory<char> can also be taken
-        // over a char[], whose contents can change after the policy has approved them — a
-        // check-then-mutate hole in a type whose whole purpose is that the check already
-        // happened. Wrapping an immutable string is what makes the memory trustworthy.
-        _text = text.AsMemory();
+        _text = text;
         Forms = forms;
     }
 
+    /// <summary>The text, with the zero value read as empty.</summary>
+    /// <remarks>
+    /// The single point where that translation happens. Every other member reads this rather
+    /// than the field, because spelling the translation at each use site is what let equality
+    /// disagree with the rest of the type about whether the zero value and <c>Encode("")</c>
+    /// are the same value. A reflection test enumerates the public surface and fails if any
+    /// member answers differently for the two, which is the gate that keeps this honest.
+    /// </remarks>
+    private string Text => _text ?? string.Empty;
+
     /// <summary>The empty value, which trivially satisfies the invariant.</summary>
     /// <remarks>
-    /// This is the zero value, and that is not a coincidence to be papered over. A struct
-    /// cannot suppress <c>default</c>, so an <see cref="InertString"/> that no policy ever
-    /// produced is always reachable. It is harmless because empty text satisfies every policy
-    /// <em>vacuously</em> — there is no scalar for a policy to refuse — so the sound thing is
-    /// for the zero value to <em>be</em> the empty value rather than a state each member has to
-    /// remember to translate.
+    /// Constructed, not <c>default</c>. The zero value of a struct is an artifact of the CLR
+    /// rather than a statement of intent, and naming it as the definition of "empty" describes
+    /// how the runtime zeroes memory instead of what this value is. Stated properly, the
+    /// contract is: no text, and no spellings emitted.
     ///
-    /// Holding the text as <see cref="ReadOnlyMemory{T}"/> is what buys that. Its own zero
-    /// value is already empty, so no member coalesces a <see langword="null"/> and none can
-    /// forget to. A nullable <see cref="string"/> field needs that translation spelled at every
-    /// read, and spelling it four times is what let equality disagree with
-    /// <see cref="IsEmpty"/>, <see cref="ToString"/> and <see cref="GetHashCode"/> about
-    /// whether this and <c>Encode("")</c> are the same value.
+    /// <c>default(InertString)</c> is still reachable — a struct cannot suppress it — and it is
+    /// still harmless, because empty text satisfies every policy <em>vacuously</em>: there is
+    /// no scalar for a policy to refuse. So it is tolerated rather than blessed. The one place
+    /// that tolerates it is <see cref="Text"/>, and a reflection test enumerates the public
+    /// surface to catch any member that reads around it. Spelling that translation at four
+    /// separate reads is what let equality disagree with <see cref="IsEmpty"/>,
+    /// <see cref="ToString"/> and <see cref="GetHashCode"/> about whether the zero value and
+    /// <c>Encode("")</c> are the same value.
     /// </remarks>
-    public static InertString Empty => default;
+    public static InertString Empty { get; } = new(string.Empty, VisualForm.None);
 
-    /// <summary>The spellings <see cref="VisualEncoder"/> emitted while producing this value.</summary>
+    /// <summary>The spellings <see cref="InertString"/> emitted while producing this value.</summary>
     /// <remarks>
     /// Retained so a sink can print a legend for what it is about to show without re-deriving
     /// it. Composition unions the flags, so a message assembled from several pieces reports
@@ -73,29 +99,19 @@ public readonly struct InertString : IEquatable<InertString>
     public VisualForm Forms { get; }
 
     /// <summary>Whether this value carries no text.</summary>
-    public bool IsEmpty => _text.IsEmpty;
+    public bool IsEmpty => Text.Length == 0;
 
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     public bool WasEncoded => Forms != VisualForm.None;
 
     /// <summary>The encoded text.</summary>
-    /// <remarks>
-    /// Free for a value this library produced: the memory always covers a whole string, and
-    /// <see cref="ReadOnlyMemory{T}"/> returns that instance rather than copying.
-    /// </remarks>
-    public override string ToString() => _text.ToString();
+    public override string ToString() => Text;
 
     /// <summary>
     /// Encodes <paramref name="value"/> under <paramref name="permits"/>.
     /// </summary>
     /// <param name="value">The untreated text.</param>
     /// <param name="permits">The per-sink policy deciding what may pass through.</param>
-    public static InertString Encode(string value, ScalarPolicy permits)
-    {
-        string encoded = VisualEncoder.Encode(value, permits, out VisualForm forms);
-        return new InertString(encoded, forms);
-    }
-
     /// <summary>
     /// Builds a value from an interpolated string, encoding every part of it.
     /// </summary>
@@ -139,7 +155,7 @@ public readonly struct InertString : IEquatable<InertString>
         ArgumentNullException.ThrowIfNull(separator);
         ArgumentNullException.ThrowIfNull(values);
 
-        string encodedSeparator = VisualEncoder.Encode(separator, permits, out VisualForm separatorForms);
+        string encodedSeparator = EncodeCore(separator, permits, out VisualForm separatorForms);
         StringBuilder builder = new();
         VisualForm forms = VisualForm.None;
         bool first = true;
@@ -163,7 +179,7 @@ public readonly struct InertString : IEquatable<InertString>
     }
 
     /// <summary>Names the spellings this value contains, one line each.</summary>
-    public IReadOnlyList<string> DescribeLegend() => VisualEncoder.DescribeLegend(Forms);
+    public IReadOnlyList<string> DescribeLegend() => DescribeLegend(Forms);
 
     /// <summary>
     /// Restates <paramref name="value"/> under <paramref name="permits"/>, re-encoding it if it
@@ -177,7 +193,7 @@ public readonly struct InertString : IEquatable<InertString>
     /// single-line message and report <see cref="VisualForm.None"/> for it, which is the log
     /// injection this library exists to prevent, with the type appearing to vouch for it.
     ///
-    /// This is the second thing invertibility buys. Because <see cref="VisualEncoder.TryDecode"/>
+    /// This is the second thing invertibility buys. Because <see cref="InertString.TryDecode"/>
     /// recovers the original exactly, a mismatched piece can be taken back to its source text
     /// and re-spelled under the policy actually in force, rather than rejected or trusted.
     ///
@@ -191,7 +207,7 @@ public readonly struct InertString : IEquatable<InertString>
     {
         string text = value.ToString();
 
-        if (VisualEncoder.IsPermitted(text, permits))
+        if (IsPermitted(text, permits))
         {
             forms = value.Forms;
             return text;
@@ -199,25 +215,23 @@ public readonly struct InertString : IEquatable<InertString>
 
         // Falling back to the encoded text when decoding fails cannot happen for a value this
         // library produced; it is here so the failure mode is over-encoding rather than a leak.
-        string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
-        return VisualEncoder.Encode(original, permits, out forms);
+        string original = TryDecode(text, out string? decoded) ? decoded : text;
+        return EncodeCore(original, permits, out forms);
     }
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Compared by content, deliberately not through <see cref="ReadOnlyMemory{T}.Equals(object)"/>,
-    /// which compares the <em>backing instance</em>: it answers <see langword="false"/> for two
-    /// distinct strings holding identical text, and for the zero value against
-    /// <c>"".AsMemory()</c>. Writing it that way looks entirely reasonable and would survive
-    /// any test that compares a value to itself or leans on literal interning.
+    /// Reads through <see cref="Text"/> rather than the field, so the zero value and
+    /// <c>Encode("")</c> compare equal. Comparing <c>_text</c> directly is the defect this
+    /// replaced: <see langword="null"/> and <c>""</c> are not ordinally equal.
     /// </remarks>
-    public bool Equals(InertString other) => _text.Span.SequenceEqual(other._text.Span);
+    public bool Equals(InertString other) => string.Equals(Text, other.Text, StringComparison.Ordinal);
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is InertString other && Equals(other);
 
     /// <inheritdoc/>
-    public override int GetHashCode() => string.GetHashCode(_text.Span, StringComparison.Ordinal);
+    public override int GetHashCode() => Text.GetHashCode(StringComparison.Ordinal);
 
     /// <summary>Compares two values by their encoded text.</summary>
     public static bool operator ==(InertString left, InertString right) => left.Equals(right);
@@ -316,7 +330,7 @@ public ref struct InertStringHandler
         if (string.IsNullOrEmpty(value))
             return;
 
-        _builder.Append(VisualEncoder.Encode(value, _permits, out VisualForm forms));
+        _builder.Append(InertString.EncodeCore(value, _permits, out VisualForm forms));
         _forms |= forms;
     }
 }
