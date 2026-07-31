@@ -150,6 +150,14 @@ public class EvilPoolSweepGateTests
     /// the property that a pinned pool is a pinned pool: asked for a version the cache
     /// does not hold, a sweep must come up short rather than fall back to the version it
     /// does hold. Falling back is how the pool drifted before it was pinned.</para>
+    ///
+    /// <para>Enforced at the <em>request</em>, which is what the status below pins down.
+    /// The sweep also compares the returned version against the pin afterwards, and this
+    /// case does not reach that comparison -- measured: disabling it alone leaves this
+    /// case green, because acquisition has already refused. That comparison is a backstop
+    /// against an extractor that answers with something other than what it was asked for,
+    /// and nothing here can arrange for it to; it is deliberately left ungated rather than
+    /// left looking gated.</para>
     /// </summary>
     [Fact]
     public void ASweepRefusesAVersionThePinDoesNotName()
@@ -159,6 +167,11 @@ public class EvilPoolSweepGateTests
         var sweep = world.Run();
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pin naming an absent version"));
+
+        // Never acquired, rather than acquired and then caught: the version bound the
+        // request. A fallback to the version the cache does hold would read as selected.
+        Assert.Equal("acquisition-failed", world.ReportedStatus(sweep));
+
         Assert.Empty(PooledAssemblies(world.OutputDirectory));
         world.AssertNoTemporaryLeftBehind();
     }
@@ -262,6 +275,13 @@ public class EvilPoolSweepGateTests
     /// destination, inside the pool. A partial assembly left in <c>packages/</c> is a file
     /// a later run finds and hashes, and the pin disagreeing with it would be reported as
     /// the pin failing rather than as the run that abandoned it.</para>
+    ///
+    /// <para>Which is why the reported outcome is asserted and not just the exit code.
+    /// Absence is satisfied by a sweep that never got far enough to create anything, so a
+    /// case asserting only "no temporary" passes on any early exit at all -- measured: a
+    /// sweep failing before the copy stage, with the cleanup deleted, left this case
+    /// green. Requiring the run to have reached the copy is what makes the absence
+    /// afterwards mean the cleanup happened.</para>
     /// </summary>
     [Fact]
     public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
@@ -275,6 +295,11 @@ public class EvilPoolSweepGateTests
         var sweep = world.Run();
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a directory standing at the destination"));
+
+        // Reached the copy and failed there, so a temporary really was created and the
+        // absence below is the cleanup rather than an earlier exit.
+        Assert.Equal("copy-failed", world.ReportedStatus(sweep));
+
         world.AssertNoTemporaryLeftBehind();
     }
 
@@ -290,24 +315,49 @@ public class EvilPoolSweepGateTests
     /// on claiming otherwise. Naming a real package is what makes that regression visible:
     /// it is reachable both ways, so only genuine isolation can fail to reach it.</para>
     ///
-    /// <para>The assertion is on the <em>reason</em>, not just the exit code. A sweep that
-    /// found this package would still exit 1 -- on a pin mismatch, since the pin below
-    /// names bytes no real package has -- so an exit-code-only case would pass equally well
-    /// with the isolation removed, which is the failure it exists to catch.</para>
+    /// <para>The outcome is asserted, not just the exit code. A sweep that found this
+    /// package would still exit 1 -- on the pin, which names bytes no real package has --
+    /// so an exit-code-only case would pass equally well with the isolation removed, which
+    /// is the failure it exists to catch. <c>acquisition-failed</c> and
+    /// <c>pin-mismatch</c> are the sweep's own recorded statuses, and they separate the two
+    /// without depending on how any layer words its message.</para>
+    ///
+    /// <para>Half of its power is ambient, so the case checks for it rather than assuming
+    /// it. The network half holds anywhere. The shared-NuGet-cache half only bites where
+    /// that cache actually holds this package: somewhere it does not, a sweep with
+    /// <c>skipNuGetCache</c> regressed misses the cache, falls through to a severed
+    /// network, and fails exactly as it should have -- a green result that gated nothing.
+    /// The precondition is a visible skip instead, because the alternative is a case that
+    /// looks like it is covering the regression and is not.</para>
     /// </summary>
     [Fact]
     public void ASweepCannotReachAPackageTheSeededCacheDoesNotHold()
     {
-        using var world = SweepWorld.Create();
-
         // Present in the shared NuGet cache of any machine that has built this repository,
         // and on nuget.org. Reachable by either knob's absence, and by neither's presence.
-        world.PinInstead("newtonsoft.json", "13.0.4", "net6.0");
+        const string Package = "newtonsoft.json";
+        const string Version = "13.0.4";
+
+        // Read through the product, and only read: this directory is shared, and the one
+        // thing a test may never do to it is write.
+        if (!Directory.Exists(Path.Combine(NuGetCache.GetNuGetCachePath(), Package, Version)))
+        {
+            Assert.Skip(
+                $"{Package} {Version} is not in the shared NuGet cache, so this case cannot " +
+                "tell an isolated sweep from one that merely found nothing.");
+        }
+
+        using var world = SweepWorld.Create();
+        world.PinInstead(Package, Version, "net6.0");
 
         var sweep = world.Run();
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a package the scratch cache does not hold"));
-        Assert.Contains("not available offline", sweep.Errors, StringComparison.Ordinal);
+
+        // Never reached, rather than reached and rejected. Isolation regressed, this reads
+        // pin-mismatch instead, because the package was found and then failed the pin.
+        Assert.Equal("acquisition-failed", world.ReportedStatus(sweep));
+
         Assert.Empty(PooledAssemblies(world.OutputDirectory));
     }
 
@@ -539,6 +589,24 @@ public class EvilPoolSweepGateTests
             var indented = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(Path.Combine(data, "nuget-top-packages.json"), list.ToJsonString(indented));
             File.WriteAllText(Path.Combine(data, "nuget-top-packages.lock.json"), pin.ToJsonString(indented));
+        }
+
+        /// <summary>
+        /// The status the sweep recorded for the one package it was given.
+        ///
+        /// <para>The sweep's own vocabulary -- <c>acquisition-failed</c>,
+        /// <c>pin-mismatch</c>, <c>copy-failed</c>, <c>selected</c> -- rather than the
+        /// prose any layer happens to render. A case asserting on message text fails when
+        /// wording changes and behavior does not, which trains the next reader to edit the
+        /// assertion rather than read it.</para>
+        /// </summary>
+        public string ReportedStatus((int ExitCode, string Output, string Errors) sweep)
+        {
+            Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
+            var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
+            var packages = manifested["Packages"]!.AsArray();
+            Assert.True(packages.Count == 1, Explain(sweep, $"a manifest holding {packages.Count} packages"));
+            return packages[0]!["Status"]!.GetValue<string>();
         }
 
         /// <summary>
