@@ -276,6 +276,7 @@ public sealed class ScannerRegistry
     /// </param>
     public ScannerRegistry Add(string key, SectionCost cost, Action<ScannerContext> scan, params string[] requires)
     {
+        RejectReregistration(key);
         _scanners[key] = scan;
         _requires[key] = requires;
         _costs[key] = cost;
@@ -294,9 +295,33 @@ public sealed class ScannerRegistry
     /// </summary>
     public ScannerRegistry AddBundle(string key, params string[] requires)
     {
+        RejectReregistration(key);
         _scanners[key] = null;
         _requires[key] = requires;
         return this;
+    }
+
+    /// <summary>
+    /// A key may be registered once. Re-registration is rejected because
+    /// <see cref="SectionPipeline{TModel}.Add"/> snapshots the scanner's cost into the entry when
+    /// the section is registered: if a later <see cref="Add"/> could raise the cost of a key that
+    /// already has entries bound to it, the registry and the pipeline would disagree, and the
+    /// pipeline is the one the verbosity ladder reads. The section would keep auto-rendering at
+    /// its stale cheap cost while <see cref="CostOf"/> reported the truth.
+    ///
+    /// Raised as blocking by the GPT review of #3626, which demonstrated the divergence: register
+    /// NetworkFree, add the entry, re-register Unbounded, and <c>SectionCosts</c> still says
+    /// NetworkFree. Making a key's cost immutable once declared is what lets the effective axis
+    /// subsume the scanner axis unconditionally rather than only for the current construction
+    /// order. Gate: <c>SectionPipelineTests.ScannerKey_CannotBeRegisteredTwice</c>.
+    /// </summary>
+    private void RejectReregistration(string key)
+    {
+        if (_scanners.ContainsKey(key))
+            throw new InvalidOperationException(
+                $"Scanner '{key}' is already registered. A scanner key may be registered once: " +
+                "sections snapshot the declared cost when they are added, so re-registering a key " +
+                "would let the pipeline keep a stale cost that the verbosity ladder still reads.");
     }
 
     /// <summary>

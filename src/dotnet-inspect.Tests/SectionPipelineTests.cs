@@ -1756,6 +1756,37 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ScannerKey_CannotBeRegisteredTwice()
+    {
+        // Raised as BLOCKING by the GPT review of #3626. SectionPipeline.Add snapshots the
+        // scanner's cost into the entry, so a later re-registration that raised the cost would
+        // leave the pipeline reading a stale cheap value while CostOf reported the truth -- and
+        // the pipeline is what the verbosity ladder consults. GPT demonstrated exactly that:
+        // register NetworkFree, add the entry, re-register Unbounded, and SectionCosts still
+        // answered NetworkFree.
+        //
+        // Making a key's cost immutable once declared is what makes the effective axis subsume
+        // the scanner axis unconditionally, rather than only for the construction order
+        // LibrarySections happens to use today.
+        var registry = new ScannerRegistry();
+        registry.Add("Solo", SectionCost.NetworkFree, _ => { });
+
+        var raise = Assert.Throws<InvalidOperationException>(
+            () => registry.Add("Solo", SectionCost.Unbounded, _ => { }));
+        Assert.Contains("already registered", raise.Message, StringComparison.Ordinal);
+
+        // The same key cannot be laundered through a bundle either, in either direction.
+        Assert.Throws<InvalidOperationException>(() => registry.AddBundle("Solo", "Other"));
+
+        registry.AddBundle("Bundle", "Solo");
+        Assert.Throws<InvalidOperationException>(
+            () => registry.Add("Bundle", SectionCost.NetworkFree, _ => { }));
+
+        // The cost that was declared first is the cost that stands.
+        Assert.Equal(SectionCost.NetworkFree, registry.CostOf("Solo"));
+    }
+
+    [Fact]
     public void SectionCost_OrdersFromCheapestToMostExpensive()
     {
         // Raised by GPT review of #3626. The raise-only logic and CostOf both compare tiers with

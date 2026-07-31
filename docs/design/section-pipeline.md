@@ -99,7 +99,9 @@ Note that `@Performance` is **not** a generic door. The tabular and JSONL group 
 
 A section's effective cost has two inputs: the cost of its scanner, and any cost the descriptor declares itself. The raise is one-way, so **the descriptor axis can move a section off the ladder without the scanner axis changing at all**. A gate that reads `registry.CostOf(section.ScannerKey)` therefore checks only half the mechanism.
 
-`SectionPipeline.SectionCosts` exposes the effective per-entry cost — the value `IsCuratedAutoRendered` consults — so `LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily` can pin the decision input rather than one of its sources. It asserts the effective axis (which subsumes the scanner axis, because a scanner raise always raises the entry) and the scanner axis separately, so a failure names which declaration moved.
+`SectionPipeline.SectionCosts` exposes the effective per-entry cost — the value `IsCuratedAutoRendered` consults — so `LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily` can pin the decision input rather than one of its sources. It asserts the effective axis and the scanner axis separately, so a failure names which declaration moved.
+
+The effective axis subsumes the scanner axis because a scanner raise always raises the entry — but that holds only because a scanner key's cost is **immutable once declared**. `SectionPipeline.Add` snapshots the cost when the section is registered, so a registry that allowed re-registration could raise a key's cost after entries were already bound to it, leaving the pipeline auto-rendering at a stale cheap cost while `CostOf` reported the truth. `ScannerRegistry.Add` and `AddBundle` therefore reject a key that is already registered, which is what makes the subsumption unconditional rather than an accident of the order `LibrarySections` happens to build in.
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
