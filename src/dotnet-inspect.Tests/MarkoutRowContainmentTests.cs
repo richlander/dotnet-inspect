@@ -56,8 +56,8 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 350 members
-/// across 85 types, where the estimate had been "roughly 290."</para>
+/// are the residual tracked by issue #3463 -- which this measures at 359 members
+/// across 86 types, where the estimate had been "roughly 290."</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
 /// column cannot leave the self-containing set without failing here, which is
@@ -428,6 +428,16 @@ public class MarkoutRowContainmentTests
         "TypeExceptionRegionRow.HandlerRange",
         "TypeExceptionRegionRow.Member",
         "TypeExceptionRegionRow.TryRange",
+        "TypeInfoSection.Assembly",
+        "TypeInfoSection.BaseType",
+        "TypeInfoSection.Kind",
+        "TypeInfoSection.Modifiers",
+        "TypeInfoSection.Package",
+        "TypeInfoSection.Source",
+        "TypeInfoSection.Tfm",
+        "TypeInfoSection.Type",
+        "TypeInfoSection.TypeParameters",
+        "TypeInfoSection.Version",
         "TypeParameterRow.Constraints",
         "TypeParameterRow.Parameter",
         "TypeShapeView.Assembly",
