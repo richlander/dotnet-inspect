@@ -1547,6 +1547,9 @@ public partial class CommandExecutionTests
         // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
         // for free; a dedicated flag has to be copied deliberately, and omitting it silently
         // downgrades the shim from the bare-select preset to the default tree view.
+        //
+        // The shim rebuilds a TypeOptions, so it renders whatever `type` renders for bare -S: that
+        // is now the fixed overview. What this test pins is that the flag survives the copy at all.
         var options = new ApiOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -1558,7 +1561,7 @@ public partial class CommandExecutionTests
             () => ApiCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Method Groups", output, StringComparison.Ordinal);
+        Assert.Contains("## Type Info", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3185,6 +3188,104 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Type Parameters | T |", output);
     }
+
+    /// <summary>
+    /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
+    /// depend on which type is being viewed. It used to render the Info set - the per-kind member
+    /// tables - so its size tracked the type, from one section for an enum to seven for
+    /// System.String. Type Info is the only Fixed, network-free section on this pipeline.
+    /// </summary>
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("System.DayOfWeek")]
+    [InlineData("System.Int32")]
+    [InlineData("System.Span`1")]
+    [InlineData("System.Exception")]
+    public async Task Type_BareSelect_RendersOnlyTheFixedOverview(string typeName)
+    {
+        var (exit, output, _) = await RunAppAsync("type", typeName, "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var sections = SectionHeadings(output);
+        Assert.Equal([SectionNames.TypeInfo], sections);
+    }
+
+    /// <summary>
+    /// The point of the fixed overview is that its size is a property of the command, not of the
+    /// target. A 250-member class and an 8-member enum must produce the same section set, and
+    /// neither may run long. Before this, System.String rendered 125 lines and System.DayOfWeek 13.
+    /// </summary>
+    [Fact]
+    public async Task Type_BareSelect_DoesNotGrowWithTheType()
+    {
+        var (largeExit, large, _) = await RunAppAsync("type", "System.String", "-S", "--tips", "q");
+        var (smallExit, small, _) = await RunAppAsync("type", "System.DayOfWeek", "-S", "--tips", "q");
+
+        Assert.Equal(0, largeExit);
+        Assert.Equal(0, smallExit);
+        Assert.Equal(SectionHeadings(large), SectionHeadings(small));
+
+        // Bounded in rows, not merely in section count: Type Info emits at most one row per
+        // declared property, so the whole overview stays within a small constant.
+        int largeRows = large.Split('\n').Count(line => line.TrimStart().StartsWith('|'));
+        Assert.InRange(largeRows, 1, DeclaredTypeInfoLabels().Count + 2);
+    }
+
+    /// <summary>
+    /// Explicit selection still wins over the bare marker, and still reaches sections that are not
+    /// in the fixed overview.
+    /// </summary>
+    [Fact]
+    public async Task Type_ExplicitSelect_StillReachesGrowingSections()
+    {
+        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(["Fields"], SectionHeadings(output));
+    }
+
+    /// <summary>
+    /// Type listing has no Fixed section - every section it offers is a per-kind member table that
+    /// grows with the assembly - so bare <c>-S</c> there keeps rendering the Info set. This pins the
+    /// boundary of the change rather than leaving it to inference.
+    /// </summary>
+    [Fact]
+    public async Task Type_Listing_BareSelect_KeepsTheInfoSet()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Private.CoreLib", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var sections = SectionHeadings(output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.Contains("Classes", sections);
+    }
+
+    [Fact]
+    public async Task Member_BareSelect_KeepsTheInfoSet()
+    {
+        // `type` and `member` share ApiCommand's preamble and both run in singleTypeMode, so the
+        // fixed overview is scoped by the options record rather than by that flag. This is the
+        // negative case for that discriminator: `member` is a separate command with its own
+        // overview and converts on its own PR, so it must not pick up Type Info here. See #3547.
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var sections = SectionHeadings(output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.NotEmpty(sections);
+    }
+
+    private static List<string> SectionHeadings(string output) =>
+        [.. output.Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..].Trim())];
 
     private static List<string> ParseFirstColumn(string output, string headerLabel)
     {

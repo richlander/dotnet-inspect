@@ -106,11 +106,26 @@ public class ApiCommand
                 projection: options));
         }
 
+        // Bare -S renders the fixed overview: the sections whose length does not depend on which
+        // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
+        // same shape for a 250-member class and an 8-member enum, where the member sections it used
+        // to render varied from one section to eight.
+        //
+        // Two neighbours deliberately keep the Info set. Type listing has no Fixed section to offer
+        // - every section it publishes is a per-kind member table that grows with the assembly. And
+        // `member` shares this preamble but is a different command with its own overview (decompiled
+        // source, signature, learn order), so it is converted on its own. See #3547.
+        var bareSelectSections = !singleTypeMode
+            ? typePipeline.InfoSectionNames
+            : options is TypeOptions
+                ? memberPipeline.FixedOverviewSectionNames
+                : memberPipeline.InfoSectionNames;
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select,
             knownSections,
-            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
+            bareSelectSections,
             singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))

@@ -230,6 +230,27 @@ public sealed class SectionPipeline<TModel>
     /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
 
+    /// <summary>
+    /// The bare <c>-S</c> overview, in registration order: sections whose row set does not grow
+    /// with the target and that touch no network.
+    /// </summary>
+    /// <remarks>
+    /// Curated pipelines reach this membership through the <c>fixedOverview</c> flag, which
+    /// <see cref="IsRequested"/> evaluates in place. Pipelines that are not curated cannot, because
+    /// their verbosity ladder is positional and the sections kept out of their default view are
+    /// marked <see cref="ISectionDescriptor{TModel}.ExplicitOnly"/> - which <see cref="IsRequested"/>
+    /// honours before it considers the overview at all. Those commands resolve bare <c>-S</c> to an
+    /// explicit section set instead, and take it from here so both routes share one definition of
+    /// what "fixed overview" means.
+    /// </remarks>
+    public string[] FixedOverviewSectionNames => _entries
+        .Where(e => IsSelectable(e) && IsFixedOverviewMember(e))
+        .Select(e => e.Name)
+        .ToArray();
+
+    private static bool IsFixedOverviewMember(SectionEntry<TModel> entry)
+        => entry.SizeClass == SectionSizeClass.Fixed && entry.Cost == SectionCost.NetworkFree;
+
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
@@ -657,8 +678,7 @@ public sealed class SectionPipeline<TModel>
         // every package: structurally Fixed sections that touch no network. This is deliberately
         // narrower than the -v:n ladder (which also admits package-growing Terse/Informative rows).
         if (fixedOverview && _curatedCatalog)
-            return entry.SizeClass == SectionSizeClass.Fixed
-                && entry.Cost == SectionCost.NetworkFree;
+            return IsFixedOverviewMember(entry);
 
         // Curated catalog: the verbosity ladder is driven by declared size class + cost, not
         // section position. Everything else (@All/@Hidden, catalog listing) is computed from these.
