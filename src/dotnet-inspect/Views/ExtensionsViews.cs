@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -38,7 +39,32 @@ public class ExtensionsResultView
 }
 
 [MarkoutSerializable]
-public record ExtensionCountRow(string Type, string Extensions, string Via);
+public record ExtensionCountRow(string Type, string Extensions, string Via)
+{
+    public string Type { get; init; } = CSharpIdentifier.ContainRenderedText(Type);
+    public string Extensions { get; init; } = Extensions;
+    public string Via { get; init; } = CSharpIdentifier.ContainRenderedText(Via);
+}
 
 [MarkoutSerializable]
-public record ExtensionRow(string Name, int Overloads, string Kind, string Class, string Library, string Source, string Type, string Via);
+public record ExtensionRow(
+    string Name,
+    int Overloads,
+    string Kind,
+    string Class,
+    string Library,
+    string Source,
+    string Type,
+    string Via)
+{
+    // Redeclared in full, in constructor order; a partial redeclaration would
+    // reorder the rendered columns and the serialized keys.
+    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
+    public int Overloads { get; init; } = Overloads;
+    public string Kind { get; init; } = Kind;
+    public string Class { get; init; } = CSharpIdentifier.ContainRenderedText(Class);
+    public string Library { get; init; } = CSharpIdentifier.ContainRenderedText(Library);
+    public string Source { get; init; } = CSharpIdentifier.ContainRenderedText(Source);
+    public string Type { get; init; } = CSharpIdentifier.ContainRenderedText(Type);
+    public string Via { get; init; } = CSharpIdentifier.ContainRenderedText(Via);
+}

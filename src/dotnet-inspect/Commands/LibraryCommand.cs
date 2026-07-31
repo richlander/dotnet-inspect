@@ -28,7 +28,53 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class LibraryCommand
 {
+    /// <summary>
+    /// Discovery must know which metadata tables carry rows, or the whole <c>@Metadata</c> category
+    /// filters out of the catalog: its sections are explicit-only, so no verbosity requests them,
+    /// and their applicability is the scanned row count. The scan is deliberately the cheap half of
+    /// the lens — table row counts, never rows — so listing the category accurately costs a header
+    /// read rather than a projection.
+    ///
+    /// Passed into <see cref="SectionPipeline.GetRequiredScanners"/> rather than added to its result,
+    /// so the one method that computes the requested set is also the one that records it.
+    /// </summary>
+    private static readonly (string Reason, string Scanner)[] DiscoveryScanners =
+        [("discovery catalog", LibrarySections.ScannerMetadata)];
+
     public static async Task<int> ExecuteAsync(LibraryOptions options)
+    {
+        if (!options.Trace)
+            return await ExecuteCoreAsync(options, trace: null);
+
+        // Rendered in a finally so a failed run still reports the work it did before failing —
+        // which is exactly when "what did this actually scan?" is worth knowing.
+        var trace = new InspectionTrace
+        {
+            Command = "library",
+            Target = Path.GetFileName(
+                options.AssemblyName
+                    ?? options.PackagePath
+                    ?? options.PlatformAssembly
+                    ?? string.Empty),
+        };
+
+        try
+        {
+            return await ExecuteCoreAsync(options, trace);
+        }
+        finally
+        {
+            // The trace interpolates untrusted text -- Target is argv, and resource details
+            // name paths and package entries -- so it goes to the stream the way every other
+            // stderr line does. Contained per line rather than per field: deciding which trace
+            // fields are untrusted is the enumeration issue #3319 abandoned, and a field added
+            // later would silently miss it.
+            foreach (var line in trace.RenderLines())
+                CommandError.WriteLine(line);
+        }
+    }
+
+    private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
         var pipeline = LibrarySections.CreatePipeline();
@@ -48,7 +94,7 @@ public class LibraryCommand
         var aliasNormalized = NormalizeMetadataTableAliases(options);
         if (aliasNormalized.Error is not null)
         {
-            Console.Error.WriteLine(aliasNormalized.Error);
+            CommandError.Write(aliasNormalized.Error);
             return 1;
         }
         options = aliasNormalized.Options;
@@ -103,7 +149,7 @@ public class LibraryCommand
         var normalized = NormalizeILOffsetSelection(options);
         if (normalized.Error is not null)
         {
-            Console.Error.WriteLine(normalized.Error);
+            CommandError.Write(normalized.Error);
             return 1;
         }
         options = normalized.Options;
@@ -111,7 +157,7 @@ public class LibraryCommand
         var heapNormalized = NormalizeHeapSelection(options);
         if (heapNormalized.Error is not null)
         {
-            Console.Error.WriteLine(heapNormalized.Error);
+            CommandError.Write(heapNormalized.Error);
             return 1;
         }
         options = heapNormalized.Options;
@@ -138,7 +184,7 @@ public class LibraryCommand
                 }
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine("Error: IL coordinate sections require --il-offset <token>+<offset>.");
+                    CommandError.Write("IL coordinate sections require --il-offset <token>+<offset>.");
                     return 1;
                 }
             }
@@ -156,7 +202,7 @@ public class LibraryCommand
                 }
                 else if (options.Discover == null)
                 {
-                    Console.Error.WriteLine($"Error: \"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    CommandError.Write($"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
                     return 1;
                 }
             }
@@ -168,7 +214,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Contains(MetadataSectionNames.Heap))
         {
-            Console.Error.WriteLine($"Error: --heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
+            CommandError.Write($"--heap requires the heap coordinate section. Omit -S or include -S \"{MetadataSectionNames.Heap}\".");
             return 1;
         }
 
@@ -176,14 +222,14 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine($"Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
+            CommandError.Write($"--il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
         if (!string.IsNullOrWhiteSpace(options.ILOffsetParameter)
             && !string.IsNullOrWhiteSpace(options.ILOffsetsPath))
         {
-            Console.Error.WriteLine("Error: --il-offset cannot be combined with --il-offsets.");
+            CommandError.Write("--il-offset cannot be combined with --il-offsets.");
             return 1;
         }
 
@@ -199,14 +245,14 @@ public class LibraryCommand
 
         if (options.Count && options.Print)
         {
-            Console.Error.WriteLine("Error: --count cannot be combined with --print.");
+            CommandError.Write("--count cannot be combined with --print.");
             return 1;
         }
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
-            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            CommandError.Write("specify only one of --value, --urls, or --paths.");
             return 1;
         }
 
@@ -219,25 +265,25 @@ public class LibraryCommand
                 return 1;
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
 
         if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
             return 1;
         }
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
             return 1;
         }
 
@@ -246,13 +292,13 @@ public class LibraryCommand
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return 1;
         }
 
         if (options.ProjectionRow is not null && !options.Print && shapeCount == 0)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return 1;
         }
 
@@ -276,24 +322,19 @@ public class LibraryCommand
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
         // Compute which scanners are needed for the requested sections
+        if (trace is not null)
+            trace.Verbosity = options.Verbosity.ToString();
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview);
-
-        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
-        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
-        // them, and their applicability is the scanned row count. The scan is deliberately the
-        // cheap half of the lens -- table row counts, never rows -- so listing the category
-        // accurately costs a header read rather than a projection.
-        if (effectiveDiscovery)
-            scanners.Add(LibrarySections.ScannerMetadata);
+            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
+            effectiveDiscovery ? DiscoveryScanners : null);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
             string.IsNullOrEmpty(options.PackagePath) &&
             string.IsNullOrEmpty(options.PlatformAssembly))
         {
-            Console.Error.WriteLine("Error: Library path, package name, or --platform required.");
-            Console.Error.WriteLine("Run 'dotnet-inspect library --help' for usage.");
+            CommandError.Write("Library path, package name, or --platform required.");
+            CommandError.WriteLine("Run 'dotnet-inspect library --help' for usage.");
             return 1;
         }
 
@@ -323,7 +364,7 @@ public class LibraryCommand
 
                 if (error != null)
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return 1;
                 }
 
@@ -354,10 +395,10 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
+                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read library: {resolvedPath}");
+                    CommandError.Write($"Could not read library: {resolvedPath}");
                     return 1;
                 }
 
@@ -436,11 +477,11 @@ public class LibraryCommand
                 // Inspect all assemblies
                 var inspections = await CollectPackageInspectionsAsync(
                     assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery);
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
                 {
-                    Console.Error.WriteLine("Error: No libraries could be read from the package.");
+                    CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
 
@@ -483,7 +524,7 @@ public class LibraryCommand
                 // Load from filesystem
                 if (!File.Exists(assemblyPath))
                 {
-                    Console.Error.WriteLine($"Error: File not found: {assemblyPath}");
+                    CommandError.Write($"File not found: {assemblyPath}");
                     return 1;
                 }
 
@@ -508,10 +549,10 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery);
+                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
-                    Console.Error.WriteLine($"Error: Could not read library: {assemblyPath}");
+                    CommandError.Write($"Could not read library: {assemblyPath}");
                     return 1;
                 }
 
@@ -541,7 +582,7 @@ public class LibraryCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
         finally
@@ -577,13 +618,13 @@ public class LibraryCommand
     {
         if (!File.Exists(options.ILOffsetsPath))
         {
-            Console.Error.WriteLine($"Error: IL offsets file not found: {options.ILOffsetsPath}");
+            CommandError.Write($"IL offsets file not found: {options.ILOffsetsPath}");
             return 1;
         }
 
         if (!TryReadILCoordinates(options.ILOffsetsPath!, out var coordinates, out var readErrors, out var error))
         {
-            Console.Error.WriteLine(error);
+            CommandError.Write(error!);
             return 1;
         }
 
@@ -682,7 +723,7 @@ public class LibraryCommand
 
         if (coordinates.Count == 0 && readErrors.Count == 0)
         {
-            error = $"Error: {path} did not contain any IL coordinates.";
+            error = $"{path} did not contain any IL coordinates.";
             return false;
         }
 
@@ -796,7 +837,7 @@ public class LibraryCommand
         {
             var value = select[i].Trim();
             if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-                return (options, $"Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
+                return (options, $"IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -840,7 +881,7 @@ public class LibraryCommand
         if (select is { Length: > 0 }
             && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Top Leverage\").");
+            CommandError.Write("@Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Top Leverage\").");
             return true;
         }
 
@@ -864,10 +905,10 @@ public class LibraryCommand
         if (!selected.Any(MetadataSectionNames.IsMetadataSection))
             return false;
 
-        Console.Error.WriteLine(
-            $"Error: {SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
-            $"but this package resolved to {inspections.Count} assemblies.");
-        Console.Error.WriteLine("Select one assembly with --library <path> and retry.");
+        CommandError.Write(
+            $"{SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
+            $"but this package resolved to {inspections.Count} assemblies.",
+            "Select one assembly with --library <path> and retry.");
         return true;
     }
 
@@ -939,11 +980,11 @@ public class LibraryCommand
     {
         var (select, selectError) = ResolveTableAliases(options.Select);
         if (selectError is not null)
-            return (options, $"Error: {selectError}");
+            return (options, selectError);
 
         var (discover, discoverError) = ResolveTableAliases(options.Discover);
         if (discoverError is not null)
-            return (options, $"Error: {discoverError}");
+            return (options, discoverError);
 
         if (select is null && discover is null)
             return (options, null);
@@ -994,7 +1035,7 @@ public class LibraryCommand
             return (options, null);
 
         if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out _, out _, out string? error))
-            return (options, $"Error: invalid --heap value '{options.HeapParameter}': {error}");
+            return (options, $"invalid --heap value '{options.HeapParameter}': {error}");
 
         if (options.Discover != null || options.Select is { Length: > 0 })
             return (options, null);
@@ -1038,19 +1079,19 @@ public class LibraryCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error reading {name} heap at {address} in {path}: {ex.Message}");
-            Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {ex.Message}");
+            logger.LogWarning($"Error reading {name} heap at {address} in {path}: {ex.Message}");
+            CommandError.Write($"could not read {name} heap at {address}: {ex.Message}");
             return 1;
         }
 
         switch (value)
         {
             case null:
-                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {path} carries no metadata.");
+                CommandError.Write($"could not read {name} heap at {address}: {path} carries no metadata.");
                 return 1;
 
             case MetadataValue.Malformed malformed:
-                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {malformed.Detail}");
+                CommandError.Write($"could not read {name} heap at {address}: {malformed.Detail}");
                 return 1;
 
             default:
@@ -1104,7 +1145,7 @@ public class LibraryCommand
         if (sections is { Count: 1 } && sections.Contains(SectionNames.ILOffset))
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -1155,13 +1196,13 @@ public class LibraryCommand
             or SectionNames.CallsiteContext or SectionNames.ReturnAddressContext)
         {
             if (kind != ShapeProjectionKind.Value)
-                Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+                CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
         if (rows.Count == 0 && section is not (SectionNames.SourceLinkFiles or "Library Info") && section != SectionNames.ILOffset)
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
         if (rows.Count == 0 && section == "Library Info" && kind == ShapeProjectionKind.Value)
@@ -1182,13 +1223,13 @@ public class LibraryCommand
         };
         if (projection.Error is not null)
         {
-            Console.Error.WriteLine(projection.Error);
+            CommandError.Write(projection.Error);
             return 1;
         }
 
         if (projection.Documents.Count == 0 && section != SectionNames.ILOffset)
         {
-            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
 
@@ -1231,12 +1272,12 @@ public class LibraryCommand
     {
         if (result.Line is not { } line || line < 1)
         {
-            return (null, "Error: Source Location row has no source line to print.");
+            return (null, "Source Location row has no source line to print.");
         }
 
         if (string.IsNullOrWhiteSpace(result.Url))
         {
-            return (null, "Error: Source Location row has no printable source body. Use --urls or --paths to inspect available payloads.");
+            return (null, "Source Location row has no printable source body. Use --urls or --paths to inspect available payloads.");
         }
 
         var rawUrl = StripUrlFragment(GitHubUrlResolver.ConvertBlobToRawUrl(result.Url));
@@ -1244,7 +1285,7 @@ public class LibraryCommand
         var source = await fetcher.FetchSourceAsync(rawUrl);
         if (source is null)
         {
-            return (null, $"Error: Could not fetch SourceLink source for {rawUrl}.");
+            return (null, $"Could not fetch SourceLink source for {rawUrl}.");
         }
 
         return ReadLine(source.ReplaceLineEndings("\n").Split('\n'), line);
@@ -1255,7 +1296,7 @@ public class LibraryCommand
         var value = lines.Skip(line - 1).FirstOrDefault();
         if (value is null)
         {
-            return (null, $"Error: Source line {line} is out of range.");
+            return (null, $"Source line {line} is out of range.");
         }
 
         return (value, null);
@@ -1352,14 +1393,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine($"Error: --value for {SectionNames.MemberContext} requires --fields <name>.");
+            CommandError.Write($"--value for {SectionNames.MemberContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectMemberContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.MemberContext}.");
+            CommandError.Write($"field '{field}' has no value in {SectionNames.MemberContext}.");
             return [];
         }
 
@@ -1395,14 +1436,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine($"Error: --value for {SectionNames.InstructionContext} requires --fields <name>.");
+            CommandError.Write($"--value for {SectionNames.InstructionContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectInstructionContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.InstructionContext}.");
+            CommandError.Write($"field '{field}' has no value in {SectionNames.InstructionContext}.");
             return [];
         }
 
@@ -1439,7 +1480,7 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine($"Error: --value for {SectionNames.ExceptionContext} requires --fields <name>.");
+            CommandError.Write($"--value for {SectionNames.ExceptionContext} requires --fields <name>.");
             return [];
         }
 
@@ -1452,7 +1493,7 @@ public class LibraryCommand
         }
 
         if (projected.Count == 0)
-            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ExceptionContext}.");
+            CommandError.Write($"field '{field}' has no value in {SectionNames.ExceptionContext}.");
 
         return projected;
     }
@@ -1482,14 +1523,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine($"Error: --value for {SectionNames.CallsiteContext} requires --fields <name>.");
+            CommandError.Write($"--value for {SectionNames.CallsiteContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectCallsiteContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.CallsiteContext}.");
+            CommandError.Write($"field '{field}' has no value in {SectionNames.CallsiteContext}.");
             return [];
         }
 
@@ -1520,14 +1561,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine($"Error: --value for {SectionNames.ReturnAddressContext} requires --fields <name>.");
+            CommandError.Write($"--value for {SectionNames.ReturnAddressContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectReturnAddressContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ReturnAddressContext}.");
+            CommandError.Write($"field '{field}' has no value in {SectionNames.ReturnAddressContext}.");
             return [];
         }
 
@@ -1557,20 +1598,20 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Library Info requires --fields <name>.");
+            CommandError.Write("--value for Library Info requires --fields <name>.");
             return [];
         }
 
         var values = GetLibraryInfoValues(info);
         if (!values.TryGetValue(field, out var value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' was not found in Library Info.");
+            CommandError.Write($"field '{field}' was not found in Library Info.");
             return [];
         }
 
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Library Info.");
+            CommandError.Write($"field '{field}' has no value in Library Info.");
             return [];
         }
 
@@ -1858,8 +1899,8 @@ public class LibraryCommand
             .ToList() ?? [];
         foreach (var failure in relevantFailures)
         {
-            Console.Error.WriteLine(
-                $"Warning: {failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+            CommandError.WriteWarning(
+                $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
@@ -1869,8 +1910,8 @@ public class LibraryCommand
         if (unexplained.Count > 0 && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
-            Console.Error.WriteLine(
-                $"Note: {unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
+            CommandError.WriteNote(
+                $"{unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
         }
     }
 
@@ -1917,14 +1958,14 @@ public class LibraryCommand
         var extracted = session.ExtractResources(options.ExtractResources);
         if (extracted.Count == 0)
         {
-            Console.Error.WriteLine("No embedded resources found.");
+            CommandError.WriteLine("No embedded resources found.");
         }
         else
         {
-            Console.Error.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
+            CommandError.WriteLine($"Extracted {extracted.Count} resource(s) to {options.ExtractResources}");
             foreach (var path in extracted)
             {
-                Console.Error.WriteLine($"  {Path.GetFileName(path)}");
+                CommandError.WriteLine($"  {Path.GetFileName(path)}");
             }
         }
     }
@@ -1934,7 +1975,7 @@ public class LibraryCommand
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
-        bool discoveryOnly = false)
+        bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
 
@@ -1942,10 +1983,10 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly);
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly, trace: trace);
             if (inspection == null)
             {
-                logger.Log($"Warning: Could not read library: {Path.GetFileName(targetPath)}");
+                logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
                 continue;
             }
 
@@ -1980,7 +2021,7 @@ public class LibraryCommand
             httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
         if (!outcome.IsSuccess)
         {
-            Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+            CommandError.Write($"{outcome.ErrorMessage}");
             return null;
         }
         var resolution = outcome.Result!;
@@ -2000,7 +2041,7 @@ public class LibraryCommand
 
             if (payload.Error != null)
             {
-                Console.Error.WriteLine(payload.Error);
+                CommandError.Write(payload.Error);
                 DeleteTempDir(tempDir);
                 return null;
             }
@@ -2024,7 +2065,7 @@ public class LibraryCommand
             var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
             if (candidates.Count == 0)
             {
-                Console.Error.WriteLine("Error: No DLLs found in package.");
+                CommandError.Write("No DLLs found in package.");
                 DeleteTempDir(tempDir);
                 return null;
             }
@@ -2037,12 +2078,12 @@ public class LibraryCommand
             var tfmAssembly = TfmSelector.FindAssemblyByTfm(extractPath, tfm, resolution.PackageName);
             if (tfmAssembly == null)
             {
-                Console.Error.WriteLine($"Error: No library found for TFM '{tfm}'.");
-                Console.Error.WriteLine("Available TFMs:");
+                CommandError.Write($"No library found for TFM '{tfm}'.");
+                CommandError.WriteLine("Available TFMs:");
                 var tfms = TfmSelector.GetPackageTfms(allDlls, extractPath);
                 foreach (var t in tfms)
                 {
-                    Console.Error.WriteLine($"  {t}");
+                    CommandError.WriteLine($"  {t}");
                 }
                 DeleteTempDir(tempDir);
                 return null;
@@ -2057,7 +2098,7 @@ public class LibraryCommand
             var candidates = TfmSelector.GetPackageAssemblies(extractPath);
             if (candidates.Count == 0)
             {
-                Console.Error.WriteLine("Error: No DLLs found in package.");
+                CommandError.Write("No DLLs found in package.");
                 DeleteTempDir(tempDir);
                 return null;
             }
@@ -2076,8 +2117,8 @@ public class LibraryCommand
         var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
         if (matchedAssembly == null)
         {
-            Console.Error.WriteLine($"Error: Library '{assemblyName}' not found in package.");
-            Console.Error.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+            CommandError.Write($"Library '{assemblyName}' not found in package.");
+            CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
             DeleteTempDir(tempDir);
             return null;
         }
@@ -2104,7 +2145,7 @@ public class LibraryCommand
 
         var version = package.Version ?? GetNuspecVersion(package.ExtractPath);
         if (version == null)
-            return new(null, $"Error: Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
+            return new(null, $"Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
 
         var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
         var payloadOutcome = localPayload != null
@@ -2113,7 +2154,7 @@ public class LibraryCommand
                 httpClient, payloadId, logger.Log, sourceOptions: sourceOptions, version: version).ConfigureAwait(false);
 
         if (!payloadOutcome.IsSuccess)
-            return new(null, $"Error: Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
+            return new(null, $"Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
 
         var payload = payloadOutcome.Result!;
         var dlls = Directory.GetFiles(payload.ExtractPath, "*.dll", SearchOption.AllDirectories)
@@ -2122,7 +2163,7 @@ public class LibraryCommand
         if (dlls.Count == 0)
         {
             DeleteTempDir(payload.TempDir);
-            return new(null, $"Error: Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
+            return new(null, $"Tool payload package '{payload.PackageName}@{payload.Version}' does not contain inspectable .NET DLLs.");
         }
 
         logger.Log($"Tool package has no DLLs; inspecting payload package: {payload.PackageName} {payload.Version}");

@@ -31,6 +31,7 @@ public class SharedOptions
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
+    public Option<bool> Trace { get; } = new("--trace") { Description = "Report which sections were selected, which scanners ran and for how long, and which expensive resources were built, on stderr" };
     public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options
@@ -583,13 +584,13 @@ public class SharedOptions
 
         if (jsonFlag)
         {
-            Console.Error.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
+            CommandError.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
             throw new OperationCanceledException();
         }
 
         if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            CommandError.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

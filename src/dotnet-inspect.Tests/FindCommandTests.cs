@@ -50,7 +50,10 @@ public class FindCommandTests
         var view = FindOutputFormatter.BuildView(results);
         var fields = RenderFindTable(view, tsv: true, showHeader: false).TrimEnd().Split('\t');
 
-        Assert.Equal(["Line Break", "Ns  Value", "class", "Tab Lib", "runtime"], fields);
+        // "Ns Value", not "Ns  Value": containment (issue #3319) folds CRLF as a
+        // single line ending before the TSV normalizer sees it, where the
+        // normalizer alone would have replaced CR and LF with a space each.
+        Assert.Equal(["Line Break", "Ns Value", "class", "Tab Lib", "runtime"], fields);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -202,7 +203,24 @@ internal abstract record LibraryDependencyGraphResult
 {
     public sealed record Graph(string AssemblyName, List<AssemblyReferenceNode> References) : LibraryDependencyGraphResult;
     public sealed record Empty(string AssemblyName) : LibraryDependencyGraphResult;
-    public sealed record Error(string Message, string? HintInput = null) : LibraryDependencyGraphResult;
+    /// <summary>
+    /// A resolution failure whose message embeds the caller's subject.
+    /// </summary>
+    /// <remarks>
+    /// The subject is untrusted: an agent composes a <c>depends</c> invocation
+    /// from a type or package name it read out of metadata, so a name carrying
+    /// a bidi override or line separator reaches this message and then stderr.
+    /// Containment lives on the record rather than at each writer, so a new
+    /// call site cannot reopen it. <see cref="HintInput"/> stays raw: it is
+    /// matched against namespace prefixes, not rendered (issue #3319).
+    /// </remarks>
+    public sealed record Error(string Message, string? HintInput = null) : LibraryDependencyGraphResult
+    {
+        public string Message { get; init; } = CSharpIdentifier.ContainRenderedText(Message);
+
+        /// <inheritdoc cref="Error"/>
+        public string? HintInput { get; init; } = HintInput;
+    }
 }
 
 internal abstract record PackageDependencyGraphResult

@@ -27,6 +27,10 @@ static class ConsoleCapture
     {
         await _lock.WaitAsync();
         var origOut = Console.Out;
+        // Capturing the stream is the one thing that must reach past the
+        // stderr-ownership rule (#3319): the rule keeps the product from writing
+        // here, and this is the harness that reads what the product wrote.
+#pragma warning disable RS0030
         var origErr = Console.Error;
         using var outWriter = new StringWriter();
         using var errWriter = new StringWriter();
@@ -41,6 +45,7 @@ static class ConsoleCapture
         {
             Console.SetOut(origOut);
             Console.SetError(origErr);
+#pragma warning restore RS0030
             _lock.Release();
         }
     }

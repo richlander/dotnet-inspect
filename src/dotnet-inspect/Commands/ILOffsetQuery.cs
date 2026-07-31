@@ -2,6 +2,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -63,8 +64,14 @@ internal static class ILOffsetQuery
     {
         if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
         {
-            WriteError(writeErrors, $"Error: Invalid --il-offset value '{options.ILOffsetParameter}'.");
-            WriteError(writeErrors, "Expected format: 0x6000001+0x5 (method token + IL offset)");
+            // One diagnostic, not two: the hint is a continuation of the
+            // error, so CommandError indents it rather than prefixing it a
+            // second time. Containment belongs to that writer, so the value is
+            // interpolated raw here.
+            if (writeErrors)
+                CommandError.Write(
+                    $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
+                    "Expected format: 0x6000001+0x5 (method token + IL offset)");
             return (1, null);
         }
 
@@ -80,7 +87,7 @@ internal static class ILOffsetQuery
                 logger.Log);
 
             if (service.HasPdb && !service.HasSourceLink)
-                logger.Log("Warning: No SourceLink information found. URLs will not be available.");
+                logger.LogWarning("No SourceLink information found. URLs will not be available.");
         }
 
         var outcome = ResearchViews.ProjectILOffset(new ILOffsetProjectionRequest(
@@ -101,7 +108,7 @@ internal static class ILOffsetQuery
             }
             else
             {
-                WriteError(writeErrors, $"Error: {failure.Message}");
+                WriteError(writeErrors, $"{failure.Message}");
                 if (failure.Detail is { Length: > 0 } detail)
                     WriteError(writeErrors, detail);
             }
@@ -136,7 +143,7 @@ internal static class ILOffsetQuery
     static void WriteError(bool enabled, string message)
     {
         if (enabled)
-            Console.Error.WriteLine(message);
+            CommandError.Write(message);
     }
 
     static bool RequiresSourceLocation(LibraryOptions options)
@@ -197,17 +204,17 @@ internal static class ILOffsetQuery
 
     static void WritePdbWarning(PdbContext context)
     {
-        Console.Error.WriteLine();
+        CommandError.WriteBlankLine();
         if (context.WindowsPdbDetected)
         {
-            Console.Error.WriteLine("Error: PDB is Windows format (not supported).");
-            Console.Error.WriteLine("       Only Portable PDBs are supported.");
+            CommandError.Write("PDB is Windows format (not supported).");
+            CommandError.WriteLine("       Only Portable PDBs are supported.");
         }
         else
         {
-            Console.Error.WriteLine("Error: No readable PDB found.");
+            CommandError.Write("No readable PDB found.");
         }
-        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
-        Console.Error.WriteLine();
+        CommandError.WriteLine("       Use 'library <target> -S \"SourceLink: Availability\"' for full source reachability.");
+        CommandError.WriteBlankLine();
     }
 }

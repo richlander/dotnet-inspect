@@ -6493,3 +6493,38 @@ public sealed class DeclScopeClient
         }
     }
 }
+
+public sealed class DeclScopeLoopClient
+{
+    readonly DeclScopeOps _ops = new();
+
+    // The source declares the local inside the loop body and every use stays there,
+    // so the PDB scope and the IR agree and the declaration sinks to its store.
+    public int SumNarrow(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            DeclScopeResult step = _ops.Create("s", i);
+            total += step.Raw + step.Value.Length;
+        }
+        return total;
+    }
+
+    // Close negative for the same PDB evidence. The scope is again nested (the using
+    // block), but the first store sits inside one arm of the if while the read is
+    // after it, so sinking the declaration onto that store would not compile. The IR
+    // guard must decline and leave the hoisted declaration alone.
+    public string CreateBranched(string name, int timeout, bool flag)
+    {
+        using (DeclScopeGuard scope = new DeclScopeGuard())
+        {
+            DeclScopeResult response;
+            if (flag)
+                response = _ops.Create(name, timeout);
+            else
+                response = _ops.Create(name, timeout + 1);
+            return response.Value + response.Raw;
+        }
+    }
+}
