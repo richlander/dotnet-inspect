@@ -234,6 +234,69 @@ public class InertStringTests
     }
 
     [Fact]
+    public void EnsurePermitted_IsIdempotent()
+    {
+        // The input has to carry both a prior escape and a scalar the target policy refuses, or
+        // the repair path never runs and the test passes vacuously. Prose refuses the bidi
+        // override (so the value arrives already carrying a backslash escape) but permits the
+        // line feed (which Field then refuses, forcing the repair).
+        InertString origin = new InertString("a\u202Eb\nc", TextPolicy.Prose);
+        Assert.Contains(@"\u202E", origin.ToString(), StringComparison.Ordinal);
+        Assert.Contains('\n', origin.ToString());
+
+        InertString once = origin.EnsurePermitted(TextPolicy.Field);
+        InertString twice = once.EnsurePermitted(TextPolicy.Field);
+        InertString thrice = twice.EnsurePermitted(TextPolicy.Field);
+
+        // The repair must have fired, otherwise the assertions below prove nothing.
+        Assert.NotEqual(origin.ToString(), once.ToString());
+        Assert.Equal(once.ToString(), twice.ToString());
+        Assert.Equal(once.ToString(), thrice.ToString());
+
+        // Repair decodes before re-spelling, so the existing escape survives intact rather than
+        // having its backslash escaped again. Dropping the TryDecode step doubles it here.
+        Assert.Contains(@"\u202E", once.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\\u202E", once.ToString(), StringComparison.Ordinal);
+
+        // Pin the failure this guards against: the substitute a caller would otherwise reach for.
+        InertString viaToString = new InertString(origin.ToString(), TextPolicy.Field);
+        Assert.Contains(@"\\u202E", viaToString.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnsurePermitted_LeavesAStricterValueAloneWhenTheSinkIsLaxer()
+    {
+        // The one splice production actually performs: Field-encoded lines joined under Prose
+        // (FeedFailureTelemetry.DescribeFailure). Field's output satisfies Prose, so the repair
+        // must not fire -- if it did, every failure message would pay a decode/re-encode and the
+        // Field spellings would be undone into text Prose permits.
+        foreach (string source in new[] { "a\u202Eb", "x\ny", "p\u0007q", "\uD800lone" })
+        {
+            InertString strict = new InertString(source, TextPolicy.Field);
+            InertString spliced = strict.EnsurePermitted(TextPolicy.Prose);
+
+            Assert.Equal(strict.ToString(), spliced.ToString());
+            Assert.Equal(strict.Forms, spliced.Forms);
+        }
+    }
+
+    [Fact]
+    public void WasEncoded_DoesNotAnswerWhetherAPolicyIsSatisfied()
+    {
+        // WasEncoded reports what was done, not what is satisfied, and it is wrong in both
+        // directions. A sink that used it as a conformance check would admit the first value and
+        // needlessly repair the second.
+        InertString prose = new InertString("line1\nline2", TextPolicy.Prose);
+        Assert.False(prose.WasEncoded);
+        Assert.False(InertString.IsPermitted(prose.ToString(), TextPolicy.Field));
+
+        InertString field = new InertString("a\u202Eb", TextPolicy.Field);
+        Assert.True(field.WasEncoded);
+        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Field));
+        Assert.True(InertString.IsPermitted(field.ToString(), TextPolicy.Prose));
+    }
+
+    [Fact]
     public void Join_ReEncodesValuesThatThePolicyRefuses()
     {
         InertString[] values =
@@ -529,7 +592,7 @@ public class InertStringTests
     /// </summary>
     /// <remarks>
     /// Without this, the test above could be satisfied by deleting the decoder outright, which
-    /// would take invertibility with it -- and invertibility is what lets <c>Conform</c> repair
+    /// would take invertibility with it -- and invertibility is what lets <c>EnsurePermitted</c> repair
     /// a spliced value instead of rejecting it.
     /// </remarks>
     [Fact]
