@@ -2989,8 +2989,29 @@ public class ForwardedTypeAliasesTests
     /// All were real compiling call sites that the gate reported clean. So this counts every
     /// non-comment line mentioning the member and requires the set to be exactly the declaration:
     /// a call site is an extra line however it is spelled, with a receiver or without, on one line
-    /// or split across several, with or without space around the dot. All four evasions are
-    /// executed mutants against this version.</para>
+    /// or split across several, with or without space around the dot.</para>
+    ///
+    /// <para>Round 22 then evaded even that, and the evasion named the remaining principle. This
+    /// skipped a line whose trimmed form began <c>*</c>, meaning to skip block-comment
+    /// continuations; but <c>*</c> is an <em>operator</em>, so both reviewers independently made a
+    /// compiling call the continuation of a multiplication and the gate reported clean. The rule
+    /// that survives: only skip a prefix that <em>cannot begin a line of code</em>. <c>//</c>
+    /// qualifies — outside a string literal it comments out the rest of the physical line, so no
+    /// call can hide behind it. <c>*</c> never qualified. Block-comment continuations are therefore
+    /// no longer skipped, and a mention of this member inside a <c>/* */</c> block will fail this
+    /// test; that is the same deliberate loud direction taken for string literals below. All five
+    /// evasions are executed mutants against this version.</para>
+    ///
+    /// <para>The scan covers <c>src/</c> <em>and</em> <c>tools/</c>, because those are the two
+    /// areas holding projects that reference this assembly — round-22 review pointed out that
+    /// <c>tools/AnalysisHarness</c> could call the blind member entirely outside the old scan root.
+    /// The widening is non-vacuous: a call planted there is caught, executed. Paths are made
+    /// repository-relative <em>before</em> the <c>.Tests</c> and <c>obj</c>/<c>bin</c> filters, so a
+    /// checkout directory that happens to contain those words cannot silently empty the scan, and
+    /// segments are matched exactly rather than by substring. Results are sorted, so the assertion
+    /// does not depend on <c>Directory.EnumerateFiles</c> order — unspecified, and free to differ
+    /// between Windows and the Linux CI runner — if a second legitimate occurrence is ever
+    /// added.</para>
     ///
     /// <para>This gate is defence in depth, not the only line. Round-21 review demonstrated the
     /// misuse and reported that
@@ -3004,41 +3025,47 @@ public class ForwardedTypeAliasesTests
     /// direction is deliberate — it fails loudly and is trivially checked, where the alternative
     /// silently drops the code after a <c>//</c> that happened to sit inside a string. Non-vacuity
     /// is asserted directly: the declaration must be found, so a rename or a moved file fails here
-    /// instead of passing on an empty set.</para>
+    /// instead of passing on an empty set — round-22 review executed the moved-declaration case and
+    /// confirmed it fails.</para>
     /// </summary>
     [Fact]
     public void NoProductCodeUsesTheWithdrawalBlindMembershipTest()
     {
-        string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
+        string repositoryRoot = FindRepositoryRoot();
         const string Member = nameof(ForwardedTypeAliases.IncludesIgnoringWithdrawals);
 
-        var productSources = Directory
-            .EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(path => !path.Contains(".Tests", StringComparison.OrdinalIgnoreCase))
-            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+        string[] separators = [$"{Path.DirectorySeparatorChar}", $"{Path.AltDirectorySeparatorChar}"];
+
+        var productSources = new[] { "src", "tools" }
+            .Select(area => Path.Combine(repositoryRoot, area))
+            .SelectMany(root => Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .Where(relative => !relative.Contains(".Tests", StringComparison.OrdinalIgnoreCase))
+            .Where(relative => relative
+                .Split(separators, StringSplitOptions.None)
+                .All(segment => segment is not ("obj" or "bin")))
             .ToList();
 
         var occurrences = new List<string>();
-        foreach (string path in productSources)
+        foreach (string relative in productSources)
         {
-            foreach (string line in File.ReadAllLines(path))
+            foreach (string line in File.ReadAllLines(Path.Combine(repositoryRoot, relative)))
             {
                 string trimmed = line.Trim();
                 if (!trimmed.Contains(Member, StringComparison.Ordinal))
                     continue;
 
-                if (trimmed.StartsWith("//", StringComparison.Ordinal)
-                    || trimmed.StartsWith('*'))
-                {
+                if (trimmed.StartsWith("//", StringComparison.Ordinal))
                     continue;
-                }
 
-                occurrences.Add($"{Path.GetRelativePath(sourceRoot, path)}: {trimmed}");
+                occurrences.Add($"{relative}: {trimmed}");
             }
         }
 
+        occurrences.Sort(StringComparer.Ordinal);
+
         Assert.Equal(
-            [$"{Path.Combine("ILInspector.Analysis", "ForwardedTypeAliases.cs")}: "
+            [$"{Path.Combine("src", "ILInspector.Analysis", "ForwardedTypeAliases.cs")}: "
                 + $"public bool {Member}(string assembly) => _aliases.Contains(assembly);"],
             occurrences);
     }
