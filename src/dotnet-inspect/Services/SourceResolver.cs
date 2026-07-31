@@ -257,7 +257,7 @@ public static class SourceResolver
                 return new ResolvedSource(
                     packagePath, assemblyPath, platformAssembly, null, null,
                     VersionError: true,
-                    VersionErrorMessage: $"Error: '{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+                    VersionErrorMessage: $"'{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
             }
 
             if (args.Length == 1 && packagePath != null && typeName == null)
@@ -298,7 +298,7 @@ public static class SourceResolver
                         return new ResolvedSource(
                             packagePath, assemblyPath, platformAssembly, null, null,
                             VersionError: true,
-                            VersionErrorMessage: $"Error: '{displayName}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> \"{displayName}\"'.");
+                            VersionErrorMessage: $"'{displayName}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> \"{displayName}\"'.");
                     }
                 }
             }

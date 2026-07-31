@@ -76,6 +76,7 @@ public static class ApiMemberSectionDescriptors
     public static SectionPipeline<ApiType> CreatePipeline()
     {
         return new SectionPipeline<ApiType>()
+            .Add<TypeInfo>()
             .Add<Values>()
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
@@ -110,6 +111,33 @@ public static class ApiMemberSectionDescriptors
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
+
+    /// <summary>
+    /// Type identity fact table.
+    /// </summary>
+    /// <remarks>
+    /// The only section on this pipeline whose size does not grow with the type under inspection,
+    /// which is why it declares <see cref="SectionSizeClass.Fixed"/>. Every other section here
+    /// enumerates members, interfaces, type parameters, or IL, so all of them scale with the
+    /// target. <c>CanRender</c> is unconditional because the view always populates the section for
+    /// this pipeline; the member-detail and overload-inventory views use different pipelines that
+    /// do not register it.
+    /// <para>
+    /// <c>ExplicitOnly</c> keeps it off the verbosity ladder. This pipeline is not a curated
+    /// catalog, so its ladder still selects by position and <c>IsExpensive</c>; without the flag a
+    /// section at this position would join the default <c>-v:m</c> markdown view, where the same
+    /// facts already render as the inline identity line.
+    /// </para>
+    /// </remarks>
+    public sealed class TypeInfo : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.TypeInfo;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model) => true;
+    }
 
     public sealed class Values : ISectionDescriptor<ApiType>
     {

@@ -39,6 +39,16 @@ internal static class CSharpNaming
         => CSharpIdentifier.Sanitize(name);
 
     /// <summary>
+    /// <see cref="EscapeIdentifier"/> plus containment of a name carrying a line
+    /// terminator, which would otherwise break out of the rendered code fence
+    /// (issue #3319). Unlike <see cref="SafeIdentifier"/> this preserves an
+    /// unspellable-but-harmless name, keeping identity visible and leaving the
+    /// fidelity marker to report it.
+    /// </summary>
+    public static string ContainedIdentifier(string name)
+        => CSharpIdentifier.ContainIdentifier(name);
+
+    /// <summary>
     /// The emittable C# spelling of a call/method-group target name: the source
     /// name (a <c>&gt;g__</c> local function decodes to its source spelling; any
     /// other name is unchanged), routed through <see cref="SafeIdentifier"/> so a

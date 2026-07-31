@@ -760,6 +760,13 @@ contract V1 body — a regression beyond the documented `KnownDiffs` docket —
 when the product body comparison is unavailable, or when a `PinnedExact`
 method (a previously-fixed one) regresses. Shrinking `KnownDiffs` and growing
 `PinnedExact` is how fidelity progress ratchets forward and cannot slip back.
+That ratchet is two-directional: `DocketRowsStayCheckedDiffs` fails when a
+`KnownDiffs` row stops being a diff, whether because it was fixed (promote it to
+`PinnedExact`) or because its C# stopped recompiling (a regression the
+diff-set-shaped assert would otherwise swallow). The one tolerated non-diff state
+is an import below Full fidelity, which forms no opcode verdict at all; those rows
+must be named explicitly in `KnownNotFull`, so a row that *newly* drops to
+`NotFull` still fails as the validity regression it is.
 The **annotation gate** (`AnnotationGateTests`) holds annotation
 fidelity over the whole CoreLib corpus the same way — precision is absolute (a
 wrong fact always fails; it is never runtime drift), recall is held above a

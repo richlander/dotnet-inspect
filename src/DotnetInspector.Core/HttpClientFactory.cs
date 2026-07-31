@@ -53,6 +53,12 @@ public static class HttpClientFactory
     /// Enables logging for managed HTTP request observations. Requests are still
     /// allowed to proceed; use offline mode to block network access.
     /// </summary>
+    /// <param name="contain">
+    /// Applied to every composed line before it reaches the sink. Required, not
+    /// defaulted: the logged URL carries the package id from argv, so a line
+    /// terminator in it would forge an unindented stderr line, and a seam a caller
+    /// can omit is one a caller will omit.
+    /// </param>
     /// <param name="sink">
     /// Where to write the log. The default (<c>null</c>) binds <see cref="Console.Error"/>
     /// once, as a process-lifetime subscription kept in a static field. Pass an explicit
@@ -60,13 +66,18 @@ public static class HttpClientFactory
     /// unsubscribe. The sink is captured here, not read at publish time, so logging never
     /// follows a later <see cref="Console.Error"/> swap (issue #705).
     /// </param>
-    public static IDisposable EnableNetworkTrafficLogging(System.IO.TextWriter? sink = null)
+    public static IDisposable EnableNetworkTrafficLogging(
+        Func<string, string> contain, System.IO.TextWriter? sink = null)
     {
+        ArgumentNullException.ThrowIfNull(contain);
+
         if (sink is not null)
-            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink));
+            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink, contain));
 
         return _networkTrafficLoggingSubscription ??=
-            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error));
+#pragma warning disable RS0030 // An accounted stderr sink: NetworkTrafficLogConsumer applies `contain` to every line before writing it (issue #3319).
+            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error, contain));
+#pragma warning restore RS0030
     }
 
     /// <summary>

@@ -172,7 +172,7 @@ public sealed partial class CSharpPrinter
             var pointerMember = field.BackingPropertyName
                 ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
                 ?? field.Name;
-            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(pointerMember)}";
+            return $"{pointerReceiver}->{CSharpNaming.ContainedIdentifier(pointerMember)}";
         }
         // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
@@ -181,9 +181,9 @@ public sealed partial class CSharpPrinter
         if (field.BackingPropertyName is { } property)
             return instance switch
             {
-                null => $"{TypeQualifierText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
-                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
-                _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
+                null => $"{TypeQualifierText(field.DeclaringType)}.{CSharpNaming.ContainedIdentifier(property)}",
+                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.ContainedIdentifier(property)}",
+                _ => $"{ReceiverText(instance)}.{CSharpNaming.ContainedIdentifier(property)}",
             };
         // A C# 12 primary-constructor capture field, <param>P, has no spellable C#
         // name; its source spelling is the primary-constructor parameter, which is
@@ -192,7 +192,7 @@ public sealed partial class CSharpPrinter
         // parameter shadows it, so `this.` reaches the field).
         if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
         {
-            string captured = CSharpNaming.EscapeIdentifier(capture);
+            string captured = CSharpNaming.ContainedIdentifier(capture);
             return instance switch
             {
                 null => $"{TypeQualifierText(field.DeclaringType)}.{captured}",
@@ -266,7 +266,7 @@ public sealed partial class CSharpPrinter
         {
             if (indexArguments.Count > 0)
                 return $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
-            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
+            return $"{pointerReceiver}->{CSharpNaming.ContainedIdentifier(name)}";
         }
 
         bool thisQualifiedByKnob = false;
@@ -293,7 +293,7 @@ public sealed partial class CSharpPrinter
         // decision so an indexer never records one.
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
-        string escapedName = CSharpNaming.EscapeIdentifier(name);
+        string escapedName = CSharpNaming.ContainedIdentifier(name);
         // Same byte-preserving gate as the field and method sites: a property or
         // event declared on a base type (hidden or inherited) reached through this.
         // is not a self-type opt-in, so it must not record. A virtual inherited

@@ -1,18 +1,64 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using ILInspector.CSharp;
 
 namespace ILInspector.Metadata;
+
+/// <summary>
+/// Containment for XML documentation text.
+/// </summary>
+/// <remarks>
+/// Doc comments are read from an untrusted assembly's companion XML file, and
+/// their text is rendered into Markdown prose and table cells. A summary
+/// carrying a line terminator, ANSI escape, or bidi override breaks out of its
+/// cell and injects text that reads as genuine tool output (issue #3319). Doc
+/// text is prose only -- no consumer matches, keys, or compares it -- so unlike
+/// <see cref="ApiMember.Signature"/> it can be contained at the model rather
+/// than at each of its ~40 render sites.
+/// </remarks>
+internal static class DocText
+{
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+}
 
 /// <summary>
 /// Represents extracted documentation comments from source code.
 /// </summary>
 public class DocComment
 {
-    public string? Summary { get; set; }
-    public string? Remarks { get; set; }
+    /// <inheritdoc cref="DocText"/>
+    public string? Summary { get => field; set => field = DocText.Contain(value); }
 
+    /// <inheritdoc cref="DocText"/>
+    public string? Remarks { get => field; set => field = DocText.Contain(value); }
+
+    /// <summary>
+    /// Parameter documentation, keyed by parameter name.
+    /// </summary>
+    /// <remarks>
+    /// The key is deliberately left raw. It is a parameter name used to look
+    /// documentation up, not display text, and it is never rendered — this
+    /// dictionary is <see cref="JsonIgnoreAttribute"/>d and its only consumers
+    /// merge it. Containing the key was containment applied to identity, which
+    /// is the one thing #3319 must not do: containment folds line endings, so
+    /// two distinct <c>&lt;param name&gt;</c> values in an attacker-supplied XML
+    /// doc file collapsed to one key and <c>ToDictionary</c> threw, ending the
+    /// inspection with an error instead of output. The value is contained
+    /// because it is prose that may reach output.
+    /// </remarks>
     [JsonIgnore]
-    public Dictionary<string, string>? Parameters { get; set; }
-    public string? Returns { get; set; }
+    public Dictionary<string, string>? Parameters
+    {
+        get => field;
+        set => field = value is null
+            ? null
+            : value.ToDictionary(e => e.Key, e => DocText.Contain(e.Value));
+    }
+
+    /// <inheritdoc cref="DocText"/>
+    public string? Returns { get => field; set => field = DocText.Contain(value); }
 
     /// <summary>
     /// Sample code references extracted from doc comments.
@@ -183,7 +229,12 @@ public class TypeParameter
     /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
-    public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
+    /// <remarks>
+    /// This is presentation, not identity — <see cref="Name"/> stays raw — so the
+    /// untrusted metadata name is contained here (issue #3319).
+    /// </remarks>
+    public string DisplayName => CSharpIdentifierCore.ContainComposedName(
+        Variance != null ? $"{Variance} {Name}" : Name);
 
     /// <summary>
     /// Returns constraints as a comma-separated string, or null if none.
@@ -393,7 +444,18 @@ public class ApiMember
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
 
+    /// <summary>
+    /// Display spelling of the member's type. Deliberately raw: after a JSON
+    /// round-trip <see cref="SignatureModel"/> is absent, and
+    /// <c>ApiMemberIdentity.GetCanonicalSignature</c> falls back to parsing
+    /// <see cref="Signature"/> to rebuild canonical identity — so containing it
+    /// here would make a round-tripped member's identity diverge from the same
+    /// member read live (issue #3319, found in adversarial review). Containment
+    /// for these belongs at the rendering sites, never on the transfer object.
+    /// </summary>
     public string? ReturnType { get; set; }
+
+    /// <inheritdoc cref="ReturnType"/>
     public string? Signature { get; set; }
 
     /// <summary>

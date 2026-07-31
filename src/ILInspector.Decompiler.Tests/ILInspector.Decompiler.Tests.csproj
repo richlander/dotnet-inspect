@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+
+    <!-- This project compiles the DecompilerHarness sources directly, so it
+         inherits the harness's reporting and with it the harness exemption from
+         the stderr-ownership rule (#3319). It is outside the CLI's reference
+         closure, which StderrOwnershipTests pins. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
     <LangVersion>preview</LangVersion>
     <RootNamespace>ILInspector.Decompiler.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>

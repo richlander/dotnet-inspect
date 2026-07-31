@@ -41,7 +41,7 @@ public static class UtilityCommandDefinitions
             var clean = parseResult.GetValue(cleanOption);
             if (clean)
             {
-                Console.Error.WriteLine("hint: use 'dotnet-inspect cache clear' instead of --clean/--clear");
+                CommandError.WriteLine("hint: use 'dotnet-inspect cache clear' instead of --clean/--clear");
             }
 
             var verbosity = OptionParsers.ParseVerbosity(parseResult.GetValue(opts.Verbosity));
