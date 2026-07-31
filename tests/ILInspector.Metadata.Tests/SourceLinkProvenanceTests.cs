@@ -1624,6 +1624,15 @@ public class SourceLinkProvenanceTests
     /// and the components get-only is what closes that, so it is asserted rather than left as a
     /// declaration a later refactor could undo silently. <c>default</c> is exempt: every struct
     /// has it and it carries no text.
+    /// </para>
+    /// <para>
+    /// This claims exactly one thing: the ordinary language surface offers no way to build or
+    /// rewrite an origin from outside. It does not claim reflection cannot reach the backing
+    /// fields — it can, and no .NET type can prevent that; the same call rewrites
+    /// <see cref="Uri"/>'s private <c>_string</c> and makes <c>OriginalString</c> return a live
+    /// <c>U+2066</c>. Code in this process is on the trusted side of every boundary in
+    /// <c>docs/design/untrusted-data-threat-model.md</c>, which records why. The decay this
+    /// guards against is a contributor writing normal code, not an attacker running some.
     /// </remarks>
     [Fact]
     public void ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly()

@@ -44,6 +44,31 @@ process-created temporary directories are trusted roots; names appended beneath
 them are not trusted unless derived from a cryptographic key or validated
 component.
 
+**Code running in this process is trusted, and reflection is not an attack.**
+The untrusted input in every row above is *data* — an artifact, a feed
+response, a file. It is not a caller. So a control that a `BindingFlags.NonPublic`
+call can undo is not thereby broken, because a party who can execute arbitrary
+code in this process does not need to smuggle text through a type to reach a
+sink; it can write to the sink. This is not a self-serving line: no .NET type
+meets the other standard. Measured, the same technique that rewrites a private
+backing field on `SourceLinkOrigin` rewrites one on `System.Uri` —
+
+```text
+Uri backing field: _string
+Uri.OriginalString => https://example.com/<LRI>hostile
+```
+
+— making `OriginalString` return a live `U+2066` from a `Uri` constructed over
+inert text. `Uri` is the type the SourceLink origin readers rely on for
+canonicalization, so a rule that treats reflection as in scope would condemn the
+control and its substrate together and leave nothing constructible in its place.
+
+What *is* in scope is the ordinary language surface: a public constructor, a
+`with` expression, a settable property. Those are reachable by a future
+contributor writing normal code, which is how an invariant actually decays, and
+`SourceLinkProvenanceTests.ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly`
+is the gate for them. It deliberately does not claim more.
+
 ## Existing controls
 
 ### Assemblies are parsed, never loaded
