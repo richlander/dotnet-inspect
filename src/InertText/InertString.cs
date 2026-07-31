@@ -34,15 +34,34 @@ namespace InertText;
 /// </remarks>
 public readonly struct InertString : IEquatable<InertString>
 {
-    private readonly string? _text;
+    private readonly ReadOnlyMemory<char> _text;
 
     internal InertString(string text, VisualForm forms)
     {
-        _text = text;
+        // Deliberately a string, and it must stay one. ReadOnlyMemory<char> can also be taken
+        // over a char[], whose contents can change after the policy has approved them — a
+        // check-then-mutate hole in a type whose whole purpose is that the check already
+        // happened. Wrapping an immutable string is what makes the memory trustworthy.
+        _text = text.AsMemory();
         Forms = forms;
     }
 
     /// <summary>The empty value, which trivially satisfies the invariant.</summary>
+    /// <remarks>
+    /// This is the zero value, and that is not a coincidence to be papered over. A struct
+    /// cannot suppress <c>default</c>, so an <see cref="InertString"/> that no policy ever
+    /// produced is always reachable. It is harmless because empty text satisfies every policy
+    /// <em>vacuously</em> — there is no scalar for a policy to refuse — so the sound thing is
+    /// for the zero value to <em>be</em> the empty value rather than a state each member has to
+    /// remember to translate.
+    ///
+    /// Holding the text as <see cref="ReadOnlyMemory{T}"/> is what buys that. Its own zero
+    /// value is already empty, so no member coalesces a <see langword="null"/> and none can
+    /// forget to. A nullable <see cref="string"/> field needs that translation spelled at every
+    /// read, and spelling it four times is what let equality disagree with
+    /// <see cref="IsEmpty"/>, <see cref="ToString"/> and <see cref="GetHashCode"/> about
+    /// whether this and <c>Encode("")</c> are the same value.
+    /// </remarks>
     public static InertString Empty => default;
 
     /// <summary>The spellings <see cref="VisualEncoder"/> emitted while producing this value.</summary>
@@ -54,13 +73,17 @@ public readonly struct InertString : IEquatable<InertString>
     public VisualForm Forms { get; }
 
     /// <summary>Whether this value carries no text.</summary>
-    public bool IsEmpty => string.IsNullOrEmpty(_text);
+    public bool IsEmpty => _text.IsEmpty;
 
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     public bool WasEncoded => Forms != VisualForm.None;
 
     /// <summary>The encoded text.</summary>
-    public override string ToString() => _text ?? string.Empty;
+    /// <remarks>
+    /// Free for a value this library produced: the memory always covers a whole string, and
+    /// <see cref="ReadOnlyMemory{T}"/> returns that instance rather than copying.
+    /// </remarks>
+    public override string ToString() => _text.ToString();
 
     /// <summary>
     /// Encodes <paramref name="value"/> under <paramref name="permits"/>.
@@ -181,16 +204,20 @@ public readonly struct InertString : IEquatable<InertString>
     }
 
     /// <inheritdoc/>
-    public bool Equals(InertString other)
-        // Compared through ToString so that Empty and Encode("") agree, since IsEmpty,
-        // ToString and GetHashCode already treat them as the same value.
-        => string.Equals(ToString(), other.ToString(), StringComparison.Ordinal);
+    /// <remarks>
+    /// Compared by content, deliberately not through <see cref="ReadOnlyMemory{T}.Equals(object)"/>,
+    /// which compares the <em>backing instance</em>: it answers <see langword="false"/> for two
+    /// distinct strings holding identical text, and for the zero value against
+    /// <c>"".AsMemory()</c>. Writing it that way looks entirely reasonable and would survive
+    /// any test that compares a value to itself or leans on literal interning.
+    /// </remarks>
+    public bool Equals(InertString other) => _text.Span.SequenceEqual(other._text.Span);
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is InertString other && Equals(other);
 
     /// <inheritdoc/>
-    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(ToString());
+    public override int GetHashCode() => string.GetHashCode(_text.Span, StringComparison.Ordinal);
 
     /// <summary>Compares two values by their encoded text.</summary>
     public static bool operator ==(InertString left, InertString right) => left.Equals(right);

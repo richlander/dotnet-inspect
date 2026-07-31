@@ -316,4 +316,67 @@ public class InertStringTests
         Assert.Equal(once, twice);
         Assert.Equal(once.Forms, twice.Forms);
     }
+
+    [Fact]
+    public void ZeroValue_IsIndistinguishableFromAnEncodedEmptyStringAcrossTheWholeSurface()
+    {
+        InertString zero = default;
+        InertString encoded = InertString.Encode("", TextPolicy.Field);
+
+        // Enumerated rather than spot-checked. The reviewed defect was exactly one member --
+        // equality -- disagreeing with the other three about whether these are the same value,
+        // so the bug class is "some member treats the zero value specially" and a hand-written
+        // list of members is the same gate that already failed to catch it once.
+        MethodInfo[] surface = typeof(InertString)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetParameters().Length == 0 && m.ReturnType != typeof(void))
+            .ToArray();
+
+        Assert.NotEmpty(surface);
+        foreach (MethodInfo member in surface)
+        {
+            Assert.Equal(
+                Describe(member.Invoke(zero, null)),
+                Describe(member.Invoke(encoded, null)));
+        }
+
+        Assert.True(zero.Equals(encoded));
+        Assert.True(zero == encoded);
+        Assert.False(zero != encoded);
+
+        static string Describe(object? value) => value switch
+        {
+            null => "<null>",
+            IEnumerable<string> lines => string.Join("|", lines),
+            _ => value.ToString() ?? "<null>",
+        };
+    }
+
+    [Fact]
+    public void ToString_DoesNotCopyForAValueThisLibraryProduced()
+    {
+        InertString value = InertString.Encode("nothing to encode", TextPolicy.Field);
+
+        // The memory covers a whole string, so ToString hands that instance back. If a future
+        // change slices the memory this silently becomes an allocation on every sink write.
+        Assert.Same(value.ToString(), value.ToString());
+    }
+
+    [Fact]
+    public void Equality_ComparesTextRatherThanTheBackingInstance()
+    {
+        // The representation holds a ReadOnlyMemory<char>, whose own Equals compares the
+        // backing object by reference. Delegating to it would be the obvious simplification
+        // and would answer False here, where the text is identical and the instances are not.
+        string one = "a\u202Eb";
+        string other = string.Concat("a\u202E", "b");
+        Assert.False(ReferenceEquals(one, other));
+
+        InertString left = InertString.Encode(one, TextPolicy.Field);
+        InertString right = InertString.Encode(other, TextPolicy.Field);
+
+        Assert.Equal(left, right);
+        Assert.True(left == right);
+        Assert.Equal(left.GetHashCode(), right.GetHashCode());
+    }
 }
