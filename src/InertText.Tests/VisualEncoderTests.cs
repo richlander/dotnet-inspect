@@ -399,10 +399,31 @@ public class VisualEncoderTests
     [Theory]
     [InlineData(@"\u00ad", "lowercase BMP hex; AppendBmpHex emits X4, never x4")]
     [InlineData(@"\U0001f600", "lowercase astral hex; AppendSpelling emits X8")]
-    [InlineData(@"\uD83D\uDE00", "a surrogate pair as two escapes; the scalar spells as \\U0001F600")]
     public void Decode_RefusesANonCanonicalSpelling(string encoded, string why)
     {
         Assert.False(VisualEncoder.TryDecode(encoded, out _), why);
+    }
+
+    /// <summary>
+    /// A surrogate pair spelled as two escapes decodes to the astral scalar rather than being
+    /// refused as a non-canonical spelling of it.
+    /// </summary>
+    /// <remarks>
+    /// This spelling was refused when the rule above was written, on the reasoning that
+    /// <c>\U0001F600</c> is the canonical form and a second one costs injectivity. The premise
+    /// does not hold: a .NET string is UTF-16, so <c>"\uD83D" + "\uDE00"</c> <em>is</em>
+    /// <c>"\U0001F600"</c>, and no string exists that the refused spelling could denote instead.
+    /// Refusing it therefore rejected an input rather than disambiguating two.
+    ///
+    /// It also broke composition, which is what
+    /// <c>Compose_OfTwoLoneSurrogates_RepairsToTheSameValueAsEncodingThePairDirectly</c> covers:
+    /// the halves arrive from separate fragments, each encoded alone.
+    /// </remarks>
+    [Fact]
+    public void Decode_AcceptsASurrogatePairSpelledAsTwoEscapes()
+    {
+        Assert.True(VisualEncoder.TryDecode(@"\uD83D\uDE00", out string? decoded));
+        Assert.Equal("\U0001F600", decoded);
     }
 
     /// <summary>

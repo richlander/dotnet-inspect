@@ -338,8 +338,13 @@ public readonly struct InertString : IEquatable<InertString>
             return this;
         }
 
-        // Falling back to the encoded text when decoding fails cannot happen for a value this
-        // library produced; it is here so the failure mode is over-encoding rather than a leak.
+        // Decoding cannot fail for a value this library produced: every spelling Encode emits is
+        // one TryDecode accepts, including the pair of adjacent surrogate escapes that Join and
+        // the interpolation handler produce when each half was encoded in a separate fragment.
+        // A gate test composes such a value and asserts it still decodes, because when that
+        // stopped holding the fallback silently re-encoded the escapes as literal text and two
+        // unrelated inputs converged. The fallback remains so the failure mode is over-encoding
+        // rather than a leak, but it is unreachable, not load-bearing.
         string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
         return VisualEncoder.Encode(policy, original);
     }
