@@ -726,8 +726,24 @@ public sealed class ForwardedTypeAliases
 
         EvidenceIdentity? targetIdentity = null;
 
+        // The file the target's identity came from. It is the one file that cannot be evidence
+        // against itself: the caller's whole query asserts the type is defined there, so a probe
+        // that fails to see it is a limit of the probe, not a contradiction. Left null when the
+        // identity is unknown, in which case the silence rule declines outright anyway.
+        //
+        // Ordinal, and a path rather than an identity, because the target and the attack are
+        // indistinguishable by identity — a second file claiming the target's name, token and
+        // culture at a DIFFERENT version is exactly the shape being caught, so only the path
+        // separates them. Ordinal is exactly right on a case-sensitive volume, where two spellings
+        // are two files. On a case-insensitive one a differently-cased spelling of the target path
+        // would fail to match and the target would refute itself — a DROP, the safe direction here,
+        // and not reachable through the CLI, which canonicalizes path casing before this point.
+        string? targetPath = null;
+
         if (targetAssemblyPath is not null)
         {
+            targetPath = Normalize(targetAssemblyPath);
+
             // An explicitly supplied target is authoritative, including when it cannot be read.
             // Falling through to the census then meant that LOSING the authoritative identity
             // STRENGTHENED the result, admitting a rival the readable path refuses — information
@@ -742,20 +758,8 @@ public sealed class ForwardedTypeAliases
             && targetClaimants.Count == 1)
         {
             targetIdentity = targetClaimants[0].Identity;
+            targetPath = targetClaimants[0].Path;
         }
-
-        // Whether more than one file answers to the target's name. A file that is silent about the
-        // type only contradicts something when there is something else for it to contradict: when
-        // one file claims the name it IS the target, and the target is not evidence against itself.
-        //
-        // Asked of the census rather than by comparing paths, because a path comparison cannot be
-        // made both correct and safe here. `Normalize` is `Path.GetFullPath` and does not fold
-        // case, so an Ordinal comparison misses a target reached under another casing, while an
-        // OrdinalIgnoreCase one would exempt a genuinely different file on a case-sensitive volume
-        // — which is the fabricating direction, and CI runs Linux. Claimant identity is the level
-        // this question belongs at anyway.
-        bool targetNameIsContested =
-            census.TryGetValue(targetAssemblyName, out var namesakes) && namesakes.Count > 1;
 
         // raw assembly spelling -> the assemblies its forwarder for this type points at, each
         // canonicalized because the matcher compares TypeRef.Assembly values that already are.
@@ -917,15 +921,15 @@ public sealed class ForwardedTypeAliases
                 // older stale copy of the target lying in a build output directory cannot be
                 // reached by a newer terminal hop and must not drop its callers.
                 //
-                // Only when another file answers to the target's name. The exemption is
+                // The file the target's identity came from is exempt, and the exemption is
                 // load-bearing rather than tidiness: removing it fails 34 tests, because
                 // `ProbeForType` recognizes only TOP-LEVEL types, so the definition site of a
                 // nested target type probes as silent (#3480) and would refute every alias in the
                 // scope. It costs nothing an attacker wants, because the attack IS a second file
                 // claiming the target's identity.
-                if (targetNameIsContested
-                    && !probe.DeclaresType
+                if (!probe.DeclaresType
                     && probe.Edges.Count == 0
+                    && !string.Equals(path, targetPath, StringComparison.Ordinal)
                     && claimantPaths.TryGetValue(path, out var silent)
                     && AnswersToTheTarget(silent.Name, silent.Identity))
                 {

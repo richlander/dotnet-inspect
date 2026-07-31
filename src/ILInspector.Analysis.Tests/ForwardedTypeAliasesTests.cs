@@ -3400,8 +3400,8 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// A file that is the only claimant of the target's name does not refute itself. The silence
-    /// rule above needs a SECOND file to contradict; with one file, that file is the target.
+    /// The file the target's identity came from does not refute itself. The caller's query asserts
+    /// the type is defined there, so a probe that fails to see it is a limit of the probe.
     ///
     /// <para>The exemption is load-bearing rather than tidiness: <c>ProbeForType</c> recognizes
     /// only top-level types, so the definition site of a nested target type probes as silent
@@ -3412,7 +3412,7 @@ public class ForwardedTypeAliasesTests
     /// about the type — because a nested-forwarder fixture cannot yet produce an alias to lose.</para>
     /// </summary>
     [Fact]
-    public void ASoleClaimantOfTheTargetsNameDoesNotRefuteItself()
+    public void TheFileTheTargetsIdentityCameFromDoesNotRefuteItself()
     {
         string directory = NewTempDirectory();
         try
