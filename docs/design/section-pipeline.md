@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Nine routes into the same defect
+### Ten routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and nine different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and ten different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -119,9 +119,10 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A helper in another product assembly opens the index internally | the assembly set derived as the CLI's product reference closure |
 | A second overload of a pinned opener collapses into its sibling | opener identity keyed by full signature, not by `Type::Method` |
 | A generic opener (`Open<T>(string)`) collapses into its non-generic namesake | generic arity carried in the identity key |
-| A scanner opens the index by **reflection**, which no IL walk can follow | the set of reflection APIs reachable from `Sections` is pinned instead |
+| A scanner opens the index by **reflection**, which no IL walk can follow | the reflection API surface reachable from `Sections` is pinned instead |
+| A helper in another assembly does the reflecting on the scanner's behalf | the pin walks *forward* over the whole product closure, not just `Sections` |
 
-That the enumeration reached nine is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached ten is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The third is worth stating plainly because the original code looked defensive: `RequirementsOf` returned `IReadOnlyList<string>` over the caller's `params string[]`, and that interface casts straight back to the array. A read-only *interface* over a mutable array is not enforcement; `ImmutableArray<T>` is, because the type system carries it.
 
@@ -169,7 +170,15 @@ What remains outside is interface dispatch that never resolves to a definition. 
 
 Reflection used to be on that list, and taking it off is the most useful thing this review produced. `typeof(LibraryBodyIndex).GetMethod("Open").Invoke(...)` from a `NetworkFree` scanner cost a measured 290.2 ms with both claims green, and the obvious reading is that it condemns every static IL gate equally and therefore cannot be fixed here.
 
-That reading is right about the question it asks. No walk can follow where a reflective call goes. But "where does this call go" is not the only question available: asked instead as *does section code use reflection at all*, the category is enumerable, small, and visible in the very same graph. Measured across `DotnetInspector.Sections` there is exactly **one** such call, and it is inside the gated accessor's own diagnostic message. So the set is pinned rather than described, and a scanner cannot reach an opener by reflection without first calling a reflection API and changing that set.
+That reading is right about the question it asks. No walk can follow where a reflective call goes. But "where does this call go" is not the only question available: asked instead as *does section code use reflection at all*, the category is enumerable, small, and visible in the very same graph. So the set is pinned rather than described, and a scanner cannot reach an opener by reflection without first calling a reflection API and changing that set.
+
+The first version of that pin covered `DotnetInspector.Sections` alone, and review escaped it immediately with a one-line helper in `ILInspector.Analysis` that did the reflecting on the scanner's behalf — 493.4 ms, every claim green. Pinning the assembly the previous finding happened to use is the mistake the *assembly* closure had already taught, arriving a second time; the pin now walks forward from `Sections` over the whole product closure.
+
+What makes that affordable is measuring before choosing a granularity. The forward closure is 2,070 methods, and a naive "namespace starts with `System.Reflection`" predicate reports **1,312** call sites — because `System.Reflection.Metadata` is the library this entire product is built on. Excluding SRM and asking only about *runtime* reflection leaves **9** sites over the same 2,070 methods, touching two members: `Type::op_Equality`, which is what a record's generated `Equals` uses, and `MemberInfo::get_Name`. Pinning that two-member *surface* rather than the nine call sites is deliberate — a call-site list churns every time a record is added, which trains the next reader to update the literal without reading it.
+
+Reflection is not the only late-binding mechanism, and the next review raised `dynamic`: the compiler lowers it into the DLR, so the IL names `Microsoft.CSharp.RuntimeBinder` and `System.Runtime.CompilerServices.CallSite` rather than anything under `System.Reflection`. The reasoning is right and the escape is unreachable, because **`dynamic` does not compile anywhere in this product**. `src/Directory.Build.props` sets `IsAotCompatible` and `TreatWarningsAsErrors` for every project under `src/`, so a dynamic call site is build errors IL2026 and IL3050 — verified by writing one in the CLI and again in `ILInspector.Analysis`. That is a stronger gate than any test, and it is the gate this particular claim names.
+
+Enumerating mechanisms anyway — add `RuntimeBinder`, add `CallSite`, add `Reflection.Emit`, add `Linq.Expressions` — would have turned the pin into a deny list, and on this defect a deny list is precisely where the next mechanism hides. The polarity is inverted instead: the gate pins the **19 BCL namespaces** section-reachable code is allowed to call, so any new mechanism fails closed rather than needing to be predicted. `System.Runtime.CompilerServices` is the one allowed namespace that also houses dispatch machinery, so it is pinned a level finer, at its 9 members. Product namespaces are excluded because they churn as this consolidation moves code — and at no cost in coverage, since a product helper's own BCL calls are already inside the same closure.
 
 The general lesson is the same one the assembly closure taught, arriving from the other direction: when evidence cannot answer the question you are asking, check whether a different question with the same consequence is answerable. "Unverified" was a correct description of the *walk*, and still the wrong conclusion about the gate.
 

@@ -2201,31 +2201,183 @@ public class SectionPipelineTests
         // opener. If it stopped reaching one, cutting there would prove nothing about Sections.
         Assert.NotEmpty(gatesOnAPath);
 
-        // Reflection was the one route this gate named as out of scope, and MAI-Code's review of
-        // this head duly walked through it: `typeof(LibraryBodyIndex).GetMethod("Open").Invoke(...)`
-        // from a NetworkFree scanner cost a measured 290.2 ms with both claims green.
+        // Reflection was the one route this gate named as out of scope, and MAI-Code's review
+        // walked through it twice. First directly -- `typeof(LibraryBodyIndex).GetMethod("Open")
+        // .Invoke(...)` from a NetworkFree scanner, a measured 290.2 ms with both claims green.
+        // Then, when that was pinned within DotnetInspector.Sections, through a one-line helper in
+        // ILInspector.Analysis that did the reflecting on the scanner's behalf, for 493.4 ms.
         //
-        // No IL walk can follow that call, so the obvious reading is that it condemns every static
-        // gate equally and has to stay unverified. But the escape is only unreachable *evidence*
-        // if the question is "where does this call go". Asked the other way -- "does section code
-        // use reflection at all" -- the category is enumerable, small, and visible in the very
-        // same graph. Measured across DotnetInspector.Sections there is exactly one such call, and
-        // it is inside the gated accessor's own diagnostic message.
+        // No IL walk can follow a reflective call, so the obvious reading is that this condemns
+        // every static gate equally and has to stay unverified. But the escape is only unreachable
+        // *evidence* if the question is "where does this call go". Asked the other way -- "can
+        // section code reach a reflection API at all" -- the category is enumerable and visible in
+        // the very same graph.
         //
-        // So it is pinned rather than described. A scanner cannot reach an opener by reflection
-        // without first calling a reflection API, and doing that changes this set.
-        var reflectionUsers = calls
-            .Where(call => CallerKey(call.Caller).StartsWith("DotnetInspector.Sections", StringComparison.Ordinal))
-            .Where(call => call.Callee.DeclaringType.Namespace.StartsWith("System.Reflection", StringComparison.Ordinal)
-                || call.Callee.DeclaringType.ToDisplayString() is "System.Type" or "System.Activator")
-            .Select(call => $"{CallerKey(call.Caller)} -> {call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
+        // The second escape is why this walks forward from Sections over the whole product closure
+        // rather than checking Sections alone: pinning the assembly a reviewer just used is the
+        // mistake this gate already made once, with assemblies.
+        //
+        // System.Reflection.Metadata is excluded because it is not runtime reflection -- it is the
+        // library this entire product is built on, and including it drowns the signal in 1,312
+        // sites. Type::GetTypeFromHandle is excluded because that is `typeof`.
+        static bool IsRuntimeReflection(ILInspector.Analysis.MemberRef callee)
+        {
+            var namespaceName = callee.DeclaringType.Namespace;
+            if (namespaceName.StartsWith("System.Reflection.Metadata", StringComparison.Ordinal)
+                || namespaceName.StartsWith("System.Reflection.PortableExecutable", StringComparison.Ordinal))
+                return false;
+
+            return callee.DeclaringType.ToDisplayString() switch
+            {
+                "System.Activator" or "Activator" => true,
+                "System.Type" or "Type" => callee.Name != "GetTypeFromHandle",
+                _ => namespaceName == "System.Reflection",
+            };
+        }
+
+        var forwardCalls = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var call in calls)
+        {
+            var calleeKey = CalleeKey(call.Callee);
+            if (!definedKeys.Contains(calleeKey))
+                continue;
+
+            var callerKey = CallerKey(call.Caller);
+            if (!forwardCalls.TryGetValue(callerKey, out var callees))
+                forwardCalls[callerKey] = callees = new HashSet<string>(StringComparer.Ordinal);
+
+            callees.Add(calleeKey);
+        }
+
+        var reachableFromSections = new HashSet<string>(StringComparer.Ordinal);
+        var forwardPending = new Queue<string>();
+        foreach (var key in definedKeys.Where(key =>
+            key.StartsWith("DotnetInspector.Sections", StringComparison.Ordinal)))
+        {
+            if (reachableFromSections.Add(key))
+                forwardPending.Enqueue(key);
+        }
+
+        while (forwardPending.Count > 0)
+        {
+            if (!forwardCalls.TryGetValue(forwardPending.Dequeue(), out var callees))
+                continue;
+
+            foreach (var callee in callees)
+            {
+                if (reachableFromSections.Add(callee))
+                    forwardPending.Enqueue(callee);
+            }
+        }
+
+        // The *API surface* is pinned rather than the call sites. Measured, 2,070 methods are
+        // reachable from Sections and they touch exactly two reflection members, both benign:
+        // Type::op_Equality is what a record's generated Equals uses, and MemberInfo::get_Name
+        // names a member in a diagnostic. Pinning the surface keeps this stable when a record is
+        // added -- which would churn a call-site list and train the next reader to update the
+        // literal without thinking -- while still going red the moment anything calls GetMethod,
+        // Invoke, or CreateInstance.
+        var reflectionSurface = calls
+            .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
+            .Where(call => IsRuntimeReflection(call.Callee))
+            .Select(call => $"{call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(["MemberInfo::get_Name", "Type::op_Equality"], reflectionSurface);
+
+        // Reflection is not the only late-binding mechanism, and Gemini Pro's review raised
+        // `dynamic` as an escape: the C# compiler lowers it into the DLR, so the IL names
+        // Microsoft.CSharp.RuntimeBinder and System.Runtime.CompilerServices.CallSite rather than
+        // anything under System.Reflection, and neither the walk nor the pin above sees it.
+        //
+        // The reasoning is right and the escape is not reachable, because `dynamic` does not
+        // compile anywhere in this product. src/Directory.Build.props sets IsAotCompatible plus
+        // TreatWarningsAsErrors for every project under src/, so the AOT analyzers turn a dynamic
+        // call site into build errors IL2026 and IL3050 ("the 'dynamic' feature requires
+        // runtime-code generation, which is incompatible with AOT"). Verified by writing one, in
+        // the CLI and again in ILInspector.Analysis: both fail to build. That is a stronger gate
+        // than a test, and it is the one this claim rests on.
+        //
+        // Even so, enumerating mechanisms -- add RuntimeBinder, add CallSite, add Reflection.Emit,
+        // add Linq.Expressions -- would make this a deny list, and a deny list is precisely where
+        // the *next* mechanism hides. This PR has now been wrong about "that is the last route"
+        // ten times, so the polarity is inverted instead: pin what section-reachable code is
+        // allowed to call, and let anything new fail closed. That also keeps the property standing
+        // if the AOT constraint is ever relaxed.
+        //
+        // Namespace granularity is what makes that affordable. Measured, the whole forward closure
+        // touches 19 BCL namespaces, and every late-binding mechanism lives in a namespace that is
+        // not among them. Product namespaces are deliberately excluded -- they churn as this
+        // consolidation moves code, and a product helper's own BCL calls are already in this
+        // closure, so excluding them costs no coverage.
+        var bclSurface = calls
+            .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
+            .Select(call => call.Callee.DeclaringType.Namespace)
+            .Where(namespaceName => !namespaceName.StartsWith("DotnetInspector.", StringComparison.Ordinal)
+                && !namespaceName.StartsWith("ILInspector.", StringComparison.Ordinal)
+                && !namespaceName.StartsWith("Markout", StringComparison.Ordinal)
+                && namespaceName.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToList();
 
         Assert.Equal(
-            ["DotnetInspector.Sections.ScannerContext::BodyIndex() -> MemberInfo::get_Name"],
-            reflectionUsers);
+            [
+                "System",
+                "System.Buffers.Binary",
+                "System.Collections",
+                "System.Collections.Generic",
+                "System.Collections.Immutable",
+                "System.Diagnostics",
+                "System.Globalization",
+                "System.IO",
+                "System.Linq",
+                "System.Reflection",
+                "System.Reflection.Metadata",
+                "System.Reflection.Metadata.Ecma335",
+                "System.Reflection.PortableExecutable",
+                "System.Runtime.CompilerServices",
+                "System.Runtime.InteropServices",
+                "System.Security.Cryptography",
+                "System.Text",
+                "System.Threading",
+                "System.Threading.Tasks",
+            ],
+            bclSurface);
+
+        // System.Runtime.CompilerServices is the one allowed namespace that also houses dispatch
+        // machinery, so it is pinned a level finer. Measured, section-reachable code uses it for
+        // interpolated strings, Unsafe, and two RuntimeHelpers -- CallSite and CallSiteBinder do
+        // not appear, and a hand-rolled call site would have to add them here.
+        var compilerServicesSurface = calls
+            .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
+            .Where(call => call.Callee.DeclaringType.Namespace == "System.Runtime.CompilerServices")
+            .Select(call => $"{call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            [
+                "DefaultInterpolatedStringHandler::.ctor",
+                "DefaultInterpolatedStringHandler::AppendFormatted",
+                "DefaultInterpolatedStringHandler::AppendLiteral",
+                "DefaultInterpolatedStringHandler::ToStringAndClear",
+                "RuntimeHelpers::EnsureSufficientExecutionStack",
+                "RuntimeHelpers::GetSubArray",
+                "Unsafe::Add",
+                "Unsafe::As",
+                "Unsafe::AsRef",
+            ],
+            compilerServicesSurface);
+
+        // Non-vacuity: the forward walk must actually leave DotnetInspector.Sections, or the pin
+        // above only describes one assembly and the transitive-helper escape reopens.
+        Assert.Contains(
+            reachableFromSections,
+            key => key.StartsWith("ILInspector.Analysis.", StringComparison.Ordinal));
 
         // Boundary, stated rather than implied. This walk sees the CLI's product reference
         // closure, so interface dispatch that never resolves to a definition remains
