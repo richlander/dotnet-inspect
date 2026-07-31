@@ -66,6 +66,12 @@ public sealed record StyleOptionTierDescriptor
     /// <summary>
     /// One-sentence statement of the fidelity contract every knob in this tier
     /// honors, so a host can explain a group and not merely name it.
+    ///
+    /// <para>This is user-facing copy, not internal prose: a picker renders it
+    /// verbatim as escaped plain text, so it must read as a complete sentence
+    /// without code formatting, and must avoid vocabulary that only means
+    /// something inside this repository (name what a choice costs the reader,
+    /// rather than naming the gate that measures it).</para>
     /// </summary>
     public required string Summary { get; init; }
 
@@ -326,7 +332,7 @@ public static class StyleOptionCatalog
         {
             Id = StyleOptionTier.Formatting,
             Title = "Formatting",
-            Summary = "Layout only — whitespace and line breaks. Token- and byte-identical to the shipped default.",
+            Summary = "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
             Order = 1,
             ByteDivergent = false,
         },
@@ -334,7 +340,7 @@ public static class StyleOptionCatalog
         {
             Id = StyleOptionTier.Spelling,
             Title = "Spelling",
-            Summary = "An equally faithful token choice, such as this. qualification or var. Byte-preserving (IL-identical).",
+            Summary = "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
             Order = 2,
             ByteDivergent = false,
         },
@@ -342,7 +348,7 @@ public static class StyleOptionCatalog
         {
             Id = StyleOptionTier.Synthesis,
             Title = "Name synthesis",
-            Summary = "Readable synthesized names. The emitted IL is unchanged, but Annotated-IL name alignment is traded.",
+            Summary = "Readable invented names for locals that have none of their own. Compiles to identical IL, but these names no longer match the ones the IL uses.",
             Order = 3,
             ByteDivergent = false,
         },
@@ -350,7 +356,7 @@ public static class StyleOptionCatalog
         {
             Id = StyleOptionTier.Lens,
             Title = "Style lenses",
-            Summary = "Behavior-faithful but not opcode-faithful: output recompiles to different bytes than the shipped default, so it never feeds the compile-back fidelity gates.",
+            Summary = "Keeps what the code does, but not the exact bytes: this rendering recompiles to different IL than the shipped output, so it is excluded from byte-level fidelity checking.",
             Order = 4,
             ByteDivergent = true,
         },
