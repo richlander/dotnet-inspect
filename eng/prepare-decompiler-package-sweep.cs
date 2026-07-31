@@ -587,7 +587,8 @@ foreach (var entry in selected)
         // reported success -- the arbitrary-file overwrite the metadata writes were
         // hardened against, still open on the ninety-one writes per sweep that carry the
         // pool itself.
-        string? uncopied = await CopyOntoOrReport(source, destination);
+        var copy = await CopyOntoOrReport(source, destination);
+        string? uncopied = copy.Error;
         if (uncopied is not null)
         {
             // Recorded as this package failing rather than thrown away. A copy that did
@@ -595,7 +596,7 @@ foreach (var entry in selected)
             // package must be short in the accounting too.
             results.Add(Failed(
                 entry, "copy-failed", uncopied, resolvedPackage, package.Version,
-                selection.Tfm, package.FromCache));
+                selection.Tfm, package.FromCache) with { WriteTemporary = copy.TemporaryFate });
             Console.Error.WriteLine($"rank {entry.Rank}: {entry.Package}: {uncopied}");
             continue;
         }
@@ -707,9 +708,9 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
-string? unwritable = await ReplaceTextOrReport(
+string? unwritable = (await ReplaceTextOrReport(
     assembliesPath,
-    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)));
+    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)))).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -726,9 +727,9 @@ var manifest = new PackageSweepManifest(
     SelectedPackageCount: assemblies.Count,
     Packages: results);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
-unwritable = await ReplaceTextOrReport(
+unwritable = (await ReplaceTextOrReport(
     manifestPath,
-    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine);
+    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine)).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -780,7 +781,7 @@ if (refreshPin)
     // Rank lives in nuget-top-packages.json and is deliberately not repeated here.
     // Two files stating the same rank is two things to keep in step, and the one that
     // drifts is the one nothing reads.
-    unwritable = await ReplaceTextOrReport(
+    unwritable = (await ReplaceTextOrReport(
         pinPath,
         JsonSerializer.Serialize(
             // No timestamp: the file is a pure function of the pins, so re-recording an
@@ -789,7 +790,7 @@ if (refreshPin)
             // #3349 found that hashing a file with a timestamp in it yields an identity
             // that never repeats.
             new PackagePinFile(SchemaVersion: 1, Packages: recorded),
-            jsonContext.PackagePinFile) + Environment.NewLine);
+            jsonContext.PackagePinFile) + Environment.NewLine)).Error;
     if (unwritable is not null)
     {
         // A refresh that cannot write the pin has not refreshed anything, and the file
@@ -1150,7 +1151,7 @@ static bool IsBarePackageId(string? id) =>
 /// appears, which is the hang the read path already had to grow a deadline for. A move
 /// onto the name replaces whatever is there instead of writing through it.</para>
 /// </summary>
-static async Task<string?> ReplaceTextOrReport(string path, string content) =>
+static async Task<WriteOutcome> ReplaceTextOrReport(string path, string content) =>
     await ReplaceOrReport(
         path, stream => stream.WriteAsync(Encoding.UTF8.GetBytes(content)).AsTask());
 
@@ -1158,7 +1159,7 @@ static async Task<string?> ReplaceTextOrReport(string path, string content) =>
 /// Copies <paramref name="source"/> onto <paramref name="destination"/> without opening
 /// the destination, or says why it could not.
 /// </summary>
-static async Task<string?> CopyOntoOrReport(string source, string destination) =>
+static async Task<WriteOutcome> CopyOntoOrReport(string source, string destination) =>
     await ReplaceOrReport(destination, async stream =>
     {
         await using var input = new FileStream(
@@ -1171,7 +1172,7 @@ static async Task<string?> CopyOntoOrReport(string source, string destination) =
 /// hold, then moved onto the name. Every write goes through here, because the property
 /// is not one a second implementation keeps -- File.Copy kept none of it.
 /// </summary>
-static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> write)
+static async Task<WriteOutcome> ReplaceOrReport(string path, Func<FileStream, Task> write)
 {
     // Random and created exclusively, not a name another process can predict. A
     // temporary named after the pid is a name anything with write access to the
@@ -1190,7 +1191,7 @@ static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> w
         }
 
         File.Move(temporary, path, overwrite: true);
-        return null;
+        return new WriteOutcome(null, "moved");
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
@@ -1199,16 +1200,21 @@ static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> w
         // though -- something already sitting at that name is not this sweep's to
         // remove, and deleting whatever is found there would be a worse answer than
         // the failure being reported.
+        string fate = "none";
         try
         {
             if (created)
+            {
                 File.Delete(temporary);
+                fate = "removed";
+            }
         }
         catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
         {
+            fate = "left-behind";
         }
 
-        return $"Could not write '{path}': {ex.Message}";
+        return new WriteOutcome($"Could not write '{path}': {ex.Message}", fate);
     }
 }
 
@@ -1287,7 +1293,26 @@ sealed record SweepPackageResult(
     bool? FromCache,
     string? CleanupStatus = null,
     string? CleanupDetail = null,
-    string? Sha256 = null);
+    string? Sha256 = null,
+    string? WriteTemporary = null);
+
+/// <summary>
+/// What a write did, and what became of the temporary it writes through.
+///
+/// <para><c>Error</c> is the message, or null when the write landed.
+/// <c>TemporaryFate</c> is <c>moved</c> when it became the file, <c>removed</c> when the
+/// write failed after it existed and it was cleaned up, <c>left-behind</c> when that
+/// cleanup itself failed, and <c>none</c> when the failure happened before it existed.
+/// </para>
+///
+/// <para>Reported rather than inferred because the difference is not visible from
+/// outside. A failure before the temporary exists and a failure after it is cleaned up
+/// leave the same directory behind and the same message, so nothing downstream can tell
+/// a cleanup that ran from one that was never needed -- including the operator reading
+/// the manifest to find out whether a failed sweep left anything in the pool, which is
+/// the question <c>left-behind</c> exists to answer out loud.</para>
+/// </summary>
+readonly record struct WriteOutcome(string? Error, string TemporaryFate);
 
 [JsonSerializable(typeof(List<PackageListEntry>))]
 [JsonSerializable(typeof(PackagePinFile))]

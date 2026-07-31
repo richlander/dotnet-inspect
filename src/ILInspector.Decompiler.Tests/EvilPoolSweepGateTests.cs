@@ -284,22 +284,23 @@ public class EvilPoolSweepGateTests
     /// reached the copy is what makes the absence afterwards mean the cleanup happened.
     /// </para>
     ///
-    /// <para>The creation itself is watched, rather than inferred. Reaching the copy is
-    /// not the same as having created the temporary: a failure raised inside
-    /// <c>ReplaceOrReport</c> before the file exists reports the same
-    /// <c>copy-failed</c>, and a case stopping at the status would pass with the cleanup
-    /// deleted. An earlier revision of this comment claimed that gap could not be closed
-    /// from outside, because the temporary's name is randomized and lives for one write.
-    /// That was wrong, and a reviewer disproved it by doing it: a watcher needs no name.
-    /// </para>
+    /// <para>And the creation itself is asserted, because reaching the copy is not the
+    /// same as having created the temporary: a failure raised inside <c>ReplaceOrReport</c>
+    /// before the file exists reports the same <c>copy-failed</c>, and a case stopping at
+    /// the status passed with the cleanup deleted. Two reviewers closed that gap the same
+    /// way, with a <c>FileSystemWatcher</c>, disproving a claim made here that the
+    /// randomized name put it out of reach. They were right that it was reachable and the
+    /// watcher was the wrong instrument: on a machine whose inotify watch limit is
+    /// exhausted -- which a developer box with enough worktrees and editors on it reaches
+    /// -- arming fails through the <c>Error</c> event and the case reports a sweep that
+    /// did create its temporary as one that never did. Measured here, reproducibly.</para>
     ///
-    /// <para>Watched only where the mechanism is dependable, which is the same bargain
-    /// <see cref="PlantSymbolicLink"/> makes. On Linux this is inotify and the event is
-    /// reliable for a file created in a watched directory; the other backends are laxer,
-    /// and a missed event here would fail a run that did nothing wrong. So elsewhere the
-    /// observation is skipped and the case keeps its weaker form, which is stated rather
-    /// than quietly assumed. CI runs Linux, so the strong form is the one that gates.
-    /// </para>
+    /// <para>So the sweep says what became of it instead, in the manifest, beside the
+    /// staging-directory cleanup it already reported: <c>removed</c> against <c>none</c>
+    /// separates a cleanup that ran from one that was never needed, and <c>left-behind</c>
+    /// is the answer an operator actually wants when a failed sweep may have dropped a
+    /// partial assembly in the pool. Deterministic, on every platform, and observable for
+    /// the same reason the rest of this file reads statuses rather than prose.</para>
     /// </summary>
     [Fact]
     public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
@@ -310,14 +311,6 @@ public class EvilPoolSweepGateTests
             world.OutputDirectory, "packages", $"001-{FixturePackage}", FixtureVersion, FixtureAssembly);
         Directory.CreateDirectory(destination);
 
-        // Armed before the sweep runs, on the directory the temporary is a sibling in.
-        // The pool's other writes go to a different directory, so this sees the assembly
-        // write and nothing else.
-        using var created = new ManualResetEventSlim(false);
-        using var watcher = new FileSystemWatcher(Path.GetDirectoryName(destination)!, "*.tmp");
-        watcher.Created += (_, _) => created.Set();
-        watcher.EnableRaisingEvents = true;
-
         var sweep = world.Run();
 
         Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a directory standing at the destination"));
@@ -325,16 +318,8 @@ public class EvilPoolSweepGateTests
         // Reached the copy and failed there, rather than exiting earlier.
         Assert.Equal("copy-failed", world.ReportedStatus(sweep));
 
-        if (OperatingSystem.IsLinux())
-        {
-            // Events are delivered on the watcher's own thread, so the sweep exiting does
-            // not mean the notification has arrived. The wait is for that hand-off only --
-            // the creation is already over by now, so a full wait here means it never
-            // happened rather than that it was slow.
-            Assert.True(
-                created.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken),
-                world.Explain(sweep, "a run that never created the temporary this case is about"));
-        }
+        // Created, then removed -- not "none", which is the failure this case is not about.
+        Assert.Equal("removed", world.ReportedWriteTemporary(sweep));
 
         world.AssertNoTemporaryLeftBehind();
     }
@@ -697,6 +682,19 @@ public class EvilPoolSweepGateTests
                 Explain(sweep, $"a manifest reporting on '{recorded}' when '{_requestedPackage}' was asked for"));
 
             return packages[0]!["Status"]!.GetValue<string>();
+        }
+
+        /// <summary>
+        /// What the sweep recorded became of the temporary the failing write went through:
+        /// <c>moved</c>, <c>removed</c>, <c>left-behind</c>, or <c>none</c>.
+        /// </summary>
+        public string? ReportedWriteTemporary((int ExitCode, string Output, string Errors) sweep)
+        {
+            Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
+            var manifested = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
+            var packages = manifested["Packages"]!.AsArray();
+            Assert.True(packages.Count == 1, Explain(sweep, $"a manifest holding {packages.Count} packages"));
+            return packages[0]!["WriteTemporary"]?.GetValue<string>();
         }
 
         /// <summary>
