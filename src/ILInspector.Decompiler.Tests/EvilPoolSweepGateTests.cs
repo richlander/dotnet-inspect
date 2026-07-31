@@ -279,9 +279,21 @@ public class EvilPoolSweepGateTests
     /// <para>Which is why the reported outcome is asserted and not just the exit code.
     /// Absence is satisfied by a sweep that never got far enough to create anything, so a
     /// case asserting only "no temporary" passes on any early exit at all -- measured: a
-    /// sweep failing before the copy stage, with the cleanup deleted, left this case
-    /// green. Requiring the run to have reached the copy is what makes the absence
-    /// afterwards mean the cleanup happened.</para>
+    /// sweep that exits before acquisition, with the cleanup deleted, left this case
+    /// green, and now fails on the manifest it never wrote. Requiring the run to have
+    /// reached the copy is what makes the absence afterwards mean the cleanup happened.
+    /// </para>
+    ///
+    /// <para><em>Not</em> gated, and deliberately not: that the temporary was created at
+    /// all. Reaching the copy and failing there is as close as a black-box case gets --
+    /// a failure raised inside <c>ReplaceOrReport</c> before the file is created reports
+    /// the same <c>copy-failed</c>, and this case would pass with the cleanup deleted.
+    /// Closing that needs the temporary to be observable, and it is deliberately not: the
+    /// name is randomized precisely so nothing can predict or occupy it, and it exists for
+    /// the length of one write. The property this case does carry is that the current
+    /// implementation's post-creation failure leaves nothing behind; a refactor moving the
+    /// failure earlier would weaken it silently, and that is the known limit rather than a
+    /// claim being made.</para>
     /// </summary>
     [Fact]
     public void ASweepLeavesNoTemporaryWhenAWriteFailsAfterCreatingOne()
