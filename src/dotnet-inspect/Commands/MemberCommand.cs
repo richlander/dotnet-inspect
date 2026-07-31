@@ -328,7 +328,9 @@ public static class MemberCommand
             if (effectiveOptions.EffectiveDiscovery)
             {
                 return ApiCommand.ExecuteEffectiveDiscovery(
-                    apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions);
+                    apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
+                    new ApiCommand.TypeAcquisitionContext(
+                        foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }
 
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can

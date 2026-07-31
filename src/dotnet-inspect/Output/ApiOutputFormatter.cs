@@ -345,16 +345,21 @@ public static class ApiOutputFormatter
         var modifiers = projection.Identity.Modifiers;
         string? baseType = projection.BaseType;
 
-        // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
-        string? typeParamsInline = null;
-        if (type.TypeParameters.Count > 0 && options.Verbosity == Verbosity.Quiet)
+        // Type parameter summary. Computed unconditionally because Type Info reports it as an
+        // identity fact at any verbosity; only the inline header placement is quiet-only, since
+        // at Minimal+ the section replaces the inline line.
+        string? typeParamsSummary = null;
+        if (type.TypeParameters.Count > 0)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
                     ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
                     : tp.DisplayName);
-            typeParamsInline = string.Join(", ", paramDescriptions);
+            typeParamsSummary = string.Join(", ", paramDescriptions);
         }
+
+        string? typeParamsInline = options.Verbosity == Verbosity.Quiet ? typeParamsSummary : null;
+
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
@@ -429,6 +434,20 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            TypeInfo = memberDetail ? null : new TypeInfoSection
+            {
+                Type = FormatGenericFullName(type),
+                Kind = type.Kind,
+                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = baseType,
+                TypeParameters = typeParamsSummary,
+                Interfaces = NullIfZero(type.Interfaces.Count),
+                Assembly = foundIn,
+                Package = packageName,
+                Version = packageVersion,
+                Tfm = selectedTfm,
+                Source = apiSource,
+            },
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;
@@ -2579,6 +2598,7 @@ public static class ApiOutputFormatter
     };
 
     private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
+
 
     private static readonly string[] MemberKinds =
     [

@@ -243,16 +243,40 @@ public static class DiscoverOutput
     /// columns replace detailed columns at Minimal verbosity).
     /// Matches against section-scoped table columns emitted by the serializer.
     /// </summary>
+    /// <param name="fieldLayoutSections">
+    /// Sections rendered as a <c>Field</c>/<c>Value</c> fact table rather than one column per
+    /// schema item. Their rendered header cells are literally "Field" and "Value", which intersect
+    /// no schema item name, so matching on columns would strip every item and report the section as
+    /// having nothing to query. For these, match on the rendered field rows instead.
+    /// </param>
     internal static DocumentSchema FilterSchemaToRenderedColumns(
         List<string> effectiveSections,
         DocumentSchema schema,
-        RenderedSectionManifest rendered)
+        RenderedSectionManifest rendered,
+        IReadOnlySet<string>? fieldLayoutSections = null)
     {
         var filtered = new DocumentSchema();
         foreach (var name in effectiveSections)
         {
             var section = schema.GetSection(name);
             if (section == null) { filtered.AddSection(name); continue; }
+
+            if (fieldLayoutSections?.Contains(name) == true)
+            {
+                var renderedFields = rendered.GetFields(name);
+                if (renderedFields is not null)
+                {
+                    var fieldItems = section.Items
+                        .Where(item => renderedFields.Contains(item.Name))
+                        .Select(item => item.Name)
+                        .ToArray();
+                    if (fieldItems.Length > 0)
+                        filtered.Add(name, section.ItemKind, fieldItems);
+                    else
+                        filtered.AddSection(name);
+                    continue;
+                }
+            }
 
             // No table rendered for this section (e.g. a non-tabular section such as Source/IL,
             // or one not produced by the member renderer): preserve the original schema columns

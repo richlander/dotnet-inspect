@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -17,8 +18,10 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -2980,11 +2983,220 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("├─", output);
     }
 
+    /// <summary>
+    /// <c>Type Info</c> is the type view's identity fact table, and the only section on the type
+    /// pipeline that does not grow with the type under inspection.
+    /// </summary>
     [Fact]
-    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()
+    public async Task Type_TypeInfoSection_RendersIdentityFactsRatherThanMembers()
     {
         var options = new TypeOptions
         {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("| Type | System.Text.Json.JsonSerializer |", output);
+        Assert.Contains("| Kind | class |", output);
+        Assert.Contains("| Library | System.Text.Json |", output);
+        // Identity, not inventory: the member sections stay out.
+        Assert.DoesNotContain("## Methods", output);
+        Assert.DoesNotContain("## Method Groups", output);
+    }
+
+    /// <summary>
+    /// The section is <c>ExplicitOnly</c>, so it must not join the default markdown view, where
+    /// the same facts already render as the inline identity line. This is the gate for the
+    /// "new sections do not enter the default -v:m view" rule for this section.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotEnterTheDefaultMarkdownView()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MarkdownExplicitlySet = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Type Info", output);
+        // The identity facts are present, just inline rather than as a section.
+        Assert.Contains("Kind: class", output);
+    }
+
+    /// <summary>
+    /// The boundedness claim: the row set is a function of which facts apply to the type, never of
+    /// how many members it has. A 200+ member type must not produce a materially larger section
+    /// than an 8-member enum, and every label it emits must come from the same fixed vocabulary.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_DoesNotGrowWithTheType()
+    {
+        var large = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "String");
+        var small = await RenderTypeInfoLabelsAsync("System.Private.CoreLib", "DayOfWeek");
+
+        Assert.NotEmpty(large);
+        Assert.NotEmpty(small);
+
+        // The vocabulary is derived from TypeInfoSection's declaration rather than copied here, so
+        // the declaration drives the gate: a row whose label is not a declared property fails, and
+        // the bound tracks the property count instead of a hand-maintained literal that goes stale.
+        var vocabulary = DeclaredTypeInfoLabels();
+
+        // Deriving the vocabulary keeps it from going stale, but on its own it would absorb a new
+        // property silently - including an unbounded one. Pinning the count makes any addition fail
+        // here, so whoever adds a property has to state that it is a fixed fact about the type and
+        // not a per-member row. Bump this only alongside that judgement.
+        Assert.Equal(11, vocabulary.Count);
+
+        Assert.All(large, label => Assert.Contains(label, vocabulary));
+        Assert.All(small, label => Assert.Contains(label, vocabulary));
+
+        // The bound that makes the section Fixed: one row per declared property, never one per
+        // member. String has 250+ members and DayOfWeek has 7; both stay inside a constant.
+        Assert.True(
+            large.Count <= vocabulary.Count,
+            $"Type Info grew past its declared vocabulary: {string.Join(", ", large)}");
+    }
+
+    /// <summary>
+    /// The labels <c>Type Info</c> can render, read off the section's own declaration. Markout
+    /// titles a property with <c>[MarkoutPropertyName]</c> when present and splits PascalCase
+    /// otherwise.
+    /// </summary>
+    private static IReadOnlyCollection<string> DeclaredTypeInfoLabels()
+    {
+        var labels = typeof(TypeInfoSection)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(property =>
+                property.GetCustomAttribute<MarkoutPropertyNameAttribute>()?.Name
+                    ?? SplitPascalCase(property.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(labels);
+        return labels;
+
+        static string SplitPascalCase(string name) =>
+            Regex.Replace(name, "(?<=[a-z0-9])(?=[A-Z])", " ");
+    }
+
+    private static async Task<List<string>> RenderTypeInfoLabelsAsync(string assembly, string typeName)
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = assembly,
+            TypeName = typeName,
+            Select = [SectionNames.TypeInfo]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|') && !line.StartsWith("| ---") && line != "| Field | Value |")
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries)[0].Trim())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Effective <c>-D</c> must list the fields <c>Type Info</c> actually renders. Two things can
+    /// break this and both did: the section is a <c>Field</c>/<c>Value</c> fact table, so matching
+    /// the schema against rendered *table columns* intersects nothing and reports the section as
+    /// having no queryable fields at all; and the discovery render manifest is built without
+    /// acquisition context, so the provenance rows are invisible to it unless that context is
+    /// threaded in. Either failure is silent — exit 0 with fields missing.
+    /// </summary>
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("System.Collections.Generic.List`1")]
+    // An enum is the case that catches a census computed off a different member list than the one
+    // discovery sees: DayOfWeek's only field is the compiler-generated `value__`.
+    [InlineData("System.DayOfWeek")]
+    // A readonly ref struct: BuildFilteredTypeForSections did not copy IsReadOnly/IsByRefLike, so
+    // discovery hid the Modifiers row that -S renders.
+    [InlineData("System.Span`1")]
+    [InlineData("System.DateTime")]
+    // Filters narrow the type discovery builds its manifest from. Type Info reports identity, not
+    // the filtered slice, so its field set must not move when a filter is active.
+    [InlineData("System.String", "-m", "Contains")]
+    [InlineData("System.String", "--all")]
+    [InlineData("System.String", "-m", "5")]
+    [InlineData("System.String", "-k", "property")]
+    [InlineData("System.Span`1", "--unsafe")]
+    public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(
+        string typeName,
+        params string[] extraArgs)
+    {
+        string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
+        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
+
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
+        var (renderExit, renderOutput, _) = await RunAppAsync(renderArgs);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Equal(0, renderExit);
+
+        var advertised = ParseFirstColumn(discoverOutput, "Name");
+        var rendered = ParseFirstColumn(renderOutput, "Field");
+
+        Assert.NotEmpty(advertised);
+        Assert.NotEmpty(rendered);
+
+        // Structural facts the manifest can see from the type itself.
+        Assert.Contains("Kind", advertised);
+        // Provenance facts that only exist if acquisition context reached the manifest.
+        Assert.Contains("Library", advertised);
+        Assert.Contains("Source", advertised);
+
+        // Set equality, not containment: -D over-reporting a field -S never renders is the same
+        // contract break as under-reporting one, and only equality catches both.
+        Assert.Equal(
+            rendered.OrderBy(f => f, StringComparer.Ordinal),
+            advertised.OrderBy(f => f, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Type parameters are an identity fact, so an open generic must report them. The summary used
+    /// to be computed only at quiet verbosity for the inline header, which left the section's
+    /// declared field permanently empty and made <c>--fields "Type Parameters"</c> report no data.
+    /// </summary>
+    [Fact]
+    public async Task Type_TypeInfoSection_ReportsTypeParametersForOpenGenerics()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Type Parameters | T |", output);
+    }
+
+    private static List<string> ParseFirstColumn(string output, string headerLabel)
+    {
+        return output.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith('|'))
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } cells
+                ? cells[0].Trim()
+                : string.Empty)
+            .Where(cell => cell.Length > 0 && cell != headerLabel && !cell.StartsWith('-'))
+            .ToList();
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SelectWithColumns_ProjectsColumns()    {        var options = new TypeOptions        {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Select = ["Properties"],
