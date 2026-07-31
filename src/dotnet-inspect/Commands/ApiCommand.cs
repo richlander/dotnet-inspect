@@ -124,7 +124,7 @@ public class ApiCommand
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
-            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            CommandError.Write("specify only one of --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -137,25 +137,25 @@ public class ApiCommand
                 return (null!, 1);
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return (null!, 1);
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return (null!, 1);
             }
         }
 
         if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
             return (null!, 1);
         }
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
             return (null!, 1);
         }
 
@@ -164,13 +164,13 @@ public class ApiCommand
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
         if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -249,7 +249,7 @@ public class ApiCommand
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -309,9 +309,9 @@ public class ApiCommand
         var suffix = filtersActive ? " after filters" : "";
 
         if (empty.Count == 1)
-            Console.Error.WriteLine($"Note: section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+            CommandError.WriteNote($"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
         else
-            Console.Error.WriteLine($"Note: {empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+            CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
@@ -522,8 +522,8 @@ public class ApiCommand
                 || options.Tabular
                 || options.Verbosity < Verbosity.Normal))
         {
-            Console.Error.WriteLine(
-                $"Warning: API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
+            CommandError.WriteWarning(
+                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
                 + "use normal verbosity or JSON for failure details.");
         }
 
@@ -678,7 +678,7 @@ public class ApiCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
         }
     }
@@ -704,8 +704,8 @@ public class ApiCommand
         var hint = suggestPayloadProjection
             ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
             : " Use --tsv, --jsonl, or --table to project columns.";
-        Console.Error.WriteLine(
-            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+        CommandError.Write(
+            "--fields/--columns select table columns and cannot be combined with --json, "
             + "which renders the whole document." + hint);
         return 1;
     }
@@ -716,8 +716,8 @@ public class ApiCommand
             : options.Value ? "--value"
             : options.Urls ? "--urls"
             : "--paths";
-        Console.Error.WriteLine(
-            $"Error: {flag} is not supported when listing types; the listing exposes no printable "
+        CommandError.Write(
+            $"{flag} is not supported when listing types; the listing exposes no printable "
             + "payload. Inspect a single type (for example `type <Name>`) to project a member payload.");
         return 1;
     }
@@ -960,7 +960,7 @@ public class ApiCommand
         {
             if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(error);
+                CommandError.Write(error);
                 return 1;
             }
             // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
@@ -1028,7 +1028,7 @@ public class ApiCommand
                 OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         return 0;
     }
 
@@ -1065,7 +1065,7 @@ public class ApiCommand
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
-            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
 
@@ -1094,7 +1094,7 @@ public class ApiCommand
         if (rows.Count == 0
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations))
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
@@ -1207,13 +1207,13 @@ public class ApiCommand
         error = "";
         if (rows.Count == 0)
         {
-            error = "Error: selected section has no rows.";
+            error = "selected section has no rows.";
             return null;
         }
 
         if (selector is null && rows.Count != 1)
         {
-            error = $"Error: selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
+            error = $"selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
             return null;
         }
 
@@ -1222,14 +1222,14 @@ public class ApiCommand
         var position = RowNumbering.IndexOf(rowNumbers, targetRow);
         if (position < 0)
         {
-            error = $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
+            error = $"row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
             return null;
         }
 
         var selected = rows[position];
         if (string.IsNullOrWhiteSpace(selected.Url))
         {
-            error = $"Error: row {targetRow} has no printable document.";
+            error = $"row {targetRow} has no printable document.";
             return null;
         }
 
@@ -1244,7 +1244,7 @@ public class ApiCommand
         var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
         if (selection is not { } selectedRow)
         {
-            Console.Error.WriteLine(selectionError);
+            CommandError.Write(selectionError);
             return 1;
         }
 
@@ -1253,7 +1253,7 @@ public class ApiCommand
         var content = await fetcher.FetchSourceAsync(rawUrl);
         if (content == null)
         {
-            Console.Error.WriteLine($"Error: failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
+            CommandError.Write($"failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
             return 1;
         }
 
@@ -1283,7 +1283,7 @@ public class ApiCommand
 
         if (options.IncludeSections is not { Count: 1 } included)
         {
-            error = "Error: --bare requires exactly one -S section.";
+            error = "--bare requires exactly one -S section.";
             return false;
         }
 
@@ -1306,7 +1306,7 @@ public class ApiCommand
             return true;
 
         if (error.Length == 0)
-            error = "Error: --bare requires a single selected payload with content.";
+            error = "--bare requires a single selected payload with content.";
         return false;
     }
 
@@ -1321,7 +1321,7 @@ public class ApiCommand
         if (values.Count > 0)
             return string.Join('\n', values);
 
-        error = $"Error: --bare found no URL in section '{section}'.";
+        error = $"--bare found no URL in section '{section}'.";
         return "";
     }
 

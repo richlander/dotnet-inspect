@@ -154,7 +154,7 @@ public sealed class CSharpFormatter
             if (typeParameter.Constraints.Count > 0)
             {
                 declaration +=
-                    $" where {EscapeIdentifier(typeParameter.Name)} : "
+                    $" where {CSharpIdentifier.ContainIdentifierForDeclaration(typeParameter.Name)} : "
                     + CSharpDeclarationWriter.FormatConstraintList(
                         typeParameter,
                         type.TypeParameters.Select(parameter => parameter.Name));
@@ -412,7 +412,7 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(type);
         int tick = type.Name.IndexOf('`');
         string name = tick >= 0 ? type.Name[..tick] : type.Name;
-        name = EscapeIdentifier(name);
+        name = CSharpIdentifier.ContainIdentifierForDeclaration(name);
         return type.TypeParameters.Count == 0
             ? name
             : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
@@ -523,8 +523,8 @@ public sealed class CSharpFormatter
 
     static string FormatTypeParameter(TypeParameter parameter, bool includeVariance)
         => includeVariance && parameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(parameter.Name)}"
-            : EscapeIdentifier(parameter.Name);
+            ? $"{variance} {CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name)}"
+            : CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name);
 
     static string AddPrimaryConstructorParameters(
         string declaration,

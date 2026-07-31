@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Fixture for issue #3319. Carries attacker-controlled text in the three
+    places that reach rendered output inside a C# string literal: a parameter
+    default value, an [Obsolete] message, and a custom attribute argument.
+    Each embeds a Unicode bidi override (U+202E) and a vertical tab (U+000B).
+
+    These shapes must come from a real compiler: the metadata blob a
+    PersistedAssemblyBuilder emits for an attribute message does not decode
+    back, so an emitted fixture renders "[Obsolete]" with no message and gates
+    the channel vacuously. Loaded by path; never referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <Optimize>true</Optimize>
+    <NoWarn>$(NoWarn);CS0618;CS1591</NoWarn>
+    <!-- The hostile assembly-level attributes are declared in C# instead: XML
+         1.0 cannot carry a raw U+000B at all, not even as a character
+         reference, so an MSBuild property cannot express this fixture. -->
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+    <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
+    <!-- Doc comments must reach the companion XML file: the doc-text
+         channel is only observable when the .xml is emitted. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- A SourceLink map is JSON, not XML, so it *can* carry U+000B and
+         U+202E - as JSON escapes. This is the only channel in this fixture
+         whose hostile text is chosen by the build rather than by source. -->
+    <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+    <DeterministicSourcePaths>false</DeterministicSourcePaths>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+</Project>

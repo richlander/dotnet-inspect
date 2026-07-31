@@ -37,7 +37,7 @@ public class FindCommand
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
-                Console.Error.WriteLine("Error: No pattern specified.");
+                CommandError.Write("No pattern specified.");
                 return 1;
             }
 
@@ -88,7 +88,7 @@ public class FindCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -108,7 +108,7 @@ public class FindCommand
 
         if (memberPatterns.Length == 0)
         {
-            Console.Error.WriteLine("Error: No member pattern specified.");
+            CommandError.Write("No member pattern specified.");
             return 1;
         }
 
@@ -137,8 +137,8 @@ public class FindCommand
 
     private static int RejectColumnProjectionUnderJson()
     {
-        Console.Error.WriteLine(
-            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+        CommandError.Write(
+            "--fields/--columns select table columns and cannot be combined with --json, "
             + "which emits the full result objects. Use --tsv, --jsonl, or --table to project columns.");
         return 1;
     }
@@ -149,7 +149,7 @@ public class FindCommand
 
         if (view.Results == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 
@@ -180,7 +180,7 @@ public class FindCommand
 
         if (view.Results == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 

@@ -530,7 +530,7 @@ public static class SearchCommandDefinitions
 
             if (exitCode == DependsCommand.TypeNotFoundExitCode)
             {
-                Console.Error.WriteLine($"Type '{targetType}' not found in the specified scope.");
+                CommandError.Write($"Type '{targetType}' not found in the specified scope.");
                 return 1;
             }
 
