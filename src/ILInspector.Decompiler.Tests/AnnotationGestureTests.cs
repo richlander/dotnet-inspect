@@ -252,7 +252,15 @@ public class AnnotationGestureTests
         var first = Fact(Alloc, "one");
         var second = Fact(Unsafety, "two");
 
-        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>();
+        // The dictionary is member-wide, so it is non-empty even when no fact
+        // on *this* line has an extent. Passing an empty one instead would
+        // short-circuit inside Stack and never reach the guard under test.
+        var elsewhere = Fact(Alloc, "on some other line");
+        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>
+        {
+            [elsewhere] = new AnnotationAnchor.CaretExtent(0, 4),
+        };
+
         string caretLine = AnnotationCaret.Render(Line, "    ", [first, second], extents: extents)[0];
 
         int statementColumn = Line.Length - Line.TrimStart().Length;
@@ -284,8 +292,9 @@ public class AnnotationGestureTests
         var rendered = AnnotationCaret.Render(Line, "    ", [first, second, third], extents: extents);
         string caretLine = rendered[0];
 
-        // Three facts, two extents, so two carets and two numbers -- not three.
-        Assert.Equal(2, caretLine.Count(c => c == '.'));
+        // Three facts, two extents, so two numbered carets -- not three. The
+        // group count is pinned structurally by the caret runs below; this
+        // pins that the numbering agrees with it.
         Assert.Contains("1.", caretLine, StringComparison.Ordinal);
         Assert.Contains("2.", caretLine, StringComparison.Ordinal);
         Assert.DoesNotContain("3.", caretLine, StringComparison.Ordinal);

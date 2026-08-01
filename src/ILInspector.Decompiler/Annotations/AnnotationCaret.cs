@@ -20,11 +20,12 @@ namespace ILInspector.Decompiler.Annotations;
 /// <see cref="AnnotationAnchor.ComputeCaretExtents"/>. Where the raise erased
 /// the offset there is no sub-token to point at. Such a fact is listed under
 /// <see cref="UnplacedMarker"/> if some other fact on the line was placed, and
-/// only where <em>no</em> fact on the line has an extent does the underline
-/// cover the trimmed statement instead — exactly what the facts are still known
-/// to be about, and no more. A span-carrying datum (a compiler diagnostic)
-/// brings its own range; that is a property of the datum, not of this
-/// gesture.</item>
+/// where <em>no</em> fact on the line has an extent the underline covers the
+/// trimmed statement instead — exactly what the facts are still known to be
+/// about, and no more. Statement width is also the defensive answer when a
+/// stacked label would not fit beside the gutter, which no CoreLib line
+/// currently reaches. A span-carrying datum (a compiler diagnostic) brings its
+/// own range; that is a property of the datum, not of this gesture.</item>
 /// </list>
 /// </remarks>
 public static class AnnotationCaret
