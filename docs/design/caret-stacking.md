@@ -430,8 +430,15 @@ groups — the ones with something to pack — **2,289 (88.4%)** take a single r
 And 2,588 is padded in turn, by a structural fact stated earlier in this
 document: extents sharing a start column can never share a row. **136** of those
 lines carry two distinct extents at one column and so cannot take a single row
-whatever the packer does. Among the **2,452** that can, the rate is **2,289
+whatever the packer does. Among the remaining **2,452** the rate is **2,289
 (93.4%)**.
+
+"Remaining" rather than "able to": 163 of those 2,452 also fail, refused by row
+admission because their extents sit too close together. They are left in
+deliberately. Crowding is what this rate exists to measure, so excluding lines
+for being crowded would drive it to 100% and measure nothing. A shared start
+column is excluded because it is a different phenomenon — two extents anchored
+at one column are a nesting, not a packing failure.
 
 3,884 of 6,566 trails (59.2%) render at true width, but that headline rate is
 padded by a structural immunity and should not be read as a packing success
@@ -456,7 +463,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `3e13e5e24`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `721adb61a`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
@@ -542,13 +549,13 @@ adjacency that motivates it. The obvious first candidate for a wide style.
 ### Constant-width caret trails
 
 Render every caret at a fixed width so packing depends only on start columns.
-Compact — but not more compact than what ships. An earlier revision claimed a
-4-wide trail fits 87.5% of multi-extent lines on one row, with no probe behind
-it; the figure does not reproduce. Packing 4-wide trails by start column with a
-one-column gap fits **2,289 of 2,588** (88.4%), or **93.4%** of the 2,452 that
-are not forced onto multiple rows by a shared start column — which is exactly
-what the shipped variable-width model achieves on the same corpus. Fixing the
-width buys no packing.
+Compact, supposedly. An earlier revision claimed a 4-wide trail fits 87.5% of
+multi-extent lines on one row. That figure has no probe behind it anywhere and
+does not reproduce, so it is withdrawn rather than replaced: a fixed-width
+packer is not implemented here, and two independent reconstructions of what it
+would do disagreed with each other (88.4% and 87.2% on the same corpus). The
+honest statement is that its packing advantage over the shipped model is
+unmeasured and was never established. Nothing below depends on it.
 
 Rejected because it **misstates width**. A 4-wide trail under the single
 character `y` in `ArgumentOutOfRangeException(varName, y, …)` claims a
