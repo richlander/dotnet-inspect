@@ -137,13 +137,14 @@ public static class DiffOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Rows = opts.ParseRows(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || options.SelectDefault || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

@@ -269,7 +269,7 @@ public class AuthoredCorpusHistoryCardTests
     /// (<see cref="AuthoredCorpusRatchetTests"/>) reads the same store through the
     /// same parser rather than locating and parsing it a second way.
     /// </summary>
-    internal static IReadOnlyList<HistoryRun> TrackedHistory()
+    internal static string TrackedHistoryPath()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null
@@ -281,8 +281,12 @@ public class AuthoredCorpusHistoryCardTests
         Assert.NotNull(directory);
         string path = Path.Combine(directory.FullName, AuthoredCorpusHistoryCard.DefaultHistoryRelativePath);
         Assert.True(File.Exists(path), $"tracked history store not found at {path}");
+        return path;
+    }
 
-        var runs = AuthoredCorpusHistoryCard.ParseHistory(File.ReadAllLines(path));
+    internal static IReadOnlyList<HistoryRun> TrackedHistory()
+    {
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(File.ReadAllLines(TrackedHistoryPath()));
         Assert.NotEmpty(runs);
         return runs;
     }

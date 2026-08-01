@@ -1,5 +1,6 @@
 using System.Text;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -236,20 +237,20 @@ internal static class CSharpDeclarationWriter
     {
         var sb = new StringBuilder();
         foreach (var ns in usings)
-            sb.AppendLine($"using {ns};");
+            sb.AppendLf($"using {ns};");
 
         if (usings.Count > 0)
-            sb.AppendLine();
+            sb.AppendLf();
 
         if (options.NamespaceMode == CSharpNamespaceMode.FileScoped
             && !string.IsNullOrWhiteSpace(options.ContainingNamespace))
         {
-            sb.AppendLine($"namespace {options.ContainingNamespace};");
-            sb.AppendLine();
+            sb.AppendLf($"namespace {options.ContainingNamespace};");
+            sb.AppendLf();
         }
 
         foreach (var line in bodyLines)
-            sb.AppendLine(line);
+            sb.AppendLf(line);
 
         return sb.ToString().TrimEnd();
     }
@@ -772,7 +773,7 @@ internal static class CSharpDeclarationWriter
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
@@ -786,12 +787,24 @@ internal static class CSharpDeclarationWriter
     /// distinction when available; otherwise falls back to a token heuristic that
     /// cannot disambiguate a type literally named like a constraint keyword.
     /// </summary>
+    /// <remarks>
+    /// The result is contained before it is returned. A constraint entry is a type
+    /// name out of metadata, so it is untrusted, and keyword escaping is not
+    /// containment: it changes <c>class</c> to <c>@class</c> and leaves a bidi
+    /// override or a line terminator exactly where it was. Adversarial review of
+    /// issue #3319 found a hostile interface name reaching the terminal raw through
+    /// this list while the type parameter beside it was already contained, so the
+    /// rendered row was half guarded. Containment goes here rather than at the call
+    /// sites because this method is what composes the untrusted text into a single
+    /// display string, and its two callers would otherwise each have to remember.
+    /// </remarks>
     internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
     {
         var parts = typeParameter.StructuredConstraints is { } structured
             ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
             : typeParameter.Constraints.Select(SpellConstraint);
-        return EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames);
+        return CSharpIdentifierCore.ContainComposedName(
+            EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames));
     }
 
     // Fallback used only when structured constraint kinds are unavailable: a
@@ -954,7 +967,7 @@ internal static class CSharpDeclarationWriter
             : $"{parameter.Modifier} {type}";
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
             ? head
-            : $"{head} {EscapeIdentifier(parameter.Name)}";
+            : $"{head} {SanitizeIdentifier(parameter.Name)}";
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;
@@ -1047,7 +1060,14 @@ internal static class CSharpDeclarationWriter
             builder.Append(identifier);
             index = end;
         }
-        return builder.ToString();
+
+        // A type string is composed from untrusted metadata names. Containment
+        // happens at this single display choke point rather than at the sites
+        // that spell parameters, return types, and base types, so a new caller
+        // cannot reopen issue #3319. This escaper is display-only — identity
+        // lives in the raw metadata names — and containment is a no-op on clean
+        // text.
+        return CSharpIdentifierCore.ContainComposedName(builder.ToString());
     }
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
@@ -1179,21 +1199,41 @@ internal static class CSharpDeclarationWriter
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
-            : EscapeIdentifier(typeParameter.Name);
+            ? $"{variance} {SanitizeIdentifier(typeParameter.Name)}"
+            : SanitizeIdentifier(typeParameter.Name);
 
     static string FormatObsoleteAttribute(string? message)
         => string.IsNullOrWhiteSpace(message)
             ? "[Obsolete]"
             : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
 
+    // The Obsolete message is attacker-controlled attribute text rendered inside a
+    // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,
+    // ANSI escapes, and bidi overrides to reach the terminal raw (issue #3319), so
+    // every remaining rendering hazard is spelled as a visible \uXXXX escape.
     static string EscapeCSharpString(string value)
-        => value
+    {
+        var escaped = value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
+
+        if (!escaped.Any(CSharpIdentifier.RequiresLiteralEscape))
+            return escaped;
+
+        var builder = new StringBuilder(escaped.Length);
+        foreach (var ch in escaped)
+        {
+            if (CSharpIdentifier.RequiresLiteralEscape(ch))
+                builder.Append($"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
 
     /// <summary>
     /// Rewrites an <c>op_*</c> method signature into C# operator syntax.
@@ -1277,7 +1317,7 @@ internal static class CSharpDeclarationWriter
             name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return EscapeIdentifier(typeName);
+        return SanitizeIdentifier(typeName);
     }
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
@@ -1297,9 +1337,10 @@ internal static class CSharpDeclarationWriter
         if (nameIndex < 0)
             return signature;
 
-        string escaped = memberName.Contains('.', StringComparison.Ordinal)
-            ? EscapeQualifiedName(memberName)
-            : EscapeIdentifier(memberName);
+        // Containment, not just keyword escaping: this name is untrusted metadata
+        // and the result is rendered into a signature cell. A qualified name keeps
+        // its dots, so each segment is contained on its own (issue #3319).
+        string escaped = ContainMemberName(memberName);
         return escaped == memberName
             ? signature
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
@@ -1524,8 +1565,38 @@ internal static class CSharpDeclarationWriter
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
+    /// <summary>
+    /// <see cref="EscapeQualifiedName"/> with each segment contained rather than
+    /// only keyword-escaped, for a name that came from untrusted metadata.
+    /// </summary>
+    static string ContainQualifiedName(string name)
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(SanitizeIdentifier))));
+
+    /// <summary>
+    /// Contains a member name that is about to be rendered into a declaration,
+    /// keeping the dots of a qualified (explicit interface) name intact.
+    /// </summary>
+    static string ContainMemberName(string name)
+        => name.Contains('.', StringComparison.Ordinal)
+            ? ContainQualifiedName(name)
+            : SanitizeIdentifier(name);
+
     public static string EscapeIdentifier(string name)
         => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
+
+    /// <summary>
+    /// The spelling to use for a metadata name that reaches emitted declaration
+    /// text: <see cref="EscapeIdentifier"/> handles keywords but leaves an
+    /// unspellable name (one carrying a line terminator, say) intact, which would
+    /// let it break out of the surrounding code fence. Sanitizing folds it to
+    /// identifier characters instead.
+    /// </summary>
+    /// <remarks>
+    /// Byte-neutral for every name a compiler can emit, since none of them carry a
+    /// line terminator; pinned by <c>CSharpIdentifierSanitizationTests</c>.
+    /// </remarks>
+    static string SanitizeIdentifier(string name)
+        => CSharpIdentifier.ContainIdentifierForDeclaration(name);
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1548,7 +1619,7 @@ internal static class CSharpDeclarationWriter
         if (insertAt < parenStart && signature[insertAt] == '<')
             return signature;
 
-        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
+        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>");
     }
 
     public static string EscapeNamespace(string name)
@@ -1556,8 +1627,7 @@ internal static class CSharpDeclarationWriter
             ? ""
             : string.Join(
                 ".",
-                name.Split('.').Select(segment =>
-                    segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
+                name.Split('.').Select(SanitizeIdentifier));
 
     internal static string TypeAccessibility(ApiType type)
         => type.Accessibility ?? "public";

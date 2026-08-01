@@ -248,6 +248,24 @@ public static class SectionNames
     /// <summary>Section for the assembly identity header.</summary>
     public const string LibraryInfo = "Library Info";
 
+    /// <summary>
+    /// Section for the type identity header: the fact table that answers "what is this type"
+    /// without listing any of its members. Structurally fixed — the row set is the same for every
+    /// type, so it is the bare <c>-S</c> overview for the type view, mirroring
+    /// <see cref="LibraryInfo"/> for the library view.
+    /// </summary>
+    public const string TypeInfo = "Type Info";
+
+    /// <summary>
+    /// Section for the API surface identity header: the fact table that answers "what am I
+    /// listing" without enumerating any of the matched types. Structurally fixed — the row set is
+    /// the same for a two-type match and a two-thousand-type one, because every row is a fact
+    /// *about* the surface rather than an entry *from* it. That is what makes it the type-listing
+    /// counterpart to <see cref="TypeInfo"/> for the single-type view and <see cref="LibraryInfo"/>
+    /// for the library view.
+    /// </summary>
+    public const string ApiInfo = "API Info";
+
     /// <summary>Section for scans that failed, so a partial inspection never reads as a clean one.</summary>
     public const string InspectionFailures = "Inspection Failures";
 

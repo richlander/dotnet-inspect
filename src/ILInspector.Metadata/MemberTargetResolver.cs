@@ -1,3 +1,4 @@
+using System.Text;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -173,15 +174,17 @@ public sealed record MemberTargetDiagnostic(
     string Message,
     IReadOnlyList<MemberTargetCandidate> Candidates)
 {
-    public void WriteError(TextWriter error)
-    {
-        error.WriteLine(Message);
-        if (Candidates.Count == 0)
-            return;
-
-        foreach (var candidate in Candidates)
-            error.WriteLine($"  {candidate.StableSelector}  {candidate.CanonicalSignature}");
-    }
+    /// <summary>
+    /// The candidate list, as detail lines for the diagnostic writer.
+    /// </summary>
+    /// <remarks>
+    /// This layer owns metadata facts, not presentation, so it formats rather
+    /// than writes. The previous shape took a <see cref="TextWriter"/> and
+    /// wrote to it, which put a stderr diagnostic outside the CLI's single
+    /// writer and outside the source scan that pins it (issue #3319).
+    /// </remarks>
+    public IReadOnlyList<string> CandidateDetails()
+        => [.. Candidates.Select(candidate => $"  {candidate.StableSelector}  {candidate.CanonicalSignature}")];
 }
 
 public sealed record MemberTargetResolution(
@@ -246,14 +249,14 @@ public static class MemberTargetResolver
         if (candidates.Count == 0)
         {
             return Failure(MemberTargetDiagnosticKind.MissingMember,
-                $"Error: No members matched selector '{selector.RequestedText}'.",
+                $"No members matched selector '{selector.RequestedText}'.",
                 candidates);
         }
 
         if (selector.OverloadIndex.HasValue && selector.DigestPrefix is { Length: > 0 })
         {
             return Failure(MemberTargetDiagnosticKind.ConflictingSelectors,
-                "Error: digest selector cannot be combined with --index/Name:N.",
+                "digest selector cannot be combined with --index/Name:N.",
                 candidates);
         }
 
@@ -268,14 +271,14 @@ public static class MemberTargetResolver
             if (matches.Count == 0)
             {
                 return Failure(MemberTargetDiagnosticKind.DigestNotFound,
-                    $"Error: No overload of {selector.Name} matches digest '{digest}'. Use one of the stable {selector.Name}~<digest> selectors.",
+                    $"No overload of {selector.Name} matches digest '{digest}'. Use one of the stable {selector.Name}~<digest> selectors.",
                     candidates);
             }
 
             if (matches.Count > 1)
             {
                 return Failure(MemberTargetDiagnosticKind.DigestAmbiguous,
-                    $"Error: Digest '{digest}' is ambiguous. Use a longer digest prefix:",
+                    $"Digest '{digest}' is ambiguous. Use a longer digest prefix:",
                     matches);
             }
 
@@ -293,7 +296,7 @@ public static class MemberTargetResolver
             if (index < 1 || index > maxIndex)
             {
                 return Failure(MemberTargetDiagnosticKind.OverloadOutOfRange,
-                    $"Error: {selector.Name}:{index} is out of range. Use {selector.Name}:1 through {selector.Name}:{maxIndex}.",
+                    $"{selector.Name}:{index} is out of range. Use {selector.Name}:1 through {selector.Name}:{maxIndex}.",
                     candidates);
             }
 
@@ -312,7 +315,7 @@ public static class MemberTargetResolver
             if (candidates.Count > 1)
             {
                 return Failure(MemberTargetDiagnosticKind.AmbiguousMember,
-                    $"Error: Member selector '{selector.RequestedText}' is ambiguous. Use one of the stable {selector.Name}~<digest> selectors, or {selector.Name}:1 through {selector.Name}:{candidates.Count}.",
+                    $"Member selector '{selector.RequestedText}' is ambiguous. Use one of the stable {selector.Name}~<digest> selectors, or {selector.Name}:1 through {selector.Name}:{candidates.Count}.",
                     candidates);
             }
 

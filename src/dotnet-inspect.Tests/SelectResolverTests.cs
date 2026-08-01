@@ -70,14 +70,28 @@ public class SelectResolverTests
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
     }
 
+    /// <summary>
+    /// The default preset is reached only through bare <c>-S</c>, which arrives as its own flag.
+    /// <c>@Default</c> is not a selector value, so spelling it is an ordinary miss (#3547).
+    /// </summary>
     [Fact]
-    public void ResolveSelect_DefaultSelector_ReturnsDefaultSections()
+    public void ResolveSelect_SelectDefaultFlag_ReturnsDefaultSections()
     {
-        var result = SelectResolver.ResolveSelectAsSections(["@Default"], TestSections, ["Package Info"]);
+        var result = SelectResolver.ResolveSelectAsSections(
+            null, TestSections, ["Package Info"], selectDefault: true);
 
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(["Package Info"], result.Sections!.ToArray());
+    }
+
+    [Fact]
+    public void ResolveSelect_DefaultPoleSpelledOut_DoesNotResolve()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["@Default"], TestSections, ["Package Info"]);
+
+        Assert.Null(result.Sections);
+        Assert.Equal("@Default", Assert.Single(result.Unresolved).Value);
     }
 
     [Fact]

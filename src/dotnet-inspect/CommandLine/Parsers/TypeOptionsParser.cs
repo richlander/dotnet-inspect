@@ -57,7 +57,13 @@ public static class TypeOptionsParser
     /// <summary>
     /// Indicates a version error occurred.
     /// </summary>
-    public record VersionError(string Message) : TypeParseResult;
+    /// <remarks>
+    /// Carries an <see cref="DotnetInspector.Options.OptionError"/> rather than a
+    /// bare string so a validation failure keeps its detail lines all the way to
+    /// the writer; the implicit conversion leaves the message-only sites
+    /// unchanged.
+    /// </remarks>
+    public record VersionError(DotnetInspector.Options.OptionError Error) : TypeParseResult;
 
     /// <summary>
     /// Indicates an unrecognized option was found.
@@ -92,7 +98,7 @@ public static class TypeOptionsParser
         }
 
         if (hasProjectSource && hasNonProjectSource)
-            return new VersionError("Error: --project cannot be combined with --package, --library, or --platform.");
+            return new VersionError("--project cannot be combined with --package, --library, or --platform.");
 
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
@@ -143,7 +149,8 @@ public static class TypeOptionsParser
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
         var select = opts.ParseSelect(parseResult);
-        bool hasExplicitSelect = select is { Length: > 0 };
+        var selectDefault = opts.ParseSelectDefault(parseResult);
+        bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
         // Performance Triage row filters (--top/--loop/--min-confidence/--triage-shape/--where/
         // --order-by) surface the Performance Triage section only when the user did not already
         // pick sections with -S. Otherwise an explicit selection like -S "Top Leverage" would
@@ -195,6 +202,7 @@ public static class TypeOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
+            SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),

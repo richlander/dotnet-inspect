@@ -22,9 +22,12 @@ with the fixed-head review rule.
   boundary the PR-summary rule already requires, so declare them: a reviewer
   should read a declared residual as scope rather than as a defect. Each slice's
   residual is the next slice's opening move; keep it enumerated.
+- **Name every slice branch `feature/<name>`.** CI runs for PRs targeting
+  `main` or a `feature/**` branch, so this prefix ensures every layer receives
+  CI before and after its parent lands.
 - **One branch and one worktree per slice**, as for any PR. Branch slice N+1
   from slice N's branch rather than `origin/main`:
-  `git worktree add -b <branch> <path> <parent-branch>`.
+  `git worktree add -b feature/<name> <path> <parent-branch>`.
 - **Target the parent branch** so the PR diff shows only its own slice:
   `gh pr create --base <parent-branch>`.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost

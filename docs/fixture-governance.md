@@ -24,6 +24,7 @@ Separate projects are justified for these semantic axes:
 | Output kind | The fixture must be an executable or otherwise non-library output. |
 | Sidecar asset | A binary is coupled to a trace or other sidecar artifact. |
 | Target framework | The TFM changes emitted references or facade behavior. |
+| Untrusted text | The fixture carries attacker-chosen text, so its build must not contaminate a shared project's expected output. |
 | Version pair | Old and new assemblies are compared as separate binaries. |
 
 If none of those axes applies, consolidate the source into an existing fixture

@@ -352,14 +352,11 @@ round:
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
   report its parent's changes as its own.
-- **No checks reported is terminal, not pending.** A slice can report no checks
-  at all — `gh pr checks` prints "no checks reported" while the PR is
-  MERGEABLE/CLEAN. Whether a given base branch schedules runs is not something
-  to assume in either direction: read what the PR actually reports, and if
-  nothing is reported, do not wait for runs that may never come. In that state
-  the slice's evidence is the validation you ran locally plus the bottom slice's
-  CI, so say what you ran, and never report an unrun slice as green. Re-check
-  after the slice retargets `main`, where anything newly scheduled does gate.
+- **Every slice in a stack must report CI.** Stack branches use the `feature/`
+  prefix, so a child PR targeting its parent branch schedules the same CI as a
+  bottom slice targeting `main`. If `gh pr checks` reports no checks for a
+  stack slice, the slice is not green: verify the branch naming and workflow
+  scheduling before review.
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -434,6 +431,12 @@ until every required fixed-head review is clean.
   [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Treat CI as confirmation, not discovery: run relevant local checks first.
+- `ci-required` is the only check that may gate merges, and the one the `main`
+  ruleset is meant to require: an aggregate that fails if any job in `ci.yml`
+  failed or was cancelled. It passes `skipped`, because most jobs are
+  path-gated, so a green `ci-required` means "nothing that ran went wrong", not
+  "everything ran". Never require a path-gated job directly — a required check
+  that does not run blocks the merge forever.
 - Do not broaden CI without a measured need. The PR `test` job validates the
   merge path; `pack` is path-gated; release artifacts are built by
   `release.yml`.
@@ -456,6 +459,7 @@ until it is unreviewable, and over parallel PRs that race in the same files.
 - **Name the stack in every PR**: the slice's position, its parent PR, and the
   enumerated residual, which is the non-action boundary the PR-summary rule
   already requires.
+- **Name every slice branch `feature/<name>`** so child PRs targeting it run CI.
 - **One branch and one worktree per slice**, branched from the parent slice, and
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and

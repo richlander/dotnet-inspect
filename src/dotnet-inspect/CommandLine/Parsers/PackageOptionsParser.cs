@@ -169,6 +169,7 @@ public static class PackageOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Schema = opts.ParseSchema(parseResult),
@@ -178,7 +179,7 @@ public static class PackageOptionsParser
         };
 
         // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
-        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } };
+        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } || options.SelectDefault };
 
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)
@@ -188,7 +189,7 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

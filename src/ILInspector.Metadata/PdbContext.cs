@@ -1003,10 +1003,20 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Extracts the repository URL from SourceLink information.
+    /// Establishes where this PDB's source is actually fetched from, over the documents the PDB
+    /// declares. Returns a result that says why when no single origin describes them all.
+    /// </summary>
+    public SourceLinkFetch.SourceLinkProvenanceResult Provenance()
+        => _resolver is null || _pdbReader is null
+            ? new SourceLinkFetch.SourceLinkProvenanceResult(null, "the PDB carries no SourceLink map")
+            : _resolver.Provenance(_pdbReader);
+
+    /// <summary>
+    /// Extracts the repository URL from SourceLink information, or null when no single origin
+    /// describes every document the assembly resolves.
     /// </summary>
     public string? ExtractRepositoryUrl()
-        => _resolver?.ExtractRepositoryUrl();
+        => Provenance().Origin?.RepositoryUrl;
 
     /// <summary>
     /// Resolves source file and line number from a method token and IL offset.

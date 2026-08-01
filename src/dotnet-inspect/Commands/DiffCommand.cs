@@ -27,7 +27,8 @@ public class DiffCommand
     {
         var pipeline = DiffSections.CreatePipeline();
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
+            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
         if (selectResult.Sections != null)
@@ -65,24 +66,24 @@ public class DiffCommand
 
         if (options.IncludeAuthoredSource && !SelectsImplementationDiff(options))
         {
-            Console.Error.WriteLine(
-                "Error: --authored-source requires the Implementation Diff section.");
+            CommandError.Write(
+                "--authored-source requires the Implementation Diff section.");
             return 1;
         }
 
         if (!hasPlatform && !hasPackage && !hasLibrary)
         {
-            Console.Error.WriteLine("Error: --package, --platform, or --library with version range required.");
-            Console.Error.WriteLine("Examples:");
-            Console.Error.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
-            Console.Error.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
-            Console.Error.WriteLine("  --library old/Foo.dll..new/Foo.dll");
+            CommandError.Write("--package, --platform, or --library with version range required.");
+            CommandError.WriteLine("Examples:");
+            CommandError.WriteLine("  --package System.Text.Json@9.0.0..10.0.2");
+            CommandError.WriteLine("  --platform System.Text.Json@8.0.23..10.0.2");
+            CommandError.WriteLine("  --library old/Foo.dll..new/Foo.dll");
             return 1;
         }
 
         if ((hasPlatform ? 1 : 0) + (hasPackage ? 1 : 0) + (hasLibrary ? 1 : 0) > 1)
         {
-            Console.Error.WriteLine("Error: Cannot specify more than one of --package, --platform, and --library.");
+            CommandError.Write("Cannot specify more than one of --package, --platform, and --library.");
             return 1;
         }
 
@@ -92,28 +93,28 @@ public class DiffCommand
                 && (sections.Count != 1
                     || !sections.Contains(DiffSections.FindingTransitions.Name)))
             {
-                Console.Error.WriteLine(
-                    "Error: Finding Transitions must be selected by itself because it is a focused endpoint-confirmation lens; select comparison sections explicitly instead of using @All.");
+                CommandError.Write(
+                    "Finding Transitions must be selected by itself because it is a focused endpoint-confirmation lens; select comparison sections explicitly instead of using @All.");
                 return 1;
             }
             if (options.Finding is null
                 && options.TypeFilter.Count == 0
                 && options.MemberFilter.Count == 0)
             {
-                Console.Error.WriteLine("Error: Finding Transitions requires --type or a type-qualified --member target.");
+                CommandError.Write("Finding Transitions requires --type or a type-qualified --member target.");
                 return 1;
             }
             if (!TryResolveFindingDescriptor(options, out var findingDescriptor, out var findingError))
             {
-                Console.Error.WriteLine($"Error: {findingError}");
+                CommandError.Write($"{findingError}");
                 return 1;
             }
             if (IsMemberBodyFindingDescriptor(findingDescriptor))
             {
                 if (options.MemberFilter.Count != 1)
                 {
-                    Console.Error.WriteLine(
-                        $"Error: --finding {findingDescriptor} requires exactly one --member target.");
+                    CommandError.Write(
+                        $"--finding {findingDescriptor} requires exactly one --member target.");
                     return 1;
                 }
             }
@@ -121,7 +122,7 @@ public class DiffCommand
             {
                 if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
                 {
-                    Console.Error.WriteLine("Error: --finding api.type requires --type and cannot be combined with --member.");
+                    CommandError.Write("--finding api.type requires --type and cannot be combined with --member.");
                     return 1;
                 }
             }
@@ -129,7 +130,7 @@ public class DiffCommand
             {
                 if (options.TypeFilter.Count == 0 || options.MemberFilter.Count > 0)
                 {
-                    Console.Error.WriteLine("Error: --finding api.attribute requires --type and cannot be combined with --member.");
+                    CommandError.Write("--finding api.attribute requires --type and cannot be combined with --member.");
                     return 1;
                 }
             }
@@ -137,14 +138,14 @@ public class DiffCommand
                 && options.TypeFilter.Count == 0
                 && options.MemberFilter.Count == 0)
             {
-                Console.Error.WriteLine("Error: --finding api.member requires --type or --member.");
+                CommandError.Write("--finding api.member requires --type or --member.");
                 return 1;
             }
             if (options.Breaking || options.Additive || options.ChangedOnly
                 || options.AllocRegressionsOnly || options.NameOnly)
             {
-                Console.Error.WriteLine(
-                    "Error: Finding Transitions reports the exact PairFinding kind and cannot be combined with change-classification, analysis, or name-only filters.");
+                CommandError.Write(
+                    "Finding Transitions reports the exact PairFinding kind and cannot be combined with change-classification, analysis, or name-only filters.");
                 return 1;
             }
         }
@@ -161,7 +162,7 @@ public class DiffCommand
                 var result = await ExecutePackageDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
-                    Console.Error.WriteLine(result.error);
+                    CommandError.Write(result.error);
                     return 1;
                 }
                 inputs = result.inputs!;
@@ -171,7 +172,7 @@ public class DiffCommand
                 var result = await ExecutePlatformDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
-                    Console.Error.WriteLine(result.error);
+                    CommandError.Write(result.error);
                     return 1;
                 }
                 inputs = result.inputs!;
@@ -181,7 +182,7 @@ public class DiffCommand
                 var result = await ExecuteLibraryDiffAsync(options, logger, context.HttpClient);
                 if (result.error != null)
                 {
-                    Console.Error.WriteLine(result.error);
+                    CommandError.Write(result.error);
                     return 1;
                 }
                 inputs = result.inputs!;
@@ -319,7 +320,7 @@ public class DiffCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -349,7 +350,7 @@ public class DiffCommand
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
         if (packageName == null || fromVersion == null || toVersion == null)
         {
-            return (null, "Error: Invalid version range. Use format: Package@v1..v2");
+            return (null, "Invalid version range. Use format: Package@v1..v2");
         }
 
         logger.Log($"Comparing {packageName} v{fromVersion} -> v{toVersion}");
@@ -405,7 +406,7 @@ public class DiffCommand
         var (assemblyName, fromVersion, toVersion) = ParseVersionRange(options.PlatformVersionRange!);
         if (assemblyName == null || fromVersion == null || toVersion == null)
         {
-            return (null, "Error: Invalid version range. Use format: Library@v1..v2");
+            return (null, "Invalid version range. Use format: Library@v1..v2");
         }
 
         var framework = options.Framework ?? "runtime";
@@ -423,7 +424,7 @@ public class DiffCommand
             logger);
         if (from.error is not null)
             return (null, from.assembliesResolved
-                ? "Error: Failed to extract API surface from one or both versions."
+                ? "Failed to extract API surface from one or both versions."
                 : $"Error resolving v{fromVersion}: {AsEndpointError(from.error)}");
 
         (ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved) to;
@@ -449,7 +450,7 @@ public class DiffCommand
         {
             from.endpoint!.Dispose();
             return (null, to.assembliesResolved
-                ? "Error: Failed to extract API surface from one or both versions."
+                ? "Failed to extract API surface from one or both versions."
                 : $"Error resolving v{toVersion}: {AsEndpointError(to.error)}");
         }
 
@@ -464,7 +465,7 @@ public class DiffCommand
     {
         var (fromPath, toPath) = ParsePathRange(options.LibraryVersionRange!);
         if (fromPath is null || toPath is null)
-            return (null, "Error: Invalid library range. Use format: old/Foo.dll..new/Foo.dll");
+            return (null, "Invalid library range. Use format: old/Foo.dll..new/Foo.dll");
 
         var from = await ResolveDiffEndpointAsync(
             httpClient,
@@ -477,8 +478,8 @@ public class DiffCommand
             logger);
         if (from.error is not null)
             return (null, from.assembliesResolved
-                ? "Error: Failed to extract API surface from one or both libraries."
-                : $"Error: File not found: {fromPath}");
+                ? "Failed to extract API surface from one or both libraries."
+                : $"File not found: {fromPath}");
 
         (ApiSurfaceEndpoint? endpoint, string? error, bool assembliesResolved) to;
         try
@@ -502,8 +503,8 @@ public class DiffCommand
         {
             from.endpoint!.Dispose();
             return (null, to.assembliesResolved
-                ? "Error: Failed to extract API surface from one or both libraries."
-                : $"Error: File not found: {toPath}");
+                ? "Failed to extract API surface from one or both libraries."
+                : $"File not found: {toPath}");
         }
 
         var name = Path.GetFileNameWithoutExtension(toPath);
@@ -1104,7 +1105,7 @@ public class DiffCommand
                 .ToList();
 
             if (typeDiffs.Count == 0 && beforeTypeFilterCount > 0 && options.MemberFilter.Count == 0)
-                Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
+                CommandError.WriteNote($"type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
         }
 
         // Apply classification filter
@@ -1112,7 +1113,7 @@ public class DiffCommand
         var classificationFilterActive = options.Breaking || options.Additive;
         if (filtered.Count == 0 && typeDiffs.Count > 0 && classificationFilterActive)
         {
-            Console.Error.WriteLine("Note: classification filter removed all changes after type/member filters.");
+            CommandError.WriteNote("classification filter removed all changes after type/member filters.");
         }
 
         return filtered;
@@ -1181,11 +1182,11 @@ public class DiffCommand
 
         var candidateTypeDiffs = ApplyTypeFilterOnly(diff.TypeDiffs, options.TypeFilter);
         if (candidateTypeDiffs.Count == 0 && diff.TypeDiffs.Count > 0 && options.TypeFilter.Count > 0)
-            Console.Error.WriteLine($"Note: type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
+            CommandError.WriteNote($"type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
 
         var filtered = FilterApiDiffByMemberTargets(diff, fromSurface, toSurface, options);
         if (filtered.TypeDiffs.Count == 0 && candidateTypeDiffs.Count > 0)
-            Console.Error.WriteLine($"Note: member filter matched no changed members after type filters: {string.Join(", ", options.MemberFilter)}.");
+            CommandError.WriteNote($"member filter matched no changed members after type filters: {string.Join(", ", options.MemberFilter)}.");
 
         return filtered;
     }
@@ -2060,6 +2061,13 @@ public record DiffOptions
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }

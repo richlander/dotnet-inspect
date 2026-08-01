@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
@@ -118,11 +119,12 @@ public static class PackageCommandDefinitions
             {
                 case PackageOptionsParser.UnrecognizedOption error:
                     // A spelling this command removed is answered with its replacement; anything
-                    // else the parser did not recognize gets the plain complaint.
-                    Console.Error.WriteLine(
+                    // else the parser did not recognize gets the plain complaint. Both go
+                    // through CommandError, which owns the "Error: " prefix and containment.
+                    CommandError.Write(
                         ArgumentPreprocessor.GetRemovedPackageOptionError(error.Option) is { } removed
-                            ? $"Error: {removed}"
-                            : $"Error: Unrecognized option '{error.Option}'.");
+                            ? removed
+                            : $"Unrecognized option '{error.Option}'.");
                     return 1;
 
                 case PackageOptionsParser.Success success:
@@ -187,13 +189,13 @@ public static class PackageCommandDefinitions
 
             if (string.IsNullOrEmpty(query))
             {
-                Console.Error.WriteLine("Usage: package search <query>");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Examples:");
-                Console.Error.WriteLine("  package search Azure.AI");
-                Console.Error.WriteLine("  package search AWSSDK --take 50");
-                Console.Error.WriteLine("  package search \"json serializer\" --json");
-                Console.Error.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
+                CommandError.WriteLine("Usage: package search <query>");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Examples:");
+                CommandError.WriteLine("  package search Azure.AI");
+                CommandError.WriteLine("  package search AWSSDK --take 50");
+                CommandError.WriteLine("  package search \"json serializer\" --json");
+                CommandError.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
                 return 0;
             }
 
