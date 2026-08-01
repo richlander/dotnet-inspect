@@ -374,7 +374,7 @@ Keep the two distinct. A quick read gets no isolated worktree, no fixed head,
 and **satisfies no tier** — a PR that had one still owes its full review once
 the branch settles. When you cite its findings, say which it was.
 
-### How many reviews, and from which models
+### How many reviewers, and from which models
 
 **How much review a PR needs is a function of its triviality and risk alone —
 never the kind of change it makes.** If you are unsure which tier applies,
@@ -383,31 +383,34 @@ escalate: default to more review, not less.
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| More than trivial, but not high risk | A single review round, always with **MAI-Code**. |
-| High risk — the default for any substantial change | Two review rounds from two different models. |
+| Medium risk | One reviewer, always **GPT** at the highest available version and quality level. |
+| Higher risk — typical for a substantial feature | Two reviewers from two different model families. |
 
-High risk means subtle correctness, security, or compatibility risk, or a large
-or uncertain blast radius.
+Higher risk means subtle correctness, security, or compatibility risk, or a
+large or uncertain blast radius.
 
-Reviewer roster — this list is the single source of truth, and scenario docs
-should reference it rather than restating it:
+Adversarial-review roster — this list is the single source of truth, and
+scenario docs should reference it rather than restating it:
 
 - Claude Opus
 - Gemini Pro
 - GPT
-- MAI-Code
 
 **Always use the highest version a model offers** — if both Opus 4.8 and Opus 5
-are available, use Opus 5. In the two-model tier, do not review with your own
-model when another listed family is available.
+are available, use Opus 5. For GPT, also select the highest available quality
+level. In the two-reviewer tier, do not review with your own model when another
+listed family is available.
 
 These tiers assume a harness — such as the GitHub Copilot CLI — that can
 delegate to any family in the roster. A harness exposing only its own vendor's
-models (Claude Code, Codex) changes how the reviews are obtained, never the bar:
-it satisfies the **single-round** tier with its own model, and for the
-**two-model** tier it reviews with its own model and then **requests a second,
-different-family round from the user**, not marking the PR ready until that
-round arrives.
+models changes how the reviewers are obtained, never the bar. For the
+medium-risk tier, use GPT when the harness offers it; otherwise request a GPT
+review from the user. For the two-reviewer tier, use an available roster family
+and **request the other, different-family reviewer from the user**, not marking
+the PR ready until both reviews arrive.
+
+A **round** evaluates one settled head with every reviewer required by its tier.
+Two reviewers in the same round count as one round, not two.
 
 ### Running the round
 
@@ -422,6 +425,31 @@ After addressing findings, re-review the fixed exact head. Reconcile the reviews
 publicly on the PR: attribute findings, state what was verified or dismissed, and
 link resolution commits or explain explicit non-actions. Do not mark the PR ready
 until every required fixed-head review is clean.
+
+### Keep review proportional to the contract
+
+Review the invariant the design actually promises. Unless the threat model
+explicitly includes hostile in-process callers, require the invariant for
+well-behaved code that follows the design — not for arbitrary code that bypasses
+or misuses its abstractions.
+
+Prefer simple, auditable enforcement over making every abstraction a fortress
+against rogue callers. `InertString` is the model: code that uses the type
+properly gets its invariant, while bypasses and misuse are deliberately easy to
+find with a targeted search. A reviewer should report such a caller so it can be
+fixed, but should not demand bend-over-backwards features in the type merely to
+make misuse impossible. Escalate to stronger enforcement only when the stated
+contract or threat model requires it.
+
+### Stop after six rounds
+
+Do not begin a seventh review round without explicit user approval, and get
+fresh approval for every additional round. Before requesting approval, present
+an analysis of why six rounds did not converge. In particular, determine
+whether the repeated findings expose an architectural problem, missing test
+coverage, or reviewers expanding the contract beyond the intended threat
+model. State the proposed architectural or test remedy, or explain why the
+remaining concern should be dismissed, before spending another round.
 
 ## PR and CI discipline
 
