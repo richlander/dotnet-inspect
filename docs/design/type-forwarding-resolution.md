@@ -92,9 +92,9 @@ Type resolution has the same two altitudes:
 
 - while resolving, Metadata may hold live readers and metadata handles in one
   owned context;
-- after resolving, consumers receive materialized assembly candidate ids,
-  metadata tokens, names, identities, outcomes, and hop evidence -- never a
-  borrowed `MetadataReader` or handle.
+- after resolving, consumers receive materialized opaque candidate-bearing
+  values, metadata tokens, names, identities, outcomes, and hop evidence --
+  never a borrowed `MetadataReader` or handle.
 
 ### Carry every discriminator the consumer needs
 
@@ -118,7 +118,7 @@ alias set.
 | **Type definition name** | Metadata namespace plus root-to-leaf metadata type-name segments. This is a lookup value, not a display spelling or universal type identity. |
 | **Assembly reference identity** | The ECMA-335 name, version, culture, and public-key token from one `AssemblyRef`. |
 | **Assembly catalog** | The lifetime and identity boundary for acquired candidates, opened images, and every cache containing candidate-local keys. |
-| **Assembly candidate** | One assembly selected by one acquisition catalog. It is not inferred from a path or from simple-name equality. |
+| **Assembly candidate** | One assembly registered by the Metadata-owned catalog from an acquisition-owner-issued handle. It is not inferred from a path or from simple-name equality. |
 | **Definition key** | The catalog-local identity of one `TypeDef`: assembly candidate plus metadata token. |
 | **Definition address** | A durable MVID-scoped metadata token. It locates a definition but is not sufficient adversarial correspondence evidence. |
 | **Declaration probe** | The bounded single-image operation that says whether an assembly defines, forwards, or does not contain one type. |
@@ -311,16 +311,56 @@ public sealed class ResolvedAssemblyCandidate
 }
 ```
 
-`ResolvedAssemblyReference` remains the context-free descriptor it is today:
-identity, optional path, opener, and provenance. It does not contain an id that
-can only be minted after a context exists.
+`ResolvedAssemblyReference` evolves in slice 2 from a value-equal record to a
+non-equatable sealed class containing identity, optional path, opener,
+provenance, and an `AssemblyAcquisitionRegistration`:
+
+```csharp
+public sealed class AssemblyAcquisitionRegistration
+{
+    public AssemblyAcquisitionRegistration() { }
+}
+
+public sealed class ResolvedAssemblyReference
+{
+    public ResolvedAssemblyReference(
+        AssemblyAcquisitionRegistration registration,
+        AssemblyReferenceIdentity identity,
+        string? path,
+        Func<Stream> openRead,
+        string? provenance)
+    {
+        Registration = registration;
+        Identity = identity;
+        Path = path;
+        OpenRead = openRead;
+        Provenance = provenance;
+    }
+
+    public AssemblyAcquisitionRegistration Registration { get; }
+    public AssemblyReferenceIdentity Identity { get; }
+    public string? Path { get; }
+    public Func<Stream> OpenRead { get; }
+    public string? Provenance { get; }
+}
+```
+
+The registration is a public opaque reference-identity handle because an
+external acquisition owner must mint it. It is not a definition key or a claim
+that visible descriptor fields identify a physical file. The owner creates one
+handle per selected candidate and reuses it in every descriptor and request
+that it knows denotes that candidate. The inspection plan routes target
+acquisition and later binding through the same package, platform, project, or
+local owner; independently authoritative owners remain conservatively
+distinct.
 
 `AssemblyCatalogId` identifies the key space. `AssemblyCandidateId` is minted
-by the package, platform, project, or local acquisition catalog. Equality means
+only by the single Metadata-owned catalog after a package, platform, project,
+or local acquisition owner supplies a registered descriptor. Equality means
 "the same acquired assembly in this catalog." One caller inspection, including
 all progressive `Callers` and `Call Graph` renders and their reusable graph
-caches, retains one catalog and uses it for the target and every candidate.
-The id does not mean:
+caches, retains one catalog and uses it for the target and every candidate. The
+id does not mean:
 
 - the same simple name;
 - the same path spelling;
@@ -337,14 +377,22 @@ The catalog interns exactly one `ResolvedAssemblyCandidate` object per
 descriptor object, but caches and correspondence still key on the internal id,
 not object equality.
 
-Within one catalog, `ResolvedAssemblyReference` object identity is the
-acquisition registration handle. The catalog uses reference identity, never
-record/value equality, to map that stable descriptor instance to one candidate
-id. An acquisition owner creates one descriptor object per candidate and reuses
-that object in policy selections and public assembly-start requests. Returning
-`candidate.Assembly` therefore recovers the existing candidate. A newly
-constructed descriptor remains a distinct conservative candidate even when all
-of its visible fields match; descriptor identity is not physical-file identity.
+Within one catalog, `AssemblyAcquisitionRegistration` reference identity is the
+registration key. Descriptor object identity, descriptor fields, path, MVID,
+and opener-delegate equality never intern candidates. Returning
+`candidate.Assembly`, or another descriptor carrying the same registration,
+therefore recovers the existing candidate. A descriptor with a fresh
+registration remains a distinct conservative candidate even when all visible
+fields match. Reusing one registration with conflicting identity or provenance
+is an `InvalidPolicyResult`, not permission to merge the descriptors.
+
+The migration adapters retain one registration per candidate selected by their
+own resolver. In particular, the platform adapter keys registrations by the
+platform catalog's selected entry, not by the incoming reference identity or a
+new descriptor returned from the legacy resolver. The inspection target is
+also acquired through that adapter when its scope is platform. This makes a
+target start and a later platform forwarder selection converge on one
+registration even under framework roll-forward.
 
 The ids are inspection currency, not persisted identities or sort keys.
 Candidate identity is internal; consumers receive the descriptor but cannot
@@ -424,9 +472,11 @@ public sealed class TypeResolutionRequest
 }
 ```
 
-`Assembly` means "intern this already-resolved descriptor in the context's
-catalog, probe it, then follow any forwarder." `Reference` means "first ask the
-binding policy to resolve this exact `AssemblyRef`, then probe the result."
+`Assembly` means "look up this already-registered acquisition handle in the
+context's frozen catalog, probe it, then follow any forwarder." An unregistered
+handle is a typed `UnregisteredAssembly` rejection; resolution never mutates a
+frozen catalog. `Reference` means "first ask the binding policy to resolve this
+exact `AssemblyRef`, then probe the result."
 
 This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
@@ -436,6 +486,18 @@ Every request states exactly where resolution begins.
 ```csharp
 public readonly record struct TypeDefinitionToken(int Value);
 public readonly record struct ExportedTypeToken(int Value);
+
+public enum MetadataTraversalRejectionKind
+{
+    Cycle,
+    NodeBudget,
+    MalformedMetadata
+}
+
+public sealed record MetadataTraversalRejection(
+    MetadataTraversalRejectionKind Kind,
+    string Detail,
+    int ConsumedNodes);
 
 public sealed class ModuleFileReference
 {
@@ -588,6 +650,11 @@ owns them.
 `ModuleFileReference` copies the relevant `File` row. It carries evidence for a
 future module resolver without lending a `FileHandle` or claiming that the
 module can currently be opened.
+
+`MetadataTraversalRejection` is the Metadata-owned materialization of
+MetadataPrimitives' reader-bound `RelationshipTraversalRejection`. It preserves
+kind, diagnostic detail, and consumed work but deliberately omits the live
+`EntityHandle`.
 
 ### Assembly binding
 
@@ -753,6 +820,74 @@ consumer moves. A nullable implementation cannot accidentally satisfy the
 structured policy interface.
 
 ### Resolution outcome
+
+Resolution rejection is a closed, inspectable hierarchy:
+
+```csharp
+public abstract class TypeResolutionFailure
+{
+    private protected TypeResolutionFailure() { }
+
+    public sealed class DeclarationRejected : TypeResolutionFailure
+    {
+        internal DeclarationRejected(
+            MetadataTraversalRejection rejection) =>
+            Rejection = rejection;
+
+        public MetadataTraversalRejection Rejection { get; }
+    }
+
+    public sealed class ForwarderCycle : TypeResolutionFailure
+    {
+        internal ForwarderCycle() { }
+    }
+
+    public sealed class HopBudgetExceeded : TypeResolutionFailure
+    {
+        internal HopBudgetExceeded(int budget) => Budget = budget;
+        public int Budget { get; }
+    }
+
+    public sealed class UnsupportedModuleExport : TypeResolutionFailure
+    {
+        internal UnsupportedModuleExport(ModuleFileReference module) =>
+            Module = module;
+
+        public ModuleFileReference Module { get; }
+    }
+
+    public sealed class UnregisteredAssembly : TypeResolutionFailure
+    {
+        internal UnregisteredAssembly(
+            ResolvedAssemblyReference assembly) =>
+            Assembly = assembly;
+
+        public ResolvedAssemblyReference Assembly { get; }
+    }
+
+    public sealed class InvalidBindingPolicy : TypeResolutionFailure
+    {
+        internal InvalidBindingPolicy(AssemblyBindingFailure failure) =>
+            Failure = failure;
+
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    public sealed class DiscoveryBudgetExceeded : TypeResolutionFailure
+    {
+        internal DiscoveryBudgetExceeded(int budget) => Budget = budget;
+        public int Budget { get; }
+    }
+}
+```
+
+Open or acquisition failures while selecting a reference use `Unavailable`
+with `CandidateUnavailable`. Declaration rejection preserves its typed
+cycle/node-budget/malformed-metadata discriminator. Cross-assembly cycles,
+hop-budget exhaustion, unsupported modules, invalid starts, invalid policy
+responses, and discovery exhaustion use the other corresponding `Rejected`
+arms. Constructors remain internal because consumers inspect failures but do
+not manufacture engine verdicts.
 
 ```csharp
 public sealed class ResolvedTypeDefinitionKey
@@ -1081,24 +1216,45 @@ or disposes a session that a consumer cache expects to retain. This removes the
 reason `LibraryBodyIndex` currently repeats the traversal beside
 `TypeForwardResolver`.
 
-Candidate discovery and correspondence are separate phases. A caller or graph
-plan first acquires every candidate needed by its scope, forwarder chains,
-adjacency, and signature binding requests, then freezes an
-`AssemblyCatalogGenerationId`. Definition keys and join tokens are minted only
-against that frozen candidate set, so duplicate correspondence classes are
-complete and token arms cannot change beneath a cache.
+Candidate discovery and correspondence are separate phases.
+`AssemblyCatalogBuilder` is the discovery-phase vehicle. It registers plan
+roots, binds references, and runs declaration/forwarder probes over provisional
+candidate ids and catalog-owned sessions without issuing definition keys, join
+tokens, graph leases, or a public `TypeResolutionContext`. A newly selected
+registration extends the builder's candidate set and work queue. Discovery
+reaches a fixed point when a complete queue pass adds no registration.
 
-A later progressive lens may discover additional candidates. The catalog then
-starts a new generation and invalidates every `TypeResolutionContext`,
-resolution plan, join token, and `ScopeGraph` lease from the previous
-generation. It never mutates or reclassifies an issued token. Callers-first and
-graph-first execution may pay for one rebuild, but converge on the same frozen
-generation and answers.
+The builder is bounded by the plan's candidate and relationship budgets.
+Stable acquisition registrations make repeated selections idempotent; an owner
+that keeps minting registrations eventually produces
+`DiscoveryBudgetExceeded`, not an infinite rebuild loop. At the fixed point the
+builder freezes an `AssemblyCatalogGenerationId`, clears provisional binding
+results, and creates contexts whose binding cache is scoped to that generation.
+Definition keys and join tokens are minted only against this frozen candidate
+set, so duplicate correspondence classes are complete and token arms cannot
+change beneath a cache.
+
+The internal `CatalogDiscoveryOutcome` is closed: `Ready` carries the frozen
+generation, while `Rejected` carries
+`TypeResolutionFailure.DiscoveryBudgetExceeded`. No context is published from
+a rejected discovery plan, and the inspection surfaces that diagnostic rather
+than retrying or rendering an authoritative empty result.
+
+A later progressive lens first reopens the builder with the union of previous
+roots and the new lens's roots. If fixed-point discovery adds a candidate, the
+catalog freezes a new generation and invalidates every
+`TypeResolutionContext`, resolution plan, join token, and `ScopeGraph` lease
+from the previous generation. It never mutates or reclassifies an issued token.
+The number of passes is data-dependent and bounded; no one-rebuild claim is
+made. Callers-first and graph-first plans use the same union of roots and
+therefore converge on the same fixed-point candidate set and answers.
 
 The acquisition catalog caches:
 
-- candidate ids by `ResolvedAssemblyReference` reference identity;
+- candidate ids by `AssemblyAcquisitionRegistration` reference identity;
 - opened sessions by `AssemblyCandidateId`;
+- provisional discovery bindings by
+  `(discovery epoch, AssemblyReferenceIdentity, AssemblyResolutionScope)`;
 - binding outcomes by
   `(AssemblyCatalogGenerationId, AssemblyReferenceIdentity,
   AssemblyResolutionScope)`;
@@ -1326,8 +1482,8 @@ under the inspection catalog:
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
 4. Root graph reachability at the candidate owning the target definition and
-   every catalog candidate that binding policy proves denotes that target
-   assembly.
+   every descriptor selection carrying that candidate's acquisition
+   registration.
 5. Compute the transitive graph set as reverse-reference closure from the
    target-assembly roots, direct facade seeds, and indeterminate seeds.
 
@@ -1780,6 +1936,8 @@ without returning a stringly or nullable result.
 
 ### Slice 2: context and resolution engine
 
+- Evolve `ResolvedAssemblyReference` to the non-equatable descriptor plus
+  acquisition registration contract.
 - Extend `AssemblyInspectionSession` as the single candidate image owner, add
   the catalog lifetime, and compose `TypeResolutionContext` over those sessions.
 - Add public `IAssemblyBindingPolicy` descriptor selections and the
@@ -1846,6 +2004,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 ### Model gates
 
 - Every public outcome arm is enumerated by tests.
+- Every public `TypeResolutionFailure` arm is produced by a focused negative
+  fixture and remains distinguishable to an external consumer.
 - No public result exposes `MetadataReader`, `PEReader`, or metadata handles.
 - `MetadataTypeDefinitionAddress` cannot be dereferenced until MVID, token
   table, and row bounds all validate against the target reader.
@@ -1863,9 +2023,17 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
   selection through factories but cannot construct catalog candidates.
 - An external fake policy can construct every `AssemblyBindingFailureKind`.
-- Interning the same descriptor object twice, including
-  `candidate.Assembly`, yields one candidate id, one opened session, and `Same`
-  correspondence; a new value-equal descriptor object remains distinct.
+- Two descriptor objects carrying the same
+  `AssemblyAcquisitionRegistration`, including `candidate.Assembly`, yield one
+  candidate id, one opened session, and `Same` correspondence.
+- A second descriptor with identical visible values and the identical
+  `Func<Stream>` instance but a fresh registration remains a distinct
+  candidate; changing the descriptor fields does not alter that result.
+- Reusing one registration with conflicting descriptor identity or provenance
+  is `InvalidPolicyResult`.
+- Package, platform, project, and local migration adapters each return one
+  stable registration when their owner selects the same candidate through
+  different compatible reference requests.
 - External consumers can create assembly-descriptor and assembly-reference
   requests and can forward an existing `TypeResolutionStart` to another type.
 - External consumers can inspect but cannot forge decoder-produced
@@ -1885,6 +2053,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Missing target assembly.
 - Ambiguous target assembly.
 - Malformed metadata.
+- A `File`-row-terminated `ExportedType` chain produces
+  `ExportedFromModule`, and the cross-assembly engine produces
+  `UnsupportedModuleExport` carrying the same `ModuleFileReference`.
 - A zero `#Strings` name index is rejected by name construction and retained as
   undecidable by the caller prefilter.
 - Intra-image `ExportedType` cycle.
@@ -1894,7 +2065,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 
 ### Consumer gates
 
-- The `System.Xml.ReaderWriter` to `System.Private.Xml` real-artifact caller.
+- The `System.Xml.ReaderWriter` to `System.Private.Xml` real-artifact caller
+  resolves through the real platform adapter as `SameDefinition`, not merely
+  as an indeterminate caller retained by a conservative prefilter.
 - Same simple name with a different token does not match.
 - Different culture does not match.
 - An ambiguous local scope does not fabricate a caller.
@@ -1934,6 +2107,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Discovering an additional candidate advances the catalog generation,
   invalidates old contexts and graph tokens, and rebuilds instead of
   reclassifying a token.
+- Fixed-point discovery terminates for stable registrations regardless of root
+  order, and a policy that continually mints registrations reaches the
+  candidate budget and returns `DiscoveryBudgetExceeded`.
 - A completed non-success cached in one generation is not replayed after
   candidate discovery advances the generation.
 - Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
@@ -1983,8 +2159,9 @@ Prefer dependency and visibility constraints over source scans:
 for the intentionally public durable address: it fails if graph key or join
 factories consume `ResolvedTypeDefinitionKey`,
 `MetadataTypeDefinitionAddress`, `TypeDefinitionToken`,
-`ResolvedAssemblyReference`, or descriptor provenance. Visibility cannot own
-that part because durable addresses are public by design.
+`ResolvedAssemblyReference`, `AssemblyAcquisitionRegistration`, or descriptor
+provenance. Visibility cannot own that part because durable addresses are
+public by design.
 
 `DefinitionCorrespondenceUsageTests` rejects product uses of equality or
 hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`,
@@ -1998,7 +2175,10 @@ equalities remain allowed only inside one known candidate for
 durable-coordinate handling, declaration probing, and reader-validation code.
 The same gate treats `TypeForwardingHop`, `DuplicateArtifactEvidence`, and
 `DuplicateArtifactCandidateEvidence` as evidence-only classes, never identity
-or correspondence keys.
+or correspondence keys. Outside the catalog's registration map, it also rejects
+equality or hashing over `ResolvedAssemblyReference` or
+`AssemblyAcquisitionRegistration`; acquisition owners retain handles, and
+consumers do not compare them to infer correspondence.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
