@@ -27,13 +27,14 @@ everything and therefore at nothing, above a stack of details with no way to
 tell which detail belongs to which expression.
 
 `System.Tuple<…>.Equals` is the worst real case in the corpus. Under
-`--focus alloc` its comparison line carries 16 facts under a single caret 370
+`--focus alloc` its comparison line carries 16 facts under a single caret 330
 columns wide, above 32 wrapped detail rows, and attributes none of them. The
-code line is 374 columns, so it is elided here at the `…`:
+code line is 330 columns, reaching final column 334 after the body indent, so it
+is elided here at the `…`:
 
 ```csharp
-    return comparer.Equals(m_Item1, objTuple.m_Item1) && comparer.Equals(m_Item2, … (374 cols)
-//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (370 carets)
+    return comparer.Equals(m_Item1, objTuple.m_Item1) && comparer.Equals(m_Item2, … (330 cols)
+//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (330 carets)
 //   alloc.box(T1; alloc=boxed T1; path=branch; path-confidence=behind-branch; …  ×16, unattributed
 ```
 
@@ -57,7 +58,7 @@ of them.
 
 Every code block showing behaviour that exists is verbatim `Annotated Source`
 output rather than a sketch. The two exceptions are marked where they appear:
-the `Tuple.Equals` line below is elided because it is 374 columns wide, and the
+the `Tuple.Equals` line below is elided because it is 330 columns wide, and the
 side-aligned block under [Rejected alternatives](#side-aligned-annotations)
 depicts a layout that was never built. This one is
 `System.Reflection.RuntimeModule.ResolveSignature` under `--focus cost`; see
@@ -169,16 +170,22 @@ by the code line by construction.
 
 The corpus agrees — 0 of the 2,842 lines carry a stacked caret row wider than
 their code line — but that count is a consistency check on the derivation above,
-not evidence for it, because no corpus could produce a counter-example. The
-comparison figure is the one that carries information: the widening render this
-replaces overhangs on **20 lines (0.70%)**. Its underline is not any fact's
-extent — on a line whose facts disagree there is no agreed extent, so it falls
-back to `new CaretExtent(statementColumn, trimmed.Length)`, the whole trimmed
-statement — and it is positioned at
-`pad = Math.Max(1, caretColumn - commentColumn - 2)`, whose floor of 1 pushes
-the underline rightward when the statement starts near the gutter. Nothing then
-bounds or clips it against the line. That absence of any bound, not the
-underline's length, is what stacking gives up.
+not evidence for it, because no corpus could produce a counter-example.
+
+The comparison against the widening render is narrower than two earlier
+revisions of this section claimed, and the correction is worth stating plainly.
+**No caret glyph overhangs the code line in either render.** Measured over the
+same 2,842 lines, both are **0**, because the widening underline covers the
+trimmed statement, which ends inside the line. The widening render has no
+explicit bound, but it does not need one to stay within the line.
+
+What differs is the rendered **row**. Widening appends the first detail string
+to the caret row when it fits the inline budget, and on **20 lines (0.70%)**
+that appended text carries the row past the end of the code line. Stacking never
+appends detail to a caret row, so it is 0. The contrast is about where detail is
+placed, not about bounding the underline — and the earlier claim that the
+widening underline "shifts rightward while preserving the full extent length"
+described a mechanism that does not occur.
 
 Widths below are **final rendered columns**, measured after the same projection
 `ApiOutputFormatter` applies — code lines receive `BodyIndentWidth`, hoisted
@@ -372,14 +379,21 @@ Applying the specification to the 2,842 lines that stack:
 | 3 | 1 | 0.0% |
 | 4 | 1 | 0.0% |
 
+That 89.5% is padded too: 254 of these lines carry a single extent group and
+cannot occupy more than one row. Among the **2,588** lines with two or more
+groups — the ones with something to pack — **2,289 (88.4%)** take a single row.
+
 3,884 of 6,566 trails (59.2%) render at true width, but that headline rate is
 padded by a structural immunity and should not be read as a packing success
 rate. The last trail on a row has no successor, so its clip limit is
 `int.MaxValue` and it renders at true width by construction. Those 2,842 lines
 occupy **3,144 rows**, so 3,144 of the 6,566 trails could not have been clipped —
 and measurement confirms all 3,144 render at true width. Of the **3,422** trails
-actually exposed to a successor, only **740 (21.6%)** survived at true width;
-**2,682 (78.4%)** were cut short. The exposed rate is the informative one.
+actually exposed to a successor, 740 (21.6%) survived at true width. Five of
+those are immune as well, their extents being no longer than `MinTrail`, which
+row admission already reserves. Among the **3,417** trails that could genuinely
+be cut, **735 (21.5%)** survived and **2,682 (78.5%)** were clipped. That is the
+informative rate; it took two passes to strip both layers of padding off it.
 
 A trail is cut
 short by the next label on its own row, which is the only thing that clips a
@@ -391,7 +405,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `6f8adac49`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `5e73a22bb`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
