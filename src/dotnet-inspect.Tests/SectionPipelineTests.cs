@@ -2100,6 +2100,7 @@ public class SectionPipelineTests
         // exactly: it reports the member that actually occupies each interface slot, whatever it
         // is named and wherever it is declared. `GetBaseDefinition` does the same for overrides.
         var hierarchyEdges = new List<(string CallerKey, string CalleeKey)>();
+        var unmappableContracts = new List<string>();
 
         // Reflection reports members; this graph is keyed by IL signatures. Rebuilding an IL
         // parameter display string from a `ParameterInfo` is precisely the silent mismatch that
@@ -2283,10 +2284,21 @@ public class SectionPipelineTests
                     }
                     catch (ArgumentException)
                     {
+                        // A swallowed mapping failure is a silently disabled mechanism: this type's
+                        // interface edges just vanish, and the gate stays green while covering less
+                        // than it claims. That is the shape of routes 16 and 17, so the skip is
+                        // recorded and asserted empty below rather than left to be discovered by
+                        // the next reviewer. Gemini Pro attacked precisely this swallow at
+                        // `7cb65eec`, reasoning that `Assembly.GetTypes()` hands back open generic
+                        // definitions and `GetInterfaceMap` rejects those. The premise is wrong on
+                        // this runtime -- the mapping succeeds and the tamper is caught -- but the
+                        // attack was correct that nothing would have told us if it had thrown.
+                        unmappableContracts.Add($"{type.FullName} : {contract.FullName}");
                         continue;
                     }
                     catch (InvalidOperationException)
                     {
+                        unmappableContracts.Add($"{type.FullName} : {contract.FullName}");
                         continue;
                     }
 
@@ -2313,6 +2325,12 @@ public class SectionPipelineTests
                 }
             }
         }
+
+        // A contract whose mapping could not be resolved contributes no edges, so if this list is
+        // ever non-empty the mechanism above is quietly covering less than the rest of this test
+        // assumes. Asserting it empty is what stops that from being invisible; if a legitimate
+        // shape ever lands here, pin it deliberately rather than restoring the bare `continue`.
+        Assert.Empty(unmappableContracts);
 
         // Non-vacuity, and `Assert.NotEmpty` is not enough for it. Gemini Pro's review made exactly
         // that point: the product contains plenty of ordinary interface implementations, so the
