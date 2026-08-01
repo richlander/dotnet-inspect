@@ -1664,14 +1664,16 @@ For one builder request:
 6. On `Missing`, return `NotFound`.
 7. On `Ambiguous`, return `Ambiguous`.
 8. On `Rejected`, return `Rejected`.
-9. On `Forwarded`, append one hop.
-10. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
-11. Construct the target binding request, add its key to the discovery
+9. On `ExportedFromModule`, return
+   `Rejected(UnsupportedModuleExport(module))`.
+10. On `Forwarded`, append one hop.
+11. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
+12. Construct the target binding request, add its key to the discovery
     manifest, read or populate its provisional cache entry, and apply the same
     exhaustive outcome mapping as step 2.
-12. Stop on repeated assembly candidate or the hop budget with the corresponding
+13. Stop on repeated assembly candidate or the hop budget with the corresponding
     `Rejected` failure.
-13. Otherwise repeat at step 3.
+14. Otherwise repeat at step 3.
 
 The traversal is iterative. It has both:
 
@@ -1791,8 +1793,12 @@ public sealed record ResolvableTypeReference(
 
 The origin is excluded from display and from existing shape equality. It is
 separate typed provenance and must not be recovered from, or cached by,
-structural `TypeRef` equality. Resolution caches key on
-`ResolvableTypeReference`, never on `TypeRef`.
+structural `TypeRef` equality. Caller resolution caches key on
+`(AssemblyCandidateId source, ResolvableTypeReference reference)`, never on
+`TypeRef` or `ResolvableTypeReference` alone. The source candidate supplies the
+domain for assembly, current-assembly, module, and intrinsic-core-library
+origins. The engine projects that pair to its generation-scoped
+`TypeResolutionCacheKey`.
 
 This is decoder-produced, output-only provenance. Analysis owns construction;
 external consumers may pattern-match the closed arms but cannot mint an origin
@@ -2281,11 +2287,11 @@ Resolution is query-directed:
 - caller reachability resolves only target-name references present in the scope
   snapshot;
 - caller reachability binds each snapshotted scope-candidate `AssemblyRef` once
-  in its requesting domain to build reverse adjacency, without opening every
-  referenced image;
-- for candidates selected by those edges, reachability opens only the images
-  needed to read forwarding inventories and binds only their
-  `ExportedType`-target references;
+  in its requesting domain to build reverse adjacency;
+- correctness requires opening each distinct candidate selected by those edges
+  once to determine whether it has forwarding adjacency; after that read,
+  reachability follows only its `ExportedType`-target references and does not
+  traverse its ordinary dependency graph;
 - graph signature correspondence resolves only named type occurrences in edges
   being indexed and caches each resolvable origin once.
 
@@ -2296,8 +2302,10 @@ catalog's cached ref-pack index. The structural performance gate for the
 forwarded `XmlReader` caller is:
 
 - the real caller is found;
-- the same number of caller sessions are opened as the exact query requires;
-- the framework scope does not saturate;
+- forwarding-inventory opens equal the distinct candidates selected by scope
+  adjacency plus newly selected forwarder targets;
+- framework traversal does not expand through ordinary dependencies of those
+  candidates;
 - no target file is reopened by the forwarder engine;
 - each unique matching reference and signature origin is resolved at most once;
 - adjacency policy calls equal the distinct
@@ -2315,8 +2323,7 @@ Each slice has one behavioral claim and can land independently.
 
 ### Slice 1: model and declaration primitive
 
-- Add the structured names, tokens, declaration result, resolution request, and
-  outcome types.
+- Add the structured names, tokens, and declaration result types.
 - Build the bounded single-image declaration probe.
 - Support top-level and nested forwarded types.
 - Represent multi-module exports explicitly.
@@ -2331,6 +2338,8 @@ without returning a stringly or nullable result.
 
 - Evolve `ResolvedAssemblyReference` to the non-equatable descriptor plus
   acquisition registration contract.
+- Add the resolution request, binding, failure, ambiguity, and outcome
+  hierarchies after their descriptor and catalog dependencies exist.
 - Add one `InspectionAcquisitionPlan` per inspection and collapse today's
   per-path resolver instances into its shared owner adapters.
 - Extend `AssemblyInspectionSession` as the single candidate image owner, add
@@ -2514,6 +2523,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   snapshotted.
 - Resolution caches distinguish origins that structural `TypeRef` equality
   canonicalizes together.
+- Two source candidates carrying the same structured name and equal
+  `CurrentAssembly`, `IntrinsicCoreLibrary`, `ModuleReference`, or
+  `AssemblyReference` origin values do not share a caller-resolution cache
+  entry.
 - Intrinsic, nil, module, and assembly reference origins remain distinct.
 - The target candidate's own `TypeDef` is retained without a `TypeRef`.
 - A duplicate candidate that the catalog cannot unify is indeterminate rather
