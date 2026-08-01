@@ -223,15 +223,20 @@ public static class AnnotationCaret
     /// <remarks>
     /// Agreement is the common case and is worth keeping separate: measured over
     /// <c>System.Private.CoreLib</c> as the annotated-source view prints it,
-    /// 25,628 of 31,640 caret-bearing lines (81.00%) narrow to one agreed
-    /// extent, 10.70% carry facts that disagree, and 8.30% have no fact with a
-    /// printed node to point at. Agreement falls as fact count rises: 27,414 of
-    /// those lines hold a single fact and 92.1% of them narrow, while narrowing
-    /// falls to 12.1% at two facts, 1.1% at three, and 0% at four or more. That
-    /// is a correlation this measures, not a mechanism — what is compared here
-    /// is rendered extents, not offsets, and two facts can share one extent.
-    /// Density is not the only reason this returns null: 2,156 of the 6,012
-    /// null lines carry a single fact that has no extent at all.
+    /// after the focus filter and summed over the five focus families —
+    /// <c>--focus</c> promotes only one family to carets, so a count over every
+    /// collected fact describes a render no invocation produces — 27,091 of
+    /// 32,864 caret-bearing lines (82.43%) narrow to one agreed extent, 8.65%
+    /// carry facts that disagree, and 8.92% have no fact with a printed node to
+    /// point at. Agreement is entirely a single-fact phenomenon here: 29,550 of
+    /// those lines hold one fact and 91.7% of them narrow, while none of
+    /// the 2,282 two-fact, 714 three-fact or 318 four-or-more-fact lines
+    /// narrows. Two facts of one family on one line never share an extent in
+    /// this corpus, so for them the disagreement return below does all the work.
+    /// That is what this measures, not a mechanism — what is compared is
+    /// rendered extents, not offsets, and nothing prevents two facts sharing
+    /// one. Density is not the only reason this returns null: 2,459 of the
+    /// 5,773 null lines carry a single fact that has no extent at all.
     /// </remarks>
     static AnnotationAnchor.CaretExtent? Agreed(
         IReadOnlyList<IAnnotation> annotations,
