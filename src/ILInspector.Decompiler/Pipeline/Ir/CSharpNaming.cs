@@ -72,7 +72,7 @@ internal static class CSharpNaming
     /// local-function call site is still a <see cref="Call"/> carrying the mangled name.
     /// A raised call site is rewritten to a <see cref="LocalFunctionInvocation"/> and
     /// never reaches here; a DECLINED one is stamped
-    /// <see cref="MethodRef.LocalFunctionRaiseDeclined"/> by the pass itself — the only
+    /// <see cref="MethodRef.LocalFunctionRaise"/> by the pass itself — the only
     /// component that knows. Spelling a declined call <c>Name(...)</c> emits a call to a
     /// method declared nowhere (CS0103) while looking like ordinary recovered C# (#3631),
     /// so a declined callee is sanitized instead, keeping the compiler-generated identity
@@ -81,7 +81,7 @@ internal static class CSharpNaming
     /// stamp and degrades the method to <see cref="DecompilationFidelity.Partial"/>.
     /// </remarks>
     public static string SourceMethodName(MethodRef method)
-        => method.LocalFunctionRaiseDeclined
+        => method.LocalFunctionRaise == LocalFunctionRaiseState.Declined
             ? SafeIdentifier(method.Name)
             : SourceMethodName(method.Name);
 

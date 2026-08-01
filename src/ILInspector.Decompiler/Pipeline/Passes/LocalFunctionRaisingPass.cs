@@ -34,58 +34,76 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     public void Run(IrFunction function, PassContext context)
     {
         // Deliberately NOT gated on the seam being present. Without it no body can be
-        // imported, so every such call is declined — and three shipped output paths
-        // print with no seam (CSharpBodyDiff and two ResearchViews lenses), where
-        // staying silent reproduces #3631 verbatim: a decoded name declared nowhere,
-        // reported Full.
-        if (context.ImportMethodBody is not null)
-            RaiseCalls(function, context);
+        // imported, so every local-function reference is declined — and three shipped
+        // output paths print with no seam (CSharpBodyDiff and two ResearchViews lenses),
+        // where staying silent reproduces #3631 verbatim: a decoded name declared
+        // nowhere, reported Full.
+        //
+        // The raised set is keyed on the FULL synthesized identity, never on the decoded
+        // source name. `<M>g__F|0_0` and `<M>g__F|0_1` are distinct local functions that
+        // share the source name `F`, so a name-keyed set would let a declined reference
+        // borrow a raised sibling's declaration and bind to the WRONG function — output
+        // that compiles and silently means something else.
+        var raised = context.ImportMethodBody is null
+            ? []
+            : RaiseCalls(function, context);
 
-        // Every call site of a local function this pass RAISED was rewritten to a
-        // LocalFunctionInvocation, so any Call still carrying a synthesized
-        // local-function name is one that was not raised. Stamp it
-        // while that is known: the printer and fidelity must not re-derive it from the
-        // name, which reads identically before the pass runs, when the very same call
-        // may still be raised (#3631).
+        // Record what was decided while it is known. Neither consumer may re-derive it
+        // from the name: before this pass runs, a local function that WILL be raised
+        // carries an identical mangled name, so the name shape answers nothing (#3631).
         //
-        // Deliberately NOT keyed on whether some declaration of the decoded name was
-        // emitted. Two local functions in disjoint scopes may share a source name
-        // (`<M>g__F|0_0` and `<M>g__F|0_1`), and when one is raised, spelling the
-        // declined one `F` binds to the WRONG function rather than to nothing —
-        // undetectable in the output and worse than the unspellable name.
+        // Calls and method groups reach opposite states by different routes:
         //
-        // Keyed on the name shape rather than the CompilerGenerated fact that gates
-        // raising, because the question here is about this pass's own output: a mangled
-        // call left undeclared must be spelled honestly even when that fact was
-        // unavailable.
-        //
-        // Covers the method-group nodes too, not only calls. A local function converted
-        // to a delegate (`Func<int, int> d = F;`) or taken by function pointer lowers to
-        // `ldftn`, which imports as DelegateCreation/AddressOfMethod and carries no Call
-        // at all — so raising never sees it, nothing declares it, and decoding its name
-        // spells a member that does not exist (CS0117) at Full.
+        //  - RaiseCalls rewrites every raised CALL site to a LocalFunctionInvocation, so
+        //    a surviving Call is always one that was not raised.
+        //  - It rewrites nothing else, so a method group (`Func<int, int> d = F;`) or a
+        //    function-pointer address (`&F`) survives even when the method WAS raised.
+        //    Those are Raised, not Declined: the declaration exists and the reference is
+        //    spellable — but only unqualified (see LocalFunctionRaiseState.Raised).
         foreach (var node in function.Descendants)
         {
             switch (node)
             {
-                case Call call when Declined(call.Callee):
-                    call.MarkLocalFunctionRaiseDeclined();
+                case Call call when IsLocalFunctionReference(call.Callee):
+                    call.MarkLocalFunctionRaise(State(call.Callee));
                     break;
-                case DelegateCreation delegateCreation when Declined(delegateCreation.Method):
-                    delegateCreation.MarkLocalFunctionRaiseDeclined();
+                case DelegateCreation delegateCreation when IsLocalFunctionReference(delegateCreation.Method):
+                    delegateCreation.MarkLocalFunctionRaise(State(delegateCreation.Method));
                     break;
-                case AddressOfMethod addressOf when Declined(addressOf.Method):
-                    addressOf.MarkLocalFunctionRaiseDeclined();
+                // `ldftn` imports as LoadFunctionPointer and only becomes AddressOfMethod
+                // in MethodAddressPass, which runs AFTER this one — so this is the node
+                // actually present here. MethodAddressPass forwards `pointer.Method`
+                // into the new node, carrying the stamp with it. AddressOfMethod is
+                // stamped too so the sweep does not silently depend on that ordering.
+                case LoadFunctionPointer pointer when IsLocalFunctionReference(pointer.Method):
+                    pointer.MarkLocalFunctionRaise(State(pointer.Method));
+                    break;
+                case AddressOfMethod addressOf when IsLocalFunctionReference(addressOf.Method):
+                    addressOf.MarkLocalFunctionRaise(State(addressOf.Method));
                     break;
             }
         }
 
-        static bool Declined(MethodRef method)
+        // Keyed on the name SHAPE rather than the CompilerGenerated fact that gates
+        // raising, because the question here is about this pass's own output: a mangled
+        // reference left undeclared must be spelled honestly even when that metadata
+        // fact was unavailable (hand-written or obfuscated IL).
+        static bool IsLocalFunctionReference(MethodRef method)
             => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(method.Name);
+
+        LocalFunctionRaiseState State(MethodRef method)
+            => raised.Contains(Identity(method))
+                ? LocalFunctionRaiseState.Raised
+                : LocalFunctionRaiseState.Declined;
     }
 
-    static void RaiseCalls(IrFunction function, PassContext context)
+    static (string Type, string Name) Identity(MethodRef method)
+        => (method.DeclaringType.ToDisplayString(), method.Name);
+
+    /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
+    static HashSet<(string Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
     {
+        var raised = new HashSet<(string Type, string Name)>();
 
         var groups = function.Descendants.OfType<Call>()
             .Where(c => c.Parent is not null && GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee))
@@ -162,6 +180,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // A capturing local function cannot be `static` (CS8421); the
                 // synthesized method is static only because the environment is passed
                 // explicitly by ref, which the recovered source form does not show.
+                raised.Add(Identity(method));
                 declarations.Add(new LocalFunctionStatement(
                     name,
                     method.ReturnType,
@@ -194,13 +213,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         }
 
         if (declarations.Count == 0)
-            return;
+            return raised;
 
         // Local functions are declarations, valid even after a return, so they
         // append to the last top-level block — the idiomatic trailing placement.
         var block = function.Body.Blocks[^1];
         foreach (var declaration in declarations)
             block.Add(declaration);
+        return raised;
     }
 
     /// <summary>The captured environment of a capturing local function: the host's struct display-class local, its field bindings, and the body argument that names it.</summary>

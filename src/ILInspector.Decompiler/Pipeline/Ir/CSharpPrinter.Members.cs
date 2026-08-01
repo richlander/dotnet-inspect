@@ -580,6 +580,11 @@ public sealed partial class CSharpPrinter
     string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
         string name = CSharpNaming.SourceMethodName(method);
+        // A raised local function is declared IN the host body, not on the type, so it
+        // is referenced unqualified. Taking the static arm below would spell it
+        // `Type.Name`, which is CS0117 — the shape #3631's method-group sibling hit.
+        if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
+            return name;
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -667,6 +672,9 @@ public sealed partial class CSharpPrinter
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
         string name = $"{CSharpNaming.SourceMethodName(method)}{typeArguments}";
+        // As in MethodGroupText: a raised local function is never type-qualified.
+        if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
+            return $"&{name}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeQualifierText(method.DeclaringType)}.{name}"
             : $"&{name}";

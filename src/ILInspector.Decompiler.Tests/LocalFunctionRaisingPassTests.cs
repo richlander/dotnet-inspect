@@ -290,8 +290,8 @@ public class LocalFunctionRaisingPassTests
         // callee with the stamp cleared proves the stamp is the ONLY thing that changed.
         var survivor = Assert.Single(
             function.Descendants.OfType<Call>(),
-            call => call.Callee with { LocalFunctionRaiseDeclined = false } == first);
-        Assert.True(survivor.Callee.LocalFunctionRaiseDeclined);
+            call => call.Callee with { LocalFunctionRaise = LocalFunctionRaiseState.None } == first);
+        Assert.Equal(LocalFunctionRaiseState.Declined, survivor.Callee.LocalFunctionRaise);
         function.CheckInvariant();
     }
 

@@ -282,7 +282,7 @@ internal static class CSharpSpellability
         // name shape — is the discriminator: before LocalFunctionRaisingPass runs, a
         // local function that WILL be raised carries the identical mangled name, so
         // judging by name alone degrades methods whose output is perfectly valid.
-        string name = method.LocalFunctionRaiseDeclined
+        string name = method.LocalFunctionRaise == LocalFunctionRaiseState.Declined
             ? method.Name
             : CSharpNaming.MethodName(method.Name);
         return CSharpNaming.IsEscapableIdentifier(name)

@@ -1,3 +1,4 @@
+using System.Reflection;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -116,7 +117,7 @@ public class UnraisedLocalFunctionCallTests
             .Where(call => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(call.Callee.Name))
             .ToList();
         Assert.NotEmpty(calls);
-        Assert.All(calls, call => Assert.True(call.Callee.LocalFunctionRaiseDeclined));
+        Assert.All(calls, call => Assert.Equal(LocalFunctionRaiseState.Declined, call.Callee.LocalFunctionRaise));
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
 
         var result = CSharpPrinter.PrintRaised(function!);
@@ -184,6 +185,121 @@ public class UnraisedLocalFunctionCallTests
         Assert.Contains(
             FidelityRemarks.CollectCauses(function),
             cause => cause.Discriminator == DecompilerFidelityDiscriminators.LocalFunctionMethodName);
+    }
+
+    /// <summary>
+    /// The gate for the node the sweep sees rather than the one the printer sees.
+    /// <c>ldftn</c> over a local function imports as <c>LoadFunctionPointer</c> and only
+    /// becomes <c>AddressOfMethod</c> in <c>MethodAddressPass</c>, which runs after this
+    /// pass — so stamping only <c>AddressOfMethod</c> stamps nothing, and the address
+    /// printed as <c>&amp;F</c> (CS0103) at <c>Full</c>.
+    /// </summary>
+    [Fact]
+    public void AddressOfADeclinedLocalFunction_IsSpelledHonestlyAndDegradesFidelity()
+    {
+        var type = typeof(LocalFunctionAddressSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(LocalFunctionAddressSamples.TakesAddress));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain("&F", output);
+        Assert.Contains("_g__F_", output);
+        Assert.DoesNotContain('|', output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator == DecompilerFidelityDiscriminators.LocalFunctionMethodName);
+    }
+
+    /// <summary>
+    /// The gate that keeps the stamping sweep complete as the IR grows, and this test
+    /// is that gate: it is what fails if a new <see cref="MethodRef"/>-bearing node
+    /// appears and nobody classifies it. The sweep is a closed set of node types, so a
+    /// node it does not know about silently falls back to decoding the raw name — which
+    /// is exactly how the method-group and function-pointer holes reached review.
+    ///
+    /// <para>Every node carrying a <see cref="MethodRef"/> must be either swept (it can
+    /// name a synthesized local function) or listed as unreachable with a reason. A new
+    /// node fails here rather than shipping as a silent hole, and a stale entry fails
+    /// here too, because the assertion is set equality in both directions.</para>
+    /// </summary>
+    [Fact]
+    public void EveryMethodRefBearingNodeIsEitherSweptOrJustifiablyUnreachable()
+    {
+        // Swept by LocalFunctionRaisingPass — each has a MarkLocalFunctionRaiseDeclined.
+        string[] swept =
+        [
+            nameof(Call),
+            nameof(DelegateCreation),
+            nameof(LoadFunctionPointer),
+            nameof(AddressOfMethod),
+        ];
+
+        // Cannot name a local function, so the sweep does not need to reach them. A
+        // local function is never a constructor (`.ctor`), never a property or event
+        // accessor (`get_`/`set_`/`add_`/`remove_`), never a user-defined operator
+        // (`op_Increment`/`op_Decrement`), and never bindable as `Deconstruct`, which C#
+        // resolves only against members and extension methods. None can be `<M>g__F|0_0`.
+        string[] unreachable =
+        [
+            nameof(NewObject),
+            nameof(LoadProperty),
+            nameof(StoreProperty),
+            nameof(NullCoalescingPropertyAssignment),
+            nameof(EventSubscription),
+            nameof(RecursivePropertyDeclarationPattern),
+            nameof(DeconstructionTarget),
+            nameof(DeconstructionAssignment),
+            nameof(IncrementDecrement),
+        ];
+
+        var actual = typeof(Call).Assembly.GetTypes()
+            .Where(t => t is { IsAbstract: false } && typeof(IrNode).IsAssignableFrom(t))
+            .Where(t => t.GetProperties().Any(p => p.PropertyType == typeof(MethodRef)))
+            .Select(t => t.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(swept.Concat(unreachable).ToHashSet(StringComparer.Ordinal), actual);
+
+        // Non-vacuity for the "swept" half: each of those types really does expose the
+        // marker, so the list cannot drift into naming a type the sweep ignores.
+        Assert.All(swept, name => Assert.NotNull(
+            typeof(Call).Assembly.GetTypes().Single(t => t.Name == name)
+                .GetMethod("MarkLocalFunctionRaise", BindingFlags.Instance | BindingFlags.NonPublic)));
+    }
+
+    /// <summary>
+    /// The close negative for the method-group gate, and the reason the stamp is a
+    /// tri-state rather than a bool. <c>RaiseCalls</c> rewrites only <see cref="Call"/>
+    /// nodes, so a method group over a local function survives the raise even when the
+    /// declaration IS emitted. Stamping it declined would spell a sanitized name that
+    /// exists nowhere and degrade a perfectly faithful method; spelling it
+    /// <c>Type.F</c> (the static method-group form) is CS0117, because the declaration
+    /// is a local function and not a member of the type. It must be bare <c>F</c>.
+    /// </summary>
+    [Fact]
+    public void MethodGroupOverARaisedLocalFunction_IsSpelledUnqualifiedAndStaysFull()
+    {
+        var type = typeof(RaisedLocalFunctionMethodGroupSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(RaisedLocalFunctionMethodGroupSamples.CallsAndConverts));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.Contains("static int F(", output);
+        Assert.Contains("(F)", output);
+        Assert.DoesNotContain($"{nameof(RaisedLocalFunctionMethodGroupSamples)}.F", output);
+        Assert.DoesNotContain("_g__F_", output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
     }
 
     static int CountOccurrences(string haystack, string needle)

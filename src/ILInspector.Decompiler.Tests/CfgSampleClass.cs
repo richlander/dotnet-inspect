@@ -6593,3 +6593,28 @@ public static class LocalFunctionMethodGroupSamples
         return d(x);
     }
 }
+
+// A local function's address taken as a function pointer. `ldftn` imports as
+// LoadFunctionPointer and only becomes AddressOfMethod in a LATER pass, so a sweep
+// that matched only the latter would never stamp it.
+public static unsafe class LocalFunctionAddressSamples
+{
+    public static delegate*<int, int> TakesAddress()
+    {
+        static int F(int x) { try { return x + 1; } catch { return 0; } }  // declined
+        return &F;
+    }
+}
+
+// A local function both CALLED and converted to a delegate. RaiseCalls rewrites only
+// Call nodes, so the method group survives the raise — and because the declaration is
+// emitted, it must be spelled `F` unqualified rather than stamped declined.
+public static class RaisedLocalFunctionMethodGroupSamples
+{
+    public static int CallsAndConverts(int x)
+    {
+        static int F(int n) => n + 1;
+        System.Func<int, int> d = F;
+        return F(x) + d(x);
+    }
+}
