@@ -53,11 +53,22 @@ public class SourceLinkReader : IDisposable
     /// <summary>The raw SourceLink JSON from the PDB.</summary>
     public string? SourceLinkJson { get; private set; }
 
-    /// <summary>The repository URL extracted from SourceLink mappings.</summary>
-    public string? RepositoryUrl => _resolver?.ExtractRepositoryUrl();
+    private SourceLinkProvenanceResult? _provenance;
 
-    /// <summary>The commit hash extracted from SourceLink URL patterns.</summary>
-    public string? CommitHash => _resolver?.ExtractCommitHash();
+    /// <summary>
+    /// The origin every resolvable document is fetched from, or a reason why no single origin
+    /// describes this assembly's source.
+    /// </summary>
+    public SourceLinkProvenanceResult Provenance =>
+        _provenance ??= _pdbReader is null
+            ? new SourceLinkProvenanceResult(null, "no PDB is loaded")
+            : SourceLinkProvenance.Determine(_pdbReader);
+
+    /// <summary>The repository URL, or null when provenance could not be established.</summary>
+    public string? RepositoryUrl => Provenance.Origin?.RepositoryUrl;
+
+    /// <summary>The revision source is served at, or null when provenance could not be established.</summary>
+    public string? CommitHash => Provenance.Origin?.Revision;
 
     private SourceLinkReader(FileStream peStream, PEReader peReader)
     {
@@ -130,6 +141,7 @@ public class SourceLinkReader : IDisposable
 
             SourceLinkJson = SourceLinkResolver.ExtractSourceLinkJson(_pdbReader);
             _resolver = SourceLinkResolver.Create(_pdbReader);
+            _provenance = null;
         }
         catch
         {
@@ -185,6 +197,7 @@ public class SourceLinkReader : IDisposable
         _pdbProvider = null;
         _pdbReader = null;
         _resolver = null;
+        _provenance = null;
 
         try { _peReader.Dispose(); } catch { }
         try { _peStream.Dispose(); } catch { }
@@ -225,6 +238,7 @@ public class SourceLinkReader : IDisposable
 
                 SourceLinkJson = SourceLinkResolver.ExtractSourceLinkJson(_pdbReader);
                 _resolver = SourceLinkResolver.Create(_pdbReader);
+                _provenance = null;
             }
         }
     }

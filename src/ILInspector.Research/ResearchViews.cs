@@ -3,6 +3,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Text;
 
 namespace ILInspector.Research;
 
@@ -418,7 +419,7 @@ public static partial class ResearchViews
         {
             if (line.Kind == SourceLineKind.Il)
             {
-                sb.AppendLine($"{csIndent}    // {line.Text}");
+                sb.AppendLf($"{csIndent}    // {line.Text}");
                 continue;
             }
 
@@ -427,9 +428,9 @@ public static partial class ResearchViews
             string text = line.Text;
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
-            sb.AppendLine(text);
+            sb.AppendLf(text);
             foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true))
-                sb.AppendLine(caretLine);
+                sb.AppendLf(caretLine);
         }
         return sb.ToString().TrimEnd();
     }
@@ -568,7 +569,7 @@ public static partial class ResearchViews
                 : line.Text);
             lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true));
         }
-        return string.Join(Environment.NewLine, lines);
+        return string.Join("\n", lines);
     }
 
     // Partition one line's facts by reporting gesture. Order within each bucket is

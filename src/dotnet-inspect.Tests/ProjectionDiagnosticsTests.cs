@@ -47,7 +47,7 @@ public class ProjectionDiagnosticsTests
         });
 
         Assert.False(result);
-        Assert.Contains("warning: field 'Bogus' not found in section 'Call Graph'", error);
+        Assert.Contains("Warning: field 'Bogus' not found in section 'Call Graph'", error);
         Assert.Contains("Run -D \"Call Graph\" to list available fields.", error);
         Assert.Contains("No fields matched projection", error);
     }
@@ -67,7 +67,7 @@ public class ProjectionDiagnosticsTests
 
         // One valid graph field is enough to proceed; only the genuine typo is reported.
         Assert.True(result);
-        Assert.Contains("warning: field 'Bogus' not found in section", error);
+        Assert.Contains("Warning: field 'Bogus' not found in section", error);
         Assert.DoesNotContain("'Fanin'", error);
         Assert.DoesNotContain("No fields matched projection", error);
     }

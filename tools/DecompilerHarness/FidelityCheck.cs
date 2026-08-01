@@ -59,6 +59,17 @@ static class FidelityCheck
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        // Compile-back recompiles a reconstructed unit, whose member ordering
+        // is the harness's rather than the original source file's, so Roslyn
+        // renumbers the containing-method ordinal in every closure name it
+        // synthesizes. That renumbering is not decompiler evidence (#3503).
+        //
+        // The two options split the name space rather than overlapping: the
+        // correspondence owns `d__` and `g__` and folds only where the
+        // ordinal-free key is one-to-one on both sides, and the per-side
+        // rewrite keeps `b__` and `<>9__`, which it still folds on weaker
+        // evidence (#3645).
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;

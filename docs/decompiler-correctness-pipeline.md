@@ -297,11 +297,16 @@ dotnet run eng/check-decompiler-gate.cs -- \
   /tmp/expected.json
 ```
 
-The gate runs **red**. Turning it on was not made conditional on the open
+The gate was turned on **red**. That was not made conditional on the open
 failures being fixed first: a gate's job is to make *new* breakage attributable,
 and waiting for green is what let the current backlog accumulate. Open failures
 are pinned in `eng/decompiler-gate-known-red.txt`, one fully qualified test name
 per line, each preceded by its issue and the date it was pinned.
+
+As of #3528 the list is **empty** and the gate runs green — #3489 through #3493
+are fixed and their pins retired. That is the intended end state of a pin, not a
+reason to remove the mechanism: the next regression gets pinned with an issue and
+a date, and the checker keeps failing the job while an unpinned test is red.
 
 That list is a record of *open, filed* failures, not an escape hatch. Do not add
 an entry to make your own change go green, and do not skip a gate test to green
@@ -429,10 +434,14 @@ the job survives, letting the checker run and fail loudly on the missing or
 truncated report.
 
 > [!NOTE]
-> This job does not block merges today. The `main` ruleset declares no required
-> status checks at all, so no job in `ci.yml` blocks a merge; this one is
-> exactly as enforcing as the existing `test` job. Closing that gap is a
-> repository-wide change tracked separately.
+> This job is intended to reach the merge gate through the aggregate
+> `ci-required` job in `ci.yml`, the single context the `main` ruleset is meant
+> to require. It cannot
+> be required directly: it is path-gated, and a required check that does not run
+> on a given PR is reported as "Expected" forever and blocks the merge
+> permanently. `ci-required` passes a `skipped` dependency and fails a
+> `cancelled` one, so this gate skipping on a docs-only PR is fine while this
+> gate hitting its timeout is not (#3523).
 
 `pre-merge` deliberately selects three classes rather than the whole `Fidelity`
 area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
@@ -581,7 +590,11 @@ Report compile-back evidence in two layers:
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
    relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
-   add the method to `PinnedExact` in the same PR.
+   add the method to `PinnedExact` in the same PR. `DocketRowsStayCheckedDiffs`
+   (both rails) enforces this: a `KnownDiffs` row that recompiles `Exact` fails the
+   gate and names the row to promote. Before #3584 the rule was documented but
+   unenforced, and 46 of 143 rows had silently gone stale — a stale row gates
+   nothing, because the diff it allows no longer happens.
 2. **Changed-method / corpus layer** — for risky or broad changes, identify the
    methods the PR actually changed and run `--fidelity-method-delta` over that
    population when available. Treat `Exact` as checked green and `OpcodeDiff` /

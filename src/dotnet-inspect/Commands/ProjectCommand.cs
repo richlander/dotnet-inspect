@@ -10,6 +10,8 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Markout;
 
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Commands;
 
 public class ProjectCommand
@@ -37,7 +39,8 @@ public class ProjectCommand
             options.Select,
             ProjectSectionNames,
             infoSections: [],
-            ProjectCategoryMap());
+            ProjectCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
 
@@ -61,7 +64,7 @@ public class ProjectCommand
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
-            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            CommandError.Write("specify only one of --value, --urls, or --paths.");
             return 1;
         }
 
@@ -72,25 +75,25 @@ public class ProjectCommand
                 return 1;
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
 
         if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
             return 1;
         }
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
             return 1;
         }
 
@@ -106,7 +109,7 @@ public class ProjectCommand
 
         if (options.Schema && options.Discover == null)
         {
-            Console.Error.WriteLine("Error: --schema requires -D/--discover.");
+            CommandError.Write("--schema requires -D/--discover.");
             return 1;
         }
 
@@ -114,13 +117,13 @@ public class ProjectCommand
         var legacyMode = options.AgentsIndex || options.ReadmePackageId != null;
         if (sectionMode && legacyMode)
         {
-            Console.Error.WriteLine("Error: -S/--select cannot be combined with --agents-index or --readme.");
+            CommandError.Write("-S/--select cannot be combined with --agents-index or --readme.");
             return 1;
         }
 
         if (!sectionMode && !legacyMode)
         {
-            Console.Error.WriteLine("Error: Specify exactly one project mode: -S Skills, --agents-index, or --readme <package-id>.");
+            CommandError.Write("Specify exactly one project mode: -S Skills, --agents-index, or --readme <package-id>.");
             return 1;
         }
 
@@ -128,7 +131,7 @@ public class ProjectCommand
         var logger = context.Logger;
         if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out var assetsPath, out var assetsStatus))
         {
-            Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
+            CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
             return 1;
         }
 
@@ -136,7 +139,7 @@ public class ProjectCommand
         var dependencies = ProjectAssetsParser.ParsePackageReferences(assetsPath, options.Tfm, logger.Log);
         if (dependencies.Count == 0)
         {
-            Console.Error.WriteLine($"Error: No direct package references found in '{assetsPath}'.");
+            CommandError.Write($"No direct package references found in '{assetsPath}'.");
             return 1;
         }
 
@@ -153,31 +156,31 @@ public class ProjectCommand
     {
         if (options.FrontmatterRequested && options.BodyRequested)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");
+            CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
             return false;
         }
 
         if (options.AgentsIndex && options.BodyRequested)
         {
-            Console.Error.WriteLine("Error: --body cannot be combined with --agents-index.");
+            CommandError.Write("--body cannot be combined with --agents-index.");
             return false;
         }
 
         if (options.ReadmePackageId != null && options.Tabular && !options.Jsonl)
         {
-            Console.Error.WriteLine("Error: project --readme supports raw text, --json, or --jsonl; it cannot be combined with --table or --tsv.");
+            CommandError.Write("project --readme supports raw text, --json, or --jsonl; it cannot be combined with --table or --tsv.");
             return false;
         }
 
         if (options.Print && options.ReadmePackageId != null)
         {
-            Console.Error.WriteLine("Error: --print cannot be combined with --readme.");
+            CommandError.Write("--print cannot be combined with --readme.");
             return false;
         }
 
         if (options.Print && options.AgentsIndex)
         {
-            Console.Error.WriteLine("Error: --print cannot be combined with --agents-index.");
+            CommandError.Write("--print cannot be combined with --agents-index.");
             return false;
         }
 
@@ -187,13 +190,13 @@ public class ProjectCommand
             && !options.Urls
             && !options.Paths)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return false;
         }
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return false;
         }
 
@@ -202,7 +205,7 @@ public class ProjectCommand
             && options.ReadmePackageId == null
             && !options.AgentsIndex)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--body require --print or --readme.");
+            CommandError.Write("--frontmatter/--body require --print or --readme.");
             return false;
         }
 
@@ -214,7 +217,7 @@ public class ProjectCommand
         if (sections is { Count: 1 } && sections.Contains(ProjectSkillsSection))
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -228,8 +231,7 @@ public class ProjectCommand
     private static IReadOnlyDictionary<string, string[]> ProjectCategoryMap()
         => new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            [SelectResolver.AllSelector] = ProjectSectionNames,
-            [SelectResolver.InfoSelector] = []
+            [SelectResolver.AllSelector] = ProjectSectionNames
         };
 
     private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
@@ -511,7 +513,7 @@ public class ProjectCommand
 
     private static bool ValidateProjectProjectionOptions()
     {
-        Console.Error.WriteLine("Error: project does not currently support --columns or --fields.");
+        CommandError.Write("project does not currently support --columns or --fields.");
         return false;
     }
 
@@ -524,14 +526,14 @@ public class ProjectCommand
             dep.PackageName.Equals(options.ReadmePackageId, StringComparison.OrdinalIgnoreCase));
         if (dependency == null)
         {
-            Console.Error.WriteLine($"Error: Package '{options.ReadmePackageId}' is not a direct dependency of '{options.ProjectPath}'.");
+            CommandError.Write($"Package '{options.ReadmePackageId}' is not a direct dependency of '{options.ProjectPath}'.");
             return 1;
         }
 
         var document = await ReadBestPackageDocumentAsync(dependency, options, context);
         if (document == null)
         {
-            Console.Error.WriteLine($"Error: Package '{dependency.PackageName}' does not contain a readme file.");
+            CommandError.Write($"Package '{dependency.PackageName}' does not contain a readme file.");
             return 1;
         }
 
@@ -567,7 +569,7 @@ public class ProjectCommand
 
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return null;
             }
 
@@ -642,6 +644,11 @@ public class ProjectCommand
             Console.Write(output);
     }
 
+    /// <summary>
+    /// Escapes a table cell for Markdown. This handles the pipe and the line
+    /// break only; rendering hazards are contained upstream on the row records,
+    /// which is the one place both of this command's table writers read from.
+    /// </summary>
     private static string EscapeMarkdownTableCell(string value)
         => value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
@@ -650,20 +657,56 @@ public class ProjectCommand
             .Replace("\n", " ", StringComparison.Ordinal);
 }
 
+/// <summary>
+/// A row of the agents index. Every field is display text, and every field but
+/// the version came out of a package the user did not write, so each is
+/// contained here at the row boundary rather than at one of the two writers
+/// that render it (issue #3319).
+/// </summary>
 internal sealed record ProjectAgentsIndexRow(
     string Package,
     string Version,
     string Name,
     string Description,
-    string Path);
+    string Path)
+{
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
+    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+}
 
+/// <summary>
+/// A document read out of a package. <c>Content</c> is deliberately left raw:
+/// the point of <c>--print</c> is to show the file as it is, and containing it
+/// would misrepresent the bytes on disk. The identifying fields around it are
+/// contained, because those are the tool's own framing (issue #3319).
+/// </summary>
 internal sealed record ProjectPackageDocument(
     string Package,
     string Version,
     string Path,
     long Size,
-    string Content);
+    string Content)
+{
+    // Redeclared in full, in constructor order; see ProjectSkillRow.
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+    public long Size { get; init; } = Size;
+    public string Content { get; init; } = Content;
+}
 
+/// <summary>
+/// A row of the skills listing.
+/// </summary>
+/// <remarks>
+/// <c>FullPath</c> is deliberately left raw: it is the path this command opens
+/// to read the skill, so containing it would break file access. It is also
+/// <see cref="JsonIgnoreAttribute"/>d and never rendered, so it is not a
+/// display channel. <c>Path</c> is the rendered one and is contained.
+/// </remarks>
 internal sealed record ProjectSkillRow(
     string Package,
     string Version,
@@ -671,7 +714,22 @@ internal sealed record ProjectSkillRow(
     long Size,
     string Name,
     string Description,
-    [property: JsonIgnore] string? FullPath);
+    string? FullPath)
+{
+    // Every positional property is redeclared, in constructor order, including
+    // the ones that need no containment: a record's compiler-generated
+    // properties are emitted before its explicitly declared ones, so
+    // redeclaring only some of them reorders the rendered columns and the
+    // serialized keys.
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+    public long Size { get; init; } = Size;
+    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
+    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
+    [JsonIgnore]
+    public string? FullPath { get; init; } = FullPath;
+}
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

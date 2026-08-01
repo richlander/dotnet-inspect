@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -45,6 +46,117 @@ public enum IlBodyDiffNormalization
     NormalizePlatformAssemblyScope = 1 << 2,
 
     /// <summary>
+    /// Replace the containing-method ordinal inside Roslyn-synthesized closure
+    /// member names with <c>#</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Roslyn names a lambda's cache field <c>&lt;&gt;9__N_M</c>, its method
+    /// <c>&lt;Name&gt;b__N_M</c>, and a local function
+    /// <c>&lt;Name&gt;g__Local|N_M</c>, where <c>N</c> is the containing
+    /// method's declaration ordinal in the <em>compilation unit</em> and
+    /// <c>M</c> indexes the lambda within that method. <c>N</c> therefore
+    /// describes the unit, not the member: recompiling the same source in a
+    /// unit whose member ordering or member count differs renumbers it while
+    /// the emitted IL stays behaviorally identical.
+    /// </para>
+    /// <para>
+    /// Only <c>N</c> is replaced. The containing-method name, the local
+    /// function name, and the per-method index <c>M</c> all stay significant,
+    /// so a body that binds to the wrong lambda, or to a lambda of a
+    /// differently named method, still diffs.
+    /// </para>
+    /// <para>
+    /// Applies to a member's simple name only, never to the rest of a
+    /// formatted operand. Declaring types, return types, parameter types,
+    /// generic arguments, standalone signatures, and string literals are left
+    /// alone, so the rewrite cannot reach text that is not a member name.
+    /// Within that name the match is anchored at both ends: the whole name
+    /// must be one of the three forms. A synthesized-looking <em>substring</em>
+    /// is never rewritten, so names that arrive from a producer other than C#
+    /// (<c>x!&lt;Run&gt;b__1_0</c>, <c>&lt;Run&gt;b__1_0!suffix</c>) keep
+    /// comparing literally. The form must also match the member's metadata
+    /// table — the cache form is accepted only on a field and the lambda and
+    /// local-function forms only on a method — and both indices must be
+    /// spelled the way Roslyn spells them, as canonical non-negative
+    /// <see cref="int"/> values, so <c>&lt;Run&gt;b__0103_0</c> and a
+    /// 30-digit ordinal are not recognized either.
+    /// </para>
+    /// <para>
+    /// One rewrite does reach a name that matches no form: a literal
+    /// <c>#</c> is doubled, because <c>#</c> is the placeholder this option
+    /// substitutes for <c>N</c>. Metadata names may contain any character, so
+    /// without that escape <c>&lt;Run&gt;b__103_0</c> would normalize onto the
+    /// legal, unrecognized name <c>&lt;Run&gt;b__#_0</c> and mask a real
+    /// difference. Escaping is injective and runs before the grammar, so it
+    /// relates no names that were not already equal and changes which names
+    /// normalize not at all — no form Roslyn emits contains <c>#</c>.
+    /// </para>
+    /// <para>
+    /// Known limitation, deliberately not addressed: overloads share a
+    /// containing-method name and are told apart only by <c>N</c>, so this
+    /// option conflates the closures of two overloads with the same lambda
+    /// index. State-machine names (<c>&lt;Name&gt;d__N</c>) are left alone for
+    /// the same reason — <c>N</c> is their only distinguishing component.
+    /// Synthesized <em>types</em> that do carry the ordinal — display classes
+    /// (<c>&lt;&gt;c__DisplayClassN_M</c>) and the state machine of an async
+    /// lambda (<c>&lt;&lt;Run&gt;b__N_M&gt;d__1</c>) — keep it, because they
+    /// are types rather than members. Each of these costs a false positive,
+    /// never a masked difference.
+    /// </para>
+    /// <para>
+    /// Every rule that can change what this option relates is enforced by a
+    /// gate in <c>IlBodyDiffNormalizationTests</c>, and each was confirmed
+    /// load-bearing by neutering it individually and observing that gate — and
+    /// only that gate — fail. <c>ToleratesContainingMethodRenumbering</c> and
+    /// <c>ToleratesRenumberingOfALambdaCacheField</c> cover what is related;
+    /// each asserts the two names differ <em>without</em> the option as well
+    /// as agreeing with it, so neither can pass vacuously in either
+    /// direction. The remaining gates assert only that the names still differ
+    /// <em>with</em> the option, which is the whole claim for a name this
+    /// option must not relate: <c>PreservesEveryOtherNameComponent</c> for the
+    /// components that stay significant, the anchoring, every component of the
+    /// grammar, and both canonical-ordinal rules;
+    /// <c>RejectsAFieldFormOnAMethod</c> and
+    /// <c>RejectsAMethodFormOnAField</c> for the kind correspondence;
+    /// <c>RejectsACacheFormWithAContainingName</c> for the field half of the
+    /// containing-name correspondence, whose method half
+    /// <c>PreservesEveryOtherNameComponent</c> covers;
+    /// <c>DoesNotCollideWithALiteralPlaceholder</c> for the escape that keeps
+    /// a normalized name distinct from every literal one;
+    /// <c>RejectsAMethodFormBehindAMethodSpecificationOnAField</c> for the
+    /// generic-instantiation path;
+    /// <c>RejectsANonCanonicalCacheFieldOrdinal</c> for the cache field's
+    /// ordinal spelling; <c>LeavesTypeOperandsAlone</c> and
+    /// <c>PreservesSynthesizedLikeStringLiterals</c> for the scope; and
+    /// <c>StopsNormalizingPastTheNestingCap</c> for the depth bound.
+    /// </para>
+    /// <para>
+    /// Seven checks are deliberately <em>not</em> gated, and fall into two
+    /// kinds. Three are <em>bounds guards</em>: the length floor in
+    /// <c>Normalize</c>, and the marker bounds check
+    /// (<c>marker + 2 &gt;= value.Length</c>) and the ordinal bounds check
+    /// (<c>digitsEnd &gt;= value.Length</c>) in <c>TryNormalizeName</c>.
+    /// Neutering any of them makes the scan index past the end, so their
+    /// failure mode is an exception, not a collapse. They cannot mask a
+    /// difference, and a test that pinned them would be pinning an
+    /// <c>IndexOutOfRangeException</c>. Four are <em>redundant fast
+    /// paths</em>: the <c>__</c> pre-check in <c>Normalize</c>, the
+    /// closing-angle check in <c>TryNormalizeName</c>, the empty-span
+    /// check in <c>IsCanonicalOrdinal</c>, and the <c>Contains</c> test in
+    /// <c>EscapePlaceholders</c>. Each is subsumed by a later check — the
+    /// grammar re-derives <c>__</c> at the marker, a name with no closing
+    /// angle leaves the marker on the leading <c>&lt;</c> which no marker
+    /// accepts, the parse rejects an empty span, and the replacement it
+    /// guards is already the identity on a name with no placeholder — so
+    /// neutering any of them changes no observable behavior and no test can
+    /// distinguish it. These are listed so that a future reader does not
+    /// mistake their absence from the gate list for an oversight.
+    /// </para>
+    /// </remarks>
+    NormalizeSynthesizedMemberOrdinals = 1 << 3,
+
+    /// <summary>
     /// Compare Roslyn compiler-generated local functions and state machines under an
     /// ordinal-free name when the two sides correspond one-to-one.
     /// </summary>
@@ -55,7 +167,7 @@ public enum IlBodyDiffNormalization
     /// <see cref="CompilerGeneratedOrdinalCorrespondence"/> for why the decision is
     /// two-sided.
     /// </remarks>
-    NormalizeCompilerGeneratedOrdinals = 1 << 3,
+    NormalizeCompilerGeneratedOrdinals = 1 << 4,
 }
 
 public enum IlBodyDiffOutcome
@@ -141,6 +253,7 @@ public static class IlBodyDiff
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
@@ -755,7 +868,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), MethodNameOutsideCorrespondence(reader.GetString(member.Name)), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
@@ -797,6 +910,15 @@ public static class IlBodyDiff
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
         {
             var member = reader.GetMemberReference(handle);
+
+            // Same check as the direct member-reference path. A method
+            // specification can name a member reference that is actually a
+            // field, and without this the generic-instantiation path would
+            // normalize a method-form name on a field. Gated by
+            // IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_RejectsAMethodFormBehindAMethodSpecificationOnAField.
+            if (member.GetKind() != MemberReferenceKind.Method)
+                throw new BadImageFormatException("Expected method member reference.");
+
             var signature = GuardedProviderDecode.TryMemberRefMethod(
                 reader,
                 member,
@@ -806,7 +928,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs);
+            return FormatCall(signature, FormatMemberParent(member.Parent), MethodNameOutsideCorrespondence(reader.GetString(member.Name)), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
@@ -820,7 +942,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{reader.GetString(field.Name)}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name), SynthesizedMemberKind.Field)}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -837,7 +959,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
-            return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Field)}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
@@ -918,9 +1040,34 @@ public static class IlBodyDiff
         }
 
         string MethodName(MethodDefinitionHandle handle, MethodDefinition method)
-            => correspondence.TryGetMethodName(handle, out var elided)
-                ? elided
-                : reader.GetString(method.Name);
+        {
+            if (correspondence.TryGetMethodName(handle, out var elided))
+                return elided;
+
+            // A name the correspondence recognizes is its to decide about, even when it
+            // declined to fold. Declining means the ordinal-free key was ambiguous on a
+            // side, so the two members are not known to correspond; handing the same name
+            // to the per-side rewrite would fold it anyway on weaker evidence and mask a
+            // real difference (#3645). Only names outside `d__`/`g__` fall through.
+            return MethodNameOutsideCorrespondence(reader.GetString(method.Name));
+        }
+
+        // The two options split the synthesized name space when both are requested: the
+        // correspondence owns `d__` and `g__`, and the per-side rewrite keeps `b__` and
+        // `<>9__`. Where the correspondence owns a name, its refusal to fold is the
+        // answer -- it declined because the ordinal-free key was ambiguous on a side, so
+        // the members are not known to correspond, and letting the per-side rewrite fold
+        // it anyway on weaker evidence would mask a real difference (#3645).
+        //
+        // The guard is conditioned on the correspondence actually being requested. A
+        // caller that asked only for the per-side rewrite gets exactly what that option
+        // documents, including its own treatment of `g__`; this composition narrows no
+        // option the caller did not opt into.
+        string MethodNameOutsideCorrespondence(string raw)
+            => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                && CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(raw) is not null
+                    ? raw
+                    : NormalizeMemberName(raw, SynthesizedMemberKind.Method);
 
         string CurrentAssemblyName()
             => (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
@@ -986,6 +1133,352 @@ public static class IlBodyDiff
                 || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
                 || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
 
+        /// <summary>
+        /// Applies <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
+        /// to a member's simple name, taken straight from the metadata string
+        /// heap.
+        /// </summary>
+        /// <remarks>
+        /// The normalization is applied here, to the typed identity, rather
+        /// than to the formatted operand string. A formatted operand also
+        /// carries declaring types, return types, parameter types, and generic
+        /// arguments, and scanning that flattened text would let the rewrite
+        /// reach names that are not members at all. Scoping it to the member
+        /// name is what makes the flag mean what it says.
+        /// <para>
+        /// The corollary is that synthesized <em>type</em> names keep their
+        /// ordinals: display classes (<c>&lt;&gt;c__DisplayClassN_M</c>) and
+        /// the state machine of an async lambda
+        /// (<c>&lt;&lt;Run&gt;b__N_M&gt;d__1</c>) are types, so a body that
+        /// references one can still diff on a renumbered ordinal. That costs a
+        /// false positive, never a masked difference, and no corpus row needs
+        /// it today. Covering it means normalizing type leaf names too, which
+        /// requires threading this option through
+        /// <see cref="SignatureIdentityProvider"/>.
+        /// </para>
+        /// </remarks>
+        string NormalizeMemberName(string name, SynthesizedMemberKind kind)
+            => (normalization & IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals) != 0
+                ? SynthesizedOrdinals.Normalize(name, kind)
+                : name;
+    }
+
+    /// <summary>
+    /// Which metadata table a member name came from. Roslyn emits the lambda
+    /// cache form <c>&lt;&gt;9__N_M</c> only as a field and the lambda and
+    /// local-function forms only as methods, so the normalizer needs the kind
+    /// to hold names to that correspondence.
+    /// </summary>
+    internal enum SynthesizedMemberKind
+    {
+        Field,
+        Method,
+    }
+
+    /// <summary>
+    /// Rewrites the containing-method ordinal out of Roslyn closure member
+    /// names. See
+    /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
+    /// for what the ordinal means and why it is not evidence.
+    /// </summary>
+    /// <remarks>
+    /// The grammar is matched from the start of the identifier rather than by
+    /// scanning for <c>__</c>. Anchoring matters: a scan reaches separators
+    /// inside the enclosing method's own name, so an authored method named
+    /// <c>b__1_0</c> would have its digits rewritten and would then compare
+    /// equal to an authored <c>b__2_0</c>. Anchoring also removes the need to
+    /// guess where an identifier begins, which is what previously left
+    /// <c>&lt;.ctor&gt;b__1_0</c> unnormalized.
+    /// </remarks>
+    internal static class SynthesizedOrdinals
+    {
+        internal const char Placeholder = '#';
+
+        /// <summary>
+        /// Caps how deep the enclosing-name recursion goes. Roslyn nests
+        /// closure names only as deep as the source nests lambdas, so a
+        /// handful of levels covers real input. The cap exists because member
+        /// names come from untrusted metadata, where an adversarially nested
+        /// name would otherwise recurse once per level and overflow the stack
+        /// (see docs/design/untrusted-data-threat-model.md, which requires
+        /// recursion over hostile input to be bounded). Past the cap the
+        /// enclosing name is left literal, which can only cost a false
+        /// positive, never a masked difference.
+        /// </summary>
+        const int MaxNestingDepth = 16;
+
+        /// <summary>
+        /// Shortest recognized form, <c>&lt;&gt;9__0_0</c>.
+        /// </summary>
+        const int MinNameLength = 8;
+
+        /// <summary>
+        /// Normalizes a member's simple name when the <em>whole</em> name is
+        /// one of the recognized synthesized forms (for example
+        /// <c>&lt;Run&gt;b__103_0</c>), rewriting only the containing-method
+        /// ordinal. Any other name is returned unchanged, except that a
+        /// literal <see cref="Placeholder"/> is escaped — see
+        /// <see cref="EscapePlaceholders"/>.
+        /// </summary>
+        public static string Normalize(string value, SynthesizedMemberKind kind)
+            => Normalize(EscapePlaceholders(value), kind, depth: 0);
+
+        /// <summary>
+        /// Doubles every literal <see cref="Placeholder"/> in a name before
+        /// normalization introduces one of its own.
+        /// </summary>
+        /// <remarks>
+        /// Without this, normalization masks a real difference. Member names
+        /// come from untrusted metadata and may contain any character,
+        /// including <c>#</c>. <c>&lt;Run&gt;b__103_0</c> normalizes to
+        /// <c>&lt;Run&gt;b__#_0</c>, which is itself a legal metadata name —
+        /// one that matches no recognized form and so passes through
+        /// unchanged. The two would then compare equal even though they name
+        /// different members, which is exactly the failure this option must
+        /// never produce.
+        /// <para>
+        /// Doubling separates the two. Escaping is injective, so it relates no
+        /// names that were not already equal, and it runs before the grammar,
+        /// so it cannot change which names normalize: no form Roslyn emits
+        /// contains <c>#</c>, making this the identity on every real name.
+        /// After escaping, every literal run of <c>#</c> has even length while
+        /// the ordinal placeholder is a lone <c>#</c> bounded by <c>_</c>, so
+        /// a normalized form can never equal a literal one.
+        /// </para>
+        /// <para>
+        /// Gated by
+        /// <c>IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_DoesNotCollideWithALiteralPlaceholder</c>,
+        /// which pins the collision itself, the escape's injectivity on two
+        /// literal names, and that a real form still normalizes.
+        /// </para>
+        /// </remarks>
+        static string EscapePlaceholders(string value)
+            => value.Contains(Placeholder)
+                ? value.Replace("#", "##", StringComparison.Ordinal)
+                : value;
+
+        static string Normalize(string value, SynthesizedMemberKind kind, int depth)
+        {
+            // Two cheap rejects plus a bounds guard. The length floor keeps
+            // the indexing below in bounds — the shortest recognized form,
+            // `<>9__0_0`, is exactly its 8 characters — so neutering it
+            // throws rather than admitting anything. The `__` pre-check is
+            // subsumed by the grammar, which re-derives it at the marker, so
+            // no test distinguishes its presence; it exists to skip the scan
+            // on the overwhelming majority of names.
+            //
+            // The leading `<` check is NOT redundant. It anchors the form to
+            // the start of the name, which is what keeps `x!<Run>b__103_0`
+            // and `x!<Run>b__128_0` — two names that differ before the
+            // synthesized part — from collapsing. It is gated by that case in
+            // `PreservesEveryOtherNameComponent`.
+            if (value.Length < MinNameLength
+                || value[0] != '<'
+                || !value.Contains("__", StringComparison.Ordinal))
+            {
+                return value;
+            }
+
+            return TryNormalizeName(value, kind, depth, out string replacement) ? replacement : value;
+        }
+
+        /// <summary>
+        /// Matches <paramref name="value"/> in its entirety against
+        /// <c>&lt;&gt;9__N_M</c>, <c>&lt;Name&gt;b__N_M</c>, or
+        /// <c>&lt;Name&gt;g__Local|N_M</c> and rewrites only <c>N</c>. Any
+        /// other name, including the state-machine form
+        /// <c>&lt;Name&gt;d__N</c>, is declined.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The match is anchored at both ends on purpose. These names arrive
+        /// from arbitrary metadata, not only from Roslyn, so recognizing a
+        /// synthesized-looking <em>substring</em> would let unrelated names
+        /// collapse: <c>x!&lt;Run&gt;b__103_0</c> and
+        /// <c>&lt;Run&gt;b__103_0!suffix</c> are legal metadata names that no
+        /// C# compiler emits, and normalizing an ordinal buried inside them
+        /// would equate members that genuinely differ.
+        /// </para>
+        /// <para>
+        /// Anchoring also bounds the work. There is exactly one candidate
+        /// start, so each nesting level performs one angle scan plus at most
+        /// one separator scan over a disjoint part of the same string, and the
+        /// depth cap bounds the levels — linear overall, with no per-candidate
+        /// rescan for a hostile name to amplify
+        /// (see docs/design/untrusted-data-threat-model.md).
+        /// </para>
+        /// </remarks>
+        static bool TryNormalizeName(string value, SynthesizedMemberKind kind, int depth, out string replacement)
+        {
+            replacement = "";
+
+            // The enclosing name may itself be synthesized (a lambda inside a
+            // lambda, or one inside top-level statements' `<Main>$`), so match
+            // the '>' that closes this name rather than the first one.
+            // Subsumed by the marker check below: with no closing angle,
+            // `marker` lands on the leading '<', which no marker accepts. Kept
+            // as an explicit statement of the form's shape.
+            int close = FindClosingAngle(value);
+            if (close < 0)
+                return false;
+
+            // `marker + 2` is a bounds guard for the three reads that follow,
+            // not a rejection rule; neutering it indexes past the end.
+            int marker = close + 1;
+            if (marker + 2 >= value.Length
+                || value[marker] is not ('9' or 'b' or 'g')
+                || value[marker + 1] != '_'
+                || value[marker + 2] != '_')
+            {
+                return false;
+            }
+
+            // Roslyn emits the cache form `<>9__N_M` only as a field and the
+            // lambda and local-function forms only as methods. Holding names to
+            // that correspondence keeps a *method* named `<>9__1_0` — which no
+            // C# compiler emits — comparing literally. Gated by
+            // IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_RejectsAFieldFormOnAMethod
+            // and ..._RejectsAMethodFormOnAField.
+            var markerKind = value[marker] == '9' ? SynthesizedMemberKind.Field : SynthesizedMemberKind.Method;
+            if (kind != markerKind)
+                return false;
+
+            // Roslyn omits the containing-method name only for the lambda
+            // cache field `<>9__N_M`; the lambda and local-function forms
+            // always carry one. Pinning that correspondence keeps names no C#
+            // compiler emits, such as `<>b__1_0`, comparing literally.
+            //
+            // One predicate, two independently breakable directions, so each
+            // has its own gate: `<>b__103_0` and `<>g__Local|103_0` in
+            // `PreservesEveryOtherNameComponent` cover the two method forms
+            // with no containing name, and
+            // `RejectsACacheFormWithAContainingName` covers a cache field
+            // that has one.
+            bool namesContainingMethod = close > 1;
+            if (namesContainingMethod != (value[marker] is 'b' or 'g'))
+                return false;
+
+            int digitsStart = marker + 3;
+            if (value[marker] == 'g')
+            {
+                // Local function: the ordinal follows the '|' that terminates
+                // the local's own name, which cannot contain '|'. The name
+                // must be non-empty, so the separator cannot sit immediately
+                // after `g__`.
+                int bar = value.IndexOf('|', digitsStart);
+                if (bar <= digitsStart)
+                    return false;
+                digitsStart = bar + 1;
+            }
+
+            int digitsEnd = digitsStart;
+            while (digitsEnd < value.Length && char.IsAsciiDigit(value[digitsEnd]))
+                digitsEnd++;
+
+            // Require at least one digit followed by `_M`. That trailing index
+            // is what separates a closure name from an identifier that merely
+            // ends in digits, and it stays significant so a lambda bound to the
+            // wrong slot still differs.
+            // `digitsEnd >= value.Length` is a bounds guard for the read that
+            // follows it, not a rejection rule; neutering it indexes past the
+            // end on a name like `<Run>b__103` that stops after the ordinal.
+            if (!IsCanonicalOrdinal(value, digitsStart, digitsEnd)
+                || digitsEnd >= value.Length
+                || value[digitsEnd] != '_')
+            {
+                return false;
+            }
+
+            // `M` must be digits that run to the end of the name. Roslyn emits
+            // nothing after the per-method index, so a name that continues is
+            // not one of these forms and must keep comparing literally.
+            int lambdaStart = digitsEnd + 1;
+            int lambdaEnd = lambdaStart;
+            while (lambdaEnd < value.Length && char.IsAsciiDigit(value[lambdaEnd]))
+                lambdaEnd++;
+
+            if (lambdaEnd != value.Length || !IsCanonicalOrdinal(value, lambdaStart, lambdaEnd))
+                return false;
+
+            // The enclosing name carries its own ordinal when it is itself a
+            // closure, so normalize it under the same grammar. Recursing rather
+            // than rescanning is what keeps an authored enclosing method named
+            // `b__1_0` distinct from one named `b__2_0`. A containing name is
+            // always a method, whatever kind the outer member is.
+            string inner = value[1..close];
+            string normalizedInner = depth < MaxNestingDepth
+                ? Normalize(inner, SynthesizedMemberKind.Method, depth + 1)
+                : inner;
+
+            replacement = $"<{normalizedInner}{value[close..digitsStart]}{Placeholder}{value[digitsEnd..]}";
+            return true;
+        }
+
+        /// <summary>
+        /// Reports whether <c>value[start..end]</c> is an ordinal exactly as
+        /// Roslyn spells one.
+        /// </summary>
+        /// <remarks>
+        /// Roslyn formats these indices with an invariant <see cref="int"/>
+        /// conversion, so <c>0103</c> and a value past <see cref="int.MaxValue"/>
+        /// are not forms it can emit. Accepting them would let
+        /// <c>&lt;Run&gt;b__0103_0</c> and <c>&lt;Run&gt;b__0128_0</c>
+        /// collapse — a masked difference between two names that no compiler
+        /// produced and that nothing else relates. Requiring the canonical
+        /// encoding costs at most a false positive on such a name, which is
+        /// the safe direction.
+        /// <para>
+        /// The two rules are gated separately, because a padded ordinal is
+        /// rejected by the leading-zero rule before the parse is reached and
+        /// would leave the range rule untested.
+        /// <c>IlBodyDiffNormalizationTests.NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent</c>
+        /// covers both rules against both indices — a leading zero and a
+        /// value past <see cref="int.MaxValue"/> with no leading zero — and
+        /// <c>..._RejectsANonCanonicalCacheFieldOrdinal</c> covers both
+        /// against the field form.
+        /// </para>
+        /// </remarks>
+        static bool IsCanonicalOrdinal(string value, int start, int end)
+        {
+            int length = end - start;
+
+            // Redundant with the parse below, which also rejects an empty
+            // span; kept because it states the intent at the top.
+            if (length == 0)
+                return false;
+
+            // "0" is canonical; "0" followed by anything is not.
+            if (length > 1 && value[start] == '0')
+                return false;
+
+            return int.TryParse(
+                value.AsSpan(start, length),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out _);
+        }
+
+        /// <summary>
+        /// Returns the index of the <c>&gt;</c> closing the <c>&lt;</c> at
+        /// index 0, honoring nesting, or -1 when unbalanced.
+        /// </summary>
+        static int FindClosingAngle(string value)
+        {
+            int depth = 0;
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (value[i] == '<')
+                {
+                    depth++;
+                }
+                else if (value[i] == '>' && --depth == 0)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>

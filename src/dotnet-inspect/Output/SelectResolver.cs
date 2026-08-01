@@ -29,7 +29,6 @@ public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> 
 public static class SelectResolver
 {
     public const string AllSelector = SectionPipeline<object>.AllCategory;
-    public const string InfoSelector = SectionPipeline<object>.DefaultCategory;
 
     /// <summary>
     /// Legacy section names that keep resolving after a rename, so existing selectors and
@@ -97,11 +96,12 @@ public static class SelectResolver
     public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
         => IsAllSelector(select) && includeSections is { Count: > 1 };
 
-    public static bool IsInfoSelector(string[]? select)
-        => select?.Any(value => value.Equals(InfoSelector, StringComparison.OrdinalIgnoreCase)) == true;
-
-    public static bool IsActiveInfoSelector(string[]? select, HashSet<string>? includeSections)
-        => IsInfoSelector(select) && includeSections is { Count: > 0 };
+    /// <summary>
+    /// Whether the default preset is in effect and actually resolved to something. The preset is
+    /// reached only through bare <c>-S</c>; it has no selector spelling.
+    /// </summary>
+    public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
+        => selectDefault && includeSections is { Count: > 0 };
 
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
@@ -160,20 +160,31 @@ public static class SelectResolver
     /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
     /// Returns matched sections and any unresolved values with suggestions.
     /// </summary>
+    /// <param name="selectDefault">
+    /// Bare <c>-S</c>: contributes <paramref name="infoSections"/> to the match set without any
+    /// selector value standing for it. Kept out of <paramref name="select"/> so the marker is not
+    /// spellable, and resolved here rather than through a <c>@Default</c> category entry so it
+    /// works the same on pipelines that publish no poles. See #3547.
+    /// </param>
     public static SelectResult ResolveSelectAsSections(
         string[]? select,
         string[] knownSections,
         string[]? infoSections = null,
-        IReadOnlyDictionary<string, string[]>? categories = null)
+        IReadOnlyDictionary<string, string[]>? categories = null,
+        bool selectDefault = false)
     {
-        if (select is not { Length: > 0 })
+        if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
 
-        categories ??= BuildFallbackCategories(knownSections, infoSections);
+        categories ??= BuildFallbackCategories(knownSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
-        foreach (var value in select)
+        if (selectDefault)
+            foreach (var section in infoSections ?? [])
+                matched.Add(section);
+
+        foreach (var value in select ?? [])
         {
             if (value.StartsWith('@'))
             {
@@ -212,11 +223,10 @@ public static class SelectResolver
         return new(matched.Count > 0 ? matched : null, unresolved);
     }
 
-    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections, string[]? infoSections)
+    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections)
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
         {
-            [InfoSelector] = infoSections ?? [],
             [AllSelector] = knownSections
         };
         return categories;

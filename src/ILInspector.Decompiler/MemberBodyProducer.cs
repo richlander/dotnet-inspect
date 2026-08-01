@@ -6,6 +6,7 @@ using System.Text;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler;
 
@@ -362,8 +363,8 @@ public static class MemberBodyProducer
                     var sb = new StringBuilder();
                     if (!string.IsNullOrEmpty(type.Namespace))
                     {
-                        sb.AppendLine($"namespace {type.Namespace};");
-                        sb.AppendLine();
+                        sb.AppendLf($"namespace {type.Namespace};");
+                        sb.AppendLf();
                     }
 
                     // The printer renders every type with its simple name, so there is
@@ -378,14 +379,14 @@ public static class MemberBodyProducer
 
                     var typeDef = reader.GetTypeDefinition(typeHandle);
                     foreach (var attribute in LayoutAttributes(type, typeDef, bodyNamespaces))
-                        sb.AppendLine($"[{attribute}]");
+                        sb.AppendLf($"[{attribute}]");
 
                     foreach (var attribute in AttributeReader.RenderAttributes(reader, typeDef.GetCustomAttributes(), bodyNamespaces,
                                  union is null ? null : name => name == KnownAttributeNames.UnionAttribute))
-                        sb.AppendLine($"[{attribute}]");
+                        sb.AppendLf($"[{attribute}]");
 
-                    sb.AppendLine(TypeDeclaration(type, union));
-                    sb.AppendLine("{");
+                    sb.AppendLf(TypeDeclaration(type, union));
+                    sb.AppendLf("{");
 
                     bool any = union is not null;
                     if (type.Kind == "enum")
@@ -399,7 +400,7 @@ public static class MemberBodyProducer
                         ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
                     }
 
-                    sb.AppendLine("}");
+                    sb.AppendLf("}");
                     if (!any)
                         return null;
                     return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
@@ -632,7 +633,7 @@ public static class MemberBodyProducer
         foreach (var typeParameter in typeParameters)
         {
             if (typeParameter.Constraints.Count > 0)
-                sb.Append($" where {EscapeIdentifier(typeParameter.Name)} : {CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name))}");
+                sb.Append($" where {ContainedIdentifier(typeParameter.Name)} : {CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name))}");
         }
     }
 
@@ -642,7 +643,7 @@ public static class MemberBodyProducer
         {
             if (member.Kind != "field" || member.EnumValue is null)
                 continue;
-            sb.AppendLine($"    {EscapeIdentifier(member.Name)} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
+            sb.AppendLf($"    {ContainedIdentifier(member.Name)} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
             any = true;
         }
     }
@@ -720,15 +721,15 @@ public static class MemberBodyProducer
             }
             catch (Exception ex)
             {
-                sb.AppendLine($"    // field {reader.GetString(field.Name)}: {DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
+                sb.AppendLf($"    // field {reader.GetString(field.Name)}: {DiagnosticIds.InternalError}: signature undecodable ({ex.GetType().Name})");
                 any = true;
                 continue;
             }
 
             foreach (var attribute in FieldLayoutAttributes(field, namespaces))
-                sb.AppendLine($"    [{attribute}]");
+                sb.AppendLf($"    [{attribute}]");
             foreach (var attribute in AttributeReader.RenderAttributes(reader, fieldHandle, namespaces))
-                sb.AppendLine($"    [{attribute}]");
+                sb.AppendLf($"    [{attribute}]");
 
             var decl = new StringBuilder($"    {access} ");
             if (fixedBuffer is not null || fieldType.Contains('*', StringComparison.Ordinal))
@@ -749,20 +750,20 @@ public static class MemberBodyProducer
             // source name (displayName), and is assigned in the constructor body,
             // so it never carries a lifted initializer.
             string typeAndName = fixedBuffer is null
-                ? $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}"
-                : fixedBuffer.DeclarationSignature(EscapeIdentifier(displayName));
+                ? $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {ContainedIdentifier(displayName)}"
+                : fixedBuffer.DeclarationSignature(ContainedIdentifier(displayName));
             decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
                     && fixedBuffer is null
                     && fieldInitializers.TryGetValue(name, out var initializer)
                 ? $"{typeAndName} = {initializer};"
                 : $"{typeAndName};");
-            sb.AppendLine(decl.ToString());
+            sb.AppendLf(decl.ToString());
             wrote = true;
             any = true;
         }
 
         if (wrote)
-            sb.AppendLine();
+            sb.AppendLf();
     }
 
     static void ComposeMembers(
@@ -818,7 +819,7 @@ public static class MemberBodyProducer
                         ? declaringIndex - 1
                         : runningIndex;
 
-                    if (!first) sb.AppendLine();
+                    if (!first) sb.AppendLf();
                     first = false;
                     any = true;
 
@@ -842,7 +843,7 @@ public static class MemberBodyProducer
                         ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                         : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
                     foreach (var attribute in attributes)
-                        sb.AppendLine($"    [{attribute}]");
+                        sb.AppendLf($"    [{attribute}]");
 
                     string? constructorChain = null;
                     bool requiresUnsafeContext = false;
@@ -869,10 +870,10 @@ public static class MemberBodyProducer
                         string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
                         if (member.Name.Contains(".set_", StringComparison.Ordinal))
                         {
-                            sb.AppendLine($"    {head}");
-                            sb.AppendLine("    {");
+                            sb.AppendLf($"    {head}");
+                            sb.AppendLf("    {");
                             CSharpMemberLayout.Append(sb, "set", body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLine("    }");
+                            sb.AppendLf("    }");
                         }
                         else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
                         {
@@ -880,10 +881,10 @@ public static class MemberBodyProducer
                         }
                         else
                         {
-                            sb.AppendLine($"    {head}");
-                            sb.AppendLine("    {");
+                            sb.AppendLf($"    {head}");
+                            sb.AppendLf("    {");
                             CSharpMemberLayout.Append(sb, "get", body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLine("    }");
+                            sb.AppendLf("    }");
                         }
                         break;
                     }
@@ -911,26 +912,26 @@ public static class MemberBodyProducer
 
                 case "property":
                 {
-                    if (!first) sb.AppendLine();
+                    if (!first) sb.AppendLf();
                     first = false;
                     any = true;
                     foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
-                        sb.AppendLine($"    [{attribute}]");
+                        sb.AppendLf($"    [{attribute}]");
                     ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces, printerOptions);
                     break;
                 }
 
                 case "event":
                 {
-                    if (!first) sb.AppendLine();
+                    if (!first) sb.AppendLf();
                     first = false;
                     any = true;
                     foreach (var attribute in AttributeReader.RenderEventAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
-                        sb.AppendLine($"    [{attribute}]");
+                        sb.AppendLf($"    [{attribute}]");
                     string declaration = TerminatedDeclarationFormatter.FormatMember(type, member);
-                    sb.AppendLine($"    {declaration}");
+                    sb.AppendLf($"    {declaration}");
                     break;
                 }
             }
@@ -1065,7 +1066,7 @@ public static class MemberBodyProducer
                 }
             }
 
-            parameters.Add($"{signature.ParameterTypes[i]} {EscapeIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
+            parameters.Add($"{signature.ParameterTypes[i]} {ContainedIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
         }
 
         return $"{signature.ReturnType} .ctor({string.Join(", ", parameters)})";
@@ -1129,7 +1130,7 @@ public static class MemberBodyProducer
             string propName = name[(at + marker.Length)..];
             if (propName.Length == 0 || propName is "Item" or "Chars")
                 return null;
-            return $"{EscapeQualifiedName(name[..at])}.{EscapeIdentifier(propName)}";
+            return $"{EscapeQualifiedName(name[..at])}.{ContainedIdentifier(propName)}";
         }
         return null;
     }
@@ -1144,8 +1145,8 @@ public static class MemberBodyProducer
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
-            : EscapeIdentifier(typeParameter.Name);
+            ? $"{variance} {ContainedIdentifier(typeParameter.Name)}"
+            : ContainedIdentifier(typeParameter.Name);
 
     static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
     {
@@ -1171,17 +1172,23 @@ public static class MemberBodyProducer
     }
 
     static string EscapeQualifiedIdentifier(string name)
-        => string.Join("+", name.Split('+').Select(EscapeIdentifier));
+        => string.Join("+", name.Split('+').Select(ContainedIdentifier));
 
     static string EscapeQualifiedName(string name)
-        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(ContainedIdentifier))));
 
     static string EscapeIdentifier(string name) => Pipeline.CSharpNaming.EscapeIdentifier(name);
+
+    /// <summary>The spelling for a metadata name entering emitted declaration text:
+    /// unlike <see cref="EscapeIdentifier"/> this folds an unspellable name to
+    /// identifier characters, so it cannot break out of the surrounding code fence
+    /// (issue #3319). Gated by <c>UntrustedIdentifierPresentationTests</c>.</summary>
+    static string ContainedIdentifier(string name) => Pipeline.CSharpNaming.ContainedIdentifier(name);
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
     static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
     {
-        string escapedName = EscapeIdentifier(name);
+        string escapedName = ContainedIdentifier(name);
         return keyword == "get"
             ? body?.Trim() == $"return this.{escapedName};"
             : body?.Trim() == $"this.{escapedName} = value;";
@@ -1225,7 +1232,7 @@ public static class MemberBodyProducer
 
         if (accessors.Count == 0 || member.IsAbstract || accessors.All(a => a.Body is null))
         {
-            sb.AppendLine(accessorList >= 0 ? $"    {head} {signature[accessorList..]}" : $"    {head}");
+            sb.AppendLf(accessorList >= 0 ? $"    {head} {signature[accessorList..]}" : $"    {head}");
             return;
         }
 
@@ -1235,7 +1242,7 @@ public static class MemberBodyProducer
         // would recurse (a getter that returns the property itself).
         if (accessors.All(a => IsTrivialAutoAccessor(a.Keyword, a.Body, member.Name)))
         {
-            sb.AppendLine($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
+            sb.AppendLf($"    {head} {{ {string.Join(" ", accessors.Select(a => $"{a.Keyword};"))} }}");
             return;
         }
 
@@ -1253,15 +1260,15 @@ public static class MemberBodyProducer
             return;
         }
 
-        sb.AppendLine($"    {head}");
-        sb.AppendLine("    {");
+        sb.AppendLf($"    {head}");
+        sb.AppendLf("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
             var (keyword, body, _, singleReturn) = accessors[i];
-            if (i > 0) sb.AppendLine();
+            if (i > 0) sb.AppendLf();
             CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
-        sb.AppendLine("    }");
+        sb.AppendLf("    }");
     }
 
     static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)

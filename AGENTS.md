@@ -181,6 +181,7 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
+| Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 
 Run the suite in **Release** for input fidelity, not speed: the optimized IL a
 Release build of the compilers emits is what ships and what the decompiler
@@ -433,6 +434,12 @@ until every required fixed-head review is clean.
   [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Treat CI as confirmation, not discovery: run relevant local checks first.
+- `ci-required` is the only check that may gate merges, and the one the `main`
+  ruleset is meant to require: an aggregate that fails if any job in `ci.yml`
+  failed or was cancelled. It passes `skipped`, because most jobs are
+  path-gated, so a green `ci-required` means "nothing that ran went wrong", not
+  "everything ran". Never require a path-gated job directly — a required check
+  that does not run blocks the merge forever.
 - Do not broaden CI without a measured need. The PR `test` job validates the
   merge path; `pack` is path-gated; release artifacts are built by
   `release.yml`.

@@ -337,6 +337,28 @@ When you append a row by hand, this is the rule most likely to reject it: take
 `invalidBreakdown` from the run JSON verbatim rather than filling in the reason
 you care about and zeroing the rest.
 
+A recorded identity must also be **well formed**: `poolSha256` and
+`corpusSha256` are either absent or exactly 64 lowercase hex characters, the
+shape a real run records. Every other hand-copied field here is checked rather
+than trusted, and the digests were the exception — yet they are the fields that
+decide whether any comparison happens at all. Comparability compares them as
+opaque strings, so `""` is not read as "no identity recorded", it is read as an
+identity that happens to equal every other `""`: two such rows compare clean over
+a pool neither one identifies. Length is part of the rule because the digests are
+deliberately untruncated, and case is part of it because an uppercase copy of a
+real digest is a *different* string for the same pool, which reads as drift that
+never happened. Absence stays honest and stays allowed — it is refused later, by
+comparability, rather than here.
+
+A malformed identity condemns the **whole file**, at parse time, rather than
+marking one row unusable. That distinction is load-bearing and review found it
+the hard way: an earlier version treated the malformed row as an untrustworthy
+measurement, which put it on the walk's skip path, and skipping the *newest* row
+silently handed the comparison to an older, laxer one — a run that regressed
+against the strict threshold reported `RATCHET OK` with exit 0 because it was
+measured against the lax one instead. Refusing a row must never be a way to
+select a different baseline.
+
 A baseline must also be able to **state every metric the run states**. A metric
 is only emitted when both sides have a number for it, so a row missing one
 yields a comparison that ratchets fewer metrics than the run has while still
@@ -395,29 +417,76 @@ field that goes unchecked fails a test instead of going unenforced.
 decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
 its movement is a floor, not a census.
 
-### The next append cannot ratchet, and that is expected
+### The identity bootstrap, and how it was crossed
 
-No row in this store records `poolSha256` or `corpusSha256` — every one predates
-run identity. A live run always records both, and comparability compares both
-symmetrically, so **the first identified row you append is not comparable to the
-row it lands on**: the comparison skips, and a skip fails the gate. Expect the
-PR that adds it to be red.
+Rows recorded before 2026-07-30 carry no `poolSha256` or `corpusSha256` — they
+predate run identity. A live run always records both, and comparability compares
+both symmetrically, so the first identified row was comparable to *nothing*: the
+comparison skipped, and a skip fails the gate.
 
-Land it together with a **second** identified run over the same pool and corpus.
-Those two rows are the first ratchetable pair, and every append after that
-ratchets normally — including `productBodyDefect`, which no pair in the store can
-compare today.
+Crossing that took two identified runs landed together (#3353), both over the
+same pinned pool and the same corpus. They are the first ratchetable pair, and
+every append after them ratchets normally — including `productBodyDefect`, which
+no earlier pair in this store could compare.
 
-The historical rows cannot be back-filled: their pools and corpora were archived
-out-of-tree and the artifacts are gone. The cheaper alternative — let a baseline
-that records no identity compare against anything — is unsound, because
+Those two rows carry the **same date, the same commit, and identical counts**,
+and that is deliberate rather than a double-append: they are two separate full
+runs of the same product over the same pinned pool, so the pair also measures
+what the pin was built for. Identical `poolSha256` across two independent sweeps
+is the reproducibility claim of #3353 discharged end to end, and identical
+counts show the harness reads the same pool the same way twice. A trend needs a
+second point before it can have a direction; this pair's direction is flat by
+construction, which is the only honest thing a bootstrap pair can say.
+
+The historical rows could not be back-filled: their pools and corpora were
+archived out-of-tree and the artifacts are gone. The cheaper alternative — let a
+baseline that records no identity compare against anything — is unsound, because
 `--ratchet-baseline` reads a caller-supplied file and that rule would let any
 baseline opt out of identity and then compare clean against a run over a wholly
 different corpus.
 
-`TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet` pins this, so
-the warning arrives from a test rather than from a red merge lane. Delete that
-test in the same change that crosses the bootstrap. Tracked as #3362.
+Nothing re-opens the bootstrap *silently*. A future row that dropped its
+identity would be comparable to nothing in exactly the same way, and
+`TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline` fails on a skip.
+
+### Re-crossing it: what to do when the pool or the corpus changes
+
+The bootstrap is not a one-time event. It re-opens **whenever run identity
+changes**, because a new identity is comparable to no row already in the store:
+
+- The vendored corpus changes. `corpusSha256` is `CorpusDigest`, a SHA-256 of the
+  `corpus.jsonl` bytes alone, so a commit on `vendor/authored-source-corpus`
+  re-opens the bootstrap only when it changes that file — a README or licensing
+  commit on the branch does not.
+- The pool changes — a package added to or bumped in
+  `docs/data/nuget-top-packages.lock.json`, a `SELF_VERSION` bump in
+  `eng/prepare-decompiler-corpus.sh`, or any change to which assemblies are
+  selected.
+
+When that happens the scheduled lane goes **red**, and the skip reason names the
+mismatch (`corpusSha256 <old> vs <new>`). That is the gate working, not a defect:
+the store's numbers describe inputs that no longer exist, and comparing across
+the change would report an input swap as a quality movement. Refusing is the
+whole reason the digests are recorded.
+
+The remedy is the same as the original crossing: **land two runs over the new
+inputs together**, following the Append procedure above. One row is not enough —
+it would be comparable to nothing and the lane would stay red.
+
+Deliberately *not* done: pinning the corpus to a fixed commit in the workflow.
+Not because a pin would hide the change — it would not; bumping a pin changes the
+corpus bytes, which changes `corpusSha256`, which re-opens the bootstrap exactly
+as a branch commit does. It is declined because it buys nothing for that cost:
+identity already detects the change loudly and precisely, while a pin adds a
+second place that must be kept in sync and delays every corpus improvement from
+reaching the lane until someone remembers to bump it.
+
+One caveat when appending by hand: `eng/restore-authored-source-corpus.sh` exits
+early if `external/authored-source-corpus` already exists, and it only fetches
+when the local branch is missing. A worktree restored weeks ago therefore
+measures whatever it was restored at, not the current tip. CI is unaffected
+because it starts from a fresh checkout — but a local append should confirm the
+branch is current before treating its run as a baseline.
 
 ### Who runs it
 
@@ -483,9 +552,10 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
-  the PR lane. It deliberately passes `--integrity-only` rather than
-  `--ratchet-baseline`: this lane is the measurement-integrity gate and the
-  source of the run JSON that an append starts from.
+  the PR lane. It passes `--ratchet-baseline`, so it judges the run by movement
+  against the trend store; the measurement-integrity checks still apply
+  underneath, and the lane remains the source of the run JSON that an append
+  starts from.
 
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
   records the exact version, TFM, and SHA-256 of every swept package, and the
@@ -498,20 +568,14 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   cannot be used to drop a package out of the pool. A fresh sweep therefore
   reproduces the same assemblies, and its pool identity is stable.
 
-  What still stops this lane ratcheting is that no trend-store row has yet been
-  measured against the pinned pool. The ratchet compares the newest row to a
-  baseline, and every recorded row predates the pin, so `--ratchet-baseline`
-  would still find nothing comparable — it would skip, and a skip fails. Closing
-  that needs one full run over the pinned pool, recorded as a row carrying
-  `poolSha256` and `corpusSha256`; the pair after it is the first that can
-  ratchet. Merely omitting `--ratchet-baseline`
-  is not enough either: that selects the historical `invalid == 0` contract,
-  which this corpus cannot satisfy, so the job would still fail every week and
-  file a scheduled-failure issue each time. `--integrity-only` is how the lane
-  says what it actually claims. Pinning the pool — which is what lets this lane
-  ratchet for real — landed with the `nuget-top-packages.lock.json` pin; once two
-  pinned runs are in the trend store this lane can drop `--integrity-only`.
-  Note this limitation is not new:
+  Two rows measured over that pinned pool are now recorded, so the lane passes
+  `--ratchet-baseline` and judges the run by movement against the trend store.
+  Note what it must *not* do instead: merely omitting `--ratchet-baseline`
+  selects the historical `invalid == 0` contract, which this ~5,200-invalid
+  corpus cannot satisfy, so the job would fail every week and file a
+  scheduled-failure issue each time. `--integrity-only`, which this lane carried
+  until the bootstrap was crossed, says only that the measurement was sound.
+  Note the limitation it replaced was not new:
   the first comparability key was loose enough to compare across a drifted pool,
   which is a false green, and identifying the pool is what turned that silent
   wrong answer into a visible refusal.

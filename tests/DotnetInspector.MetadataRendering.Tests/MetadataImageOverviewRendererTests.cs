@@ -35,6 +35,73 @@ public class MetadataImageOverviewRendererTests
         return output.ToString();
     }
 
+    /// <summary>
+    /// Rebuilds an overview with a chosen version stamp and truncation state.
+    /// The record's properties are get-only, so <c>with</c> is unavailable.
+    /// </summary>
+    static MetadataImageOverview WithVersion(
+        MetadataImageOverview overview, string version, bool truncated)
+        => new(
+            version,
+            overview.Kind,
+            overview.IsAssembly,
+            overview.MetadataOffset,
+            overview.MetadataSize,
+            overview.Heaps,
+            overview.Tables,
+            overview.Headers,
+            truncated);
+
+    /// <summary>
+    /// The metadata root's version stamp is a counted string read out of the
+    /// image, so a malformed image can carry one too long to neutralize within
+    /// the display budget. When that happens the value is a prefix, and this
+    /// file's standing claim — a limit is never silent — applies to it exactly as
+    /// it does to a clipped heap string: the ellipsis must be there, or a prefix
+    /// reads as the whole stamp.
+    /// </summary>
+    [Fact]
+    public void Markdown_MarksATruncatedVersionStampSoAPrefixIsNotReadAsTheWholeValue()
+    {
+        string markdown = Render(
+            WithVersion(SelfOverview(), "v4.0.303", truncated: true), MetadataTableFormat.Markdown);
+
+        Assert.Contains("v4.0.303…", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The close negative case: an untruncated stamp must not acquire an
+    /// ellipsis, or the marker would mean nothing.
+    /// </summary>
+    [Fact]
+    public void Markdown_LeavesAnUntruncatedVersionStampUnmarked()
+    {
+        string markdown = Render(
+            WithVersion(SelfOverview(), "v4.0.303", truncated: false), MetadataTableFormat.Markdown);
+
+        Assert.Contains("v4.0.303", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("v4.0.303…", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The budget is sized so it cannot bind on a conforming stamp: ECMA-335
+    /// II.24.2.1 caps the field at 255 bytes and neutralization expands a control
+    /// character to six characters, so 255 * 6 is the widest a conforming value
+    /// can become. Pinning that arithmetic here means shrinking the budget, or
+    /// widening the escape expansion, fails rather than silently starts clipping
+    /// well-formed images.
+    /// </summary>
+    [Fact]
+    public void ConformingVersionStamp_CannotTripTheBudget()
+    {
+        const int maxConformingBytes = 255;
+        const int escapeExpansion = 6;
+
+        var overview = SelfOverview();
+        Assert.False(overview.MetadataVersionTruncated);
+        Assert.True(overview.MetadataVersion.Length <= maxConformingBytes * escapeExpansion);
+    }
+
     // --- Overview rendering ------------------------------------------------
 
     [Fact]
@@ -470,6 +537,12 @@ public class MetadataImageOverviewRendererTests
     {
         var root = MdiCommand.CreateRootCommand();
         var error = new StringWriter();
+
+        // Capturing the stream is the point of the test, so the stderr-ownership
+        // rule (#3319) is suppressed here rather than switched off for the
+        // project: mdi is a separate entry point outside the CLI's reference
+        // closure, but the rest of this project should stay covered.
+#pragma warning disable RS0030
         var original = Console.Error;
         try
         {
@@ -483,5 +556,6 @@ public class MetadataImageOverviewRendererTests
         {
             Console.SetError(original);
         }
+#pragma warning restore RS0030
     }
 }

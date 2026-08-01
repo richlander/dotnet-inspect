@@ -1,5 +1,6 @@
 using System.Text;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -236,20 +237,20 @@ internal static class CSharpDeclarationWriter
     {
         var sb = new StringBuilder();
         foreach (var ns in usings)
-            sb.AppendLine($"using {ns};");
+            sb.AppendLf($"using {ns};");
 
         if (usings.Count > 0)
-            sb.AppendLine();
+            sb.AppendLf();
 
         if (options.NamespaceMode == CSharpNamespaceMode.FileScoped
             && !string.IsNullOrWhiteSpace(options.ContainingNamespace))
         {
-            sb.AppendLine($"namespace {options.ContainingNamespace};");
-            sb.AppendLine();
+            sb.AppendLf($"namespace {options.ContainingNamespace};");
+            sb.AppendLf();
         }
 
         foreach (var line in bodyLines)
-            sb.AppendLine(line);
+            sb.AppendLf(line);
 
         return sb.ToString().TrimEnd();
     }
@@ -772,7 +773,7 @@ internal static class CSharpDeclarationWriter
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
@@ -786,12 +787,24 @@ internal static class CSharpDeclarationWriter
     /// distinction when available; otherwise falls back to a token heuristic that
     /// cannot disambiguate a type literally named like a constraint keyword.
     /// </summary>
+    /// <remarks>
+    /// The result is contained before it is returned. A constraint entry is a type
+    /// name out of metadata, so it is untrusted, and keyword escaping is not
+    /// containment: it changes <c>class</c> to <c>@class</c> and leaves a bidi
+    /// override or a line terminator exactly where it was. Adversarial review of
+    /// issue #3319 found a hostile interface name reaching the terminal raw through
+    /// this list while the type parameter beside it was already contained, so the
+    /// rendered row was half guarded. Containment goes here rather than at the call
+    /// sites because this method is what composes the untrusted text into a single
+    /// display string, and its two callers would otherwise each have to remember.
+    /// </remarks>
     internal static string FormatConstraintList(TypeParameter typeParameter, IEnumerable<string> parameterNames)
     {
         var parts = typeParameter.StructuredConstraints is { } structured
             ? structured.Select(entry => entry.IsTypeName ? EscapeReservedKeywordIdentifiers(entry.Value) : entry.Value)
             : typeParameter.Constraints.Select(SpellConstraint);
-        return EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames);
+        return CSharpIdentifierCore.ContainComposedName(
+            EscapeKnownIdentifiers(string.Join(", ", parts), parameterNames));
     }
 
     // Fallback used only when structured constraint kinds are unavailable: a
@@ -954,7 +967,7 @@ internal static class CSharpDeclarationWriter
             : $"{parameter.Modifier} {type}";
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
             ? head
-            : $"{head} {EscapeIdentifier(parameter.Name)}";
+            : $"{head} {SanitizeIdentifier(parameter.Name)}";
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;
@@ -1047,7 +1060,14 @@ internal static class CSharpDeclarationWriter
             builder.Append(identifier);
             index = end;
         }
-        return builder.ToString();
+
+        // A type string is composed from untrusted metadata names. Containment
+        // happens at this single display choke point rather than at the sites
+        // that spell parameters, return types, and base types, so a new caller
+        // cannot reopen issue #3319. This escaper is display-only — identity
+        // lives in the raw metadata names — and containment is a no-op on clean
+        // text.
+        return CSharpIdentifierCore.ContainComposedName(builder.ToString());
     }
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
@@ -1179,30 +1199,58 @@ internal static class CSharpDeclarationWriter
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
-            : EscapeIdentifier(typeParameter.Name);
+            ? $"{variance} {SanitizeIdentifier(typeParameter.Name)}"
+            : SanitizeIdentifier(typeParameter.Name);
 
     static string FormatObsoleteAttribute(string? message)
         => string.IsNullOrWhiteSpace(message)
             ? "[Obsolete]"
             : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
 
+    // The Obsolete message is attacker-controlled attribute text rendered inside a
+    // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,
+    // ANSI escapes, and bidi overrides to reach the terminal raw (issue #3319), so
+    // every remaining rendering hazard is spelled as a visible \uXXXX escape.
     static string EscapeCSharpString(string value)
-        => value
+    {
+        var escaped = value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
 
+        if (!escaped.Any(CSharpIdentifier.RequiresLiteralEscape))
+            return escaped;
+
+        var builder = new StringBuilder(escaped.Length);
+        foreach (var ch in escaped)
+        {
+            if (CSharpIdentifier.RequiresLiteralEscape(ch))
+                builder.Append($"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Rewrites an <c>op_*</c> method signature into C# operator syntax.
+    /// </summary>
+    /// <remarks>
+    /// The parameter list is located from the member-name occurrence, not by taking the
+    /// first or last <c>(</c>. A conversion operator may return a tuple, and that tuple's
+    /// parenthesis comes first — for <c>(int a, int b) op_Implicit(Foo f)</c> a
+    /// first-paren scan finds index 0 and bails out, leaving the raw <c>op_Implicit</c>
+    /// spelling. Equally, the metadata name can appear inside the return type or a
+    /// parameter type (<c>Converter op_Implicit(op_Implicit value)</c>), so the member
+    /// occurrence is identified as the whole-token one immediately followed by <c>(</c>
+    /// rather than by textual position.
+    /// </remarks>
     static string FormatOperatorSignature(string signature, string methodName)
     {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart <= 0)
-            return signature;
-
-        var nameIndex = signature.LastIndexOf(methodName, parenStart - 1, StringComparison.Ordinal);
-        if (nameIndex < 0)
+        if (!TryFindMemberNameBeforeParameterList(signature, methodName, out int nameIndex, out int parenStart))
             return signature;
 
         var returnType = signature[..nameIndex].TrimEnd();
@@ -1221,6 +1269,44 @@ internal static class CSharpDeclarationWriter
         };
     }
 
+    /// <summary>
+    /// Finds the occurrence of <paramref name="memberName"/> that is the declared member
+    /// rather than part of a type spelling: a whole identifier token whose next
+    /// non-whitespace character opens the parameter list.
+    /// </summary>
+    static bool TryFindMemberNameBeforeParameterList(
+        string signature, string memberName, out int nameIndex, out int parenStart)
+    {
+        nameIndex = -1;
+        parenStart = -1;
+        if (memberName.Length == 0)
+            return false;
+
+        for (int i = signature.IndexOf(memberName, StringComparison.Ordinal);
+            i >= 0;
+            i = signature.IndexOf(memberName, i + 1, StringComparison.Ordinal))
+        {
+            if (i > 0 && (IsIdentifierPart(signature[i - 1]) || signature[i - 1] == '@'))
+                continue;
+
+            int after = i + memberName.Length;
+            if (after < signature.Length && IsIdentifierPart(signature[after]))
+                continue;
+
+            int scan = after;
+            while (scan < signature.Length && char.IsWhiteSpace(signature[scan]))
+                scan++;
+            if (scan >= signature.Length || signature[scan] != '(')
+                continue;
+
+            nameIndex = i;
+            parenStart = scan;
+            return i > 0;
+        }
+
+        return false;
+    }
+
     static string FormatConstructorTypeName(string name)
     {
         // Isolate the innermost nested-type segment before stripping generic arity,
@@ -1231,7 +1317,7 @@ internal static class CSharpDeclarationWriter
             name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return EscapeIdentifier(typeName);
+        return SanitizeIdentifier(typeName);
     }
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
@@ -1251,9 +1337,10 @@ internal static class CSharpDeclarationWriter
         if (nameIndex < 0)
             return signature;
 
-        string escaped = memberName.Contains('.', StringComparison.Ordinal)
-            ? EscapeQualifiedName(memberName)
-            : EscapeIdentifier(memberName);
+        // Containment, not just keyword escaping: this name is untrusted metadata
+        // and the result is rendered into a signature cell. A qualified name keeps
+        // its dots, so each segment is contained on its own (issue #3319).
+        string escaped = ContainMemberName(memberName);
         return escaped == memberName
             ? signature
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
@@ -1325,6 +1412,27 @@ internal static class CSharpDeclarationWriter
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Escapes keyword-named parameters inside a member signature's parameter lists.
+    /// </summary>
+    /// <remarks>
+    /// Only a parenthesis run that actually opens a parameter list is rewritten. C#
+    /// tuple types are parenthesized too, so a naive "first paren wins" scan treats a
+    /// tuple-typed return (or a tuple nested in a constraint) as a parameter list and
+    /// escapes each element's trailing token — turning the predefined-type keyword in
+    /// <c>(int, string) Pair(int a)</c> into the identifier <c>(@int, @string)</c>,
+    /// which no longer binds (CS0246). A named element hid the bug, because there the
+    /// trailing token is the element name rather than the type keyword.
+    ///
+    /// A parenthesized group is the parameter list when it *ends* the declaration —
+    /// optionally followed by generic constraints. A group that is followed by more
+    /// content is a parenthesized type, because what follows it is the member name it
+    /// types: <c>(int, string) Pair(int a)</c>. This keys on the one structural
+    /// difference between the two, so it needs no table of keywords or modifiers and
+    /// stays correct for escaped member names (<c>void @event (int a)</c>), generic
+    /// members (<c>void M&lt;T&gt; (T a)</c>), tuple-returning conversion operators
+    /// (<c>implicit operator (int a, int b)(Foo f)</c>), and arbitrary modifier runs.
+    /// </remarks>
     static string EscapeParameterLists(string signature)
     {
         var sb = new StringBuilder(signature.Length);
@@ -1336,6 +1444,12 @@ internal static class CSharpDeclarationWriter
             {
                 sb.Append(signature, start, signature.Length - start);
                 return sb.ToString();
+            }
+            if (!OpensParameterList(signature, open))
+            {
+                sb.Append(signature, start, open - start + 1);
+                start = open + 1;
+                continue;
             }
             int close = Matching(signature, open, '(', ')');
             if (close < 0)
@@ -1349,6 +1463,50 @@ internal static class CSharpDeclarationWriter
             sb.Append(')');
             start = close + 1;
         }
+    }
+
+    static bool OpensParameterList(string signature, int open)
+    {
+        int close = Matching(signature, open, '(', ')');
+        if (close < 0)
+            return false;
+
+        var trailing = signature.AsSpan(close + 1).TrimStart();
+        return trailing.IsEmpty || StartsWithConstraintClause(trailing);
+    }
+
+    /// <summary>
+    /// True when <paramref name="trailing"/> begins a generic constraint clause.
+    /// </summary>
+    /// <remarks>
+    /// Requires the whole <c>where T :</c> shape, not just the leading word.
+    /// <c>where</c> is a contextual keyword, so a member may legally be named it, and a
+    /// tuple-returning one puts that name exactly where a constraint would go:
+    /// <c>(int, int) where (int a)</c>. Matching the word alone classifies the tuple as
+    /// a parameter list and mangles it to <c>(@int, @int)</c>.
+    ///
+    /// The two are told apart by which delimiter arrives first: a constraint reaches its
+    /// <c>:</c>, whereas a member name reaches the <c>(</c> or <c>&lt;</c> of its
+    /// parameter or type-argument list. Deciding on the delimiter rather than on the
+    /// shape of the name in between keeps this correct for type parameters spelled with
+    /// characters <see cref="IsIdentifierPart"/> does not model, such as the combining
+    /// marks C# permits as identifier continuations.
+    /// </remarks>
+    static bool StartsWithConstraintClause(ReadOnlySpan<char> trailing)
+    {
+        if (!trailing.StartsWith("where", StringComparison.Ordinal))
+            return false;
+        if (trailing.Length <= 5 || !char.IsWhiteSpace(trailing[5]))
+            return false;
+
+        for (int i = 6; i < trailing.Length; i++)
+        {
+            if (trailing[i] == ':')
+                return true;
+            if (trailing[i] is '(' or '<')
+                return false;
+        }
+        return false;
     }
 
     static string EscapeParameterName(string parameter)
@@ -1407,8 +1565,38 @@ internal static class CSharpDeclarationWriter
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
 
+    /// <summary>
+    /// <see cref="EscapeQualifiedName"/> with each segment contained rather than
+    /// only keyword-escaped, for a name that came from untrusted metadata.
+    /// </summary>
+    static string ContainQualifiedName(string name)
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(SanitizeIdentifier))));
+
+    /// <summary>
+    /// Contains a member name that is about to be rendered into a declaration,
+    /// keeping the dots of a qualified (explicit interface) name intact.
+    /// </summary>
+    static string ContainMemberName(string name)
+        => name.Contains('.', StringComparison.Ordinal)
+            ? ContainQualifiedName(name)
+            : SanitizeIdentifier(name);
+
     public static string EscapeIdentifier(string name)
         => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
+
+    /// <summary>
+    /// The spelling to use for a metadata name that reaches emitted declaration
+    /// text: <see cref="EscapeIdentifier"/> handles keywords but leaves an
+    /// unspellable name (one carrying a line terminator, say) intact, which would
+    /// let it break out of the surrounding code fence. Sanitizing folds it to
+    /// identifier characters instead.
+    /// </summary>
+    /// <remarks>
+    /// Byte-neutral for every name a compiler can emit, since none of them carry a
+    /// line terminator; pinned by <c>CSharpIdentifierSanitizationTests</c>.
+    /// </remarks>
+    static string SanitizeIdentifier(string name)
+        => CSharpIdentifier.ContainIdentifierForDeclaration(name);
 
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
@@ -1431,7 +1619,7 @@ internal static class CSharpDeclarationWriter
         if (insertAt < parenStart && signature[insertAt] == '<')
             return signature;
 
-        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
+        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>");
     }
 
     public static string EscapeNamespace(string name)
@@ -1439,8 +1627,7 @@ internal static class CSharpDeclarationWriter
             ? ""
             : string.Join(
                 ".",
-                name.Split('.').Select(segment =>
-                    segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
+                name.Split('.').Select(SanitizeIdentifier));
 
     internal static string TypeAccessibility(ApiType type)
         => type.Accessibility ?? "public";
@@ -1583,6 +1770,11 @@ internal static class CSharpDeclarationWriter
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
             if (c is '<' or '[' or '(') depth++;
             else if (c is '>' or ']' or ')') depth--;
             else if (c == ',' && depth == 0)
@@ -1599,10 +1791,170 @@ internal static class CSharpDeclarationWriter
         int depth = 0;
         for (int i = open; i < text.Length; i++)
         {
-            if (text[i] == openChar) depth++;
-            else if (text[i] == closeChar && --depth == 0) return i;
+            char c = text[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
+            if (c == openChar) depth++;
+            else if (c == closeChar && --depth == 0) return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the closing quote of the string or character literal that
+    /// starts at <paramref name="index"/>.
+    /// </summary>
+    /// <remarks>
+    /// Brace/paren scanners over a signature must not read punctuation inside a literal
+    /// as structure. A parameter default may legally contain any character, so
+    /// <c>void M(int event = ")")</c> otherwise terminates the parameter list at the
+    /// <c>)</c> inside the string — which makes the trailing-context classification in
+    /// <see cref="OpensParameterList"/> see leftover text and decline to escape a real
+    /// parameter list. An unterminated literal returns the last index so every caller
+    /// still makes progress rather than looping.
+    ///
+    /// Both literal forms are handled: in a verbatim string a backslash is an ordinary
+    /// character and <c>""</c> is the escape, so treating <c>@"\"</c> as backslash-escaped
+    /// would swallow the rest of the signature. All four prefix spellings are recognised
+    /// (<c>"</c>, <c>@"</c>, <c>$"</c>, and both orders of <c>$@"</c>), and an
+    /// interpolation hole is scanned with brace tracking so a quote or paren inside it is
+    /// not read as structure. Raw string literals (<c>"""..."""</c>) are delegated to
+    /// <see cref="SkipRawLiteral"/>.
+    ///
+    /// A literal inside an interpolation hole recurses, so nesting is capped at
+    /// <see cref="MaxLiteralNestingDepth"/>. At the cap the scan stops descending and
+    /// falls back to reading the inner punctuation as structure, which is what this code
+    /// did before literals were modelled at all. Deep nesting is not producible from
+    /// metadata — <c>ApiSurfaceExtractor.StringLiteral</c> backslash-escapes every quote,
+    /// so a rendered default can never open a nested literal — but a stack overflow is
+    /// uncatchable process death, so the bound is enforced rather than argued away.
+    ///
+    /// Comments are deliberately not modelled. This runs over a *rendered declaration*,
+    /// not over C# source: no producer in this repository emits a comment into a
+    /// signature string, whereas every literal form above is a legal spelling of a
+    /// parameter default. See #3561 on escaping from the structured signature model
+    /// instead of re-lexing rendered text.
+    /// </remarks>
+    static int SkipLiteral(string text, int index) => SkipLiteral(text, index, 0);
+
+    const int MaxLiteralNestingDepth = 32;
+
+    static int SkipLiteral(string text, int index, int depth)
+    {
+        char quote = text[index];
+        bool verbatim = false;
+        bool interpolated = false;
+        if (quote == '"')
+        {
+            for (int p = index - 1; p >= 0 && text[p] is '@' or '$'; p--)
+            {
+                if (text[p] == '@')
+                    verbatim = true;
+                else
+                    interpolated = true;
+            }
+        }
+
+        int opening = 0;
+        while (index + opening < text.Length && text[index + opening] == quote)
+            opening++;
+        // A raw string takes no '@' prefix, so in a verbatim string a run of quotes is
+        // escaped content rather than a delimiter: @""""a is one quote, not a raw string.
+        if (quote == '"' && !verbatim && opening >= 3)
+            return SkipRawLiteral(text, index, opening);
+
+        for (int i = index + 1; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (interpolated && c == '{')
+            {
+                if (i + 1 < text.Length && text[i + 1] == '{')
+                {
+                    i++;
+                    continue;
+                }
+                if (depth >= MaxLiteralNestingDepth)
+                    continue;
+                i = SkipInterpolationHole(text, i, depth + 1);
+                continue;
+            }
+            if (verbatim)
+            {
+                if (c != quote)
+                    continue;
+                if (i + 1 < text.Length && text[i + 1] == quote)
+                {
+                    i++;
+                    continue;
+                }
+                return i;
+            }
+            if (c == '\\')
+            {
+                i++;
+                continue;
+            }
+            if (c == quote)
+                return i;
+        }
+        return text.Length - 1;
+    }
+
+    /// <summary>
+    /// Returns the index of the last quote of the delimiter closing the raw string
+    /// literal that opens at <paramref name="index"/> with <paramref name="opening"/>
+    /// quotes.
+    /// </summary>
+    /// <remarks>
+    /// A raw string ends at the first run of at least as many quotes as opened it, and
+    /// its content has no escape character at all — a shorter run of quotes, a backslash
+    /// and an interpolation brace are all ordinary text. Scanning for the delimiter run
+    /// therefore also handles the interpolated form (<c>$"""..."""</c>) without needing
+    /// to model holes.
+    /// </remarks>
+    static int SkipRawLiteral(string text, int index, int opening)
+    {
+        for (int i = index + opening; i < text.Length; i++)
+        {
+            if (text[i] != '"')
+                continue;
+
+            int run = 0;
+            while (i + run < text.Length && text[i + run] == '"')
+                run++;
+            if (run >= opening)
+                return i + opening - 1;
+            i += run - 1;
+        }
+        return text.Length - 1;
+    }
+
+    /// <summary>
+    /// Returns the index of the <c>}</c> closing the interpolation hole that opens at
+    /// <paramref name="open"/>. Nested literals inside the hole are skipped whole, so a
+    /// quote or brace within them is not read as structure. Recursion is bounded by
+    /// <see cref="MaxLiteralNestingDepth"/>; see <see cref="SkipLiteral(string, int, int)"/>.
+    /// </summary>
+    static int SkipInterpolationHole(string text, int open, int depth)
+    {
+        int braces = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c is '"' or '\'')
+            {
+                if (depth >= MaxLiteralNestingDepth)
+                    continue;
+                i = SkipLiteral(text, i, depth + 1);
+                continue;
+            }
+            if (c == '{') braces++;
+            else if (c == '}' && --braces == 0) return i;
+        }
+        return text.Length - 1;
     }
 
     sealed record TypeNamePlan(

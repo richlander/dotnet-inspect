@@ -28,8 +28,9 @@ public interface ISectionDescriptor<TModel>
     static virtual bool ExplicitOnly => false;
 
     /// <summary>
-    /// When true, this section is part of the command/context's curated @Default preset
-    /// selected by bare <c>-S</c>.
+    /// When true, this section is part of the command/context's curated default preset
+    /// selected by bare <c>-S</c>. The preset has no user-spellable name; it is reachable only
+    /// through bare <c>-S</c>.
     /// </summary>
     static virtual bool Info => false;
 

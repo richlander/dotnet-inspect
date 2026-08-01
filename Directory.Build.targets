@@ -20,4 +20,50 @@
     <Features>$(Features);updated-memory-safety-rules</Features>
   </PropertyGroup>
 
+  <!-- Only CommandError may reach stderr (issue #3319). The rule is enforced by
+       the compiler's semantic model via BannedApiAnalyzers, not by a scan of the
+       source text, because a scan has to model C# to know what a name binds to
+       and every spelling it does not model is a hole. eng/BannedSymbols.txt
+       carries the list and the rationale.
+
+       On by default so a project added to the CLI's reference closure inherits
+       the rule rather than having to remember it. A project that legitimately
+       owns its own stderr — a separate entry point, or a test that captures the
+       stream — opts out with <OwnsItsOwnStderr>true</OwnsItsOwnStderr>, and
+       StderrOwnershipTests pins the opt-out set against the CLI's closure so an
+       opt-out cannot silently appear inside it.
+
+       This lives in Directory.Build.targets (not .props) because the opt-out is
+       set in the project file, which .props files are imported before. Items
+       added here still take part in restore.
+
+       The .csproj guard excludes project types this rule has no opinion about.
+       It does not exclude file-based apps, which is the reading it invites: a
+       file-based app builds through a generated project whose
+       MSBuildProjectExtension is .csproj, so it inherits the rule. Every
+       file-based app in this repository lives under eng/, which declares the
+       opt-out for exactly that reason.
+
+       The rule is repository-wide, not solution-wide. Six projects are outside
+       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests, four
+       metadata fixtures, and .review-fixtures/FixtureLib — so a solution build
+       is not evidence that this rule holds. Build them too, or let CI find it. -->
+  <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.txt" />
+  </ItemGroup>
+
+  <!-- Escalated here rather than left to TreatWarningsAsErrors, which is set in
+       src/Directory.Build.props and so covers only src/. The analyzer is added
+       to every project, and a rule that stops the build under src/ but merely
+       warns under tests/ and tools/ is two different rules wearing one name.
+       Warnings scroll past; this makes the rule mean the same thing everywhere
+       it is on, which is the only form in which "on by default" is honest. -->
+  <PropertyGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
+  </PropertyGroup>
+
 </Project>

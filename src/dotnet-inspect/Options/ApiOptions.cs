@@ -154,6 +154,13 @@ public partial record ApiOptions : IProjectionOptions
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }
@@ -180,7 +187,7 @@ public partial record ApiOptions : IProjectionOptions
     /// Such queries produce a focused section view, not the default tree shape.
     /// </summary>
     public bool HasSectionQuery =>
-        Select is { Length: > 0 } || Columns is { Length: > 0 } || Fields is { Length: > 0 };
+        Select is { Length: > 0 } || SelectDefault || Columns is { Length: > 0 } || Fields is { Length: > 0 };
 
     /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.

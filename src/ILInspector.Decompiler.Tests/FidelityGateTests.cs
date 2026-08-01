@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
 /// recompile it inside a reconstructed shape of its type, and compare the body under
-/// the compile-back fidelity contract. A method that recompiles to a different body
+/// compile-back fidelity contract V1. A method that recompiles to a different body
 /// changed the measured program shape — the worst decompiler failure class,
 /// invisible to parse/bind checks. This pins the green set so a regression that turns
 /// an exact method into a diff fails CI, while the documented baseline records the
@@ -19,7 +19,7 @@ public class FidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods that still differ under the compile-back fidelity contract — the open
+    /// Methods that still differ under compile-back fidelity contract V1 — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
@@ -54,11 +54,6 @@ public class FidelityGateTests
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
-        // CollectionListLiteral is the #1142 PDB-discriminated List<T>
-        // collection-expression raise. The original SDK csc lowering uses
-        // constant Span<T> indices, while the Roslyn compile-back package emits a
-        // hidden index temp for the same `return [a, b, 42];` source idiom.
-        "CollectionListLiteral",
         "GotoCommonExit",
         // This hand-written await-enumerator loop recompiles through the same
         // runtime-async shape but schedules the receiver load after the
@@ -70,7 +65,6 @@ public class FidelityGateTests
         // the element-ref helper. Exact recovery needs a higher-level inline-array
         // foreach/indexer raise.
         "RuntimeInlineArrayForeach",
-        "SelectBoolReturn",
         // SlotDiamondDispatch is a clustered-case switch with bool-computing arms
         // (#912): SlotDiamondPass folds each returned slot diamond so the dispatch
         // raises into nested if/else, the same honest comparison-tree over-render
@@ -86,16 +80,6 @@ public class FidelityGateTests
         "NullConditionalPropertyAssignment",
         "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
-        // OrBoolIntMix / OrBoolUintMix are the #1452 bool-operand materialization:
-        // a bitwise `bool | int` is CS0019, so BitwiseBoolOperandPass rewrites the
-        // bool operand to `(cond ? 1 : 0)`. In the slot-form shapes that ternary
-        // recompiles to a branch-select that differs from the original branchless
-        // 0/1 — valid C# (no CS0019), not opcode-exact. OrBoolUintMix additionally
-        // takes the `(uint)` mixed-sign reinterpret. The siblings AndBoolIntMix,
-        // AndNestedConditionalBool, and AndNestedBoolIntMix stay opcode-exact, so
-        // they are not docketed.
-        "OrBoolIntMix",
-        "OrBoolUintMix",
         // SwitchStoreThenUse is the #1710 ConditionalStoreChainPass fold: a
         // compare-chain switch assigning a local folds to a nested conditional
         // store, which csc re-lowers differently than the original per-arm stores
@@ -128,20 +112,12 @@ public class FidelityGateTests
         // `ref`. With the type compiling, they are finally compile-checked and show
         // honest pre-existing body over-renders (ref/in/out call sites, positional
         // patterns, slot/ternary merges, null-coalescing assignment).
-        "CallOutTarget",
         "FloatPositionalPattern",
-        "GenericRefKindCallSites",
         // Expression-tree factory fixtures are valid and Full, but SDK preview6
         // compile-back reshapes the manually emitted Expression.* calls around
         // stack-slot/local temporaries. This is toolchain drift in an existing
         // over-render frontier, not a new daily product regression.
         "ManualSimpleExpressionTreeFactory",
-        "SimpleExpressionTreeLambda",
-        // The parameter-dependent manual factory graph recovers to a lambda, so it
-        // recompiles to the compiler's expression-tree lowering rather than the
-        // hand-written factory calls — the same recovery-induced diff as
-        // SimpleExpressionTreeLambda.
-        "ManualParameterPlusConstantFactory",
         // The manual factory fixtures below DECLINE and decompile to honest
         // Expression.* factory-call C# with clean locals: the malformed/shared-graph
         // near misses (reused parameter identity, duplicate names, unspellable name),
@@ -158,66 +134,93 @@ public class FidelityGateTests
         "ManualDuplicateNameFactory",
         "ManualUnspellableNameFactory",
         "ManualConstantOnlyAddFactory",
+        // ManualConstantOnlyComparisonFactory belongs to the same constant-only
+        // manual-factory group, but arrived later (#3053) than the group's docket
+        // entry and so was never added. Its diff is the group's diff — compile-back
+        // reshapes the hand-emitted Expression.* calls around stack-slot temporaries
+        // (added stloc/stloc + ldloc/ldloc, no opcode-kind change elsewhere). It is
+        // an omission unmasked by running this Speed=Slow gate, not a new regression:
+        // the raise itself is pinned by
+        // ExpressionTreeLambdaTests.ManualConstantOnlyComparisonFactory_StaysFactoryCalls,
+        // which stays green. Tracked as #3502.
+        "ManualConstantOnlyComparisonFactory",
         "ManualConstantOnlySubtractFactory",
         "ManualConstantOnlyMultiplyFactory",
         "ManualNestedConstantSubtreeFactory",
         "ManualConstantOnlyDivideByZeroFactory",
         "ManualConstantOnlyRemainderOverflowFactory",
-        // ManualConstantOnlyComparisonFactory is the comparison sibling of the
-        // constant-only family above, added with the #2864 comparison-predicate
-        // recovery (#3053) but never docketed — both fidelity gates are
-        // Speed=Slow, so PR CI never observed it. Same family cause: the
-        // declined constant-fold keeps honest Expression.* factory calls, whose
-        // compile-back reshapes stack-slot temporaries. Measured OpcodeDiff adds
-        // exactly stloc@0x44, stloc@0x4f, ldloc@0x50, ldloc@0x51 — a temporary
-        // pair, no operand or control-flow change.
-        "ManualConstantOnlyComparisonFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
-        "RefKindCallSites",
         "set_SlotMergedDateTimeFormat",
-        // MakeConsumerWithTwoLeadingArgs (#3272): trailing object initializer with TWO
-        // preceding constructor arguments. ExpressionInliningPass removes only one of
-        // the two single-use spill temps, leaving an extra stloc/ldloc pair on
-        // compile-back. Already docketed in the lowered gate for the same reason; it
-        // was missing here only because both gates are Speed=Slow and neither runs in
-        // PR CI, so this rail's failure went unobserved.
-        "MakeConsumerWithTwoLeadingArgs",
-        // The compile-back fidelity contract reclassifies these previously
+        // Compile-back fidelity contract V1 reclassifies these previously
         // opcode-exact rows because a value, symbolic target, or branch target
         // differs after recompilation.
-        "CachedDelegateArgument",
-        "CachedDelegateChain",
+        "BreakWithSideEffect",
         "CapturingLambda",
         "CapturingLocalBodyLambda",
         // #2945: outer-body reads of a hoisted capture field are substituted back
         // to the captured source and the display class elides, so this fully
-        // raises; recompiling regenerates a fresh display class whose synthesized
-        // ordinals differ under the fidelity contract.
+        // raises. #3505 canonicalized the synthesized ordinals that used to make
+        // this an OperandDiff, and what remains underneath is an import below Full
+        // fidelity, so the harness now reports NotFull and forms no opcode verdict.
+        // Listed in <see cref="KnownNotFull"/> so that state is explicit rather
+        // than an unexamined docket row.
         "CapturedParamReadInOuterBody",
         "ClosureCapture",
-        "CountPositive",
         "DayNumber",
         "InvokeLocalCapture",
-        "LocalBodyLambda",
-        "NonCapturingLambda",
-        "StatementBodyLambda",
-        // #3491 follow-up: the ONLY remaining difference here is Roslyn's synthesized
-        // lambda ordinal — `<>c::<StatementBodyLambdaInsideIf>b__103_0` against
-        // `b__128_0`, plus the matching `<>9__103_0`/`<>9__128_0` cache fields. Same
-        // root cause as the local-function and iterator ordinals #3491 retired, and
-        // the opcode sequences are identical. It is docketed rather than fixed because
-        // the cache FIELD `<>9__N_K` carries no owner-method name, so it has no key as
-        // strong as `<Owner>g__Name|N_K`; folding it needs a separate design that ties
-        // the field to the `b__N_K` method sharing its ordinal. Retirable, not noise.
-        "StatementBodyLambdaInsideIf",
+        "JustBreak",
+        // MakeConsumerWithTwoLeadingArgs (#3272): ExpressionInliningPass removes only
+        // one of the two single-use spill temps around the trailing object
+        // initializer, leaving an extra stloc/ldloc pair on compile-back. #3290 added
+        // this to the LOWERED docket (see LoweredFidelityGateTests.KnownDiffs) but not
+        // here, even though the raised rail produces the identical residual — verified
+        // by comparing the two gates' opcode streams, which differ only by the same
+        // inserted stloc/ldloc. A docket omission that this Speed=Slow gate could not
+        // report while it was being cancelled, not a raised-path regression; the fold
+        // itself stays Valid + Correct and is pinned by
+        // ObjectInitializerPassTests. Tracked as #3490.
+        "MakeConsumerWithTwoLeadingArgs",
+        // The iterator raises added by #2884 recover the source bodies and retain
+        // the same outer factory opcodes, but recompiling the reconstructed large
+        // fixture type assigns different synthesized state-machine ordinals
+        // (d__600/601 -> d__575/576). Those constructor and field targets remain
+        // observable symbolic identities under contract V1.
+        "SwitchYield",
+        "WhileTrueYieldBreak",
         "TwoCaptureLambda",
+        "ValidNestedIf",
+        "YieldCollectionExpressionSpread",
+        "YieldEach",
+        "YieldEnumerator",
+        "YieldGrid",
+        "YieldIf",
+        "YieldPairs",
+        "YieldRange",
+        "YieldSquares",
+        "YieldStrings",
+        "YieldThree",
+        "YieldTwo",
     };
 
     /// <summary>
-    /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
+    /// Docket rows the harness reports as <see cref="FidelityCheck.CompileBackStatus.NotFull"/>:
+    /// the body imports below Full fidelity, so no opcode verdict is formed and an
+    /// opcode diff is expected rather than a defect. These are a distinct, named
+    /// state — not an unexamined <see cref="KnownDiffs"/> row — so that
+    /// <see cref="DocketRowsStayCheckedDiffs"/> can require every *other* docket row to
+    /// remain an actual diff. A row that newly drops to NotFull is a validity
+    /// regression and must fail rather than land here silently.
+    /// </summary>
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
+    {
+        "CapturedParamReadInOuterBody",
+    };
+
+    /// <summary>
+    /// Methods a prior fidelity check fix turned exact under contract V1. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -307,38 +310,6 @@ public class FidelityGateTests
         // internal System.Text.Json surface is not recompilable by the compile-back
         // oracle (tracked for a future cross-assembly compile-back capability).
         "SwitchWithTwoLoopingCaseSections",
-        // #3491: Roslyn names local functions `<Owner>g__Name|N_K` and iterator
-        // state machines `<Owner>d__N`, where N is an ordinal over the CONTAINING
-        // TYPE's members. Compile-back reconstructs a type skeleton with a different
-        // member population, so N necessarily differs and the v1 contract reported an
-        // operand difference between bodies that were otherwise identical. The v2
-        // contract compares these through a two-sided correspondence instead. These
-        // are pinned Exact rather than merely dropped from the docket below, because
-        // that docket asserts only `actual is a subset of KnownDiffs` — removing an
-        // entry from it proves nothing on its own.
-        "DoubleViaLocalFunction",
-        "EnumArgInInlineLocalFunction",
-        "EnumArgInLocalFunctionWithLocal",
-        "RecursiveLocalFunction",
-        "StaticLocalFunctionCalledTwice",
-        "StaticLocalFunctionWithLocal",
-        "TwoLocalFunctionQuadrants",
-        "BreakWithSideEffect",
-        "JustBreak",
-        "SwitchYield",
-        "ValidNestedIf",
-        "WhileTrueYieldBreak",
-        "YieldCollectionExpressionSpread",
-        "YieldEach",
-        "YieldEnumerator",
-        "YieldGrid",
-        "YieldIf",
-        "YieldPairs",
-        "YieldRange",
-        "YieldSquares",
-        "YieldStrings",
-        "YieldThree",
-        "YieldTwo",
         // #3166: the value-swap idiom. csc lowers the tuple swap `(a, b) = (b, a)`
         // (and the equivalent manual `temp = b; b = a; a = temp;`) to a single
         // dup-slot save plus the two cross-stores; SwapIdiomPass raises that
@@ -496,6 +467,39 @@ public class FidelityGateTests
         "ULongSumIndexAsSigned",
         "ULongSumIndexBare",
         "Finalize",
+        // Promoted from KnownDiffs by #3584 after they were measured Exact on the
+        // current main. Most are the benign reconstruction-ordinal class that #3505
+        // retired by canonicalizing synthesized-member ordinals in the oracle — the
+        // outcome the StatementBodyLambdaInsideIf row predicted when it was filed as
+        // #3503 ("so this whole class of row stops needing docket entries"). The
+        // remainder (CollectionListLiteral, OrBool*Mix, RefKindCallSites,
+        // GenericRefKindCallSites, CallOutTarget, SelectBoolReturn, CountPositive, and
+        // the two expression-tree rows) became exact through unrelated raising work.
+        // They are pinned rather than merely deleted so each fix is now guarded:
+        // a docket row that stops diffing gates nothing, a PinnedExact row does.
+        "CachedDelegateArgument",
+        "CachedDelegateChain",
+        "CallOutTarget",
+        "CollectionListLiteral",
+        "CountPositive",
+        "DoubleViaLocalFunction",
+        "EnumArgInInlineLocalFunction",
+        "EnumArgInLocalFunctionWithLocal",
+        "GenericRefKindCallSites",
+        "LocalBodyLambda",
+        "ManualParameterPlusConstantFactory",
+        "NonCapturingLambda",
+        "OrBoolIntMix",
+        "OrBoolUintMix",
+        "RecursiveLocalFunction",
+        "RefKindCallSites",
+        "SelectBoolReturn",
+        "SimpleExpressionTreeLambda",
+        "StatementBodyLambda",
+        "StatementBodyLambdaInsideIf",
+        "StaticLocalFunctionCalledTwice",
+        "StaticLocalFunctionWithLocal",
+        "TwoLocalFunctionQuadrants",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
@@ -531,9 +535,78 @@ public class FidelityGateTests
         });
 
         Assert.True(unexpected.Count == 0,
-            $"New fidelity check contract v{FidelityCheck.CurrentContractVersion} diffs (decompiled C# recompiles to different IL):\n"
+            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
+    }
+
+    /// <summary>
+    /// The reverse direction of <see cref="NoNewFidelityDiffsBeyondKnownDocket"/>, which is a
+    /// one-directional allow list: it fails when an undocketed method diffs, but never
+    /// when a docketed method stops diffing. Both ways a row can leave the diff set are
+    /// silent un-gates today, and both are already known to matter here:
+    /// <list type="bullet">
+    /// <item>It became <c>Exact</c> — the residual was fixed. The row now allows a
+    /// future regression it was never meant to cover, and no run reports it. #3505
+    /// canonicalized synthesized-member ordinals and retired a whole class of row this
+    /// way; nothing said so, and the stale rows sat in the docket across releases.</item>
+    /// <item>It became <c>RecompileFail</c>/<c>ContextFail</c> — the decompiled C# stopped
+    /// compiling. That drops it out of the diff set too, so the allow list swallows a
+    /// real regression. <see cref="SwitchStoreFold_StaysCompileBackCheckable"/> and
+    /// <see cref="PointerStoreUsesOriginalAddress_StaysCompileBackCheckable"/> were written
+    /// to cover exactly this for two fixtures; this generalizes them to the whole docket.</item>
+    /// </list>
+    /// Keeping the docket two-directional matches the decompiler lane pin file
+    /// (<c>eng/decompiler-gate-known-red.txt</c>), which fails both when an unpinned test
+    /// fails and when a pinned test passes.
+    /// </summary>
+    [Fact]
+    public void DocketRowsStayCheckedDiffs()
+    {
+        var results = EvaluateFixtures();
+        var failures = new List<string>();
+
+        foreach (string method in KnownDiffs.OrderBy(m => m, StringComparer.Ordinal))
+        {
+            var matches = results.Where(r => r.Method == method).ToList();
+            if (matches.Count == 0)
+            {
+                failures.Add($"{method}: docketed, but the fidelity check no longer renders it. "
+                    + "Remove the row if the fixture is gone, or restore the fixture.");
+                continue;
+            }
+
+            foreach (var result in matches)
+            {
+                if (result.Status is FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff)
+                    continue;
+
+                if (result.Status == FidelityCheck.CompileBackStatus.NotFull
+                    && KnownNotFull.Contains(method))
+                    continue;
+
+                failures.Add(result.Status switch
+                {
+                    FidelityCheck.CompileBackStatus.Exact =>
+                        $"{method}: now recompiles Exact, so its docket row is stale and silently allows a "
+                        + "future regression. Move it to PinnedExact so the fix is guarded.",
+                    FidelityCheck.CompileBackStatus.NotFull =>
+                        $"{method}: dropped to NotFull — it now imports below Full fidelity, so no opcode "
+                        + "verdict is formed. That is a validity regression, not a docketed diff.",
+                    FidelityCheck.CompileBackStatus.FidelityUnavailable =>
+                        $"{method}: the body comparison produced no verdict, so the row gates nothing. "
+                        + $"BodyComparisonRemainsAvailable reports the cause.\n  detail: {result.Detail}",
+                    _ =>
+                        $"{method}: regressed to {result.Status} — its decompiled C# no longer recompiles, so "
+                        + $"it silently left the diff set the docket gates.\n  detail: {result.Detail}",
+                });
+            }
+        }
+
+        Assert.True(failures.Count == 0,
+            "Stale or regressed rows in FidelityGateTests.KnownDiffs (#3584):\n"
+            + string.Join("\n", failures));
     }
 
     [Fact]
@@ -546,7 +619,7 @@ public class FidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            $"Compile-back fidelity contract v{FidelityCheck.CurrentContractVersion} was unavailable for: "
+            "Compile-back fidelity contract V1 was unavailable for: "
             + string.Join(", ", unavailable));
     }
 

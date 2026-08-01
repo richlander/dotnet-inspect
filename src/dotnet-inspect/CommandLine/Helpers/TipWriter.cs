@@ -16,14 +16,14 @@ public static class TipWriter
     /// </summary>
     public static int MissingArgumentWithTips(Command command, string message, params string[] tips)
     {
-        Console.Error.WriteLine($"Error: {message}");
-        Console.Error.WriteLine($"Run 'dotnet-inspect {command.Name} --help' for usage.");
+        CommandError.Write($"{message}");
+        CommandError.WriteLine($"Run 'dotnet-inspect {command.Name} --help' for usage.");
         if (tips.Length > 0)
         {
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Tips:");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Tips:");
             foreach (var tip in tips)
-                Console.Error.WriteLine($"  {tip}");
+                CommandError.WriteLine($"  {tip}");
         }
         return 1;
     }

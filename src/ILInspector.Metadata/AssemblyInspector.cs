@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
+using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata;
 
@@ -245,7 +246,8 @@ public static class AssemblyInspector
                     audit.HasSourceLink = true;
                     audit.SourceLinkJson = sourceLink;
 
-                    var (pathsNormalized, nonNormalizedPaths) = CheckSourceLinkPaths(sourceLink);
+                    var slResolver = SLF.SourceLinkResolver.Parse(sourceLink);
+                    var (pathsNormalized, nonNormalizedPaths) = CheckSourceLinkPaths(slResolver);
                     if (!pathsNormalized)
                     {
                         audit.HasNormalizedPaths = false;
@@ -256,7 +258,7 @@ public static class AssemblyInspector
                         }
                     }
 
-                    audit.RepositoryUrl = ExtractRepositoryUrlFromSourceLink(sourceLink);
+                    audit.RepositoryUrl = SLF.SourceLinkProvenance.Determine(reader).Origin?.RepositoryUrl;
                 }
             }
         }
@@ -302,14 +304,15 @@ public static class AssemblyInspector
             audit.HasSourceLink = true;
             audit.SourceLinkJson = sourceLink;
 
-            var (pathsNormalized, nonNormalizedPaths) = CheckSourceLinkPaths(sourceLink);
+            var slResolver = SLF.SourceLinkResolver.Parse(sourceLink);
+            var (pathsNormalized, nonNormalizedPaths) = CheckSourceLinkPaths(slResolver);
             audit.HasNormalizedPaths = pathsNormalized;
             if (!pathsNormalized)
             {
                 audit.NonNormalizedPaths = nonNormalizedPaths;
             }
 
-            audit.RepositoryUrl = ExtractRepositoryUrlFromSourceLink(sourceLink);
+            audit.RepositoryUrl = SLF.SourceLinkProvenance.Determine(reader).Origin?.RepositoryUrl;
             audit.IsDeterministic = pathsNormalized;
         }
 
@@ -397,62 +400,29 @@ public static class AssemblyInspector
     // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
     private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
 
-    private static (bool isNormalized, List<string> nonNormalizedPaths) CheckSourceLinkPaths(string sourceLink)
+    /// <summary>
+    /// Reports SourceLink keys that a deterministic build would have normalized to a <c>/_</c>
+    /// root. This asks about the map's text, so it reads <see cref="SLF.SourceLinkResolver.DocumentKeys"/>,
+    /// which preserves keys exactly as authored.
+    /// </summary>
+    private static (bool isNormalized, List<string> nonNormalizedPaths) CheckSourceLinkPaths(
+        SLF.SourceLinkResolver resolver)
     {
-        List<string> nonNormalizedPaths = [];
-        try
+        if (resolver.ParseError is not null)
         {
-            using var doc = SourceLinkJson.Parse(sourceLink);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
-            {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    if (!prop.Name.StartsWith("/_", StringComparison.Ordinal))
-                    {
-                        nonNormalizedPaths.Add(prop.Name);
-                    }
-                }
-            }
-            return (nonNormalizedPaths.Count == 0, nonNormalizedPaths);
+            return (false, []);
         }
-        catch
-        {
-            return (false, nonNormalizedPaths);
-        }
-    }
 
-    private static string? ExtractRepositoryUrlFromSourceLink(string sourceLink)
-    {
-        try
+        List<string> nonNormalizedPaths = [];
+        foreach (string key in resolver.DocumentKeys)
         {
-            using var doc = SourceLinkJson.Parse(sourceLink);
-            if (doc.RootElement.TryGetProperty("documents", out var documents))
+            if (!key.StartsWith("/_", StringComparison.Ordinal))
             {
-                foreach (var prop in documents.EnumerateObject())
-                {
-                    string url = prop.Value.GetString() ?? "";
-                    if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var match = AssemblyInspectorRegex.GitHubRawUrl().Match(url);
-                        if (match.Success)
-                        {
-                            return $"https://github.com/{match.Groups[1].Value}/{match.Groups[2].Value}";
-                        }
-                    }
-                    else if (url.Contains("dev.azure.com", StringComparison.OrdinalIgnoreCase) ||
-                             url.Contains("visualstudio.com", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return url.Split('_')[0].TrimEnd('/');
-                    }
-                    break; // Just use the first document URL
-                }
+                nonNormalizedPaths.Add(key);
             }
         }
-        catch
-        {
-            // Ignore parse errors
-        }
-        return null;
+
+        return (nonNormalizedPaths.Count == 0, nonNormalizedPaths);
     }
 
     /// <summary>

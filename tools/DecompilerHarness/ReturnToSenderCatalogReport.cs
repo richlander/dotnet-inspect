@@ -150,7 +150,7 @@ internal static class ReturnToSenderCatalogReport
     {
         ArgumentNullException.ThrowIfNull(view);
 
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         MarkoutSerializer.Serialize(
             BuildMarkoutView(view, report: null),
             output,
@@ -163,7 +163,7 @@ internal static class ReturnToSenderCatalogReport
     public static string RenderMarkout(DecompilerHarnessReport<ReturnToSenderCatalogReportView> report)
     {
         ArgumentNullException.ThrowIfNull(report);
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         MarkoutSerializer.Serialize(
             BuildMarkoutView(report.Payload, report),
             output,

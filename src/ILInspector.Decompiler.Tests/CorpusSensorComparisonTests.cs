@@ -799,20 +799,24 @@ public class CorpusSensorComparisonTests
     }
 
     /// <summary>
-    /// The contract composition is a tripwire: changing which normalizations the fidelity
-    /// comparison applies changes what "exact" means for every persisted corpus baseline,
-    /// so the version must move with it. Both halves are restated here deliberately, so
-    /// that changing the set without bumping the version fails.
+    /// The contract must compose every declared <see cref="IlBodyDiffNormalization"/>
+    /// option. The enforcement set is derived from the enum rather than restated,
+    /// so a newly declared option fails here until someone decides explicitly
+    /// whether the compile-back oracle should apply it — a stale entry and a
+    /// missing entry both fail, instead of the pin silently drifting.
+    ///
+    /// The version is pinned alongside it, because changing which normalizations the
+    /// comparison applies changes what "exact" means for every persisted corpus
+    /// baseline; the version must move with the set.
     /// </summary>
     [Fact]
     public void FidelityContract_ComposesAllIlBodyNormalizations()
     {
-        Assert.Equal(
-            IlBodyDiffNormalization.NormalizeVariableLayout
-            | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
-            | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals,
-            FidelityCheck.ContractBodyDiffNormalization);
+        IlBodyDiffNormalization allDeclared = Enum.GetValues<IlBodyDiffNormalization>()
+            .Where(option => option != IlBodyDiffNormalization.None)
+            .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+
+        Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
         Assert.Equal(2, FidelityCheck.CurrentContractVersion);
     }
 

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using ILInspector.Text;
 
 namespace ILInspector.Instructions;
 
@@ -129,7 +130,7 @@ public static class IlDiffPrinter
 
         var builder = new StringBuilder();
         foreach (string line in lines)
-            builder.AppendLine(line);
+            builder.AppendLf(line);
         return builder.ToString().TrimEnd();
     }
 
