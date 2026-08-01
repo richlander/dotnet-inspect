@@ -595,18 +595,18 @@ public class ApiCommand
         {
             if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
             {
-                var writerOpts = ApiOutputFormatter.BuildWriterOptions(api, options);
-                OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                OutputFormatter.WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) =>
-                    {
-                        var markoutWriter = new MarkoutWriter(writer, formatter, writerOpts);
-                        // Non-null because BuildFullApiView populates it unconditionally; a null
-                        // here is a bug, and throwing is preferable to falling through to the
-                        // surface projection, which would answer a different question and exit 0.
-                        ApiViewContext.Default.Serialize(view.ApiInfo!, markoutWriter);
-                        markoutWriter.Flush();
-                    }, options.Rows);
+                // Deliberately the same machinery as the fall-through below -- projection,
+                // diagnostics, and row limiting all included -- differing only in WHAT is
+                // serialized. Writing straight to the console here instead skipped
+                // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
+                // the same projection against `Type Info` and `Library Info` reported that the
+                // field does not exist.
+                var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
+                    options.Columns, options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
+                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return 0;
             }
 

@@ -3409,6 +3409,30 @@ public partial class CommandExecutionTests
         Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task Type_Listing_ApiInfo_ReportsUnmatchedProjectionsLikeTheRestOfTheView(string flag)
+    {
+        // The first version of the fact-table routing wrote straight to the console and returned,
+        // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
+        // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
+        // fix, reintroduced one layer down, and no assertion about correct projections could see
+        // it. The bar is parity with the per-kind sections beside it, which is what this compares:
+        // whatever the listing view says about an unmatched projection, the fact table says too.
+        var (kindExit, kindOut, kindErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv", flag, "Nonexistent", "--tips", "q");
+        var (factExit, factOut, factErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", flag, "Nonexistent", "--tips", "q");
+
+        Assert.Equal(kindExit, factExit);
+        Assert.Equal(kindErr.Trim(), factErr.Trim());
+
+        // Non-vacuity: an unmatched projection must say something. Silence on both sides would
+        // satisfy the equality above while leaving the original bug in place.
+        Assert.NotEmpty((kindErr + kindOut).Trim());
+    }
+
     [Fact]
     public async Task Type_Listing_ApiInfo_IsAdvertisedByDiscovery()    {
         // The discovery manifest is a second renderer fed by the option-filtered view, so a section
