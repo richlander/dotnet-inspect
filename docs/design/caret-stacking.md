@@ -286,12 +286,19 @@ line the moment any one label would start left of the gutter, so a broad focus
 can fall back to widening on account of a single early fact while a narrower
 focus, having dropped that fact, stacks the two later extents successfully.
 Naming the guard's rate against the lines that *stack* would be circular, since
-a line rule 8 rejects does not stack by construction. Measured against the set
-that **qualifies** to stack before rule 8 runs, the guard fires on **0 of
-2,842** — so all 2,842 qualifying lines do stack, no such line exists in this
-corpus, and the 2,842 does bound every narrower argument over CoreLib. That is a
-measurement, not a consequence of subsetting, and it would have to be
-re-measured on another assembly.
+a line rule 8 rejects does not stack by construction. The measurement is against
+the set that **qualifies** to stack before rule 8 runs, and a fallback is
+detected by the shape of the row: a stacked row always carries an `N.` label
+immediately before its caret run, and the widening row never does. Detecting it
+as "the block has no caret row" would be vacuous, because a fallback still
+renders the widening caret.
+
+So counted, the guard fires on **0 of 2,842** qualifying lines: all 2,842 do
+stack. That the gate can report a non-zero was checked by mutation — raising the
+guard's margin from `commentColumn + 2` to `+ 6` makes it fire on 306 of the
+2,842, and to `+ 200` on all 2,842. The zero is a property of the corpus, not of
+the probe. It is still a measurement rather than a consequence of subsetting,
+and it would have to be re-measured on another assembly.
 
 The bound is also specific to the **stacks** column. The other columns are not
 monotone in the same direction: dropping one of two disagreeing extents turns a
@@ -340,7 +347,7 @@ exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `a14d3ddce`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `40bb4411d`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
