@@ -275,7 +275,16 @@ internal static class CSharpSpellability
                 $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling");
         }
 
-        string name = CSharpNaming.MethodName(method.Name);
+        // Check the metadata name as it stands, not a >g__ decode of it, ONLY when the
+        // raising pass stamped this callee as declined. Decoding a declined call would
+        // rate it Full on the strength of a source spelling that appears nowhere in the
+        // output, because no declaration of it is emitted (#3631). The stamp — not the
+        // name shape — is the discriminator: before LocalFunctionRaisingPass runs, a
+        // local function that WILL be raised carries the identical mangled name, so
+        // judging by name alone degrades methods whose output is perfectly valid.
+        string name = method.LocalFunctionRaise == LocalFunctionRaiseState.Declined
+            ? method.Name
+            : CSharpNaming.MethodName(method.Name);
         return CSharpNaming.IsEscapableIdentifier(name)
             ? null
             : Issue(

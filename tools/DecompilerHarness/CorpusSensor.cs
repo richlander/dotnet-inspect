@@ -428,7 +428,13 @@ internal static class CorpusSensor
                     }
                     else
                     {
-                        IrPasses.Run(function);
+                        // Wires the cross-method import seam for the same reason
+                        // #2818 wired it above for classic state machines: without
+                        // it, cross-method passes (LocalFunctionRaisingPass here)
+                        // decline every candidate, so the sensor measures a pipeline
+                        // strictly less raised than the one the product ships and
+                        // reports raisable methods as residue.
+                        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
                     }
                 }
                 catch (Exception ex)
