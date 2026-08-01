@@ -28,10 +28,13 @@ internal static class DeclarationIndexBuilder
         public int ParentIndex = -1;
         public bool SpanKnown = true;
         public bool ClosesAtEndOfFile;
+        public ImmutableArray<LineRange> AttributeLists = [];
     }
 
+    // "union" declares a metadata struct (Roslyn reports a StructDeclarationSyntax), so a file that
+    // uses it must not lose the type and every member inside it.
     private static readonly HashSet<string> TypeKeywords =
-        ["class", "struct", "interface", "record", "enum"];
+        ["class", "struct", "interface", "record", "enum", "union"];
 
     public static ImmutableArray<DeclarationSpan> Build(IReadOnlyList<string> lines)
     {
@@ -52,6 +55,7 @@ internal static class DeclarationIndexBuilder
         int attributeWords = 0;
         bool unitTarget = false;
         bool unitAttribute = false;
+        var attributeLists = new List<LineRange>();
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
         bool inBlockComment = false;
@@ -69,6 +73,7 @@ internal static class DeclarationIndexBuilder
         {
             pending.Clear();
             triviaStart = -1;
+            attributeLists.Clear();
         }
 
         void EndDeclaration(ScanToken terminator)
@@ -93,6 +98,7 @@ internal static class DeclarationIndexBuilder
                 BodyStartLine = bodyStart,
                 EndLine = terminator.Line + 1,
                 ParentIndex = EnclosingIndex(),
+                AttributeLists = [.. attributeLists],
                 SpanKnown = terminator.DepthKnown && pending.All(t => t.DepthKnown),
             });
         }
@@ -163,17 +169,30 @@ internal static class DeclarationIndexBuilder
                 else if (text == "]" && --attributeDepth == 0)
                 {
                     inAttribute = false;
+                    var list = new LineRange(attributeStart, tok.Line + 1);
 
                     // An "assembly:" or "module:" list belongs to the compilation unit, not to
-                    // whatever follows it. It therefore neither opens trivia nor lets earlier
-                    // trivia through: Roslyn reports the next declaration's leading trivia as
-                    // starting after the list, so a file header comment above one belongs to the
-                    // list too. Every other target -- "type:", "return:", "field:" -- is part of
-                    // the declaration that follows and is kept.
-                    if (unitAttribute)
+                    // whatever follows it, and only the FIRST list in a run can be one: once a
+                    // list has bound to the declaration below, C# binds every later list to that
+                    // same declaration too, so "[Obsolete][assembly: X] class A" applies both to A
+                    // (CS0657) and dropping the second would take the first's trivia with it.
+                    if (unitAttribute && attributeLists.Count == 0)
+                    {
+                        // The list neither opens trivia nor lets earlier trivia through: Roslyn
+                        // reports the next declaration's leading trivia as starting after it, so a
+                        // file header comment above one belongs to the list. Ending the list here
+                        // also makes a comment on its closing line trail the LIST rather than open
+                        // the next declaration's trivia -- "[assembly: X] // note" is a comment
+                        // about the attribute.
                         triviaStart = -1;
-                    else if (triviaStart < 0)
-                        triviaStart = attributeStart;
+                        lastTerminatorLine = tok.Line + 1;
+                    }
+                    else
+                    {
+                        attributeLists.Add(list);
+                        if (triviaStart < 0)
+                            triviaStart = attributeStart;
+                    }
                 }
                 else if (attributeDepth == 1)
                 {
@@ -182,11 +201,25 @@ internal static class DeclarationIndexBuilder
                     // declaration's trivia. A kind test on the word would be redundant -- literals,
                     // comments and directives are skipped before this point, and every punctuator
                     // the scanner emits is one character.
-                    if (attributeWords == 0)
+                    //
+                    // "@" is one of those one-character tokens and escapes the word that follows,
+                    // so it does not occupy a word position: Roslyn reads "[@assembly: X]" as a
+                    // compilation-unit attribute exactly as it reads "[assembly: X]".
+                    if (attributeWords == 0 && text == "@")
+                    {
+                        // Not a word position; the escaped word is still position 0.
+                    }
+                    else if (attributeWords == 0)
+                    {
                         unitTarget = text is "assembly" or "module";
-                    else if (attributeWords == 1 && text == ":" && unitTarget)
-                        unitAttribute = true;
-                    attributeWords++;
+                        attributeWords++;
+                    }
+                    else
+                    {
+                        if (attributeWords == 1 && text == ":" && unitTarget)
+                            unitAttribute = true;
+                        attributeWords++;
+                    }
                 }
                 continue;
             }
@@ -240,6 +273,7 @@ internal static class DeclarationIndexBuilder
                         SignatureEndLine = tok.Line + 1,
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
+                        AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && pending.All(t => t.DepthKnown),
                     });
                     scopes.Add(rows.Count - 1);
@@ -411,7 +445,10 @@ internal static class DeclarationIndexBuilder
 
         return [.. rows.Select((r, i) => new DeclarationSpan(
             r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureEndLine,
-            r.BodyStartLine, r.EndLine, depths[i], r.ParentIndex, r.SpanKnown))];
+            r.BodyStartLine, r.EndLine, depths[i], r.ParentIndex, r.SpanKnown)
+        {
+            AttributeLists = r.AttributeLists,
+        })];
     }
 
     /// <summary>
@@ -589,15 +626,23 @@ internal static class DeclarationIndexBuilder
             if (words[i] == "record" && nameAt < words.Count
                 && (Keyword(nameAt, "class") || Keyword(nameAt, "struct")))
                 nameAt++;
+
+            // A type declaration always names the type. "record" and "union" are contextual
+            // keywords, so "int record;" and "int union;" are fields whose NAME is the keyword,
+            // and reading them as types emits a nameless type and loses the field. Requiring the
+            // name to follow is what tells the two apart; the field then falls through below.
+            if (nameAt >= words.Count)
+                continue;
+
             var kind = words[i] switch
             {
                 "class" => DeclarationKind.Class,
-                "struct" => DeclarationKind.Struct,
+                "struct" or "union" => DeclarationKind.Struct,
                 "interface" => DeclarationKind.Interface,
                 "record" => DeclarationKind.Record,
                 _ => DeclarationKind.Enum,
             };
-            return (kind, nameAt < words.Count ? words[nameAt] : "");
+            return (kind, words[nameAt]);
         }
 
         int paren = ParameterListStart(header, text);

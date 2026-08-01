@@ -57,6 +57,22 @@ public enum DeclarationKind
 }
 
 /// <summary>
+/// An inclusive run of source lines, 1-based, matching <see cref="DeclarationSpan"/>.
+/// <para>
+/// Line-granular by design, so a construct sharing a line with another — the <c>{</c> of
+/// <c>class A { }</c>, the <c>=&gt;</c> of <c>int P =&gt; 1;</c> — is not separable from it here.
+/// Callers that need sub-line precision are slicing text the PDB cannot address either.
+/// </para>
+/// </summary>
+public readonly record struct LineRange(int StartLine, int EndLine)
+{
+    /// <summary>How many lines the range covers.</summary>
+    public int LineCount => EndLine - StartLine + 1;
+
+    public override string ToString() => StartLine == EndLine ? $"{StartLine}" : $"{StartLine}-{EndLine}";
+}
+
+/// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
 /// All line numbers are <b>1-based</b>, matching portable-PDB sequence points and
@@ -66,7 +82,13 @@ public enum DeclarationKind
 /// </summary>
 /// <param name="Kind">What was declared.</param>
 /// <param name="Name">
-/// The declared name as spelled in source, without type parameters or parameter list. An operator
+/// The declared name, without type parameters or parameter list, and <b>without the <c>@</c> of a
+/// verbatim identifier</b>: <c>class @class</c> is named <c>class</c> and <c>namespace @event</c>
+/// is named <c>event</c>. The name exists to correlate a row with a metadata member, and metadata
+/// never carries the escape, so reporting it would make every verbatim declaration fail to match.
+/// This is therefore the declared name, not the source spelling; slice
+/// <see cref="SignatureStartLine"/> to recover how it was written. Gated by
+/// <c>DeclarationIndexTests.AVerbatimIdentifier_IsNamedWithoutItsEscape</c>. An operator
 /// is named <c>operator +</c>, or <c>operator checked +</c> when declared <c>checked</c>, because
 /// that is a distinct member (<c>op_CheckedAddition</c>, not <c>op_Addition</c>); a conversion is
 /// named <c>operator implicit</c> or <c>operator explicit</c>, without its target type, so two
@@ -119,6 +141,25 @@ public sealed record DeclarationSpan(
     int ParentIndex,
     bool SpanKnown)
 {
+    /// <summary>
+    /// The attribute lists applied to this declaration, one range per <c>[...]</c> list, in source
+    /// order. Empty when none.
+    /// <para>
+    /// Member-applied only: an <c>[assembly:]</c> or <c>[module:]</c> list belongs to the
+    /// compilation unit and is never reported here, on any declaration. Ranges, not parsed
+    /// attributes — the names and arguments of an attribute are metadata facts, and this layer is
+    /// a lexical scan that reports where the authored text sits so a caller can slice it.
+    /// </para>
+    /// <para>
+    /// Every list lies within <c>[TriviaStartLine, SignatureStartLine)</c>, but the trivia region
+    /// is not made of attribute lists alone: doc comments and ordinary comments share it, and a
+    /// comment may sit between two lists. Gated by
+    /// <c>DeclarationIndexTests.EveryAttributeListRoslynReports_IsReportedIdenticallyByTheIndex</c>,
+    /// which compares against Roslyn's <c>AttributeLists</c> over the whole corpus.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
+
     /// <summary>True when this declaration can itself contain member declarations.</summary>
     public bool IsType => Kind is DeclarationKind.Class or DeclarationKind.Struct
         or DeclarationKind.Interface or DeclarationKind.Record or DeclarationKind.Enum;
