@@ -245,6 +245,33 @@ public class BoundaryTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    public void TruncateRange_ReportsTheSpellingsTheWalkerFindsAsTheEncoderWouldSpellThem(string name)
+    {
+        // The walker reads the speller's output backwards, so its widths and its form mapping
+        // are that method's table restated. Nothing makes the two move together, and a drift
+        // would not break a boundary -- it would make DescribeLegend name a spelling the text
+        // does not contain, which no length assertion can see.
+        //
+        // Ground truth has to come from outside the walker, so it is taken by decoding the
+        // window and encoding it again from scratch: that path runs AppendSpelling and never
+        // consults NextToken.
+        InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        string text = full.ToString();
+
+        for (int start = 0; start <= text.Length; start++)
+        {
+            for (int end = start; end <= text.Length; end++)
+            {
+                InertString window = full.Truncate(start..end);
+
+                Assert.True(VisualEncoder.TryDecode(window.ToString(), out string? original));
+                Assert.Equal(VisualEncoder.Encode(TextPolicy.Field, original).Forms, window.Forms);
+            }
+        }
+    }
+
     [Fact]
     public void TruncateRange_ReportsOnlyTheSpellingsInTheWindow()
     {
