@@ -241,7 +241,12 @@ claim more.
 The constraint still binds on the *alternatives*, which is why it is stated
 here: side-alignment overflows the code line on 96.61% of the 29,933 lines
 carrying an extent, by a mean of 77 columns, and fits 28.1% of them at 80
-columns against 75.7% for the bare code.
+columns against 75.7% for the bare code. That 28.1% is padded — a line whose
+bare code already overflows 80 columns cannot fit side-aligned either.
+Conditioned on the 22,662 whose bare code does fit, side-alignment still fits
+only 8,257, or **36.4%**. Unpadding it makes the rejected alternative look
+better than the headline did, which is why it is stated: the rejection rests on
+36.4% against 75.7%, not on the padded figure.
 
 ### Mixed lines
 
@@ -422,6 +427,12 @@ That 89.5% is padded too: 254 of these lines carry a single extent group and
 cannot occupy more than one row. Among the **2,588** lines with two or more
 groups — the ones with something to pack — **2,289 (88.4%)** take a single row.
 
+And 2,588 is padded in turn, by a structural fact stated earlier in this
+document: extents sharing a start column can never share a row. **136** of those
+lines carry two distinct extents at one column and so cannot take a single row
+whatever the packer does. Among the **2,452** that can, the rate is **2,289
+(93.4%)**.
+
 3,884 of 6,566 trails (59.2%) render at true width, but that headline rate is
 padded by a structural immunity and should not be read as a packing success
 rate. The last trail on a row has no successor, so its clip limit is
@@ -445,7 +456,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `9d4b6a12a`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `3e13e5e24`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
@@ -521,7 +532,8 @@ in this document the following is a mockup, not a render:
 Rejected as *the* style on measurement, not taste: aligning after the widest
 caret pushes text a mean **77 columns** past the end of the code line and
 overflows it on **96.61%** of the lines carrying an extent, leaving 28.1%
-intact at 80 columns against 75.7% for the bare code.
+intact at 80 columns against 75.7% for the bare code — or **36.4%** once the
+denominator is restricted to the 22,662 lines whose bare code fits at all.
 Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
 on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
 filed as #3610. It wraps three lines in four, and the wrap destroys the very
@@ -530,7 +542,13 @@ adjacency that motivates it. The obvious first candidate for a wide style.
 ### Constant-width caret trails
 
 Render every caret at a fixed width so packing depends only on start columns.
-Compact — a 4-wide trail fits 87.5% of multi-extent lines on one row.
+Compact — but not more compact than what ships. An earlier revision claimed a
+4-wide trail fits 87.5% of multi-extent lines on one row, with no probe behind
+it; the figure does not reproduce. Packing 4-wide trails by start column with a
+one-column gap fits **2,289 of 2,588** (88.4%), or **93.4%** of the 2,452 that
+are not forced onto multiple rows by a shared start column — which is exactly
+what the shipped variable-width model achieves on the same corpus. Fixing the
+width buys no packing.
 
 Rejected because it **misstates width**. A 4-wide trail under the single
 character `y` in `ArgumentOutOfRangeException(varName, y, …)` claims a
