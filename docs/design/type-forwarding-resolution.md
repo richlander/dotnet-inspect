@@ -178,23 +178,35 @@ nullable strings is not an implementation detail.
 public sealed class MetadataTypeDefinitionName :
     IEquatable<MetadataTypeDefinitionName>
 {
-    public MetadataTypeDefinitionName(
+    MetadataTypeDefinitionName(
         string @namespace,
         ImmutableArray<string> segments)
     {
-        ArgumentNullException.ThrowIfNull(@namespace);
-        if (segments.IsDefaultOrEmpty)
-            throw new ArgumentException("Segments must not be empty.", nameof(segments));
-        foreach (string segment in segments)
-        {
-            if (string.IsNullOrEmpty(segment))
-                throw new ArgumentException(
-                    "Segments must not contain empty names.",
-                    nameof(segments));
-        }
-
         Namespace = @namespace;
         Segments = segments;
+    }
+
+    public static MetadataTypeDefinitionNameResult Create(
+        string? @namespace,
+        ImmutableArray<string> segments)
+    {
+        if (@namespace is null)
+            return new MetadataTypeDefinitionNameResult.Rejected(
+                new(MetadataTypeNameRejectionKind.MissingNamespace));
+        if (segments.IsDefaultOrEmpty)
+            return new MetadataTypeDefinitionNameResult.Rejected(
+                new(MetadataTypeNameRejectionKind.MissingSegments));
+        for (int i = 0; i < segments.Length; i++)
+        {
+            if (string.IsNullOrEmpty(segments[i]))
+            {
+                return new MetadataTypeDefinitionNameResult.Rejected(
+                    new(MetadataTypeNameRejectionKind.MissingSegment, i));
+            }
+        }
+
+        return new MetadataTypeDefinitionNameResult.Valid(
+            new MetadataTypeDefinitionName(@namespace, segments));
     }
 
     public string Namespace { get; }
@@ -227,6 +239,32 @@ public sealed class MetadataTypeDefinitionName :
         return hash.ToHashCode();
     }
 }
+
+public enum MetadataTypeNameRejectionKind
+{
+    MissingNamespace,
+    MissingSegments,
+    MissingSegment
+}
+
+public sealed record MetadataTypeNameRejection(
+    MetadataTypeNameRejectionKind Kind,
+    int? SegmentIndex = null);
+
+public abstract class MetadataTypeDefinitionNameResult
+{
+    public sealed class Valid(MetadataTypeDefinitionName name)
+        : MetadataTypeDefinitionNameResult
+    {
+        public MetadataTypeDefinitionName Name { get; } = name;
+    }
+
+    public sealed class Rejected(MetadataTypeNameRejection rejection)
+        : MetadataTypeDefinitionNameResult
+    {
+        public MetadataTypeNameRejection Rejection { get; } = rejection;
+    }
+}
 ```
 
 `Segments` is root-to-leaf and retains metadata names, including generic arity.
@@ -239,8 +277,10 @@ their display, XML documentation, API identity, and body identity projections.
 It is the structured input to one metadata lookup operation.
 
 Construction from `TypeDef`, `TypeRef`, and `ExportedType` uses the existing
-bounded relationship traversals. A rejected relationship walk cannot construct
-a `MetadataTypeDefinitionName`.
+bounded relationship traversals and the typed `Create` result. A rejected
+relationship walk or empty metadata name cannot construct a
+`MetadataTypeDefinitionName`; the declaration probe carries the rejection and
+the caller prefilter retains that row as undecidable.
 
 ### Assembly candidate
 
@@ -512,47 +552,101 @@ public sealed record TypeForwardingHop(
     AssemblyReferenceIdentity TargetReference,
     AssemblyResolutionScope Scope);
 
-public abstract record TypeResolutionAmbiguity
+public abstract class TypeResolutionAmbiguity
 {
-    public sealed record AssemblyBinding(
-        AssemblyReferenceIdentity Reference,
-        ImmutableArray<ResolvedAssemblyCandidate> Candidates)
-        : TypeResolutionAmbiguity;
+    public sealed class AssemblyBinding : TypeResolutionAmbiguity
+    {
+        internal AssemblyBinding(
+            AssemblyReferenceIdentity reference,
+            ImmutableArray<ResolvedAssemblyCandidate> candidates)
+        {
+            Reference = reference;
+            Candidates = candidates;
+        }
 
-    public sealed record TypeDeclaration(
-        ResolvedAssemblyCandidate Assembly,
-        MetadataTypeDefinitionName Type,
-        ImmutableArray<TypeDeclarationCandidate> Candidates)
-        : TypeResolutionAmbiguity;
+        public AssemblyReferenceIdentity Reference { get; }
+        public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
+    }
+
+    public sealed class TypeDeclaration : TypeResolutionAmbiguity
+    {
+        internal TypeDeclaration(
+            ResolvedAssemblyCandidate assembly,
+            MetadataTypeDefinitionName type,
+            ImmutableArray<TypeDeclarationCandidate> candidates)
+        {
+            Assembly = assembly;
+            Type = type;
+            Candidates = candidates;
+        }
+
+        public ResolvedAssemblyCandidate Assembly { get; }
+        public MetadataTypeDefinitionName Type { get; }
+        public ImmutableArray<TypeDeclarationCandidate> Candidates { get; }
+    }
 }
 
-public abstract record TypeResolutionOutcome
+public abstract class TypeResolutionOutcome
 {
-    public sealed record Resolved(
-        ResolvedTypeDefinition Definition,
-        ImmutableArray<TypeForwardingHop> Hops)
-        : TypeResolutionOutcome;
+    protected TypeResolutionOutcome(ImmutableArray<TypeForwardingHop> hops) =>
+        Hops = hops;
 
-    public sealed record NotFound(
-        ResolvedAssemblyCandidate LastAssembly,
-        ImmutableArray<TypeForwardingHop> Hops)
-        : TypeResolutionOutcome;
+    public ImmutableArray<TypeForwardingHop> Hops { get; }
 
-    public sealed record Unavailable(
-        AssemblyReferenceIdentity Reference,
-        AssemblyBindingFailure Failure,
-        ImmutableArray<TypeForwardingHop> Hops)
-        : TypeResolutionOutcome;
+    public sealed class Resolved : TypeResolutionOutcome
+    {
+        internal Resolved(
+            ResolvedTypeDefinition definition,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            Definition = definition;
 
-    public sealed record Ambiguous(
-        TypeResolutionAmbiguity Ambiguity,
-        ImmutableArray<TypeForwardingHop> Hops)
-        : TypeResolutionOutcome;
+        public ResolvedTypeDefinition Definition { get; }
+    }
 
-    public sealed record Rejected(
-        TypeResolutionFailure Failure,
-        ImmutableArray<TypeForwardingHop> Hops)
-        : TypeResolutionOutcome;
+    public sealed class NotFound : TypeResolutionOutcome
+    {
+        internal NotFound(
+            ResolvedAssemblyCandidate lastAssembly,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            LastAssembly = lastAssembly;
+
+        public ResolvedAssemblyCandidate LastAssembly { get; }
+    }
+
+    public sealed class Unavailable : TypeResolutionOutcome
+    {
+        internal Unavailable(
+            AssemblyReferenceIdentity reference,
+            AssemblyBindingFailure failure,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops)
+        {
+            Reference = reference;
+            Failure = failure;
+        }
+
+        public AssemblyReferenceIdentity Reference { get; }
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    public sealed class Ambiguous : TypeResolutionOutcome
+    {
+        internal Ambiguous(
+            TypeResolutionAmbiguity ambiguity,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            Ambiguity = ambiguity;
+
+        public TypeResolutionAmbiguity Ambiguity { get; }
+    }
+
+    public sealed class Rejected : TypeResolutionOutcome
+    {
+        internal Rejected(
+            TypeResolutionFailure failure,
+            ImmutableArray<TypeForwardingHop> hops) : base(hops) =>
+            Failure = failure;
+
+        public TypeResolutionFailure Failure { get; }
+    }
 }
 ```
 
@@ -561,19 +655,55 @@ opaque input to exact correspondence inside one acquisition catalog generation.
 The catalog exposes the only comparison operation:
 
 ```csharp
-public abstract record DefinitionCorrespondence
+public abstract class DefinitionCorrespondence
 {
-    public sealed record Same : DefinitionCorrespondence;
-    public sealed record Different : DefinitionCorrespondence;
-    public sealed record IndeterminateDuplicateArtifact(
-        DuplicateArtifactEvidence Evidence)
-        : DefinitionCorrespondence;
-    public sealed record IncomparableCatalogs(
-        AssemblyCatalogId Left,
-        AssemblyCatalogId Right) : DefinitionCorrespondence;
-    public sealed record StaleGeneration(
-        AssemblyCatalogGenerationId Left,
-        AssemblyCatalogGenerationId Right) : DefinitionCorrespondence;
+    public sealed class Same : DefinitionCorrespondence
+    {
+        internal Same() { }
+    }
+
+    public sealed class Different : DefinitionCorrespondence
+    {
+        internal Different() { }
+    }
+
+    public sealed class IndeterminateDuplicateArtifact
+        : DefinitionCorrespondence
+    {
+        internal IndeterminateDuplicateArtifact(
+            DuplicateArtifactEvidence evidence) =>
+            Evidence = evidence;
+
+        public DuplicateArtifactEvidence Evidence { get; }
+    }
+
+    public sealed class IncomparableCatalogs : DefinitionCorrespondence
+    {
+        internal IncomparableCatalogs(
+            AssemblyCatalogId left,
+            AssemblyCatalogId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogId Left { get; }
+        public AssemblyCatalogId Right { get; }
+    }
+
+    public sealed class StaleGeneration : DefinitionCorrespondence
+    {
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId left,
+            AssemblyCatalogGenerationId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogGenerationId Left { get; }
+        public AssemblyCatalogGenerationId Right { get; }
+    }
 }
 
 public sealed record DuplicateArtifactCandidateEvidence(
@@ -597,9 +727,10 @@ consumers can retain the key and pass it back to catalog APIs, but cannot hash,
 order, or field-compare its internal candidate/token tuple to reconstruct
 correspondence.
 
-`ResolvedTypeDefinition` is also a non-equatable result container. Equality of
-that object or of a `TypeResolutionOutcome.Resolved` wrapper is not definition
-correspondence; only the catalog comparison API answers that question.
+`ResolvedTypeDefinition`, `TypeResolutionOutcome`, and
+`DefinitionCorrespondence` are non-equatable class hierarchies. Result
+containers support pattern matching, not semantic equality; only the catalog
+comparison API answers definition correspondence.
 
 The inspection and its graph cache keep the catalog generation alive and use
 one key space for the target and all candidates. A key is never serialized or
@@ -945,30 +1076,48 @@ Only matching or indeterminate rows proceed to step 2. One
 reachability; final call-site matching does not run a second resolution pass:
 
 ```csharp
-public abstract record TypeCorrespondenceFailure
+public abstract class TypeCorrespondenceFailure
 {
-    public sealed record Resolution(
-        TypeResolutionOutcome NonSuccess) : TypeCorrespondenceFailure;
+    public sealed class Resolution(TypeResolutionOutcome nonSuccess)
+        : TypeCorrespondenceFailure
+    {
+        public TypeResolutionOutcome NonSuccess { get; } = nonSuccess;
+    }
 
-    public sealed record DuplicateArtifact(
-        DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence)
-        : TypeCorrespondenceFailure;
+    public sealed class DuplicateArtifact(
+        DefinitionCorrespondence.IndeterminateDuplicateArtifact evidence)
+        : TypeCorrespondenceFailure
+    {
+        public DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence
+            { get; } = evidence;
+    }
 
-    public sealed record IncomparableCatalogs(
-        AssemblyCatalogId Left,
-        AssemblyCatalogId Right) : TypeCorrespondenceFailure;
+    public sealed class IncomparableCatalogs(
+        AssemblyCatalogId left,
+        AssemblyCatalogId right) : TypeCorrespondenceFailure
+    {
+        public AssemblyCatalogId Left { get; } = left;
+        public AssemblyCatalogId Right { get; } = right;
+    }
 
-    public sealed record StaleGeneration(
-        AssemblyCatalogGenerationId Left,
-        AssemblyCatalogGenerationId Right) : TypeCorrespondenceFailure;
+    public sealed class StaleGeneration(
+        AssemblyCatalogGenerationId left,
+        AssemblyCatalogGenerationId right) : TypeCorrespondenceFailure
+    {
+        public AssemblyCatalogGenerationId Left { get; } = left;
+        public AssemblyCatalogGenerationId Right { get; } = right;
+    }
 }
 
-public abstract record CandidateTypeRelation
+public abstract class CandidateTypeRelation
 {
-    public sealed record SameDefinition : CandidateTypeRelation;
-    public sealed record DifferentDefinition : CandidateTypeRelation;
-    public sealed record Indeterminate(
-        TypeCorrespondenceFailure Failure) : CandidateTypeRelation;
+    public sealed class SameDefinition : CandidateTypeRelation { }
+    public sealed class DifferentDefinition : CandidateTypeRelation { }
+    public sealed class Indeterminate(TypeCorrespondenceFailure failure)
+        : CandidateTypeRelation
+    {
+        public TypeCorrespondenceFailure Failure { get; } = failure;
+    }
 }
 ```
 
@@ -1311,6 +1460,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   table, and row bounds all validate against the target reader.
 - `MetadataTypeDefinitionName` cannot be constructed from a rejected
   relationship chain.
+- Empty `TypeDef`, `TypeRef`, or `ExportedType` names produce typed
+  `MetadataTypeNameRejection`; they do not throw from untrusted metadata.
 - Independently constructed equal `MetadataTypeDefinitionName` values compare
   equal through both `Equals` and `==`, hash equally, and hit one
   declaration/resolution cache entry; `!=` returns false.
@@ -1329,6 +1480,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Missing target assembly.
 - Ambiguous target assembly.
 - Malformed metadata.
+- A zero `#Strings` name index is rejected by name construction and retained as
+  undecidable by the caller prefilter.
 - Intra-image `ExportedType` cycle.
 - Cross-assembly cycle.
 - Relationship-node and hop-budget exhaustion.
@@ -1424,9 +1577,13 @@ factories consume `ResolvedTypeDefinitionKey`,
 that part because durable addresses are public by design.
 
 `DefinitionCorrespondenceUsageTests` rejects product uses of equality or
-hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`, or
-`TypeResolutionOutcome.Resolved`; the catalog comparison and join-token APIs
-are the only semantic correspondence surfaces.
+hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`,
+`TypeResolutionOutcome`, `DefinitionCorrespondence`,
+`TypeCorrespondenceFailure`, or `CandidateTypeRelation`; the catalog comparison
+and join-token APIs are the only semantic correspondence surfaces. It also
+rejects `MetadataTypeDefinitionAddress` equality in caller, source, API, and
+graph correspondence producers; address equality remains allowed only for
+durable-coordinate handling and reader-validation code.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
