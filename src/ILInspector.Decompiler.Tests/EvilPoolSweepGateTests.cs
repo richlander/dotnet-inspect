@@ -537,6 +537,12 @@ public class EvilPoolSweepGateTests
     /// <para>The second run refuses on a version the scratch cache cannot serve, which is
     /// the cheapest way to make a package that <em>was</em> pooled stop being pooled. Any
     /// refusal would do -- the point is the leftover, not the reason for it.</para>
+    ///
+    /// <para>Three leftovers rather than one, in two directories and not all of them
+    /// assemblies, because one leftover cannot tell a reconciliation that removes
+    /// everything from one that removes something. Measured: with a single leftover, a
+    /// walk that stopped after its first removal and a walk that considered only
+    /// <c>*.dll</c> were both green.</para>
     /// </summary>
     [Fact]
     public void ASweepIntoAReusedDirectoryPoolsOnlyWhatItRecorded()
@@ -551,16 +557,73 @@ public class EvilPoolSweepGateTests
         // one, so anything of its still in packages/ afterwards is the previous run's.
         world.PinInstead(FixturePackage, "9.9.9", FixtureTfm);
 
+        // Two more leftovers of the shape a partial or abandoned run leaves: one beside the
+        // subject's, one under the lead's own directory, and one that is not an assembly.
+        string sibling = Path.Combine(
+            Path.GetDirectoryName(world.SubjectDestination)!, "Sweep.Fixture.tmp");
+        string underLead = Path.Combine(
+            Path.GetDirectoryName(world.LeadDestination)!, "Sweep.Lead.Stale.dll");
+        File.WriteAllBytes(sibling, world.FixtureBytes);
+        File.WriteAllBytes(underLead, world.FixtureBytes);
+
         var second = world.Run();
         Assert.True(second.ExitCode == 1, world.Explain(second, "a rerun whose subject cannot be acquired"));
         Assert.Equal("acquisition-failed", world.ReportedStatus(second));
 
         world.AssertOnlyTheLeadWasPooled(second);
 
-        // Named, not merely gone. The sweep says which file it removed, so a run that had
+        // Named, not merely gone. The sweep says which files it removed, so a run that had
         // to remove one is visible to whoever reads the manifest -- and so a leak this
         // step would otherwise quietly tidy away cannot pass for a clean pool.
-        world.AssertPoolMatchesRecord([world.SubjectDestination]);
+        world.AssertPoolMatchesRecord([world.SubjectDestination, sibling, underLead]);
+    }
+
+    /// <summary>
+    /// A sweep removes a link planted in the pool as a link, rather than deleting what is
+    /// on the far side of it.
+    ///
+    /// <para>The reconciliation deletes what the run did not record, so what it is willing
+    /// to walk into decides what it is willing to delete. Enumerating the pool with
+    /// <c>SearchOption.AllDirectories</c> -- the obvious spelling, and the one this started
+    /// as -- descends through a directory symlink and yields the paths behind it, so a link
+    /// under <c>packages/</c> aims the deletion at a directory the sweep does not own.
+    /// Measured against that spelling: the file outside the pool was deleted and the run
+    /// exited 0.</para>
+    ///
+    /// <para>Removing the link itself keeps the property the reconciliation is for -- the
+    /// pool holds only what the record names -- with a deletion that cannot reach past the
+    /// pool, because removing a symlink never touches its target.</para>
+    ///
+    /// <para>This is not a claim that something plants links in the pool. It is that a
+    /// step which deletes recursively should be unable to delete outside the directory it
+    /// owns, whatever is in it.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRemovesALinkPlantedInThePoolWithoutDeletingWhatItPointsAt()
+    {
+        using var world = SweepWorld.Create();
+
+        // Somewhere the sweep has no business touching, holding a file worth keeping.
+        string outsider = Path.Combine(world.Scratch, "outside-the-pool");
+        Directory.CreateDirectory(outsider);
+        string bystander = Path.Combine(outsider, "keep.dll");
+        File.WriteAllBytes(bystander, world.FixtureBytes);
+
+        string link = Path.Combine(world.OutputDirectory, "packages", "linked");
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        Directory.CreateSymbolicLink(link, outsider);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a link planted in the pool"));
+
+        // The whole point: the deletion stopped at the pool boundary.
+        Assert.True(File.Exists(bystander), "the sweep deleted a file outside the pool.");
+        Assert.True(Directory.Exists(outsider), "the sweep removed a directory outside the pool.");
+
+        // And the pool still ends up holding only what the record names.
+        Assert.False(Path.Exists(link), "the link is still in the pool.");
+        world.AssertPoolMatchesRecord([link]);
     }
 
     /// <summary>
@@ -1463,7 +1526,8 @@ public class EvilPoolSweepGateTests
             string[] recordedRemovals =
                 [.. (manifest["RemovedFromPool"]?.AsArray() ?? [])
                     .Select(removed => removed!.GetValue<string>())];
-            Assert.Equal<IEnumerable<string>>(removals, recordedRemovals);
+            Assert.Equal<IEnumerable<string>>(
+                [.. removals.Order(StringComparer.Ordinal)], recordedRemovals);
         }
 
         public void Dispose()

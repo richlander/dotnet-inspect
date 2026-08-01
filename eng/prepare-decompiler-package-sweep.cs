@@ -759,31 +759,20 @@ if (unwritable is not null)
 // deep-inspect workflow writes its acquisition log into the output directory, beside
 // packages/ rather than inside it, and it is not this step's to remove.
 //
-// Every removal is recorded in the manifest, not merely printed. This step deletes
-// unrecorded files under packages/, and a write temporary this run leaked is an
-// unrecorded file under packages/ -- so a reconciliation that only cleaned up would
-// quietly erase the evidence of a leak, and the disk check in EvilPoolSweepGateTests
-// that used to catch one would pass over a swept pool. Measured: with the removals
-// unreported, a sweep that skipped its temporary cleanup while still reporting it as
-// "removed" left all seventeen cases green. Recording them keeps the fact the check was
-// looking for, and puts it where an operator reads it: a run that had to remove
-// anything is a run where something else went wrong.
+// How the walk itself is bounded, and why every removal is recorded, is on ReconcilePool.
 var removedFromPool = new List<string>();
+
+// Ordinal, because these are paths on a filesystem that distinguishes case, and
+// comparing them any other way would let an unrecorded file whose name differs from a
+// recorded one only in case pass for the recorded one and stay in the pool. That is
+// unverified: no case here plants such a file, because whether the assertion means
+// anything depends on the filesystem the suite happens to run on.
 var recordedAssemblies = new HashSet<string>(
     assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
 string? unreconciled = null;
 try
 {
-    foreach (string pooled in Directory.GetFiles(packageDirectory, "*", SearchOption.AllDirectories))
-    {
-        if (recordedAssemblies.Contains(Path.GetFullPath(pooled)))
-            continue;
-
-        File.Delete(pooled);
-        removedFromPool.Add(pooled);
-        Console.Error.WriteLine(
-            $"removed '{pooled}' from the pool: this sweep did not record it.");
-    }
+    ReconcilePool(packageDirectory, recordedAssemblies, removedFromPool);
 }
 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 {
@@ -793,6 +782,61 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     unreconciled = $"Could not reconcile the pool under '{packageDirectory}': {ex.Message}";
     Console.Error.WriteLine(unreconciled);
     Environment.ExitCode = 1;
+}
+
+// Walks the pool without following links, and removes what the run did not record.
+//
+// The walk is written out rather than done with Directory.GetFiles(..., AllDirectories)
+// because that enumeration descends through a directory symlink and yields the paths it
+// finds on the far side. This step deletes what it is handed, so that enumeration aims a
+// deletion loop at whatever a link in the pool points at, and then reports success --
+// measured: a link planted beside packages/ had the file behind it deleted and the run
+// exited 0. A link is removed as a link instead, which is a deletion this step can bound
+// to the pool it owns: removing a symlink never touches its target.
+//
+// Every removal is recorded by the caller, not merely printed. This step deletes
+// unrecorded files under packages/, and a write temporary this run leaked is an
+// unrecorded file under packages/ -- so a reconciliation that only cleaned up would
+// quietly erase the evidence of a leak, and the disk check in EvilPoolSweepGateTests
+// that used to catch one would pass over a swept pool. Measured: with the removals
+// unreported, a sweep that skipped its temporary cleanup while still reporting it as
+// "removed" left all seventeen cases green. Recording them keeps the fact the check was
+// looking for, and puts it where an operator reads it: a run that had to remove
+// anything is a run where something else went wrong. The stderr line beside each
+// recorded removal is an operator convenience and is not itself gated.
+static void ReconcilePool(string directory, HashSet<string> recorded, List<string> removed)
+{
+    foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+    {
+        // Non-null for a symlink alone, so a real directory is descended into and a hard
+        // link -- indistinguishable from the file it is, and whose removal frees only
+        // this name -- is treated as the file it appears to be.
+        if (entry.LinkTarget is not null)
+        {
+            entry.Delete();
+            Record(entry.FullName);
+            continue;
+        }
+
+        if (entry is DirectoryInfo child)
+        {
+            ReconcilePool(child.FullName, recorded, removed);
+            continue;
+        }
+
+        if (recorded.Contains(Path.GetFullPath(entry.FullName)))
+            continue;
+
+        entry.Delete();
+        Record(entry.FullName);
+    }
+
+    void Record(string path)
+    {
+        removed.Add(path);
+        Console.Error.WriteLine(
+            $"removed '{path}' from the pool: this sweep did not record it.");
+    }
 }
 
 removedFromPool.Sort(StringComparer.Ordinal);
