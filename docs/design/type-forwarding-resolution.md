@@ -362,14 +362,14 @@ public abstract class TypeResolutionStart
     public sealed class Assembly : TypeResolutionStart
     {
         internal Assembly(
-            ResolvedAssemblyCandidate value,
+            ResolvedAssemblyReference value,
             AssemblyResolutionScope scope)
         {
             Value = value;
             Scope = scope;
         }
 
-        public ResolvedAssemblyCandidate Value { get; }
+        public ResolvedAssemblyReference Value { get; }
         public AssemblyResolutionScope Scope { get; }
     }
 
@@ -390,7 +390,7 @@ public abstract class TypeResolutionStart
 
 public sealed class TypeResolutionRequest
 {
-    TypeResolutionRequest(
+    public TypeResolutionRequest(
         TypeResolutionStart start,
         MetadataTypeDefinitionName type)
     {
@@ -402,7 +402,7 @@ public sealed class TypeResolutionRequest
     public MetadataTypeDefinitionName Type { get; }
 
     public static TypeResolutionRequest FromAssembly(
-        ResolvedAssemblyCandidate value,
+        ResolvedAssemblyReference value,
         AssemblyResolutionScope scope,
         MetadataTypeDefinitionName type) =>
         new(new TypeResolutionStart.Assembly(value, scope), type);
@@ -415,9 +415,9 @@ public sealed class TypeResolutionRequest
 }
 ```
 
-`Assembly` means "probe this already-resolved assembly, then follow any
-forwarder." `Reference` means "first ask the binding policy to resolve this
-exact `AssemblyRef`, then probe the result."
+`Assembly` means "intern this already-resolved descriptor in the context's
+catalog, probe it, then follow any forwarder." `Reference` means "first ask the
+binding policy to resolve this exact `AssemblyRef`, then probe the result."
 
 This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
@@ -587,6 +587,75 @@ from an ambiguous scope or an unreadable candidate. It evolves rather than
 gaining a parallel resolver:
 
 ```csharp
+public abstract class AssemblyBindingSelection
+{
+    private protected AssemblyBindingSelection() { }
+
+    public static AssemblyBindingSelection Found(
+        ResolvedAssemblyReference assembly) =>
+        new Selected(assembly);
+
+    public static AssemblyBindingSelection NotFound() => new Missing();
+
+    public static AssemblyBindingSelection CannotSelect(
+        AssemblyBindingFailure failure) =>
+        new Unavailable(failure);
+
+    public static AssemblyBindingSelection Multiple(
+        ImmutableArray<ResolvedAssemblyReference> assemblies) =>
+        new Ambiguous(assemblies);
+
+    public static AssemblyBindingSelection Invalid(
+        AssemblyBindingFailure failure) =>
+        new Rejected(failure);
+
+    public sealed class Selected : AssemblyBindingSelection
+    {
+        internal Selected(ResolvedAssemblyReference assembly) =>
+            Assembly = assembly;
+
+        public ResolvedAssemblyReference Assembly { get; }
+    }
+
+    public sealed class Missing : AssemblyBindingSelection
+    {
+        internal Missing() { }
+    }
+
+    public sealed class Unavailable : AssemblyBindingSelection
+    {
+        internal Unavailable(AssemblyBindingFailure failure) =>
+            Failure = failure;
+
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    public sealed class Ambiguous : AssemblyBindingSelection
+    {
+        internal Ambiguous(
+            ImmutableArray<ResolvedAssemblyReference> assemblies) =>
+            Assemblies = assemblies;
+
+        public ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+    }
+
+    public sealed class Rejected : AssemblyBindingSelection
+    {
+        internal Rejected(AssemblyBindingFailure failure) =>
+            Failure = failure;
+
+        public AssemblyBindingFailure Failure { get; }
+    }
+}
+
+public interface IAssemblyBindingPolicy
+{
+    AssemblyBindingSelection Select(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope);
+}
+
+// Metadata-owned adapter result after descriptor interning.
 public abstract class AssemblyBindingOutcome
 {
     private protected AssemblyBindingOutcome() { }
@@ -630,7 +699,7 @@ public abstract class AssemblyBindingOutcome
     }
 }
 
-public interface IAssemblyBindingResolver
+internal interface IAssemblyBindingResolver
 {
     AssemblyBindingOutcome Resolve(
         AssemblyReferenceIdentity identity,
@@ -643,10 +712,19 @@ unordered directory containing several plausible candidates returns
 `Ambiguous`; the Metadata engine does not choose by enumeration order, file
 name, highest version, or nearest path.
 
-This is a new contract, not a same-name return-type change to
-`IAssemblyReferenceResolver`. The nullable resolver remains only as migration
-scaffolding and is deleted after its final consumer moves. A nullable
-implementation cannot accidentally satisfy the structured interface.
+Package, platform, project, and local acquisition owners implement the public
+`IAssemblyBindingPolicy` and return context-free descriptors through public
+factories. A Metadata-owned adapter interns those descriptors into the active
+catalog and produces the internal candidate-bearing
+`AssemblyBindingOutcome`. External policy assemblies never receive
+`InternalsVisibleTo` and cannot mint candidate ids, definition keys, or join
+tokens.
+
+This is a new public policy contract plus a Metadata-internal adapter, not a
+same-name return-type change to `IAssemblyReferenceResolver`. The nullable
+resolver remains only as migration scaffolding and is deleted after its final
+consumer moves. A nullable implementation cannot accidentally satisfy the
+structured policy interface.
 
 ### Resolution outcome
 
@@ -696,11 +774,25 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionName Type { get; }
 }
 
-public sealed record TypeForwardingHop(
-    ResolvedAssemblyCandidate SourceAssembly,
-    ImmutableArray<ExportedTypeToken> Declarations,
-    AssemblyReferenceIdentity TargetReference,
-    AssemblyResolutionScope Scope);
+public sealed class TypeForwardingHop
+{
+    internal TypeForwardingHop(
+        ResolvedAssemblyCandidate sourceAssembly,
+        ImmutableArray<ExportedTypeToken> declarations,
+        AssemblyReferenceIdentity targetReference,
+        AssemblyResolutionScope scope)
+    {
+        SourceAssembly = sourceAssembly;
+        Declarations = declarations;
+        TargetReference = targetReference;
+        Scope = scope;
+    }
+
+    public ResolvedAssemblyCandidate SourceAssembly { get; }
+    public ImmutableArray<ExportedTypeToken> Declarations { get; }
+    public AssemblyReferenceIdentity TargetReference { get; }
+    public AssemblyResolutionScope Scope { get; }
+}
 
 public abstract class TypeResolutionAmbiguity
 {
@@ -861,12 +953,29 @@ public abstract class DefinitionCorrespondence
     }
 }
 
-public sealed record DuplicateArtifactCandidateEvidence(
-    ResolvedAssemblyReference Assembly,
-    MetadataTypeDefinitionAddress Address);
+public sealed class DuplicateArtifactCandidateEvidence
+{
+    internal DuplicateArtifactCandidateEvidence(
+        ResolvedAssemblyReference assembly,
+        MetadataTypeDefinitionAddress address)
+    {
+        Assembly = assembly;
+        Address = address;
+    }
 
-public sealed record DuplicateArtifactEvidence(
-    ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates);
+    public ResolvedAssemblyReference Assembly { get; }
+    public MetadataTypeDefinitionAddress Address { get; }
+}
+
+public sealed class DuplicateArtifactEvidence
+{
+    internal DuplicateArtifactEvidence(
+        ImmutableArray<DuplicateArtifactCandidateEvidence> candidates) =>
+        Candidates = candidates;
+
+    public ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates
+        { get; }
+}
 ```
 
 The catalog owns duplicate-artifact detection because it can inspect both
@@ -976,8 +1085,8 @@ catalog, and caches:
 - completed resolutions by
   `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`.
 
-`TypeResolutionCacheKey` is an internal projection, not the public request
-record's synthesized equality. Its start arm contains either the internal
+`TypeResolutionCacheKey` is an internal projection; it does not use the public
+request object's reference equality. Its start arm contains either the internal
 candidate id plus scope or the complete assembly reference identity plus scope,
 followed by the structurally equatable `MetadataTypeDefinitionName`.
 
@@ -988,7 +1097,7 @@ The catalog and resolution caches support concurrent Analysis. Candidate open,
 declaration probe, binding, and completed-resolution entries are single-flight:
 parallel body-analysis workers observe one result and one owned session.
 Synchronization does not hold a cache lock while invoking an external opener or
-binding resolver.
+binding policy.
 
 The public outcome contains no reader-backed value. Its descriptors, address,
 identities, name, and evidence can leave the context in the same sense that
@@ -1075,7 +1184,7 @@ The last rule intentionally narrows today's version-blind caller matching. A
 version-skewed local caller becomes an indeterminate diagnostic rather than a
 reported caller until acquisition policy can prove the binding. That behavior
 change is compatibility evidence, not a silent miss. An explicit future local
-roll-forward option belongs to the binding resolver and must carry its own
+roll-forward option belongs to the binding policy and must carry its own
 policy name and gates.
 
 An unavailable or ambiguous answer may therefore omit exact correspondence,
@@ -1097,15 +1206,31 @@ Analysis-owned and does not absorb resolution:
 ```csharp
 public abstract record TypeReferenceOrigin
 {
-    public sealed record AssemblyReference(
-        AssemblyReferenceIdentity Assembly) : TypeReferenceOrigin;
+    private protected TypeReferenceOrigin() { }
 
-    public sealed record CurrentAssembly : TypeReferenceOrigin;
+    public sealed record AssemblyReference : TypeReferenceOrigin
+    {
+        internal AssemblyReference(AssemblyReferenceIdentity assembly) =>
+            Assembly = assembly;
 
-    public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin;
+        public AssemblyReferenceIdentity Assembly { get; }
+    }
 
-    public sealed record ModuleReference(
-        string ModuleName) : TypeReferenceOrigin;
+    public sealed record CurrentAssembly : TypeReferenceOrigin
+    {
+        internal CurrentAssembly() { }
+    }
+
+    public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin
+    {
+        internal IntrinsicCoreLibrary() { }
+    }
+
+    public sealed record ModuleReference : TypeReferenceOrigin
+    {
+        internal ModuleReference(string moduleName) => ModuleName = moduleName;
+        public string ModuleName { get; }
+    }
 }
 
 public sealed record ResolvableTypeReference(
@@ -1117,6 +1242,10 @@ The origin is excluded from display and from existing shape equality. It is
 separate typed provenance and must not be recovered from, or cached by,
 structural `TypeRef` equality. Resolution caches key on
 `ResolvableTypeReference`, never on `TypeRef`.
+
+This is decoder-produced, output-only provenance. Analysis owns construction;
+external consumers may pattern-match the closed arms but cannot mint an origin
+that the metadata did not supply.
 
 This replaces #3476's proposed `RawAssembly` string with the full identity the
 metadata actually supplied. Two `AssemblyRef` rows with different identity
@@ -1626,7 +1755,8 @@ without returning a stringly or nullable result.
 
 - Extend `AssemblyInspectionSession` as the single candidate image owner, add
   the catalog lifetime, and compose `TypeResolutionContext` over those sessions.
-- Add `IAssemblyBindingResolver` with typed outcomes and explicit adapters from
+- Add public `IAssemblyBindingPolicy` descriptor selections and the
+  Metadata-internal candidate-interning adapter, with explicit adapters from
   existing resolvers.
 - Implement the iterative cross-assembly engine.
 - Make catalog and resolution caches safe for concurrent Analysis with
@@ -1703,6 +1833,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
 - Public result hierarchies cannot be externally extended, and product
   consumers cannot construct correspondence verdict arms.
+- An external fake `IAssemblyBindingPolicy` can return every public descriptor
+  selection through factories but cannot construct catalog candidates.
+- External consumers can create assembly-descriptor and assembly-reference
+  requests and can forward an existing `TypeResolutionStart` to another type.
+- External consumers can inspect but cannot forge decoder-produced
+  `TypeReferenceOrigin`.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
   remain separate fields.
 
@@ -1803,6 +1939,9 @@ Prefer dependency and visibility constraints over source scans:
 - candidate ids and join-token constructors are internal, and the internal
   `CatalogMemberJoinKey` factory accepts only catalog-issued
   `DefinitionJoinToken` or `UnresolvedBindingKey` values;
+- external policy assemblies implement `IAssemblyBindingPolicy` without
+  `InternalsVisibleTo`; only the Metadata adapter constructs
+  `AssemblyBindingOutcome`;
 - correspondence-bearing result bases use `private protected` constructors and
   every verdict arm uses an internal constructor;
 - Analysis and the CLI cannot access the probe's reader-backed internals;
@@ -1826,6 +1965,9 @@ rejects `MetadataTypeDefinitionAddress` or bare `TypeDefinitionToken` equality
 in caller, source, API, and graph correspondence producers; those value
 equalities remain allowed only inside one known candidate for
 durable-coordinate handling, declaration probing, and reader-validation code.
+The same gate treats `TypeForwardingHop`, `DuplicateArtifactEvidence`, and
+`DuplicateArtifactCandidateEvidence` as evidence-only classes, never identity
+or correspondence keys.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
