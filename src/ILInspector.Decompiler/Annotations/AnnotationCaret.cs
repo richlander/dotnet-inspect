@@ -23,9 +23,10 @@ namespace ILInspector.Decompiler.Annotations;
 /// where <em>no</em> fact on the line has an extent the underline covers the
 /// trimmed statement instead — exactly what the facts are still known to be
 /// about, and no more. Statement width is also the defensive answer when a
-/// stacked label would not fit beside the gutter, which no CoreLib line
-/// currently reaches. A span-carrying datum (a compiler diagnostic) brings its
-/// own range; that is a property of the datum, not of this gesture.</item>
+/// stacked label would not fit beside the gutter, which no line of
+/// <c>System.Private.CoreLib</c> reaches as the annotated-source view prints
+/// it. A span-carrying datum (a compiler diagnostic) brings its own range;
+/// that is a property of the datum, not of this gesture.</item>
 /// </list>
 /// </remarks>
 public static class AnnotationCaret
@@ -224,12 +225,13 @@ public static class AnnotationCaret
     /// <c>System.Private.CoreLib</c> as the annotated-source view prints it,
     /// 25,628 of 31,640 caret-bearing lines (81.00%) narrow to one agreed
     /// extent, 10.70% carry facts that disagree, and 8.30% have no fact with a
-    /// printed node to point at. Density and disagreement are the same
-    /// phenomenon — more facts on a line means more distinct offsets on it — so
-    /// 27,414 of those lines hold a single fact and 92.1% of them narrow, while
-    /// narrowing falls to 12.1% at two facts, 1.1% at three, and 0% at four or
-    /// more. Density is not the only reason this returns null, though: 2,156 of
-    /// the 6,012 null lines carry a single fact that has no extent at all.
+    /// printed node to point at. Agreement falls as fact count rises: 27,414 of
+    /// those lines hold a single fact and 92.1% of them narrow, while narrowing
+    /// falls to 12.1% at two facts, 1.1% at three, and 0% at four or more. That
+    /// is a correlation this measures, not a mechanism — what is compared here
+    /// is rendered extents, not offsets, and two facts can share one extent.
+    /// Density is not the only reason this returns null: 2,156 of the 6,012
+    /// null lines carry a single fact that has no extent at all.
     /// </remarks>
     static AnnotationAnchor.CaretExtent? Agreed(
         IReadOnlyList<IAnnotation> annotations,
@@ -268,8 +270,10 @@ public static class AnnotationCaret
     /// A line can be mixed: some facts are about an expression and some are only
     /// known to be about the statement. Widening the whole line because of the
     /// latter discards placement the anchoring layer successfully recovered for
-    /// the former, and 615 lines in the corpus are mixed — 499 of them with a
-    /// single surviving extent. <c>System.Tuple&lt;…&gt;.Equals</c> is the
+    /// the former, and 615 lines are mixed — 499 of them with a single surviving
+    /// extent — measured over <c>System.Private.CoreLib</c> as the
+    /// annotated-source view prints it. (The overlay render is a different
+    /// population: 609 and 498.) <c>System.Tuple&lt;…&gt;.Equals</c> is the
     /// extreme: 16 facts of which 8 have an extent, so widening renders one
     /// 330-column caret and attributes nothing. So the placeable facts stack,
     /// and the rest are listed against the line without a caret, which is

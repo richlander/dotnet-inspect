@@ -252,9 +252,12 @@ public class AnnotationGestureTests
         var first = Fact(Alloc, "one");
         var second = Fact(Unsafety, "two");
 
-        // The dictionary is member-wide, so it is non-empty even when no fact
-        // on *this* line has an extent. Passing an empty one instead would
-        // short-circuit inside Stack and never reach the guard under test.
+        // The dictionary is member-wide in production, so it is non-empty even
+        // when no fact on *this* line has an extent. That is the shape worth
+        // gating: it makes Stack return an empty group list, which is what the
+        // Count: > 0 guard has to reject. An empty dictionary would reach the
+        // same guard today, but only because the short-circuit that used to
+        // intercept it inside Stack has since been deleted.
         var elsewhere = Fact(Alloc, "on some other line");
         var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>
         {
