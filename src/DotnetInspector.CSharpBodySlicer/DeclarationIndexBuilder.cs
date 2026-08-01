@@ -499,6 +499,11 @@ internal static class DeclarationIndexBuilder
         var words = at.Select(i => text(header[i])).ToList();
         bool Keyword(int w, string kw) => IsKeyword(header, at[w], kw, text);
 
+        // A using directive and an extern alias are not declarations. Classify answers that here so
+        // that it is locally right about them; the property is enforced independently by Allowed,
+        // which rejects any member kind whose enclosing scope is not a type, and a file cannot put
+        // either construct inside one. Removing these two lines therefore changes no output today
+        // -- they keep Classify from returning a wrong intermediate answer, not the result.
         if (Keyword(0, "using"))
             return (null, "");
         if (Keyword(0, "extern") && words.Count > 1 && Keyword(1, "alias"))

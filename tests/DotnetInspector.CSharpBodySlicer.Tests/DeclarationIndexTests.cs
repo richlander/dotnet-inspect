@@ -578,6 +578,67 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The corpus contains no <c>delegate</c> type and no destructor, so both classifications are
+    /// gated here or not at all: with these fixtures absent, <c>DeclaresADelegate</c> and the
+    /// <c>~</c> branch of <c>Classify</c> can each be deleted outright with the suite still green.
+    /// The close negatives matter as much as the positives — a function pointer spells
+    /// <c>delegate</c> too, and so does an anonymous method in a field initializer, and neither
+    /// declares a type. The fixture compiles.
+    /// </summary>
+    [Fact]
+    public void DelegatesFunctionPointersAndDestructors_AreClassifiedApart()
+    {
+        var index = DeclarationIndex.Build("""
+            using System;
+
+            namespace N;
+
+            public delegate int Handler(int x, int y);
+
+            public unsafe class C
+            {
+                public delegate int Nested(int x);
+                public void M(delegate*<int, int> p) { }
+                public Action<int> a = delegate (int x) { }, b = null;
+                public Action nop = delegate { };
+                ~C() { }
+            }
+            """);
+
+        Assert.Equal(
+            [
+                (DeclarationKind.Namespace, "N"),
+                (DeclarationKind.Delegate, "Handler"),
+                (DeclarationKind.Class, "C"),
+                (DeclarationKind.Delegate, "Nested"),
+                (DeclarationKind.Method, "M"),
+                (DeclarationKind.Field, "a"),
+                (DeclarationKind.Field, "b"),
+                (DeclarationKind.Field, "nop"),
+                (DeclarationKind.Destructor, "~C"),
+            ],
+            index.Declarations.Select(d => (d.Kind, d.Name)));
+    }
+
+    /// <summary>
+    /// An <c>extern alias</c> is not a declaration, and the corpus contains none. This gates the
+    /// behavior, not the branch: mutating <c>Classify</c>'s <c>extern alias</c> skip leaves the
+    /// suite green, because <c>Allowed</c> independently rejects the field the skip prevents — a
+    /// file cannot put an <c>extern alias</c> inside a type. The construct is parse-valid on its
+    /// own; resolving <c>LibA</c> would need an aliased reference, which nothing here consults.
+    /// </summary>
+    [Fact]
+    public void AnExternAlias_IsNotADeclaration()
+    {
+        var index = DeclarationIndex.Build("""
+            extern alias LibA;
+            class C { }
+            """);
+
+        Assert.Equal([(DeclarationKind.Class, "C")], index.Declarations.Select(d => (d.Kind, d.Name)));
+    }
+
+    /// <summary>
     /// A local function is a declaration Roslyn recognizes and the index deliberately does not: it
     /// is not a member, and reporting one would let a body-line lookup return something that has no
     /// metadata counterpart. Nothing here recognizes a local function — the enclosing scope of a
