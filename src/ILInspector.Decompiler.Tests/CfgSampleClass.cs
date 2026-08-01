@@ -6641,3 +6641,18 @@ public static class GenericLocalFunctionSamples
         return Tag<int>() + d();
     }
 }
+
+// A NON-generic local function inside a GENERIC method. Roslyn gives the lowered
+// method the enclosing method's type parameters, so its call sites carry non-empty
+// TypeArguments even though nothing here is generic in the source sense. Those
+// parameters are already in scope at the declaration site, so this must still raise:
+// declining it on the presence of TypeArguments alone regressed real framework code
+// (System.Runtime.Intrinsics.VectorMath.HypotSingle) from Full to Partial.
+public static class LocalFunctionInGenericMethodSamples
+{
+    public static T Passthrough<T>(T value)
+    {
+        static T Core(T v) => v;
+        return Core(value);
+    }
+}

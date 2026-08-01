@@ -133,14 +133,19 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (method.HasThis)
                 continue;  // instance receiver — out of this slice
 
-            // LocalFunctionStatement has no generic-parameter representation, so a
-            // generic local function would be declared as `static int F(T n)` — the
-            // type parameter list dropped, `T` undeclared — while its call sites lose
-            // their type arguments. That is the #3631 failure exactly: uncompilable
-            // C# (CS0246/CS0411/CS0123) reported as Full. Decline until declarations
-            // can carry type parameters and constraints; declining routes it through
-            // the honest-spelling path instead.
-            if (!method.TypeArguments.IsEmpty)
+            // LocalFunctionStatement has no type-parameter list, so a local function
+            // with its OWN generic parameters would be declared `static int Tag()` with
+            // `<int>`/`<string>` dropped from every call site — uncompilable C#
+            // (CS0411/CS0246) reported as Full, #3631's failure mode exactly.
+            //
+            // But TypeArguments is not the same question as "is this generic": a local
+            // function inside a generic METHOD inherits that method's type parameters,
+            // so an ordinary non-generic local function carries them too. Those are
+            // already lexically in scope at the declaration site, so raising it is
+            // correct and is what shipped before. Only a type argument that is NOT one
+            // of the enclosing method's parameters means the local function has generic
+            // parameters of its own that the declaration cannot express.
+            if (method.TypeArguments.Any(t => t.Kind != TypeRefKind.MethodGenericParameter))
                 continue;
 
             var environment = ResolveEnvironment(method, calls, function);

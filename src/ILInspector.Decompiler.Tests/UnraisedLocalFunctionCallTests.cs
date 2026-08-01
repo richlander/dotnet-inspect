@@ -245,6 +245,13 @@ public class UnraisedLocalFunctionCallTests
         // accessor (`get_`/`set_`/`add_`/`remove_`), never a user-defined operator
         // (`op_Increment`/`op_Decrement`), and never bindable as `Deconstruct`, which C#
         // resolves only against members and extension methods. None can be `<M>g__F|0_0`.
+        //
+        // The last five reach here through `ImmutableArray<MethodRef>` evidence
+        // collections (`ConsumedMemberRefs`/`ConsumedMethods`) rather than a callee
+        // property. Those hold the members the pattern consumed — `GetEnumerator`,
+        // `MoveNext`, `Current`, `Dispose`, property setters, `<Clone>$` — as typed
+        // evidence routed to ReturnToSender (see ConsumedMemberEvidence). They are
+        // never spelled as a callee in output, and none can be a local function.
         string[] unreachable =
         [
             nameof(NewObject),
@@ -256,11 +263,17 @@ public class UnraisedLocalFunctionCallTests
             nameof(DeconstructionTarget),
             nameof(DeconstructionAssignment),
             nameof(IncrementDecrement),
+            nameof(ForeachStatement),
+            nameof(UsingStatement),
+            nameof(ObjectInitializerExpression),
+            nameof(WithExpression),
+            nameof(InitializerBlock),
         ];
 
         var actual = typeof(Call).Assembly.GetTypes()
             .Where(t => t is { IsAbstract: false } && typeof(IrNode).IsAssignableFrom(t))
-            .Where(t => t.GetProperties().Any(p => p.PropertyType == typeof(MethodRef)))
+            .Where(t => t.GetProperties(Members).Any(p => MentionsMethodRef(p.PropertyType))
+                     || t.GetFields(Members).Any(f => MentionsMethodRef(f.FieldType)))
             .Select(t => t.Name)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -272,6 +285,21 @@ public class UnraisedLocalFunctionCallTests
             typeof(Call).Assembly.GetTypes().Single(t => t.Name == name)
                 .GetMethod("MarkLocalFunctionRaise", BindingFlags.Instance | BindingFlags.NonPublic)));
     }
+
+    const BindingFlags Members =
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+    /// <summary>
+    /// Whether a member's type can carry a <see cref="MethodRef"/> at all — directly, or
+    /// nested inside an array or generic such as <c>ImmutableArray&lt;MethodRef?&gt;</c>.
+    /// Matching the type exactly missed every collection-typed member, which is how three
+    /// initializer nodes escaped the gate entirely and let it pass while incomplete.
+    /// </summary>
+    static bool MentionsMethodRef(Type type)
+        => type == typeof(MethodRef)
+            || (Nullable.GetUnderlyingType(type) is { } underlying && MentionsMethodRef(underlying))
+            || (type.IsArray && MentionsMethodRef(type.GetElementType()!))
+            || (type.IsGenericType && type.GetGenericArguments().Any(MentionsMethodRef));
 
     /// <summary>
     /// The close negative for the method-group gate, and the reason the stamp is a
@@ -360,6 +388,32 @@ public class UnraisedLocalFunctionCallTests
             TypeRef.CoreLib("System", "Int32"),
             [],
             false);
+    }
+
+    /// <summary>
+    /// The close negative for the generic decline. A non-generic local function inside a
+    /// generic METHOD inherits that method's type parameters, so its call sites carry
+    /// non-empty <c>TypeArguments</c> without anything being generic in the source sense.
+    /// Declining on that alone regressed real framework code — <c>VectorMath.HypotSingle</c>
+    /// lost its raised <c>CoreImpl</c> declaration and fell from Full to Partial.
+    /// </summary>
+    [Fact]
+    public void LocalFunctionInGenericMethod_StillRaisesAndStaysFull()
+    {
+        var type = typeof(LocalFunctionInGenericMethodSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(LocalFunctionInGenericMethodSamples.Passthrough));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.Contains("Core(value)", output);
+        Assert.Contains("static T Core(T v)", output);
+        Assert.DoesNotContain("_g__Core_", output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
     }
 
     static int CountOccurrences(string haystack, string needle)
