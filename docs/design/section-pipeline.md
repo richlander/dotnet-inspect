@@ -19,7 +19,7 @@ The pipeline has three layers, each with a single responsibility.
 
 `ISectionDescriptor<T>` declares metadata about a section using C# static abstract interface members:
 
-```csharp
+``csharp
 public interface ISectionDescriptor<T>
 {
     static abstract string Name { get; }
@@ -27,7 +27,7 @@ public interface ISectionDescriptor<T>
     static abstract string? ScannerKey { get; }
     static abstract bool CanRender(T model);
 }
-```
+``
 
 Each section is a small struct implementing this interface. The struct is never instantiated — only its static members are read during registration. This is zero-allocation and NativeAOT-compatible (no reflection).
 
@@ -55,10 +55,10 @@ The pipeline does not render anything. It computes a `HashSet<string>` of sectio
 
 `ScannerRegistry` maps scanner keys to a declared cost and a scan function:
 
-```csharp
+``csharp
 registry.Add("ExtensionMethods", SectionCost.NetworkFree, ctx =>
     LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger));
-```
+``
 
 `RunScanners(requiredKeys, context)` executes only the scanners needed for the current request. When a user runs `dotnet-inspect library Foo.dll -S "Extension Methods"`, only the `ExtensionMethods` scanner runs — not the full set of Detailed-level scans.
 
@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Seventeen routes into the same defect
+### Nineteen routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and seventeen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and nineteen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -128,8 +128,10 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A `callvirt` on a **constructed generic** resolves to a declaring type with no namespace and no name, so the edge points at nothing and the member can never be a node | a product fix: `TypeRef.GenericInstance` carries the definition's identity, plus an assertion that no call has an unnameable declaring type |
 | The implementation satisfies a **BCL** interface and only the BCL ever dispatches it (`list.Sort(new Comparer())`), so no product IL names the interface member | the product-assembly filter removed from the interface-contract loop, so construction edges are reachable for BCL contracts |
 | The implementation **overrides a BCL virtual** that only the BCL ever invokes (`ToString` reached through `string.Format`), so no product IL names the override either | the same filter removed from the base-definition loop |
+| A **materialization primitive** (`RuntimeHelpers.GetUninitializedObject`) yields an instance with no `newobj`, and dispatch through a **BCL** interface yields no ancestor -- so both hierarchy mechanisms fail at once | those primitives pinned by call site alongside `Activator` |
+| The same, by **reinterpretation** (`Unsafe.As<T>(object)`) rather than allocation | the same call-site pin, which is why it is keyed on callers and not members |
 
-That the enumeration reached seventeen is itself the finding. After each fix the class looked closed, and all but the last were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached nineteen is itself the finding. After each fix the class looked closed, and all but the last were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The thirteenth is instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
 
@@ -151,6 +153,18 @@ The seventeenth is the same filter in the *other* call site, and it is the one r
 
 The same review round also produced the *generalized* form of that lesson, from an attack that did not land. `GetInterfaceMap` can throw, and the two `catch { continue; }` arms around it were a third instance of the pattern in waiting: a failure there deletes a type's interface edges and leaves the gate green while covering less than it claims. The attack's premise was that `Assembly.GetTypes()` hands back open generic definitions that `GetInterfaceMap` rejects; measured, the mapping succeeds and the tamper is caught. But nothing would have said so had it thrown, so the skipped contracts are now collected and asserted empty. **The rule is not "remove the filters you found" but "no mechanism may fail quietly"**, which is the same requirement `AGENTS.md` states for the product: a failure must stay visible rather than become success-shaped empty output. An attack can be wrong on its facts and still name a real weakness.
 
+The eighteenth and nineteenth are the first routes to defeat *both* hierarchy mechanisms at once, and they answer a question that had been open since the twelfth: whether any type in the pinned BCL surface is dangerous on its own. It is. Both mechanisms rest on the same premise — that a product type's members can be reached either from an ancestor that is a graph node, or from the `newobj` that created an instance. A **materialization primitive** breaks both halves simultaneously:
+
+- `RuntimeHelpers.GetUninitializedObject(typeof(T))` produces an instance with no `newobj`, so there is no construction edge;
+- dispatching the call through a **BCL** interface such as `IDisposable` means the ancestor resolves to no IL keys, so there is no ancestor edge;
+- the implementation is then an island, and a `NetworkFree` scanner reaches the body index through it with the suite fully green.
+
+`Unsafe.As<T>(object)` is the same route by a different primitive, and it matters because it disproved the first fix's own stated reasoning. That fix denied `GetUninitializedObject` and argued in a comment that reinterpretation primitives "do not qualify, because whatever produced the instance is still the edge". Building the negative case took one run to show the argument was wrong: the instance being reinterpreted is of some *other* type, so it carries no edge to the members actually invoked. **The comment was written before the case was tested, and would have shipped as a confident, wrong explanation of why a live route was safe.**
+
+What makes the fix a fix rather than a patch is that the search is *bounded*. A primitive can only be called on a type already in the pinned BCL surface — anything else adds an entry there and fails that pin — so auditing those types once for "can hand back an instance of a product type the product never constructed" is exhaustive, and stays exhaustive. That audit yields `Activator`, `RuntimeHelpers`, `Unsafe`, and the `*Marshal` casts, and nothing else.
+
+The pin for them is keyed on the **call site**, not the member, and that distinction is load-bearing. The product genuinely calls `Unsafe.As`/`AsRef` — but only from three compiler-generated `<PrivateImplementationDetails>` inline-array helpers, with no hand-written use anywhere in the section-reachable closure. Pinning the member names would have admitted every future call and quietly reopened the route; pinning the three call sites keeps the compiler's uses working and turns any new caller red.
+
 The second mechanism is therefore independent of dispatch entirely: **an instance member cannot be dispatched to without an instance, and the `newobj` that creates one is a recorded edge.** Construction edges run from the concrete type's constructors to every member occupying an interface slot — which also covers the inherited case, since it is the *derived* type that gets constructed.
 
 Neither mechanism subsumes the other, and each has a witness that the other cannot catch:
@@ -170,7 +184,7 @@ Two method points from this round generalize:
 
 **`Assert.NotEmpty` was the wrong non-vacuity guard, and per-shape floors were not enough either.** Review flagged the first before it failed: the product contains plenty of ordinary interface implementations, so the edge list stays non-empty even when the three shapes that defeated the previous version resolve to nothing — the assertion proved the code ran, not that it worked. Replacing it with a counter per shape was better and still wrong, for a reason that took a fourteenth route to expose: **floors measured against incidental product code cannot protect a *new* type.** A type in the global namespace has an empty `Namespace`, and interpolating `{Namespace}.{Name}` spells it `.Thing` while reflection spells it `Thing`. Every shape floor stayed green while the attacking type resolved to nothing at all — neither its implementation nor its constructors matched, so both edge mechanisms went inert at once and there was nothing left to be over-approximate about.
 
-The guard that holds is population-wide rather than sampled: **every coarse type name in the IL index must be one reflection can produce.** A name reflection cannot spell is a type the hierarchy mechanisms are blind to, whether or not anyone has thought of the shape that produces it. This is not a dormant assertion waiting for a contrived input — the C# compiler emits **anonymous types into the global namespace**, so `` .<>f__AnonymousType0`2 `` and friends are already in the index. Ordinary `new { … }` in product code arms the guard continuously, and re-breaking the normalizer fails it on a clean tree.
+The guard that holds is population-wide rather than sampled: **every coarse type name in the IL index must be one reflection can produce.** A name reflection cannot spell is a type the hierarchy mechanisms are blind to, whether or not anyone has thought of the shape that produces it. This is not a dormant assertion waiting for a contrived input — the C# compiler emits **anonymous types into the global namespace**, so ` .<>f__AnonymousType0`2 ` and friends are already in the index. Ordinary `new { … }` in product code arms the guard continuously, and re-breaking the normalizer fails it on a clean tree.
 
 The generalizable form: *when a claim depends on two independent systems agreeing on a spelling, assert the agreement over the whole population, not over the cases you thought of.* A sampled floor tests the samples; the escape will be an unsampled one.
 
@@ -254,7 +268,7 @@ Cost is declared per scanner, so work that cannot be attributed to one cannot be
 
 ## Data Flow
 
-```text
+``text
 CLI input
   │
   ▼
@@ -271,16 +285,16 @@ Registry.RunScanners(requiredKeys, context)
   │  collects data into model — only needed scanners run
   ▼
 Markout serializer renders with IncludeSections filter
-```
+``
 
 For effective discovery (list effective sections):
 
-```text
+``text
 Pipeline.GetEffectiveSections(model, verbosity, userSections)
   │  filters by MinVerbosity, then CanRender(model)
   ▼
 Print section names that have data
-```
+``
 
 ## Scanner Key Deduplication
 
@@ -329,10 +343,10 @@ Some content logically belongs to a section (for addressing and filtering) but s
 
 Markout's `[MarkoutSection(Headless = true)]` enables this:
 
-```csharp
+``csharp
 [MarkoutSection(Name = "Summary", Headless = true)]
 public List<MarkoutField> Summary => GetCompactFields();
-```
+``
 
 A headless section:
 - **Is addressable** — appears in `-S` discovery (`Summary  section`)
@@ -342,13 +356,13 @@ A headless section:
 
 The pipeline always uses `IncludeSections`:
 
-```csharp
+``csharp
 // BuildWriterOptions — clean, additive model
 var includeSections = pipeline.ComputeIncludeSections(
     result, options.Verbosity, options.IncludeSections);
 
 return new MarkoutWriterOptions { IncludeSections = includeSections };
-```
+``
 
 When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` — no Summary, so preamble is hidden. In the default view, the pipeline returns `{"Summary", "Package Info", ...}` — Summary is included, preamble renders.
 
@@ -386,7 +400,7 @@ untouched, so a caller parsing the document is unaffected (gated by a byte-ident
 
 The report answers "did this run do the correct minimum work?", which nothing else can:
 
-```text
+``text
 trace: library ILInspector.Decompiler.dll [Minimal]
   sections demanding a scanner
     Library Info -> InfoCounts
@@ -400,7 +414,7 @@ trace: library ILInspector.Decompiler.dll [Minimal]
   resources acquired
     metadata session            borrowed from the command's open image
   total scanner time           74.4 ms
-```
+``
 
 Five things are recorded, each at the only layer that knows it:
 

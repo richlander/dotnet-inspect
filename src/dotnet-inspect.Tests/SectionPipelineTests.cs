@@ -2576,6 +2576,11 @@ public class SectionPipelineTests
         // System.Reflection.Metadata is excluded because it is not runtime reflection -- it is the
         // library this entire product is built on, and including it drowns the signal in 1,312
         // sites. Type::GetTypeFromHandle is excluded because that is `typeof`.
+        // `Activator` is a *materialization* primitive: it produces an instance of an arbitrary
+        // type without the product naming a constructor, which is exactly what defeats the
+        // construction edges the hierarchy walk relies on. It is denied for that reason. Other
+        // primitives with the same capability are handled by `IsMaterializationPrimitive` below,
+        // which has to pin call sites rather than members because the product uses some of them.
         static bool IsRuntimeReflection(ILInspector.Analysis.MemberRef callee)
         {
             var namespaceName = callee.DeclaringType.Namespace;
@@ -2590,6 +2595,31 @@ public class SectionPipelineTests
                 _ => namespaceName == "System.Reflection",
             };
         }
+
+        // Materialization and typing primitives hand back a reference of a type that no `newobj`
+        // in this product ever created. The type's members therefore get no construction edge, and
+        // if the section then dispatches through a *BCL* interface there is no ancestor edge
+        // either, because a BCL member resolves to no IL keys -- both halves of the hierarchy net
+        // fail at once and the implementation is an island. Gemini Pro found two such routes at
+        // `3abb2a96`: `RuntimeHelpers.GetUninitializedObject` + `IDisposable`, and
+        // `Unsafe.As<T>(object)` + `IDisposable`.
+        //
+        // The search for further primitives is bounded, which is the only reason this is a fix and
+        // not a patch: a primitive can only be *called* on a type in the pinned BCL surface below,
+        // and anything else adds an entry there and fails that pin. Auditing those types for "can
+        // hand back an instance of a product type the product never constructed" yields exactly
+        // `Activator` (denied above), `RuntimeHelpers`, `Unsafe`, and the `*Marshal` casts.
+        static bool IsMaterializationPrimitive(ILInspector.Analysis.MemberRef callee)
+            => callee.DeclaringType.ToDisplayString() switch
+            {
+                "System.Runtime.CompilerServices.RuntimeHelpers" or "RuntimeHelpers"
+                    => callee.Name == "GetUninitializedObject",
+                "System.Runtime.CompilerServices.Unsafe" or "Unsafe"
+                    => callee.Name is "As" or "AsRef" or "BitCast",
+                "System.Runtime.InteropServices.MemoryMarshal" or "MemoryMarshal"
+                    => callee.Name is "AsRef" or "Cast",
+                _ => false,
+            };
 
         var forwardCalls = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         foreach (var call in calls)
@@ -2653,6 +2683,28 @@ public class SectionPipelineTests
             .ToList();
 
         Assert.Equal(["MemberInfo::get_Name", "Type::op_Equality"], reflectionSurface);
+
+        // Pinned by *call site*, not by member, and that difference is the whole point. The
+        // product does use `Unsafe.As`/`AsRef` — but only from three compiler-generated
+        // `<PrivateImplementationDetails>` inline-array helpers, with no hand-written call
+        // anywhere in the section-reachable closure. Pinning the member names would therefore
+        // have admitted every future use and reopened the route; pinning the call sites keeps the
+        // compiler's uses working while turning any new caller red.
+        var materializationSurface = calls
+            .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
+            .Where(call => IsMaterializationPrimitive(call.Callee))
+            .Select(call => $"{CallerKey(call.Caller)} -> {call.Callee.DeclaringType.ToDisplayString()}::{call.Callee.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            [
+                ".<PrivateImplementationDetails>::InlineArrayAsReadOnlySpan`2(ref TBuffer,int) -> Unsafe::As",
+                ".<PrivateImplementationDetails>::InlineArrayAsReadOnlySpan`2(ref TBuffer,int) -> Unsafe::AsRef",
+                ".<PrivateImplementationDetails>::InlineArrayElementRef`2(ref TBuffer,int) -> Unsafe::As",
+            ],
+            materializationSurface);
 
         // Reflection is not the only late-binding mechanism. Gemini Pro's review raised `dynamic`,
         // which the compiler lowers into the DLR so the IL names Microsoft.CSharp.RuntimeBinder
