@@ -376,9 +376,16 @@ public static class AnnotationCaret
             // will not fit after it cannot be drawn at the column it points at,
             // and shifting it would make it point somewhere else. This is a
             // guard, not a path with known traffic: it fires on 0 of the 2,842
-            // lines that stack in System.Private.CoreLib, as the
+            // lines that *qualify* to stack in System.Private.CoreLib, as the
             // annotated-source view prints it, summed over the five focus
-            // families and counted after the focus filter.
+            // families and counted after the focus filter. Qualifying is the
+            // right denominator because a line this rejects does not stack by
+            // construction. A fallback is detected by the absence of an "N."
+            // label before the caret run, not by the absence of a caret row --
+            // falling back still renders the widening caret, so the latter
+            // test could never fire. Raising the margin to +6 makes this fire
+            // on 306 of the 2,842 and to +200 on all of them, so the zero is a
+            // property of the corpus rather than of the measurement.
             if (LabelStart(i) < commentColumn + 2)
                 return null;
 
