@@ -352,8 +352,8 @@ public sealed class ResolvedAssemblyReference
 ```
 
 The registration is a public opaque reference-identity handle because an
-external acquisition owner must mint, retain, and recover it from a requesting
-descriptor at the policy boundary. Its payload remains internal; consumers can
+external acquisition owner must mint, retain, and receive it as a requesting
+origin at the policy boundary. Its payload remains internal; consumers can
 compare the handle only by reference and cannot extract path, identity, opener,
 or provenance from it. It is not a definition key or a claim that visible
 descriptor fields identify a physical file. It owns the canonical
@@ -449,7 +449,7 @@ public abstract class AssemblyBindingOrigin
 
     public static AssemblyBindingOrigin FromAssembly(
         ResolvedAssemblyReference assembly) =>
-        new RequestingAssembly(assembly);
+        new RequestingAssembly(assembly.Registration);
 
     public sealed class GlobalOrigin : AssemblyBindingOrigin
     {
@@ -459,10 +459,10 @@ public abstract class AssemblyBindingOrigin
     public sealed class RequestingAssembly : AssemblyBindingOrigin
     {
         internal RequestingAssembly(
-            ResolvedAssemblyReference assembly) =>
-            Assembly = assembly;
+            AssemblyAcquisitionRegistration registration) =>
+            Registration = registration;
 
-        public ResolvedAssemblyReference Assembly { get; }
+        public AssemblyAcquisitionRegistration Registration { get; }
     }
 }
 
@@ -537,10 +537,11 @@ frozen catalog. `Reference` means "first ask the binding policy to resolve this
 exact `AssemblyRef` from this binding origin, then probe the result." Forwarder
 hops always use the current candidate as `RequestingAssembly`; a global origin
 is explicit and a policy may reject it for a source-relative scope. The builder
-registers a reference start's requesting descriptor as a plan root before
-freeze. A frozen context rejects an origin whose registration is absent from
-its generation as `UnregisteredAssembly` before invoking policy; it never
-mutates the catalog or degrades the origin to global routing.
+registers a reference start's requesting registration as a plan root before
+freeze, then policy receives only that opaque registration. A frozen context
+rejects an origin whose registration is absent from its generation as
+`UnregisteredAssembly` before invoking policy; it never mutates the catalog or
+degrades the origin to global routing.
 
 This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
@@ -892,7 +893,9 @@ the same selected registration without sharing a cached policy decision.
 The internal structurally equatable `AssemblyBindingDomainKey` is a closed
 value with `Global` and `RequestingCandidate(AssemblyCandidateId)` arms. It is
 generation-scoped and is the only origin projection permitted in binding and
-resolution cache keys.
+resolution cache keys. `AssemblyBindingCacheKey` is the structural tuple of
+that domain key, complete reference identity, and scope; the containing cache
+supplies the generation.
 
 Package, platform, project, and local acquisition owners implement the public
 `IAssemblyBindingPolicy` and return context-free descriptors through public
@@ -928,6 +931,23 @@ public enum CandidateOpenFailureKind
 public sealed record CandidateOpenFailure(
     CandidateOpenFailureKind Kind,
     string Detail);
+
+public abstract class ResolutionPlanRequest
+{
+    private protected ResolutionPlanRequest() { }
+
+    public sealed class Type : ResolutionPlanRequest
+    {
+        internal Type(TypeResolutionRequest request) => Request = request;
+        public TypeResolutionRequest Request { get; }
+    }
+
+    public sealed class Binding : ResolutionPlanRequest
+    {
+        internal Binding(AssemblyBindingRequest request) => Request = request;
+        public AssemblyBindingRequest Request { get; }
+    }
+}
 
 public abstract class TypeResolutionFailure
 {
@@ -1000,10 +1020,10 @@ public abstract class TypeResolutionFailure
 
     public sealed class PlanExpansionRequired : TypeResolutionFailure
     {
-        internal PlanExpansionRequired(TypeResolutionRequest request) =>
+        internal PlanExpansionRequired(ResolutionPlanRequest request) =>
             Request = request;
 
-        public TypeResolutionRequest Request { get; }
+        public ResolutionPlanRequest Request { get; }
     }
 }
 ```
@@ -1379,14 +1399,21 @@ reason `LibraryBodyIndex` currently repeats the traversal beside
 
 Candidate discovery and correspondence are separate phases.
 `AssemblyCatalogBuilder` is the discovery-phase vehicle. The consumer planner
-first supplies a manifest of concrete `TypeResolutionRequest` roots: the target,
-matching caller references, and the named signature types in graph edges being
-indexed. The builder executes those requests provisionally, including every
-per-hop scope-tightening transition. Each encountered
+first supplies a manifest with two root kinds:
+
+- concrete `TypeResolutionRequest` roots for the target, matching caller
+  references, and named signature types in graph edges being indexed;
+- binding-only `AssemblyBindingRequest` roots for every snapshotted
+  `AssemblyRef` used to build caller-scope reverse adjacency, each carrying its
+  requesting candidate origin.
+
+The builder executes those roots provisionally, including every per-hop
+scope-tightening transition. Each encountered
 `(AssemblyBindingDomainKey, AssemblyReferenceIdentity,
 AssemblyResolutionScope)` binding is added to the manifest; each selected
 registration and forwarded continuation extends the work queue. It does not
-bind unrelated `AssemblyRef` rows or sweep framework assemblies.
+bind references outside the explicit type and adjacency roots or sweep
+framework assemblies.
 
 Provisional resolution uses catalog-owned sessions and candidate ids but does
 not issue definition keys, join tokens, graph leases, or a public
@@ -1397,12 +1424,45 @@ The builder is bounded by the plan's candidate and relationship budgets.
 Stable acquisition registrations make repeated selections idempotent; an owner
 that keeps minting registrations eventually produces
 `DiscoveryBudgetExceeded`, not an infinite rebuild loop. At the fixed point the
-builder freezes an `AssemblyCatalogGenerationId` and promotes the exact
-provisional binding outcomes into that generation's immutable binding cache.
-Execution never calls policy for a binding pair absent from that snapshot.
-Definition keys and join tokens are minted only against this frozen manifest
-and candidate set, so duplicate correspondence classes are complete and token
-arms cannot change beneath a cache.
+builder freezes an `AssemblyCatalogGenerationId` and atomically promotes:
+
+- exact provisional binding outcomes into the generation's immutable binding
+  cache;
+- catalog-level declaration results for direct reuse by frozen contexts;
+- completed resolution recipes into the resolution cache, projecting their
+  candidate/token coordinates into generation-scoped definition keys only
+  after freeze.
+
+Typed non-successes are promoted with successes. Execution neither calls policy
+for a binding pair absent from that snapshot nor repeats a promoted probe or
+resolution. Definition keys and join tokens are minted only against this frozen
+manifest and candidate set, so duplicate correspondence classes are complete
+and token arms cannot change beneath a cache.
+
+Discovery epochs do not invalidate image-local declaration results. A later
+epoch seeds unchanged roots from the previous frozen recipes and reruns only a
+recipe whose recorded binding dependency changed when policy was refreshed.
+With a stable acquisition plan, adding a progressive lens therefore preserves
+the once-per-catalog probe count and once-per-distinct-request resolution count.
+
+An internal `FrozenResolutionRecipe` is the generation-neutral cache payload.
+It stores:
+
+- the `TypeResolutionCacheKey`;
+- the terminal raw arm and its candidate/token coordinates or typed
+  non-success payload;
+- raw hop evidence without generation-scoped definition keys;
+- the exact `AssemblyBindingCacheKey` dependencies and their closed,
+  structurally comparable `AssemblyBindingSnapshot` values.
+
+`AssemblyBindingSnapshot` contains only the binding arm, selected candidate ids,
+and typed failure payload; it never compares public outcome objects or
+descriptors. Freeze stores recipes by
+`(AssemblyCatalogGenerationId, TypeResolutionCacheKey)` and materializes the
+public outcome and definition keys for that generation. A later epoch refreshes
+each recorded binding dependency and reuses the recipe only when every snapshot
+is structurally unchanged; otherwise it reruns that recipe. Invalidating an old
+context therefore does not discard the catalog-owned recipe store.
 
 A request outside the frozen manifest returns the typed
 `PlanExpansionRequired` rejection to the inspection coordinator. The
@@ -1420,9 +1480,11 @@ than retrying or rendering an authoritative empty result.
 
 A later progressive lens first reopens the builder with the union of previous
 manifest and the new lens's requests. Graph planning first decodes the selected
-edge set and contributes all named signature requests, then freezes, then
-issues join tokens and builds the graph. It never discovers a new binding while
-tokens are being issued. If fixed-point discovery adds a candidate, the catalog
+edge set, contributes all named signature requests, snapshots each scope
+candidate's assembly references, and contributes all adjacency binding roots.
+It then freezes, issues join tokens, and builds the graph. It never discovers a
+new binding while tokens are being issued. If fixed-point discovery adds a
+candidate, the catalog
 freezes a new generation and invalidates every
 `TypeResolutionContext`, resolution plan, join token, and `ScopeGraph` lease
 from the previous generation. It never mutates or reclassifies an issued token.
@@ -1434,19 +1496,23 @@ The acquisition catalog caches:
 
 - candidate ids by `AssemblyAcquisitionRegistration` reference identity;
 - opened sessions by `AssemblyCandidateId`;
+- declaration results by
+  `(AssemblyCandidateId, MetadataTypeDefinitionName)`;
 - provisional discovery bindings by
   `(discovery epoch, AssemblyBindingDomainKey, AssemblyReferenceIdentity,
   AssemblyResolutionScope)`;
+- provisional resolution recipes by
+  `(discovery epoch, TypeResolutionCacheKey)`;
 - binding outcomes by
   `(AssemblyCatalogGenerationId, AssemblyBindingDomainKey,
   AssemblyReferenceIdentity, AssemblyResolutionScope)`;
+- frozen resolution recipes by
+  `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`, with their binding
+  dependency snapshots;
 
 Each resolution context is bound to one frozen generation, composes that
 catalog, and caches:
 
-- declaration probes by
-  `(AssemblyCatalogGenerationId, AssemblyCandidateId,
-  MetadataTypeDefinitionName)`;
 - completed resolutions by
   `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`.
 
@@ -1472,27 +1538,43 @@ be compared only through the catalog correspondence API.
 
 ## Resolution algorithm
 
-For one request:
+The builder runs the state machine below provisionally for every type root. A
+binding cache miss in discovery first adds the binding request to the manifest,
+then invokes policy once and records the outcome. Freeze requires one completed
+recipe for every type root.
 
-1. Resolve the start when it is an assembly reference. First validate a
-   requesting-assembly origin against the frozen generation and return
-   `Rejected(UnregisteredAssembly)` if absent. Otherwise binding `Selected`
-   continues; `Missing` returns `UnboundReference`; `Unavailable` returns
-   `Unavailable`; `Ambiguous` returns `Ambiguous`; and binding `Rejected`
-   returns `Rejected(InvalidBindingPolicy)`.
-2. Open the selected assembly through the context.
-3. Probe the exact structured type name.
-4. On `Defined`, materialize the definition key and finish.
-5. On `Missing`, return `NotFound`.
-6. On `Ambiguous`, return `Ambiguous`.
-7. On `Rejected`, return `Rejected`.
-8. On `Forwarded`, append one hop.
-9. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
-10. Resolve the complete target `AssemblyReferenceIdentity` through policy,
-    applying the same exhaustive binding-outcome mapping as step 1.
-11. Stop on repeated assembly candidate or the hop budget with the corresponding
+A frozen context does not rerun this traversal: it validates manifest
+membership and materializes the frozen recipe. A type request absent from the
+manifest returns `PlanExpansionRequired(Type(request))`; a binding-only
+consumer whose cache key is absent returns
+`PlanExpansionRequired(Binding(request))`. Neither path invokes policy.
+
+For one builder request:
+
+1. Require the type request in the discovery manifest; otherwise return
+   `Rejected(PlanExpansionRequired(Type(request)))`.
+2. Resolve the start when it is an assembly reference. First validate a
+   requesting-assembly origin against the active builder catalog and return
+   `Rejected(UnregisteredAssembly)` if absent. Construct its
+   `AssemblyBindingCacheKey`, add it to the discovery manifest, and read or
+   populate the provisional binding outcome. Binding `Selected` continues;
+   `Missing` returns `UnboundReference`; `Unavailable` returns `Unavailable`;
+   `Ambiguous` returns `Ambiguous`; and binding `Rejected` returns
+   `Rejected(InvalidBindingPolicy)`.
+3. Open the selected assembly through the context.
+4. Probe the exact structured type name.
+5. On `Defined`, materialize the definition key and finish.
+6. On `Missing`, return `NotFound`.
+7. On `Ambiguous`, return `Ambiguous`.
+8. On `Rejected`, return `Rejected`.
+9. On `Forwarded`, append one hop.
+10. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
+11. Construct the target binding request, add its key to the discovery
+    manifest, read or populate its provisional cache entry, and apply the same
+    exhaustive outcome mapping as step 2.
+12. Stop on repeated assembly candidate or the hop budget with the corresponding
     `Rejected` failure.
-12. Otherwise repeat at step 2.
+13. Otherwise repeat at step 3.
 
 The traversal is iterative. It has both:
 
@@ -1670,6 +1752,8 @@ under the inspection catalog:
    seed. A candidate with indeterminate matching evidence is retained as an
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
+   Every pair is contributed as a binding-only discovery root and frozen before
+   reverse closure begins.
 4. Root graph reachability at the candidate owning the target definition and
    every descriptor selection carrying that candidate's acquisition
    registration.
@@ -2088,6 +2172,9 @@ Resolution is query-directed:
 - callers sharing a reference reuse the completed resolution;
 - caller reachability resolves only target-name references present in the scope
   snapshot;
+- caller reachability binds each snapshotted scope-candidate `AssemblyRef` once
+  in its requesting domain to build reverse adjacency, without opening every
+  referenced image;
 - graph signature correspondence resolves only named type occurrences in edges
   being indexed and caches each resolvable origin once.
 
@@ -2101,7 +2188,10 @@ forwarded `XmlReader` caller is:
 - the same number of caller sessions are opened as the exact query requires;
 - the framework scope does not saturate;
 - no target file is reopened by the forwarder engine;
-- each unique matching reference and signature origin is resolved at most once.
+- each unique matching reference and signature origin is resolved at most once;
+- adjacency policy calls equal the distinct
+  `(requesting candidate, reference identity, scope)` rows in the scope
+  snapshot, and no adjacency request is first discovered after freeze.
 
 Wall-clock measurements may accompany implementation evidence but do not
 replace these structural counts.
@@ -2231,9 +2321,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
   cannot mint independent registrations for the same owner-selected entry.
 - A user path found in the platform inventory and a forwarder binding to that
   entry share the platform registration; an unowned copied path remains local.
-- An external policy can recover the requesting descriptor's registration and
-  use reference identity to select its owner inventory, but cannot read the
-  registration payload.
+- An external policy receives only the requesting registration, can use
+  reference identity to select its owner inventory, and cannot reach the
+  requesting descriptor or registration payload through the origin.
 - Two requesting-assembly origins with the same reference identity and scope
   occupy different binding-cache entries and may select different candidates;
   repeated requests from one origin reuse its outcome.
@@ -2274,6 +2364,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Discovery records and promotes the tightened-scope binding outcome before
   freeze; execution performs no new policy call and selects no unregistered
   candidate.
+- Discovery retains catalog-level declaration results and promotes completed
+  resolution recipes as well as binding outcomes; removing either reuse path
+  causes the once-only probe or resolution count gate to fail.
 - A request outside the frozen manifest returns `PlanExpansionRequired`, and
   presentation occurs only after the coordinator advances the generation.
 
@@ -2315,6 +2408,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
   when the generic local resolver's roll-forward default is disabled.
 - A facade outside the caller scope seeds a direct caller through typed
   resolution, and reverse closure retains callers above it.
+- Every scope-candidate `AssemblyRef` needed for reverse adjacency is present
+  as a binding-only root before freeze; deleting those roots fails the
+  depth-two reverse-closure fixture and the adjacency call-count pin.
 - A depth-two graph caller that reaches the selected member through another
   method in the target assembly is retained even though it never names the
   target type.
