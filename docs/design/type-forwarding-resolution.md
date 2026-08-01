@@ -253,16 +253,20 @@ public sealed record MetadataTypeNameRejection(
 
 public abstract class MetadataTypeDefinitionNameResult
 {
-    public sealed class Valid(MetadataTypeDefinitionName name)
-        : MetadataTypeDefinitionNameResult
+    private protected MetadataTypeDefinitionNameResult() { }
+
+    public sealed class Valid : MetadataTypeDefinitionNameResult
     {
-        public MetadataTypeDefinitionName Name { get; } = name;
+        internal Valid(MetadataTypeDefinitionName name) => Name = name;
+        public MetadataTypeDefinitionName Name { get; }
     }
 
-    public sealed class Rejected(MetadataTypeNameRejection rejection)
-        : MetadataTypeDefinitionNameResult
+    public sealed class Rejected : MetadataTypeDefinitionNameResult
     {
-        public MetadataTypeNameRejection Rejection { get; } = rejection;
+        internal Rejected(MetadataTypeNameRejection rejection) =>
+            Rejection = rejection;
+
+        public MetadataTypeNameRejection Rejection { get; }
     }
 }
 ```
@@ -351,20 +355,64 @@ here.
 There are two legitimate starts and they stay explicit:
 
 ```csharp
-public abstract record TypeResolutionStart
+public abstract class TypeResolutionStart
 {
-    public sealed record Assembly(
-        ResolvedAssemblyCandidate Value,
-        AssemblyResolutionScope Scope) : TypeResolutionStart;
+    private protected TypeResolutionStart() { }
 
-    public sealed record Reference(
-        AssemblyReferenceIdentity Value,
-        AssemblyResolutionScope Scope) : TypeResolutionStart;
+    public sealed class Assembly : TypeResolutionStart
+    {
+        internal Assembly(
+            ResolvedAssemblyCandidate value,
+            AssemblyResolutionScope scope)
+        {
+            Value = value;
+            Scope = scope;
+        }
+
+        public ResolvedAssemblyCandidate Value { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
+
+    public sealed class Reference : TypeResolutionStart
+    {
+        internal Reference(
+            AssemblyReferenceIdentity value,
+            AssemblyResolutionScope scope)
+        {
+            Value = value;
+            Scope = scope;
+        }
+
+        public AssemblyReferenceIdentity Value { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
 }
 
-public sealed record TypeResolutionRequest(
-    TypeResolutionStart Start,
-    MetadataTypeDefinitionName Type);
+public sealed class TypeResolutionRequest
+{
+    TypeResolutionRequest(
+        TypeResolutionStart start,
+        MetadataTypeDefinitionName type)
+    {
+        Start = start;
+        Type = type;
+    }
+
+    public TypeResolutionStart Start { get; }
+    public MetadataTypeDefinitionName Type { get; }
+
+    public static TypeResolutionRequest FromAssembly(
+        ResolvedAssemblyCandidate value,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type) =>
+        new(new TypeResolutionStart.Assembly(value, scope), type);
+
+    public static TypeResolutionRequest FromReference(
+        AssemblyReferenceIdentity value,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type) =>
+        new(new TypeResolutionStart.Reference(value, scope), type);
+}
 ```
 
 `Assembly` means "probe this already-resolved assembly, then follow any
@@ -380,46 +428,123 @@ Every request states exactly where resolution begins.
 public readonly record struct TypeDefinitionToken(int Value);
 public readonly record struct ExportedTypeToken(int Value);
 
-public sealed record ModuleFileReference(
-    string Name,
-    bool ContainsMetadata,
-    ImmutableArray<byte> Hash);
-
-public abstract record TypeDeclarationCandidate
+public sealed class ModuleFileReference
 {
-    public sealed record Definition(
-        TypeDefinitionToken Token) : TypeDeclarationCandidate;
+    internal ModuleFileReference(
+        string name,
+        bool containsMetadata,
+        ImmutableArray<byte> hash)
+    {
+        Name = name;
+        ContainsMetadata = containsMetadata;
+        Hash = hash;
+    }
 
-    public sealed record Forwarder(
-        ImmutableArray<ExportedTypeToken> Declarations,
-        AssemblyReferenceIdentity Target) : TypeDeclarationCandidate;
-
-    public sealed record ModuleExport(
-        ImmutableArray<ExportedTypeToken> Declarations,
-        ModuleFileReference Module) : TypeDeclarationCandidate;
+    public string Name { get; }
+    public bool ContainsMetadata { get; }
+    public ImmutableArray<byte> Hash { get; }
 }
 
-public abstract record TypeDeclarationResult
+public abstract class TypeDeclarationCandidate
 {
-    public sealed record Defined(
-        TypeDefinitionToken Definition) : TypeDeclarationResult;
+    private protected TypeDeclarationCandidate() { }
 
-    public sealed record Forwarded(
-        ImmutableArray<ExportedTypeToken> Declarations,
-        AssemblyReferenceIdentity Target) : TypeDeclarationResult;
+    public sealed class Definition : TypeDeclarationCandidate
+    {
+        internal Definition(TypeDefinitionToken token) => Token = token;
+        public TypeDefinitionToken Token { get; }
+    }
 
-    public sealed record ExportedFromModule(
-        ImmutableArray<ExportedTypeToken> Declarations,
-        ModuleFileReference Module) : TypeDeclarationResult;
+    public sealed class Forwarder : TypeDeclarationCandidate
+    {
+        internal Forwarder(
+            ImmutableArray<ExportedTypeToken> declarations,
+            AssemblyReferenceIdentity target)
+        {
+            Declarations = declarations;
+            Target = target;
+        }
 
-    public sealed record Missing : TypeDeclarationResult;
+        public ImmutableArray<ExportedTypeToken> Declarations { get; }
+        public AssemblyReferenceIdentity Target { get; }
+    }
 
-    public sealed record Ambiguous(
-        ImmutableArray<TypeDeclarationCandidate> Candidates)
-        : TypeDeclarationResult;
+    public sealed class ModuleExport : TypeDeclarationCandidate
+    {
+        internal ModuleExport(
+            ImmutableArray<ExportedTypeToken> declarations,
+            ModuleFileReference module)
+        {
+            Declarations = declarations;
+            Module = module;
+        }
 
-    public sealed record Rejected(
-        MetadataTraversalRejection Rejection) : TypeDeclarationResult;
+        public ImmutableArray<ExportedTypeToken> Declarations { get; }
+        public ModuleFileReference Module { get; }
+    }
+}
+
+public abstract class TypeDeclarationResult
+{
+    private protected TypeDeclarationResult() { }
+
+    public sealed class Defined : TypeDeclarationResult
+    {
+        internal Defined(TypeDefinitionToken definition) =>
+            Definition = definition;
+
+        public TypeDefinitionToken Definition { get; }
+    }
+
+    public sealed class Forwarded : TypeDeclarationResult
+    {
+        internal Forwarded(
+            ImmutableArray<ExportedTypeToken> declarations,
+            AssemblyReferenceIdentity target)
+        {
+            Declarations = declarations;
+            Target = target;
+        }
+
+        public ImmutableArray<ExportedTypeToken> Declarations { get; }
+        public AssemblyReferenceIdentity Target { get; }
+    }
+
+    public sealed class ExportedFromModule : TypeDeclarationResult
+    {
+        internal ExportedFromModule(
+            ImmutableArray<ExportedTypeToken> declarations,
+            ModuleFileReference module)
+        {
+            Declarations = declarations;
+            Module = module;
+        }
+
+        public ImmutableArray<ExportedTypeToken> Declarations { get; }
+        public ModuleFileReference Module { get; }
+    }
+
+    public sealed class Missing : TypeDeclarationResult
+    {
+        internal Missing() { }
+    }
+
+    public sealed class Ambiguous : TypeDeclarationResult
+    {
+        internal Ambiguous(
+            ImmutableArray<TypeDeclarationCandidate> candidates) =>
+            Candidates = candidates;
+
+        public ImmutableArray<TypeDeclarationCandidate> Candidates { get; }
+    }
+
+    public sealed class Rejected : TypeDeclarationResult
+    {
+        internal Rejected(MetadataTraversalRejection rejection) =>
+            Rejection = rejection;
+
+        public MetadataTraversalRejection Rejection { get; }
+    }
 }
 ```
 
@@ -462,22 +587,47 @@ from an ambiguous scope or an unreadable candidate. It evolves rather than
 gaining a parallel resolver:
 
 ```csharp
-public abstract record AssemblyBindingOutcome
+public abstract class AssemblyBindingOutcome
 {
-    public sealed record Resolved(
-        ResolvedAssemblyCandidate Candidate) : AssemblyBindingOutcome;
+    private protected AssemblyBindingOutcome() { }
 
-    public sealed record Missing : AssemblyBindingOutcome;
+    public sealed class Resolved : AssemblyBindingOutcome
+    {
+        internal Resolved(ResolvedAssemblyCandidate candidate) =>
+            Candidate = candidate;
 
-    public sealed record Unavailable(
-        AssemblyBindingFailure Failure) : AssemblyBindingOutcome;
+        public ResolvedAssemblyCandidate Candidate { get; }
+    }
 
-    public sealed record Ambiguous(
-        ImmutableArray<ResolvedAssemblyCandidate> Candidates)
-        : AssemblyBindingOutcome;
+    public sealed class Missing : AssemblyBindingOutcome
+    {
+        internal Missing() { }
+    }
 
-    public sealed record Rejected(
-        AssemblyBindingFailure Failure) : AssemblyBindingOutcome;
+    public sealed class Unavailable : AssemblyBindingOutcome
+    {
+        internal Unavailable(AssemblyBindingFailure failure) =>
+            Failure = failure;
+
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    public sealed class Ambiguous : AssemblyBindingOutcome
+    {
+        internal Ambiguous(
+            ImmutableArray<ResolvedAssemblyCandidate> candidates) =>
+            Candidates = candidates;
+
+        public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
+    }
+
+    public sealed class Rejected : AssemblyBindingOutcome
+    {
+        internal Rejected(AssemblyBindingFailure failure) =>
+            Failure = failure;
+
+        public AssemblyBindingFailure Failure { get; }
+    }
 }
 
 public interface IAssemblyBindingResolver
@@ -554,6 +704,8 @@ public sealed record TypeForwardingHop(
 
 public abstract class TypeResolutionAmbiguity
 {
+    private protected TypeResolutionAmbiguity() { }
+
     public sealed class AssemblyBinding : TypeResolutionAmbiguity
     {
         internal AssemblyBinding(
@@ -588,7 +740,8 @@ public abstract class TypeResolutionAmbiguity
 
 public abstract class TypeResolutionOutcome
 {
-    protected TypeResolutionOutcome(ImmutableArray<TypeForwardingHop> hops) =>
+    private protected TypeResolutionOutcome(
+        ImmutableArray<TypeForwardingHop> hops) =>
         Hops = hops;
 
     public ImmutableArray<TypeForwardingHop> Hops { get; }
@@ -657,6 +810,8 @@ The catalog exposes the only comparison operation:
 ```csharp
 public abstract class DefinitionCorrespondence
 {
+    private protected DefinitionCorrespondence() { }
+
     public sealed class Same : DefinitionCorrespondence
     {
         internal Same() { }
@@ -1078,45 +1233,75 @@ reachability; final call-site matching does not run a second resolution pass:
 ```csharp
 public abstract class TypeCorrespondenceFailure
 {
-    public sealed class Resolution(TypeResolutionOutcome nonSuccess)
-        : TypeCorrespondenceFailure
+    private protected TypeCorrespondenceFailure() { }
+
+    public sealed class Resolution : TypeCorrespondenceFailure
     {
-        public TypeResolutionOutcome NonSuccess { get; } = nonSuccess;
+        internal Resolution(TypeResolutionOutcome nonSuccess) =>
+            NonSuccess = nonSuccess;
+
+        public TypeResolutionOutcome NonSuccess { get; }
     }
 
-    public sealed class DuplicateArtifact(
-        DefinitionCorrespondence.IndeterminateDuplicateArtifact evidence)
-        : TypeCorrespondenceFailure
+    public sealed class DuplicateArtifact : TypeCorrespondenceFailure
     {
+        internal DuplicateArtifact(
+            DefinitionCorrespondence.IndeterminateDuplicateArtifact evidence) =>
+            Evidence = evidence;
+
         public DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence
-            { get; } = evidence;
+            { get; }
     }
 
-    public sealed class IncomparableCatalogs(
-        AssemblyCatalogId left,
-        AssemblyCatalogId right) : TypeCorrespondenceFailure
+    public sealed class IncomparableCatalogs : TypeCorrespondenceFailure
     {
-        public AssemblyCatalogId Left { get; } = left;
-        public AssemblyCatalogId Right { get; } = right;
+        internal IncomparableCatalogs(
+            AssemblyCatalogId left,
+            AssemblyCatalogId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogId Left { get; }
+        public AssemblyCatalogId Right { get; }
     }
 
-    public sealed class StaleGeneration(
-        AssemblyCatalogGenerationId left,
-        AssemblyCatalogGenerationId right) : TypeCorrespondenceFailure
+    public sealed class StaleGeneration : TypeCorrespondenceFailure
     {
-        public AssemblyCatalogGenerationId Left { get; } = left;
-        public AssemblyCatalogGenerationId Right { get; } = right;
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId left,
+            AssemblyCatalogGenerationId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogGenerationId Left { get; }
+        public AssemblyCatalogGenerationId Right { get; }
     }
 }
 
 public abstract class CandidateTypeRelation
 {
-    public sealed class SameDefinition : CandidateTypeRelation { }
-    public sealed class DifferentDefinition : CandidateTypeRelation { }
-    public sealed class Indeterminate(TypeCorrespondenceFailure failure)
-        : CandidateTypeRelation
+    private protected CandidateTypeRelation() { }
+
+    public sealed class SameDefinition : CandidateTypeRelation
     {
-        public TypeCorrespondenceFailure Failure { get; } = failure;
+        internal SameDefinition() { }
+    }
+
+    public sealed class DifferentDefinition : CandidateTypeRelation
+    {
+        internal DifferentDefinition() { }
+    }
+
+    public sealed class Indeterminate : CandidateTypeRelation
+    {
+        internal Indeterminate(TypeCorrespondenceFailure failure) =>
+            Failure = failure;
+
+        public TypeCorrespondenceFailure Failure { get; }
     }
 }
 ```
@@ -1206,8 +1391,57 @@ public sealed class DefinitionJoinToken : IEquatable<DefinitionJoinToken>
     public override bool Equals(object? obj) =>
         obj is DefinitionJoinToken other && Equals(other);
 
+    public static bool operator ==(
+        DefinitionJoinToken? left,
+        DefinitionJoinToken? right) =>
+        ReferenceEquals(left, right) || left?.Equals(right) is true;
+
+    public static bool operator !=(
+        DefinitionJoinToken? left,
+        DefinitionJoinToken? right) =>
+        !(left == right);
+
     public override int GetHashCode() =>
         HashCode.Combine(_catalog, _generation, _value, Kind);
+}
+
+public sealed class UnresolvedBindingKey : IEquatable<UnresolvedBindingKey>
+{
+    readonly AssemblyCatalogId _catalog;
+    readonly AssemblyCatalogGenerationId _generation;
+    readonly Guid _value;
+
+    internal UnresolvedBindingKey(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        Guid value)
+    {
+        _catalog = catalog;
+        _generation = generation;
+        _value = value;
+    }
+
+    public bool Equals(UnresolvedBindingKey? other) =>
+        other is not null
+        && _catalog == other._catalog
+        && _generation == other._generation
+        && _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is UnresolvedBindingKey other && Equals(other);
+
+    public static bool operator ==(
+        UnresolvedBindingKey? left,
+        UnresolvedBindingKey? right) =>
+        ReferenceEquals(left, right) || left?.Equals(right) is true;
+
+    public static bool operator !=(
+        UnresolvedBindingKey? left,
+        UnresolvedBindingKey? right) =>
+        !(left == right);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(_catalog, _generation, _value);
 }
 ```
 
@@ -1465,6 +1699,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Independently constructed equal `MetadataTypeDefinitionName` values compare
   equal through both `Equals` and `==`, hash equally, and hit one
   declaration/resolution cache entry; `!=` returns false.
+- Independently minted equal `DefinitionJoinToken` and
+  `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
+- Public result hierarchies cannot be externally extended, and product
+  consumers cannot construct correspondence verdict arms.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
   remain separate fields.
 
@@ -1565,6 +1803,8 @@ Prefer dependency and visibility constraints over source scans:
 - candidate ids and join-token constructors are internal, and the internal
   `CatalogMemberJoinKey` factory accepts only catalog-issued
   `DefinitionJoinToken` or `UnresolvedBindingKey` values;
+- correspondence-bearing result bases use `private protected` constructors and
+  every verdict arm uses an internal constructor;
 - Analysis and the CLI cannot access the probe's reader-backed internals;
 - path-only compatibility adapters are internal and deleted with their final
   consumer.
@@ -1579,11 +1819,13 @@ that part because durable addresses are public by design.
 `DefinitionCorrespondenceUsageTests` rejects product uses of equality or
 hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`,
 `TypeResolutionOutcome`, `DefinitionCorrespondence`,
-`TypeCorrespondenceFailure`, or `CandidateTypeRelation`; the catalog comparison
+`TypeCorrespondenceFailure`, `CandidateTypeRelation`,
+`TypeDeclarationResult`, or `TypeDeclarationCandidate`; the catalog comparison
 and join-token APIs are the only semantic correspondence surfaces. It also
-rejects `MetadataTypeDefinitionAddress` equality in caller, source, API, and
-graph correspondence producers; address equality remains allowed only for
-durable-coordinate handling and reader-validation code.
+rejects `MetadataTypeDefinitionAddress` or bare `TypeDefinitionToken` equality
+in caller, source, API, and graph correspondence producers; those value
+equalities remain allowed only inside one known candidate for
+durable-coordinate handling, declaration probing, and reader-validation code.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
