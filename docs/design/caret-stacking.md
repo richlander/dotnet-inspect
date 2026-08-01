@@ -146,11 +146,21 @@ The primary consumer is a terminal. A layout wider than the terminal wraps, and
 a wrapped caret row lands underneath characters it has nothing to do with —
 worse than no caret, because it is actively misleading.
 
-Every caret lies within the code line and a row cannot extend past its last
-caret, so **a stacked caret row never adds width the code line did not already
-have.** Measured on all 2,842 lines this model changes: 0 have a stacked caret
-row wider than their code line, against 20 (0.70%) under the widening render it
-replaces.
+**A stacked caret row never adds width the code line did not already have.**
+That is a structural guarantee rather than a lucky corpus. `Stack` sends any
+extent with `Column + Length > lineLength` to the unplaced list, so every caret
+it does place ends within the line; labels are grown leftward from the column
+they point at, and rule 8 refuses to shift a trail rightward to make room,
+bailing out instead. The rightmost column of a stacked row is therefore bounded
+by the code line by construction.
+
+The corpus agrees — 0 of the 2,842 lines carry a stacked caret row wider than
+their code line — but that count is a consistency check on the derivation above,
+not evidence for it, because no corpus could produce a counter-example. The
+comparison figure is the one that carries information: the widening render this
+replaces overhangs on **20 lines (0.70%)**, because it shifts the caret's start
+column rightward while preserving the full extent length, which is exactly the
+freedom stacking gives up.
 
 Widths below are **final rendered columns**, measured after the same projection
 `ApiOutputFormatter` applies — code lines receive `BodyIndentWidth`, hoisted
@@ -347,7 +357,7 @@ exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `40bb4411d`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `2294697d9`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
