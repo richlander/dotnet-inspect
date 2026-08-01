@@ -154,8 +154,12 @@ jobs:
               # The lint *configuration* is not a `.md` file, so it needs its
               # own case: editing `.markdownlint.yaml` changes how every
               # document is linted, and without this the lint job skips and the
-              # new configuration is never exercised.
+              # new configuration is never exercised. Only a root-level config
+              # exists today, but a `case` pattern is anchored at the start of
+              # the path, so match nested ones too rather than leaving the same
+              # hole open one directory down.
               .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
+              */.markdownlint.*|*/.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
             esac
             # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
