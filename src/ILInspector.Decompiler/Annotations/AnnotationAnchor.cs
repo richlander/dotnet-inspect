@@ -122,10 +122,10 @@ public static class AnnotationAnchor
     /// statement, but has no sub-token to point at, so it is simply absent here
     /// and the caller keeps the statement-wide underline. Measured over
     /// <c>System.Private.CoreLib</c> as the annotated-source view prints it —
-    /// that is, with callee bodies imported — 33,657 of 37,800 facts (89.04%)
+    /// that is, with callee bodies imported — 35,498 of 37,800 facts (93.91%)
     /// get an extent. Every figure quoted in this file is from that render.
     /// The C#-only overlay prints the same members without importing callee
-    /// bodies, which shifts a few printed ranges and yields 33,729; a figure
+    /// bodies, which shifts a few printed ranges and yields 35,502; a figure
     /// here is only meaningful against a stated render, because the printed
     /// text is what extents are measured in.
     /// </para>
@@ -160,10 +160,12 @@ public static class AnnotationAnchor
         // from there indexes straight into these lines. Split on '\n' alone: a
         // '\r' left at a line's end is whitespace and is trimmed below.
         var lines = printedRanges.Output.Split('\n');
+        var adopted = AdoptedPrintedByOffset(annotations, statements, printedRanges, narrowest);
 
         foreach (var annotation in annotations)
         {
-            if (!narrowest.TryGetValue(annotation.SourceOffset, out var node))
+            if (!narrowest.TryGetValue(annotation.SourceOffset, out var node)
+                && !adopted.TryGetValue(annotation.SourceOffset, out node))
                 continue;
             if (Best(statements, annotation.SourceOffset) is not { } owner)
                 continue;
@@ -192,7 +194,7 @@ public static class AnnotationAnchor
     /// narrowest node carrying an offset is the statement itself the raw extent
     /// covers the leading whitespace and a caret drawn from it would start left
     /// of the code. Measured over <c>System.Private.CoreLib</c> as the
-    /// annotated-source view prints it, the trim moves 205 of the 33,657
+    /// annotated-source view prints it, the trim moves 205 of the 35,498
     /// extents and rejects none of them. Trimming makes such
     /// an extent coincide with the statement-wide default rather than
     /// mis-drawing, and leaves every extent that already named an expression
@@ -200,7 +202,7 @@ public static class AnnotationAnchor
     /// <para>
     /// The clamp on the far end is defensive rather than load-bearing today:
     /// <see cref="PrintedRangeMap.TryGetLineColumn"/> refuses any range that
-    /// crosses a line break, so of the 33,657 ranges the caller delivers here,
+    /// crosses a line break, so of the 35,498 ranges the caller delivers here,
     /// 0 overhang the line and 650 end exactly on its last character. It is
     /// kept, and gated, because this is an internal helper taking a
     /// caller-supplied range: the cost is one
@@ -278,6 +280,89 @@ public static class AnnotationAnchor
                 standIn.Remove(offset);
         }
         return narrowest;
+    }
+
+    /// <summary>
+    /// Extents for offsets whose owning node prints nothing, taken from the
+    /// narrowest printed node inside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="NarrowestPrintedByOffset"/> can only answer for an offset some
+    /// printed node carries, and a whole class of facts is about a node C# has
+    /// no syntax for. Boxing is the case that dominates: <c>Box</c> emits no
+    /// characters, so an <c>alloc.box</c> fact stamped with the box's offset has
+    /// no printed owner, and before this the fact fell back to the
+    /// statement-wide underline. What the reader wants pointed at is the value
+    /// being boxed, and that node <em>is</em> printed, one level down.
+    /// </para>
+    /// <para>
+    /// Measured over <c>System.Private.CoreLib</c> as the annotated-source view
+    /// prints it: of 37,800 facts, 4,143 had no extent. For 2,573 the offset
+    /// belonged to a node that exists but prints nothing, and 1,907 of those
+    /// have a printed descendant — 1,899 of them boxes, whose descendants are
+    /// the boxed expression itself (1,234 <c>LoadArgument</c>, 510
+    /// <c>LoadLocal</c>, 104 <c>LoadIndirect</c>, 42 <c>Constant</c>, the rest
+    /// field and property loads). That is the population this recovers.
+    /// </para>
+    /// <para>
+    /// Descent only, never ascent. A printed <em>ancestor</em> is available for
+    /// a further 576, but an ancestor's range is wider than the fact — it is the
+    /// statement-wide underline this is trying to escape — so adopting it would
+    /// dress up today's fallback as a narrow extent while pointing at the same
+    /// characters. Those keep the fallback and are honest about it.
+    /// </para>
+    /// <para>
+    /// Built only for offsets the annotations actually ask about and that
+    /// <paramref name="narrowest"/> cannot answer, so a body whose facts all
+    /// anchor to printed nodes walks no extra tree.
+    /// </para>
+    /// </remarks>
+    static Dictionary<int, IrNode> AdoptedPrintedByOffset(
+        IReadOnlyList<IAnnotation> annotations,
+        List<StatementSpan> statements,
+        PrintedRangeMap printedRanges,
+        Dictionary<int, IrNode> narrowest)
+    {
+        var adopted = new Dictionary<int, IrNode>();
+        HashSet<int>? wanted = null;
+        foreach (var annotation in annotations)
+        {
+            if (narrowest.ContainsKey(annotation.SourceOffset) || annotation.SourceOffset < 0)
+                continue;
+            wanted ??= [];
+            wanted.Add(annotation.SourceOffset);
+        }
+        if (wanted is null)
+            return adopted;
+
+        var widths = new Dictionary<int, int>();
+        foreach (var span in statements)
+        {
+            foreach (var node in Self(span.Statement))
+            {
+                int offset = node.SourceOffset;
+                if (offset < 0 || !wanted.Contains(offset))
+                    continue;
+                // The owner prints nothing; look inside it for something that does.
+                if (printedRanges.TryGetRange(node, out _))
+                    continue;
+                foreach (var inner in node.Descendants)
+                {
+                    if (!printedRanges.TryGetRange(inner, out var range))
+                        continue;
+                    int width = range.End.Value - range.Start.Value;
+                    // A zero-width range names no characters to point at.
+                    if (width <= 0)
+                        continue;
+                    if (widths.TryGetValue(offset, out int best) && best <= width)
+                        continue;
+                    widths[offset] = width;
+                    adopted[offset] = inner;
+                }
+            }
+        }
+        return adopted;
     }
 
     /// <summary>

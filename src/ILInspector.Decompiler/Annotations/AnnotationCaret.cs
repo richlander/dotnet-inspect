@@ -233,34 +233,40 @@ public static class AnnotationCaret
     /// <c>System.Private.CoreLib</c> as the annotated-source view prints it,
     /// after the focus filter and summed over the five focus families —
     /// <c>--focus</c> promotes only one family to carets, so a count over every
-    /// collected fact describes a render no invocation produces — 27,091 of
-    /// 32,864 caret-bearing lines (82.43%) narrow to one agreed extent, 8.65%
-    /// carry facts that disagree, and 8.92% have no fact with a printed node to
+    /// collected fact describes a render no invocation produces — 28,215 of
+    /// 32,864 caret-bearing lines (85.85%) narrow to one agreed extent, 9.45%
+    /// carry facts that disagree, and 4.70% have no fact with a printed node to
     /// point at. Only the middle group changes geometry: the narrowing lines and
-    /// the no-extent lines both render as they do today, so 30,022 of the 32,864
-    /// (91.35%) are untouched. The 82.43% is the narrowing share, not the
-    /// unchanged share, and must not be quoted as the latter. Agreement is entirely a single-fact phenomenon here: 29,550 of
-    /// those lines hold one fact and 91.7% of them narrow, while none of
-    /// the 2,282 two-fact, 714 three-fact or 318 four-or-more-fact lines
-    /// narrows. Two facts of one family on one line never share an extent in
-    /// this corpus, so for them the disagreement return below does all the work.
-    /// That 91.7% is itself padded: 2,459 of the 29,550 single-fact lines hold a
-    /// fact with no extent, which cannot narrow. Conditioned on the 27,091 that
+    /// the no-extent lines both render as they do today, so 29,759 of the 32,864
+    /// (90.55%) are untouched. The 85.85% is the narrowing share, not the
+    /// unchanged share, and must not be quoted as the latter. Agreement is
+    /// almost entirely a single-fact phenomenon here: 29,550 of those lines
+    /// hold one fact and 95.3% of them narrow, against 64 of the
+    /// 2,282 two-fact lines and none of the 714 three-fact or 318
+    /// four-or-more-fact ones. Those 64 are real agreement between two facts,
+    /// and they exist because an extent can be adopted rather than owned: two
+    /// facts whose own nodes print nothing can descend to the same printed node
+    /// — a boxed argument carrying both an <c>alloc.box</c> and a second fact at
+    /// the same offset — and then genuinely share one extent. Before adoption
+    /// no two facts of one family shared an extent in this corpus at all, so a
+    /// remark claiming that is stale rather than merely imprecise.
+    /// That 95.3% is itself padded: 1,399 of the 29,550 single-fact lines hold a
+    /// fact with no extent, which cannot narrow. Conditioned on the 28,151 that
     /// could, every one does -- 100%. That is close to necessary but not quite:
     /// one fact with an extent is one extent and agrees with itself, so the loop
     /// above cannot reject it, but the bounds check below still can, and would
     /// on a negative column, a non-positive length, or an extent running past
     /// <paramref name="lineLength"/> because a consumer re-wrapped the line. In
     /// this corpus none of those occurs, so the rate is 100% as measured rather
-    /// than 100% by construction. The 91.7% measures how
+    /// than 100% by construction. The 95.3% measures how
     /// often a single fact has an extent, not how often agreement holds.
-    /// The 82.43% headline is padded the other way: 29,550 of its lines carry a
+    /// The 85.85% headline is padded the other way: 29,550 of its lines carry a
     /// single fact and cannot disagree at all. Conditioned on the 3,314 lines
-    /// that could, agreement is 0.
+    /// that could, agreement is 64 (1.9%).
     /// That is what this measures, not a mechanism — what is compared is
     /// rendered extents, not offsets, and nothing prevents two facts sharing
-    /// one. Density is not the only reason this returns null: 2,459 of the
-    /// 5,773 null lines carry a single fact that has no extent at all.
+    /// one. Density is not the only reason this returns null: 1,399 of the
+    /// 4,649 null lines carry a single fact that has no extent at all.
     /// </remarks>
     static AnnotationAnchor.CaretExtent? Agreed(
         IReadOnlyList<IAnnotation> annotations,
@@ -327,7 +333,7 @@ public static class AnnotationCaret
     /// extent sent to a different row never shortens its parent. Nor does it
     /// make each row narrower than the one above -- a later disjoint extent can
     /// be packed onto a lower row and reach further right than anything above
-    /// it, which happens on 50 of the 2,842 lines that stack in
+    /// it, which happens on 50 of the 3,105 lines that stack in
     /// System.Private.CoreLib, as the annotated-source view prints it, summed
     /// over the five focus families. Of the 2,682 clipped trails, the successor
     /// extent whose label does the clipping is nested inside the trail it clips
@@ -389,52 +395,52 @@ public static class AnnotationCaret
     /// it, summed over the five focus families and counted after the focus
     /// filter, because <c>--focus</c> promotes only the requested family to
     /// carets and a figure taken over every collected fact describes a render
-    /// no invocation produces. Rendering each of the 2,842 lines that stack
-    /// through this method and reading the output back: 2,543 (89.5%) take a
+    /// no invocation produces. Rendering each of the 3,105 lines that stack
+    /// through this method and reading the output back: 2,806 (90.4%) take a
     /// single row, 297 take two, and two take more, neither above four. That
-    /// 89.5% is itself padded — 254 of those lines carry a single extent group
-    /// and cannot occupy more than one row — so the rate among the 2,588 lines
-    /// with something to pack is 2,289 (88.4%). That 2,588 is padded in turn, by
+    /// 90.4% is itself padded — 255 of those lines carry a single extent group
+    /// and cannot occupy more than one row — so the rate among the 2,850 lines
+    /// with something to pack is 2,551 (89.5%). That 2,850 is padded in turn, by
     /// the same structural fact this remark states below: extents sharing a start
     /// column can never share a row, so the 136 lines carrying two distinct
     /// extents at one column cannot take a single row whatever the packer does.
-    /// Among the remaining 2,452 the rate is 2,289 (93.4%). "Remaining" is the
-    /// careful word: those 2,452 are not all able to take one row either -- 163
+    /// Among the remaining 2,714 the rate is 2,551 (94.0%). "Remaining" is the
+    /// careful word: those 2,714 are not all able to take one row either -- 163
     /// of them are refused by the row admission below because their extents sit
     /// too close together. They are left in deliberately. Crowding is the thing
     /// this rate exists to measure, so excluding lines for being crowded would
     /// drive it to 100% and measure nothing. A shared start column is excluded
     /// because it is a different phenomenon: two extents anchored at one column
-    /// are a nesting, not a packing failure. 3,884
-    /// of 6,566 trails (59.2%) render at true width, but that rate is padded by
+    /// are a nesting, not a packing failure. 4,411
+    /// of 7,093 trails (62.2%) render at true width, but that rate is padded by
     /// a structural immunity: the last trail on a row has no successor, so its
     /// clip limit is <c>int.MaxValue</c> and it renders at true width by
-    /// construction. Those 2,842 lines occupy 3,144 rows, so 3,144 of the 3,884
-    /// could not have been clipped, and they are 3,144 of the 3,884 counted as
-    /// rendering at true width. Of the 3,422 trails that were actually
-    /// exposed to a successor, 740 (21.6%) survived at true width. Five of those
+    /// construction. Those 3,105 lines occupy 3,407 rows, so 3,407 of the 4,411
+    /// could not have been clipped, and they are 3,407 of the 4,411 counted as
+    /// rendering at true width. Of the 3,686 trails that were actually
+    /// exposed to a successor, 1,004 (27.2%) survived at true width. Eight of those
     /// are immune too, their extents being no longer than <c>MinTrail</c>, which
-    /// row admission already reserves; among the 3,417 trails that could
-    /// genuinely be cut, 735 (21.5%) survived and 2,682 (78.5%) were clipped.
+    /// row admission already reserves; among the 3,678 trails that could
+    /// genuinely be cut, 996 (27.1%) survived and 2,682 (72.9%) were clipped.
     /// That is the figure with information in it.
     /// No stacked caret row is
     /// wider than the code line it annotates, which is structural rather than
     /// measured: <see cref="Stack"/> sends any extent reaching past
     /// <c>lineLength</c> to the unplaced list, labels grow leftward, and the
     /// gutter guard bails out rather than shifting a trail rightward, so the
-    /// rightmost column is bounded by the line. The 0 observed on those 2,842
+    /// rightmost column is bounded by the line. The 0 observed on those 3,105
     /// lines checks that derivation and cannot falsify it.
     /// </para>
     /// <para>
     /// The comparison against the widening render is narrower than it first
     /// looks, and an earlier revision of this remark overstated it twice. No
     /// caret <em>glyph</em> overhangs the code line in <em>either</em> render:
-    /// measured over the same 2,842 lines, both are 0, because the widening
+    /// measured over the same 3,105 lines, both are 0, because the widening
     /// underline covers the trimmed statement, which ends within the line. What
     /// differs is the rendered <em>row</em>. Widening appends the first detail
     /// string to the caret row when it fits the inline budget, and that appended
     /// text carries the row past the end of the code line. Quoting this as 20 of
-    /// 2,842 lines (0.70%) pads the denominator with the 2,822 whose detail never
+    /// 3,105 lines (0.64%) pads the denominator with the 3,085 whose detail never
     /// goes inline and which therefore cannot overhang at all: inline detail
     /// appears on exactly 20 of these lines and all 20 overhang, so the rate is
     /// 20/20. The reason it comes out whole is that on the hoisted render these
@@ -470,7 +476,7 @@ public static class AnnotationCaret
             // The gutter owns everything left of commentColumn + 2. A label that
             // will not fit after it cannot be drawn at the column it points at,
             // and shifting it would make it point somewhere else. This is a
-            // guard, not a path with known traffic: it fires on 0 of the 2,842
+            // guard, not a path with known traffic: it fires on 0 of the 3,105
             // lines that *qualify* to stack in System.Private.CoreLib, as the
             // annotated-source view prints it, summed over the five focus
             // families and counted after the focus filter. Qualifying is the
@@ -479,7 +485,7 @@ public static class AnnotationCaret
             // label before the caret run, not by the absence of a caret row --
             // falling back still renders the widening caret, so the latter
             // test could never fire. Raising the margin to +6 makes this fire
-            // on 306 of the 2,842 and to +200 on all of them, so the zero is a
+            // on 306 of the 3,105 and to +200 on all of them, so the zero is a
             // property of the corpus rather than of the measurement.
             if (LabelStart(i) < commentColumn + 2)
                 return null;
