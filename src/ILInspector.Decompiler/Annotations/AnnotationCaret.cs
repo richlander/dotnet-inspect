@@ -289,7 +289,7 @@ public static class AnnotationCaret
         out List<IAnnotation> unplaced)
     {
         unplaced = [];
-        if (extents is null || extents.Count == 0)
+        if (extents is null)
             return null;
 
         var groups = new List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>();
