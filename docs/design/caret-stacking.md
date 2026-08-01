@@ -80,9 +80,13 @@ depicts a layout that was never built. This one is
    together under it. Under `--focus alloc`, `Tuple.Equals` renders 8 carets
    for its 16 facts.
 2. **Order by start column, widest first at a tie.** Extents sharing a start
-   column are always a nesting, so they cannot share a row; widest-first makes
-   each row narrower than the one above, and matches the order the printer
-   records nesting in.
+   column are always a nesting, so they cannot share a row; widest-first puts
+   the outer one first, so the inner caret is clipped into its parent's trail
+   rather than overwriting it, and it matches the order the printer records
+   nesting in. This orders *same-start* extents only and says nothing about row
+   widths overall: a later disjoint extent can be packed onto a lower row and
+   reach further right than anything above it, which happens on **50 of the
+   2,842** lines.
 3. **Number in that order,** `1.` upward, and label each caret with its number
    immediately before the trail.
 4. **Pack greedily onto rows.** An extent joins the first row where the
@@ -110,7 +114,9 @@ depicts a layout that was never built. This one is
    when any label on a line would begin left of the gutter, that line does not
    stack at all: it falls back to the widening render this document replaces.
    This is a guard rather than a path with traffic — it fires on **0 of the
-   2,842 lines that stack** in the corpus below — but it is reachable, and a
+   2,842 lines that qualify to stack** in the corpus below, which is the
+   non-circular denominator, since a line it rejects does not stack by
+   construction — but it is reachable, and a
    line is never rendered with a label that lies about its column.
 
 Rule 4's two-column threshold is a *spill* threshold, not a render floor: a
@@ -352,12 +358,12 @@ Applying the specification to the 2,842 lines that stack:
 
 3,884 of 6,566 trails (59.2%) render at true width. Clipping concentrates
 exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
-2,842.
+2,842 lines qualifying to stack before it runs.
 
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `2294697d9`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `3d0e2afb0`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
