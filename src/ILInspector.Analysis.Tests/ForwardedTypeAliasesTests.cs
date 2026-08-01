@@ -4510,25 +4510,35 @@ public class ForwardedTypeAliasesTests
     /// caller row (round 28, GPT-5.6 Sol). A destination that forwards this type is now walked
     /// through rather than stopped at, so the answer comes from where the type actually goes.
     ///
-    /// <para>One fixture, both destinations. When <c>mscorlib</c> really does forward to the target
-    /// the alias must still be granted, so the refusal in the other case cannot pass merely because
-    /// the chain failed to resolve at all. That positive case is also the only gate on the canonical
-    /// arm of the arrival test at all: deleting the arm outright left the whole suite green before
-    /// this test existed.</para>
+    /// <para>A grid, because the arrival test has two arms and each needed gating in both
+    /// directions. The facade is spelled either <c>mscorlib</c>, which reaches the arm that
+    /// canonicalizes, or literally <c>corelib</c>, which reaches the arm that compares the name as
+    /// written — and that arm compares against the target's CANONICAL name, so an assembly actually
+    /// named <c>corelib</c> satisfied it without being the target, reopening the same fabrication
+    /// one spelling over (round 29, GPT-5.6 Sol).</para>
+    ///
+    /// <para>The arriving rows are what make the refusing rows mean anything: without them a
+    /// refusal could pass merely because the chain failed to resolve at all. They are also the only
+    /// gate the arrival test has in the drop direction — deleting either arm outright left the
+    /// whole suite green before this test existed.</para>
     /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void ACoreLibrarySpellingForwardingTheTypeOnwardDoesNotEndTheChain(bool routesToTheTarget)
+    [InlineData("mscorlib", true)]
+    [InlineData("mscorlib", false)]
+    [InlineData("corelib", true)]
+    [InlineData("corelib", false)]
+    public void ACoreLibrarySpellingForwardingTheTypeOnwardDoesNotEndTheChain(
+        string facade,
+        bool routesToTheTarget)
     {
         byte[] targetKey = [.. Enumerable.Repeat((byte)0x71, 16)];
-        byte[] coreSpellingKey = [.. Enumerable.Repeat((byte)0x72, 16)];
+        byte[] facadeKey = [.. Enumerable.Repeat((byte)0x72, 16)];
         byte[] otherKey = [.. Enumerable.Repeat((byte)0x73, 16)];
         string directory = NewTempDirectory();
         try
         {
-            // Both definers exist in either case, so the census is identical across the two rows and
-            // the only thing that varies is where the core-library spelling sends the type.
+            // Both definers exist in every row, so the census is identical across the grid and the
+            // only things that vary are the facade's spelling and where it sends the type.
             WriteDefiner(
                 directory, "System.Private.CoreLib", "Contoso", "Widget", "System.Private.CoreLib",
                 targetKey, new Version(1, 0, 0, 0));
@@ -4539,13 +4549,13 @@ public class ForwardedTypeAliasesTests
             string destination = routesToTheTarget ? "System.Private.CoreLib" : "Contoso.OtherDefiner";
             byte[] destinationKey = routesToTheTarget ? targetKey : otherKey;
             WriteForwarder(
-                directory, "mscorlib", destination, "Contoso", "Widget",
-                publicKey: coreSpellingKey, fileName: "mscorlib",
+                directory, facade, destination, "Contoso", "Widget",
+                publicKey: facadeKey, fileName: facade,
                 version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(destinationKey));
             WriteForwarder(
-                directory, "Contoso.A", "mscorlib", "Contoso", "Widget",
+                directory, "Contoso.A", facade, "Contoso", "Widget",
                 publicKey: null, fileName: "Contoso.A",
-                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(coreSpellingKey));
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(facadeKey));
 
             var target = TypeRef.Definition("System.Private.CoreLib", "Contoso", "Widget");
             var aliases = ForwardedTypeAliases.ForTarget(
@@ -4555,19 +4565,77 @@ public class ForwardedTypeAliasesTests
                 seedSpellings: null);
 
             using var caller = BuildCallerNaming("Contoso.A", "Contoso", "Widget");
-            Assert.Equal(
-                routesToTheTarget
-                    ? CallerScopeTypeFilter.TypeReferenceState.Names
-                    : CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
-                CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
-
             var callee = new MemberRef(
                 TypeRef.Definition("Contoso.A", "Contoso", "Widget"),
                 "Call", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+            var pattern = MemberPattern.Method(target, "Call");
+
+            // The third element is the control: the caller never names the target directly, so
+            // anything the row reports is the alias machinery's doing and not a plain match.
             Assert.Equal(
-                routesToTheTarget,
-                MemberPattern.Method(target, "Call")
-                    .MatchesCrossAssembly(callee, aliases.RestrictedTo(caller.GetMetadataReader())));
+                (routesToTheTarget
+                    ? CallerScopeTypeFilter.TypeReferenceState.Names
+                    : CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                    Aliased: routesToTheTarget,
+                    Unaliased: false),
+                (CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases),
+                    Aliased: pattern.MatchesCrossAssembly(
+                        callee, aliases.RestrictedTo(caller.GetMetadataReader())),
+                    Unaliased: pattern.MatchesCrossAssembly(callee)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The same clause, reached without a core-library bucket anywhere in the picture. The target's
+    /// OWN spelling carries a forwarder row for the type — so the type is not defined there — and
+    /// the route that row names is pruned as unverifiable because its destination is absent from
+    /// the scope. Arrival then compared the destination against the target's name, matched, and
+    /// vouched for a caller that reaches only the forwarder, FABRICATING a row (round 29,
+    /// Gemini 3.1 Pro, found independently of the <c>corelib</c> spelling above).
+    ///
+    /// <para>Kept apart from that grid because it exercises the arrival test through a different
+    /// route: no canonicalization is involved at any point, and there is no definer in the scope at
+    /// all. What the two share is the clause they land on, which is why the gate belongs to arrival
+    /// as a whole rather than to either arm.</para>
+    /// </summary>
+    [Fact]
+    public void TheTargetsOwnSpellingForwardingTheTypeAwayIsNotArrival()
+    {
+        byte[] absentKey = [.. Enumerable.Repeat((byte)0x91, 16)];
+        string directory = NewTempDirectory();
+        try
+        {
+            // Contoso.OtherDefiner is deliberately never written, so the route out of the target's
+            // spelling cannot be verified and is pruned.
+            WriteForwarder(
+                directory, "Contoso.Target", "Contoso.OtherDefiner", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.Target",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(absentKey));
+            WriteForwarder(
+                directory, "Contoso.A", "Contoso.Target", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.A",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: null);
+
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target, targetAssemblyPath: null, Directory.GetFiles(directory, "*.dll"), seedSpellings: null);
+
+            using var caller = BuildCallerNaming("Contoso.A", "Contoso", "Widget");
+            var callee = new MemberRef(
+                TypeRef.Definition("Contoso.A", "Contoso", "Widget"),
+                "Call", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+            var pattern = MemberPattern.Method(target, "Call");
+
+            Assert.Equal(
+                (CallerScopeTypeFilter.TypeReferenceState.DoesNotName, Aliased: false, Unaliased: false),
+                (CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases),
+                    Aliased: pattern.MatchesCrossAssembly(
+                        callee, aliases.RestrictedTo(caller.GetMetadataReader())),
+                    Unaliased: pattern.MatchesCrossAssembly(callee)));
         }
         finally
         {

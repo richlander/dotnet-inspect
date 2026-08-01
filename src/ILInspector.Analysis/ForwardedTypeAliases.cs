@@ -1483,31 +1483,46 @@ public sealed class ForwardedTypeAliases
         // this walk's own visited set — an ordinal comparison silently dropped a caller whose
         // forwarder spelled the definer's name in another case (executed in review of 7572838c).
         //
-        // The CANONICAL arm additionally refuses to terminate at a spelling that carries a
-        // forwarder row for this type. Canonicalization is a MATCHING rule, not a ROUTING rule,
-        // and letting it end the walk broke that: `mscorlib` canonicalizes into the bucket of a
-        // target defined in `System.Private.CoreLib`, so a chain reaching `mscorlib` was credited
-        // with arriving — even though `mscorlib`'s own ExportedType row says the type goes ON to a
-        // different definer, which is proof the type is not in the bucket. Every spelling routed
-        // through such a facade was then vouched for, FABRICATING a caller row (round 28,
-        // GPT-5.6 Sol). A forwarding destination is walked through rather than stopped at, so the
-        // answer comes from where the type actually goes.
+        // A destination that carries a forwarder row for this type is never arrival. That row is
+        // proof the type is not defined there, so the walk must go on to wherever the row points.
+        // Terminating there instead broke the rule this file is built on — canonicalization is a
+        // MATCHING rule, not a ROUTING rule: `mscorlib` canonicalizes into the bucket of a target
+        // defined in `System.Private.CoreLib`, so a chain reaching `mscorlib` was credited with
+        // arriving although `mscorlib`'s own row sends the type ON to a different definer. Every
+        // spelling routed through such a facade was vouched for, FABRICATING a caller row (round
+        // 28, GPT-5.6 Sol).
         //
         // The falsifying fact is the EXISTENCE of the row, so it is taken from the raw census and
         // not from <paramref name="forwardsTo"/>: an unverifiable or unreachable route is pruned
         // out of the hop map, and reading the absence of a route as "the type is defined here" is
         // the fabrication itself. `mscorlib` in the fixture is pruned exactly that way.
         //
-        // The EXACT arm is deliberately not gated: it is identity rather than canonical
-        // approximation, and a spelling that literally is the target is the case the target's own
-        // self-exemption above already owns.
+        // The gate covers arrival as a WHOLE, not one arm of it. It was first written over the
+        // canonical arm alone, on the ground that the other arm is identity rather than
+        // approximation — which is wrong, and exploitable twice over. <paramref name="targetAssembly"/>
+        // is the target's CANONICAL name (TypeRef.Definition canonicalizes), so that arm does not
+        // compare identities: for a core-library target it compares against the literal string
+        // "corelib", which an assembly actually NAMED `corelib` satisfies without being the target
+        // (GPT-5.6 Sol), and more generally it terminates at the target's own spelling even when
+        // that spelling carries a forwarder row and its route was pruned as unverifiable (Gemini
+        // 3.1 Pro). Both reopened the round-28 fabrication one spelling over; round 29 found them
+        // independently of each other. Identity is not this function's job in any case — the
+        // target's own self-exemption above answers that.
+        //
+        // The two arms overlap in every ordinary scope, and measurably so: deleting the first one
+        // leaves all 689 tests green and the eleven-case behavioural probe byte-identical. It is
+        // kept because the overlap is not total. CanonicalAssembly's five-name test is ORDINAL
+        // (#3571), so a target whose name is spelled `MSCORLIB` canonicalizes to itself rather than
+        // to the bucket, and only the first arm then reaches a destination spelled `mscorlib`.
+        // Removing it would be a silent DROP in that corner, which is #3571's to fix, not this
+        // walk's.
         static bool Arrives(
             string destination,
             string targetAssembly,
             IReadOnlySet<string> forwardingSpellings)
-            => string.Equals(destination, targetAssembly, StringComparison.OrdinalIgnoreCase)
-                || (!forwardingSpellings.Contains(destination)
-                    && string.Equals(
+            => !forwardingSpellings.Contains(destination)
+                && (string.Equals(destination, targetAssembly, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(
                         TypeRef.CanonicalAssembly(destination), targetAssembly, StringComparison.OrdinalIgnoreCase));
     }
 
