@@ -323,7 +323,14 @@ extent still has nothing to point at, so it widens exactly as before.
   render exactly as they do today, **30,022 of 32,864 caret lines (91.4%) are
   untouched** and 2,842 (8.6%) change; see [Measurements](#measurements) for how
   that is counted and why the focus family has to be named before the number
-  means anything.
+  means anything. That denominator is the whole shipped population on purpose —
+  the claim is how much existing output this changes, not a rate of some
+  outcome among the cases capable of it. Read the other way it is a mechanism
+  rather than a measurement: 27,091 + 2,931 is exactly 30,022, so the 2,842 is
+  precisely the complement, and **every line that can stack does**. `Agreed`
+  returns null on exactly the lines this model treats differently — any fact
+  missing an extent, or two extents disagreeing — so the two populations are
+  the same set by construction, not by coincidence.
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
   where some other fact does have one, and only when that line stacks: it is
@@ -562,8 +569,12 @@ intact at 80 columns against 75.7% for the bare code — or **36.4%** once the
 denominator is restricted to the 22,662 lines whose bare code fits at all.
 Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
 on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
-filed as #3610. It wraps 71.9% of lines, and the wrap destroys the very
-adjacency that motivates it. The obvious first candidate for a wide style.
+filed as #3610. That number is derived, not measured directly: the line is
+**57,940** characters, one extent covers all of it, and the style above sets
+text two columns past the caret. At a one-column gap it is 57,941; the gap is
+a style parameter, so the line length is the figure that means anything. It
+wraps 71.9% of lines, and the wrap destroys the very adjacency that motivates
+it. The obvious first candidate for a wide style.
 
 ### Constant-width caret trails
 
