@@ -57,10 +57,10 @@ whose shared product carrier does not yet exist.
 | `TypeResolutionRequest` | Proposed | Metadata | One resolution operation | Typed start candidate/binding target plus exact lookup name | Replacing a decoded reference's provenance or serving as a reusable identity |
 | `ResolvedAssemblyCandidate` | Proposed | Metadata catalog | One catalog | The catalog-local descriptor for an acquired assembly; its candidate id addresses catalog-owned inventory and session state | Owning sessions itself, or durable identity outside the catalog |
 | `TypeResolutionOutcome` | Proposed | Metadata resolution | One frozen catalog generation | The complete resolution verdict, including non-success evidence and ordered forwarding hops | Definition equality or a success-shaped nullable result |
-| `TypeForwardingHop` | Proposed | Metadata resolution | One resolution outcome | Evidence for one verified forwarding transition | Definition identity or correspondence |
+| `TypeForwardingHop` | Proposed | Metadata resolution | One resolution outcome | Evidence for one verified `ExportedType` declaration and its exact target reference, retained even when target binding fails | Proof that target binding completed, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | Proposed | Metadata resolution | One frozen catalog generation | The successful definition payload: candidate, exact name, durable address, and opaque key | Carrying forwarding hops, equality through object comparison, persistence as a whole |
 | `ResolvedTypeDefinitionKey` | Proposed | Metadata catalog | One frozen catalog generation | Input to the catalog's exact `DefinitionCorrespondence` operation | Hashing, sorting, cross-catalog comparison, durable storage |
-| `DefinitionCorrespondence` | Proposed | Metadata catalog | Comparison under one catalog generation | Typed same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
+| `DefinitionCorrespondence` | Proposed | Metadata catalog | One catalog comparison operation, including catalog/generation compatibility validation | Typed same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
 | `MetadataTypeDefinitionAddress` | Proposed | Metadata | Durable MVID plus validated TypeDef token | Re-locating one definition after reopening the same module | Proof that two artifacts correspond |
 | `DefinitionJoinToken` | Proposed | Metadata catalog | One frozen catalog generation | Hashable exact-or-indeterminate projection issued by the catalog for graph joins | Display, persistence, reconstruction from addresses |
 | `ILInspector.Analysis.TypeRef` | Current | Analysis | Analysis evidence and caches | Structural IL/signature shape, call matching, Analysis-specific trust evidence | Exact forwarded-definition correspondence, compile-back fidelity |
@@ -95,7 +95,8 @@ Conversions are operations with an owner, not implicit casts:
 
 | From | To | Owner and rule |
 | --- | --- | --- |
-| TypeDef / ExportedType handle | proposed token or `MetadataTypeDefinitionAddress` | Metadata validates table, row bounds, candidate/module, and MVID before materializing |
+| TypeDef handle | `TypeDefinitionToken` or `MetadataTypeDefinitionAddress` | Metadata validates table, row bounds, candidate/module, and MVID before materializing |
+| ExportedType handle | `ExportedTypeToken` | Metadata validates the row and bounded relationship traversal; an exported row cannot become a TypeDef address |
 | MethodDef handle | `MetadataMethodAddress` | MetadataPrimitives captures the physical module MVID; every consumer revalidates MVID and row bounds before dereferencing |
 | Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
 | Decoded Analysis type reference | `ResolvableTypeReference` | Analysis retains `TypeReferenceOrigin` beside the exact lookup name; origin is not inferred from `TypeRef.Assembly` |
