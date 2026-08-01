@@ -1725,7 +1725,9 @@ For one builder request:
    `Rejected(PlanExpansionRequired(Binding(request)))`.
 3. Open the selected assembly through the context.
 4. Probe the exact structured type name.
-5. On `Defined`, materialize the definition key and finish.
+5. On `Defined`, record the terminal candidate and `TypeDefinitionToken` in the
+   recipe and finish. Only freeze projects those coordinates into a
+   generation-scoped definition key.
 6. On `Missing`, return `NotFound`.
 7. On `Ambiguous`, return `Ambiguous`.
 8. On `Rejected`, return `Rejected`.
