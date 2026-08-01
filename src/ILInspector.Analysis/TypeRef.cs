@@ -108,8 +108,31 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public static TypeRef CoreLib(string ns, string name) => Definition(CoreLibrary, ns, name);
 
+    // A constructed generic genuinely *has* an assembly, a namespace and a name -- `IList<int>`
+    // is `System.Collections.Generic.IList`1` with one type argument. Only the arguments are
+    // extra. Leaving the identity fields empty and parking identity solely on ElementType meant
+    // every consumer that asked a constructed type what it was called got two empty strings back,
+    // with no failure to distinguish that from a type that genuinely has no name.
+    //
+    // That is success-shaped empty output, and it was load-bearing: a `callvirt` on a constructed
+    // generic resolves its parent through here, so the whole-product call graph recorded those
+    // edges as pointing at `[]::[]`. Members reached only through a constructed interface were
+    // therefore invisible to any analysis keyed on declaring-type identity.
+    //
+    // These fields are a pure function of ElementType, so equality and hashing are unchanged (two
+    // generic instances already compare equal exactly when their element and arguments do), and
+    // rendering is unchanged because ToDisplayString/ToQualifiedDisplayString compose the element
+    // and the arguments rather than reading these fields. Presentation still shows the constructed
+    // spelling; only identity stops being blank.
     public static TypeRef GenericInstance(TypeRef definition, ImmutableArray<TypeRef> typeArguments)
-        => new(TypeRefKind.GenericInstance) { ElementType = definition, TypeArguments = typeArguments };
+        => new(TypeRefKind.GenericInstance)
+        {
+            Assembly = definition.Assembly,
+            Namespace = definition.Namespace,
+            Name = definition.Name,
+            ElementType = definition,
+            TypeArguments = typeArguments,
+        };
 
     public static TypeRef SzArray(TypeRef element) => new(TypeRefKind.SzArray) { ElementType = element };
     public static TypeRef MdArray(TypeRef element, int rank) => new(TypeRefKind.Array) { ElementType = element, Rank = rank };

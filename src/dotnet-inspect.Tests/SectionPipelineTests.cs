@@ -1926,6 +1926,52 @@ public class SectionPipelineTests
             .SelectMany(path => ILInspector.Analysis.LibraryBodyIndex.Open(path).DirectCalls)
             .ToList();
 
+        // The whole graph below is only as good as the product's own member resolution, and a
+        // silent decode failure there is invisible to every assertion built on top of it. That is
+        // not hypothetical: a MemberRef whose parent is a TypeSpec -- `callvirt
+        // IOpener`1<string>::Open` -- used to resolve to a declaring type with an empty namespace
+        // *and* an empty name, because a GenericInstance carries its identity on ElementType. The
+        // call was recorded, so nothing looked wrong; the edge simply pointed at nothing, and the
+        // interface member could never be a node. Three separate escapes rested on it.
+        //
+        // This assertion is deliberately about the *product*, not about this gate. A declaring
+        // type the product cannot name is either a decode failure it must mark `Unsupported` and
+        // explain, or a bug. What it must never be is success-shaped empty output.
+        //
+        // The claim is identifiability, not the presence of a name string. Array-family kinds are
+        // legitimately nameless: `int[,]::Get` really is a member of a composed type, and there is
+        // no definition to name -- identity lives on ElementType, so they are admitted only when
+        // that element is itself named. GenericInstance is deliberately *not* admitted on those
+        // terms, because a constructed generic's members belong to the open definition and the
+        // product must resolve to it; reverting that fix reappears here as a `GenericInstance` row.
+        ILInspector.Analysis.TypeRefKind[] composedOverAnElement =
+        [
+            ILInspector.Analysis.TypeRefKind.SzArray,
+            ILInspector.Analysis.TypeRefKind.Array,
+            ILInspector.Analysis.TypeRefKind.ByRef,
+            ILInspector.Analysis.TypeRefKind.Pointer,
+            ILInspector.Analysis.TypeRefKind.Pinned,
+        ];
+
+        var unnameableDeclaringTypes = calls
+            .Select(call => call.Callee.DeclaringType)
+            .Where(type => type.Name.Length == 0
+                && type.Kind != ILInspector.Analysis.TypeRefKind.Unsupported
+                && !(composedOverAnElement.Contains(type.Kind) && type.ElementType is { Name.Length: > 0 }))
+            .Select(type => $"{type.Kind} namespace=[{type.Namespace}] element=[{type.ElementType?.Name}]")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(entry => entry, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal([], unnameableDeclaringTypes);
+
+        // A constructed generic's *members* belong to its open definition, so every claim below
+        // that keys on a declaring type wants the definition rather than the instantiation.
+        static ILInspector.Analysis.TypeRef OpenDefinitionOf(ILInspector.Analysis.TypeRef type)
+            => type.Kind == ILInspector.Analysis.TypeRefKind.GenericInstance && type.ElementType is { } definition
+                ? definition
+                : type;
+
         // Identity is the *signature*, not the name. GPT's other blocking finding on ca1ac260 was
         // that projecting to Type::Method and calling Distinct() collapses overloads: adding a
         // second MethodBodyInspectionSession.OpenWithFeatures overload that opened an index left
@@ -2166,18 +2212,24 @@ public class SectionPipelineTests
                     hierarchyEdges.Add((ancestorKey, implementationKey));
             }
 
-            // The ancestor edge alone is not enough, and the generic case is why. A `callvirt` on a
-            // constructed generic interface goes through a MemberRef on a TypeSpec, which
-            // `DirectCalls` does not record *at all* -- so `IOpener`1::Open` is never a node, has
-            // no incoming edge, and an edge out of it dead-ends immediately. Construction is the
+            // The ancestor edge alone is not enough, and BCL dispatch is why. When a section hands
+            // an object to the BCL to invoke -- `list.Sort(new Comparer())` -- no IL instruction in
+            // this product ever names `IComparer<string>::Compare`, so the implementation has no
+            // incoming call edge and the ancestor is not a node either. Construction is the
             // independent second link: an instance member cannot be dispatched to without an
             // instance, and the `newobj` that creates one is a recorded edge. Attributing to the
             // *concrete* type's constructors is also what covers an implementation inherited from a
             // base class, since it is the derived type that gets constructed.
             //
-            // Witness that this mechanism is load-bearing: the constructed-generic interface.
-            // Removing this loop turns that tamper green while the other six stay red, so the two
-            // mechanisms overlap on most shapes but neither subsumes the other.
+            // Witness that this mechanism is load-bearing: a type implementing a BCL interface that
+            // only the BCL dispatches. Removing this loop turns that tamper green while the others
+            // stay red, so the two mechanisms overlap on most shapes but neither subsumes the other.
+            //
+            // The previously recorded witness here was the constructed-generic interface, and it is
+            // no longer valid: once TypeRef.GenericInstance carried a real name, `IOpener`1::Open`
+            // became a genuine node with a real incoming edge, and the ancestor mechanism catches
+            // that shape on its own. Re-deriving the witness rather than trusting the comment is
+            // what exposed the BCL-contract filter that had been disabling this loop.
             if (implementation.IsStatic)
                 return;
 
@@ -2213,11 +2265,17 @@ public class SectionPipelineTests
                     .SelectMany(ResolveKeys)
                     .ToHashSet(StringComparer.Ordinal);
 
+                // No product-assembly filter on the contract. There was one, and it silently
+                // disabled the construction edges below in exactly the case where they are the
+                // only possible link: a type that implements a *BCL* interface and is handed to
+                // the BCL to dispatch -- `list.Sort(new Comparer())`. No IL instruction in this
+                // product ever names IComparer<string>::Compare, so the implementation has no
+                // incoming edge, and skipping the contract meant it got no constructor edge
+                // either. Filtering the ancestor was pointless as well as harmful: a BCL member is
+                // not in the IL index, so ResolveKeys returns empty and the ancestor loop below
+                // adds nothing for it regardless.
                 foreach (var contract in type.GetInterfaces())
                 {
-                    if (!IsProductAssembly(contract.Assembly.GetName().Name))
-                        continue;
-
                     System.Reflection.InterfaceMapping map;
                     try
                     {
@@ -2610,9 +2668,25 @@ public class SectionPipelineTests
         // worth the one line of review it costs. Product namespaces are excluded for the same
         // churn reason, at no cost in coverage: a product helper's own BCL calls are already inside
         // this same closure, which is what the previous route proved.
+        //
+        // This literal grew from 65 to 98 entries across two fixes in this PR, and every addition
+        // is a generic collection, delegate type, or value type -- List, Dictionary, Span, Func,
+        // ValueTuple, Guid. Nothing was removed. That is worth stating plainly: until
+        // TypeRef.GenericInstance carried a real name, *every* call whose declaring type was a
+        // constructed generic resolved to a nameless type and fell out of this projection, and
+        // until the BCL-contract filter came off the interface loop, a type dispatched only by the
+        // BCL contributed no edges at all. So this pin -- and the reflection surface pin, and the
+        // reverse walk -- were all reasoning over a closure with two systematic holes in it. The
+        // gate's own evidence was resting on the defects it exists to catch. A dangerous primitive
+        // reached through a constructed generic (say a Lazy<LibraryBodyIndex>) or through a BCL
+        // callback would have been invisible to all three claims at once.
+        // The projection is to the *open definition*, so Dictionary<int, Foo> and
+        // Dictionary<string, Bar> are one entry. That is the granularity the claim is about -- an
+        // allowed type surface, not an instantiation surface -- and without it this list is 571
+        // entries of per-instantiation noise instead of 97 reviewable types.
         var bclTypeSurface = calls
             .Where(call => reachableFromSections.Contains(CallerKey(call.Caller)))
-            .Select(call => call.Callee.DeclaringType)
+            .Select(call => OpenDefinitionOf(call.Callee.DeclaringType))
             .Where(type => type.Namespace.Length > 0
                 && !type.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
                 && !type.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal)
@@ -2623,7 +2697,6 @@ public class SectionPipelineTests
             .Distinct(StringComparer.Ordinal)
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToList();
-
         Assert.Equal(
             [
                 "System.Action",
@@ -2634,16 +2707,43 @@ public class SectionPipelineTests
                 "System.BadImageFormatException",
                 "System.Buffers.Binary.BinaryPrimitives",
                 "System.Collections.Generic.CollectionExtensions",
+                "System.Collections.Generic.Comparer",
+                "System.Collections.Generic.Dictionary",
+                "System.Collections.Generic.Dictionary.Enumerator",
+                "System.Collections.Generic.Dictionary.KeyCollection",
+                "System.Collections.Generic.Dictionary.KeyCollection.Enumerator",
+                "System.Collections.Generic.Dictionary.ValueCollection",
+                "System.Collections.Generic.Dictionary.ValueCollection.Enumerator",
+                "System.Collections.Generic.EqualityComparer",
+                "System.Collections.Generic.HashSet",
+                "System.Collections.Generic.HashSet.Enumerator",
+                "System.Collections.Generic.IEnumerable",
+                "System.Collections.Generic.IEnumerator",
+                "System.Collections.Generic.IReadOnlyCollection",
+                "System.Collections.Generic.IReadOnlyDictionary",
+                "System.Collections.Generic.IReadOnlyList",
+                "System.Collections.Generic.IReadOnlySet",
+                "System.Collections.Generic.KeyValuePair",
+                "System.Collections.Generic.List",
+                "System.Collections.Generic.List.Enumerator",
+                "System.Collections.Generic.Queue",
+                "System.Collections.Generic.SortedSet",
+                "System.Collections.Generic.Stack",
                 "System.Collections.IEnumerator",
                 "System.Collections.Immutable.ImmutableArray",
+                "System.Collections.Immutable.ImmutableArray.Builder",
+                "System.Collections.Immutable.ImmutableArray.Enumerator",
                 "System.Collections.Immutable.ImmutableDictionary",
+                "System.Comparison",
                 "System.Console",
                 "System.Convert",
                 "System.Diagnostics.Stopwatch",
                 "System.Enum",
                 "System.Environment",
                 "System.Exception",
+                "System.Func",
                 "System.Globalization.CultureInfo",
+                "System.Guid",
                 "System.IDisposable",
                 "System.IO.File",
                 "System.IO.Path",
@@ -2653,12 +2753,16 @@ public class SectionPipelineTests
                 "System.InvalidOperationException",
                 "System.InvalidProgramException",
                 "System.Linq.Enumerable",
+                "System.Linq.IGrouping",
                 "System.Linq.ImmutableArrayExtensions",
                 "System.Math",
                 "System.MemoryExtensions",
                 "System.NotSupportedException",
+                "System.Nullable",
                 "System.ObjectDisposedException",
+                "System.Predicate",
                 "System.Range",
+                "System.ReadOnlySpan",
                 "System.Reflection.MemberInfo",
                 "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler",
                 "System.Runtime.CompilerServices.RuntimeHelpers",
@@ -2668,6 +2772,7 @@ public class SectionPipelineTests
                 "System.Runtime.InteropServices.MemoryMarshal",
                 "System.Security.Cryptography.SHA1",
                 "System.Security.Cryptography.SHA256",
+                "System.Span",
                 "System.StringComparer",
                 "System.Text.Encoding",
                 "System.Text.StringBuilder",
@@ -2676,6 +2781,7 @@ public class SectionPipelineTests
                 "System.Threading.Tasks.Parallel",
                 "System.TimeSpan",
                 "System.Type",
+                "System.ValueTuple",
                 "System.bool",
                 "System.byte",
                 "System.char",

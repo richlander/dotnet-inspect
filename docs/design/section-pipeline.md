@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Fourteen routes into the same defect
+### Sixteen routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and fourteen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and sixteen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -125,16 +125,26 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | The opener is called through an **interface or virtual member**, so the reverse walk dead-ends at the implementation | hierarchy edges from each product ancestor member to its implementations |
 | The implementation cannot be *named* from the interface member — an explicit implementation, one inherited from a base class, or a constructed generic interface | ancestor/implementation pairs come from `GetInterfaceMap`, plus construction edges from the concrete type's constructors |
 | The implementing type is in the **global namespace**, so its coarse name does not round-trip between reflection and IL and *both* edge mechanisms go inert | one shared name normalizer, plus a population-wide assertion that reflection can spell every type the IL index contains |
+| A `callvirt` on a **constructed generic** resolves to a declaring type with no namespace and no name, so the edge points at nothing and the member can never be a node | a product fix: `TypeRef.GenericInstance` carries the definition's identity, plus an assertion that no call has an unnameable declaring type |
+| The implementation satisfies a **BCL** interface and only the BCL ever dispatches it (`list.Sort(new Comparer())`), so no product IL names the interface member | the product-assembly filter removed from the interface-contract loop, so construction edges are reachable for BCL contracts |
 
-That the enumeration reached fourteen is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached sixteen is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
-The thirteenth is the most instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
+The thirteenth is instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
 
 - an **explicit** implementation is named `Ns.IFace.Open`, not `Open`;
 - an **inherited** implementation is declared on a *sibling* ancestor the derived type never mentions;
 - a **constructed generic** interface member is not a graph node at all.
 
-`Type.GetInterfaceMap` answers the first two exactly — it reports whichever member occupies each interface slot, however named and wherever declared — but it cannot help with the third, and that distinction is the point. A `callvirt` on `IOpener<string>::Open` goes through a `MemberRef` on a `TypeSpec`, which `DirectCalls` does not record, so the interface member has no incoming edge and an edge *out* of it dead-ends immediately. This is the same missing-edge blind spot as the constructed generic and the iterator state machine, arriving a third time in a new disguise.
+`Type.GetInterfaceMap` answers the first two exactly — it reports whichever member occupies each interface slot, however named and wherever declared — but it could not help with the third, and that distinction was the point at the time. The third turned out not to be a gate gap at all.
+
+The fifteenth route is where that resolved. A `callvirt` on `IOpener<string>::Open` goes through a `MemberRef` on a `TypeSpec`, which decodes to a `GenericInstance` — and `TypeRef.GenericInstance` parked identity solely on `ElementType`, leaving its own `Assembly`, `Namespace`, and `Name` empty. So the call *was* recorded, as an edge whose declaring type spelled `[]::[]`: an edge to nothing, indistinguishable from a member that decoded successfully. That is success-shaped empty output, and it was a **product** defect, not a harness one. The construction edges below had been added as harness compensation for it, which is precisely the thing `AGENTS.md` forbids — and the compensation then failed twice more before the underlying defect was named.
+
+The fix belongs in the product and had to be placed carefully. Putting it in `MemberResolver.ResolveParentType` — unwrapping the instantiation to the open definition — passed the gate and broke the CLI, because `CallsSection_KeepsInterfaceCallvirtAsDeclaredTarget` pins that `Calls` renders the *declared* target `IList<int>.get_Item(int)`. That attempt conflated identity with presentation. The correct fix is that a constructed generic genuinely *has* an assembly, a namespace, and a name; only its arguments are extra. `TypeRef.GenericInstance` now carries all three from its definition — a pure function of `ElementType`, so equality, hashing, and rendering are untouched and the constructed spelling still displays.
+
+The scope of what that defect had been hiding is the part worth remembering: **the gate's own evidence was resting on it.** Until the fix, every call whose declaring type was a constructed generic fell out of the forward closure, so the pinned BCL type surface, the reflection surface pin, and the reverse walk were all reasoning over a graph with a systematic hole. Fixing it grew the pinned BCL surface from 65 entries to 97, all of them generic collections and delegate types, with nothing removed. A dangerous primitive reached through a `Lazy<LibraryBodyIndex>` would have been invisible to three claims at once.
+
+The sixteenth arrived immediately after, and it is the same lesson in a different place: **a filter above a mechanism silently disables it.** The interface-contract loop skipped any contract not declared in a product assembly. That looked like a harmless cost optimization — a BCL member is not in the IL index, so it can produce no ancestor edge anyway — but it also skipped the *construction* edges for those types, in exactly the case where construction is the only possible link. A type implementing `IComparer<string>` and handed to `List<T>.Sort` is never named by any product IL instruction; without a constructor edge it is unreachable from the section that built it. Removing the filter costs nothing and closes the route.
 
 The second mechanism is therefore independent of dispatch entirely: **an instance member cannot be dispatched to without an instance, and the `newobj` that creates one is a recorded edge.** Construction edges run from the concrete type's constructors to every member occupying an interface slot — which also covers the inherited case, since it is the *derived* type that gets constructed.
 
@@ -143,9 +153,11 @@ Neither mechanism subsumes the other, and each has a witness that the other cann
 | Mechanism | Witness that it is load-bearing |
 | --- | --- |
 | ancestor edges (`GetInterfaceMap`) | a `static abstract` interface member dispatched through a generic constraint — nothing is ever constructed |
-| construction edges | a constructed-generic interface — the `callvirt` edge does not exist |
+| construction edges | a type implementing a **BCL** interface that only the BCL dispatches — no product IL names the interface member |
 
-Removing either loop turns exactly its own witness green and leaves the other six shapes red. That is why both are kept, and it was measured rather than assumed.
+Removing either loop turns exactly its own witness green and leaves the other shapes red. That is why both are kept, and it was measured rather than assumed.
+
+**Witnesses expire, and re-deriving one is how the sixteenth route was found.** The recorded witness for construction edges had been the constructed-generic interface. Once the product defect above was fixed, that shape became a genuine node with a real incoming edge and the ancestor mechanism caught it alone — so the comment still claimed a witness the code no longer had, and the mechanism was one commit away from being untested decoration. Re-deriving the witness rather than trusting the note is what surfaced the BCL-contract filter. *When a fix lands underneath a mechanism, re-measure that mechanism's witness; a stale witness reads exactly like a live one.*
 
 Two method points from this round generalize:
 
