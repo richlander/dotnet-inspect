@@ -288,14 +288,18 @@ public static class AnnotationCaret
     /// </para>
     /// <para>
     /// Extents sharing a start column are always a nesting, so they can never
-    /// share a row. Widest first puts the outer extent first, so the inner
-    /// caret is clipped into its parent's trail rather than overwriting it,
-    /// and it matches the order the printer records nesting in. That orders
-    /// <i>same-start</i> extents only. It does not make each row narrower than
-    /// the one above: a later disjoint extent can be packed onto a lower row
-    /// and reach further right than anything above it, which happens on 50 of
-    /// the 2,842 lines that stack in System.Private.CoreLib, as the
-    /// annotated-source view prints it, summed over the five focus families.
+    /// share a row. Widest first puts the outer extent on the upper row, which
+    /// matches the order the printer records nesting in. That orders
+    /// <i>same-start</i> extents only, and it is not what clips anything: a
+    /// trail is cut short only by the next label on its own row, so a nested
+    /// extent sent to a different row never shortens its parent. Nor does it
+    /// make each row narrower than the one above -- a later disjoint extent can
+    /// be packed onto a lower row and reach further right than anything above
+    /// it, which happens on 50 of the 2,842 lines that stack in
+    /// System.Private.CoreLib, as the annotated-source view prints it, summed
+    /// over the five focus families. Of the 2,682 clipped trails, the label
+    /// doing the clipping sits inside the trail it clips on 1,867 (69.6%) and
+    /// is disjoint from it on 815 (30.4%).
     /// </para>
     /// </remarks>
     static List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>? Stack(
