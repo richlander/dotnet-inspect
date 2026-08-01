@@ -386,8 +386,28 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
     return;
 }
 
-HttpClientFactory.Initialize();
-NuGetCache.Initialize("dotnet-inspect");
+// The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
+// honored here so a caller can point this sweep at a cache of its own. Without them the
+// sweep reaches the developer's shared caches and the network unconditionally, which is
+// why its two central properties -- that the pin binds, and that the copies land where
+// told -- could only ever be evidenced by hand-run probes (#3560). Those properties are
+// now gated by EvilPoolSweepGateTests, which runs this file offline against a scratch
+// cache. This is not a test backdoor: it is one program catching up to a convention the rest of the tool follows,
+// with the CLI's meanings unchanged. An isolated session skips the shared NuGet cache
+// and, absent an explicit directory, gets its own. Reading them costs nothing when they
+// are unset, which is the case for every real sweep.
+bool offline = string.Equals(
+    Environment.GetEnvironmentVariable("DOTNET_INSPECT_OFFLINE"), "1", StringComparison.Ordinal);
+string? sessionName = Environment.GetEnvironmentVariable("DOTNET_INSPECT_ISOLATED");
+if (string.IsNullOrWhiteSpace(sessionName))
+    sessionName = null;
+bool isolated = sessionName != null;
+string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");
+if (isolated && cacheBasePath == null)
+    cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
+
+HttpClientFactory.Initialize(offline);
+NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
 
 // Counted where a package reaches the outcome its mode expects, not where it fails
 // to. An incident counter has to be remembered at every failure site and silently
@@ -424,6 +444,13 @@ foreach (var entry in selected)
             // A backstop behind the version-shape check above: the extractor validates
             // its own path components and throws, and a throw here exits 134 --
             // indistinguishable from a crash, over an input the pin file supplied.
+            //
+            // Ungated, deliberately: IsBareVersion and IsBarePackageId already refuse
+            // every spelling that reaches this, so no input the sweep will accept can
+            // make the extractor throw, and no black-box case can arrange one. It stays
+            // because the two shape checks and this catch guard the same 134 from
+            // opposite sides, and the cheap side to be wrong on is this one. Measured:
+            // disabling this catch leaves every case in EvilPoolSweepGateTests green.
             results.Add(Failed(entry, "acquisition-failed", ex.Message));
             Console.Error.WriteLine(
                 $"rank {entry.Rank}: {entry.Package}: acquisition failed: {ex.Message}");
@@ -445,6 +472,13 @@ foreach (var entry in selected)
         // that matters is made against what came back: a pool entry acquired under a
         // different identity than the one selected is not the package the list ranked,
         // whatever spelling got it there.
+        //
+        // Ungated, and not gateable by EvilPoolSweepGateTests: those cases run offline
+        // against a seeded cache, and the cache-hit path echoes the requested name back
+        // as PackageName (PackageExtractor.AcquireResolvedPackageAsync), so the two sides
+        // of this comparison are the same string by construction. It has teeth only on
+        // the download path, where the name comes from what was served. Measured:
+        // deleting this check outright leaves every case in that class green.
         if (!string.Equals(resolvedPackage, entry.Package, StringComparison.OrdinalIgnoreCase))
         {
             results.Add(Failed(
@@ -567,7 +601,8 @@ foreach (var entry in selected)
         // reported success -- the arbitrary-file overwrite the metadata writes were
         // hardened against, still open on the ninety-one writes per sweep that carry the
         // pool itself.
-        string? uncopied = await CopyOntoOrReport(source, destination);
+        var copy = await CopyOntoOrReport(source, destination);
+        string? uncopied = copy.Error;
         if (uncopied is not null)
         {
             // Recorded as this package failing rather than thrown away. A copy that did
@@ -575,7 +610,7 @@ foreach (var entry in selected)
             // package must be short in the accounting too.
             results.Add(Failed(
                 entry, "copy-failed", uncopied, resolvedPackage, package.Version,
-                selection.Tfm, package.FromCache));
+                selection.Tfm, package.FromCache) with { WriteTemporary = copy.TemporaryFate });
             Console.Error.WriteLine($"rank {entry.Rank}: {entry.Package}: {uncopied}");
             continue;
         }
@@ -588,6 +623,12 @@ foreach (var entry in selected)
         // and then copying it leaves an interval a cache writer can land in, and the
         // file in the pool is the one that gets measured -- so that is the one whose
         // bytes must match.
+        //
+        // That last step is reasoning, not a gated property, and is marked so rather
+        // than left to read as covered: every case in EvilPoolSweepGateTests tampers
+        // with the cache entry, so source and destination carry the same bytes and no
+        // black-box case can tell which was measured. Hashing the source here leaves
+        // the whole class green. What is gated is that the hash is compared at all.
         string assemblySha = Convert.ToHexStringLower(
             SHA256.HashData(File.ReadAllBytes(destination)));
         if (honorPin && pin is not null
@@ -687,15 +728,118 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
-string? unwritable = await ReplaceTextOrReport(
+string? unwritable = (await ReplaceTextOrReport(
     assembliesPath,
-    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)));
+    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)))).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
     Environment.ExitCode = 2;
     return;
 }
+
+// The pool is made to hold what this run recorded, rather than merely being described
+// by it. Writing assemblies.txt from the in-memory list keeps a stray file out of the
+// record; nothing kept one out of the pool, and the pool is reused by design -- the
+// corpus script passes the same output directory every time so that the paths in an
+// earlier assemblies.txt stay valid. So a package that was pooled once and is refused,
+// re-versioned, or dropped from the list later left its assembly behind, unrecorded and
+// indistinguishable from a current one, for as long as the directory survived. Measured
+// before this existed: a second run whose subject could not be acquired recorded the
+// lead alone and left the first run's assembly sitting in packages/.
+//
+// Held against the record rather than by clearing the directory first. Clearing is the
+// obvious spelling and the wrong one: it also removes whatever a caller had put at a
+// destination, which is the seam two of this sweep's gates use to make a copy fail, and
+// a fix that silently disarms the tests for the code it touches is worse than the leak.
+// Reconciling afterwards touches only what the run did not record.
+//
+// Scoped to packages/, which is the sweep's own: it names every child and records what
+// it put there. Files elsewhere under the output directory belong to the caller -- the
+// deep-inspect workflow writes its acquisition log into the output directory, beside
+// packages/ rather than inside it, and it is not this step's to remove.
+//
+// How the walk itself is bounded, and why every removal is recorded, is on ReconcilePool.
+var removedFromPool = new List<string>();
+
+// Ordinal, because these are paths on a filesystem that distinguishes case, and
+// comparing them any other way would let an unrecorded file whose name differs from a
+// recorded one only in case pass for the recorded one and stay in the pool. That is
+// unverified: no case here plants such a file, because whether the assertion means
+// anything depends on the filesystem the suite happens to run on.
+var recordedAssemblies = new HashSet<string>(
+    assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
+string? unreconciled = null;
+try
+{
+    ReconcilePool(packageDirectory, recordedAssemblies, removedFromPool);
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    // Reported, and the run fails: the pool now holds something the record does not
+    // name, which is the state this whole step exists to prevent. Exiting 0 here would
+    // hand a consumer a pool the manifest misdescribes.
+    unreconciled = $"Could not reconcile the pool under '{packageDirectory}': {ex.Message}";
+    Console.Error.WriteLine(unreconciled);
+    Environment.ExitCode = 1;
+}
+
+// Walks the pool without following links, and removes what the run did not record.
+//
+// The walk is written out rather than done with Directory.GetFiles(..., AllDirectories)
+// because that enumeration descends through a directory symlink and yields the paths it
+// finds on the far side. This step deletes what it is handed, so that enumeration aims a
+// deletion loop at whatever a link in the pool points at, and then reports success --
+// measured: a link planted beside packages/ had the file behind it deleted and the run
+// exited 0. A link is removed as a link instead, which is a deletion this step can bound
+// to the pool it owns: removing a symlink never touches its target.
+//
+// Every removal is recorded by the caller, not merely printed. This step deletes
+// unrecorded files under packages/, and a write temporary this run leaked is an
+// unrecorded file under packages/ -- so a reconciliation that only cleaned up would
+// quietly erase the evidence of a leak, and the disk check in EvilPoolSweepGateTests
+// that used to catch one would pass over a swept pool. Measured: with the removals
+// unreported, a sweep that skipped its temporary cleanup while still reporting it as
+// "removed" left all seventeen cases green. Recording them keeps the fact the check was
+// looking for, and puts it where an operator reads it: a run that had to remove
+// anything is a run where something else went wrong. The stderr line beside each
+// recorded removal is an operator convenience and is not itself gated.
+static void ReconcilePool(string directory, HashSet<string> recorded, List<string> removed)
+{
+    foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+    {
+        // Non-null for a symlink alone, so a real directory is descended into and a hard
+        // link -- indistinguishable from the file it is, and whose removal frees only
+        // this name -- is treated as the file it appears to be.
+        if (entry.LinkTarget is not null)
+        {
+            entry.Delete();
+            Record(entry.FullName);
+            continue;
+        }
+
+        if (entry is DirectoryInfo child)
+        {
+            ReconcilePool(child.FullName, recorded, removed);
+            continue;
+        }
+
+        if (recorded.Contains(Path.GetFullPath(entry.FullName)))
+            continue;
+
+        entry.Delete();
+        Record(entry.FullName);
+    }
+
+    void Record(string path)
+    {
+        removed.Add(path);
+        Console.Error.WriteLine(
+            $"removed '{path}' from the pool: this sweep did not record it.");
+    }
+}
+
+removedFromPool.Sort(StringComparer.Ordinal);
 
 var manifest = new PackageSweepManifest(
     SchemaVersion: 1,
@@ -704,11 +848,13 @@ var manifest = new PackageSweepManifest(
     StartRank: startRank,
     RequestedPackageCount: packageCount,
     SelectedPackageCount: assemblies.Count,
-    Packages: results);
+    Packages: results,
+    RemovedFromPool: removedFromPool,
+    Unreconciled: unreconciled);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
-unwritable = await ReplaceTextOrReport(
+unwritable = (await ReplaceTextOrReport(
     manifestPath,
-    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine);
+    JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine)).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -760,7 +906,7 @@ if (refreshPin)
     // Rank lives in nuget-top-packages.json and is deliberately not repeated here.
     // Two files stating the same rank is two things to keep in step, and the one that
     // drifts is the one nothing reads.
-    unwritable = await ReplaceTextOrReport(
+    unwritable = (await ReplaceTextOrReport(
         pinPath,
         JsonSerializer.Serialize(
             // No timestamp: the file is a pure function of the pins, so re-recording an
@@ -769,7 +915,7 @@ if (refreshPin)
             // #3349 found that hashing a file with a timestamp in it yields an identity
             // that never repeats.
             new PackagePinFile(SchemaVersion: 1, Packages: recorded),
-            jsonContext.PackagePinFile) + Environment.NewLine);
+            jsonContext.PackagePinFile) + Environment.NewLine)).Error;
     if (unwritable is not null)
     {
         // A refresh that cannot write the pin has not refreshed anything, and the file
@@ -1130,7 +1276,7 @@ static bool IsBarePackageId(string? id) =>
 /// appears, which is the hang the read path already had to grow a deadline for. A move
 /// onto the name replaces whatever is there instead of writing through it.</para>
 /// </summary>
-static async Task<string?> ReplaceTextOrReport(string path, string content) =>
+static async Task<WriteOutcome> ReplaceTextOrReport(string path, string content) =>
     await ReplaceOrReport(
         path, stream => stream.WriteAsync(Encoding.UTF8.GetBytes(content)).AsTask());
 
@@ -1138,7 +1284,7 @@ static async Task<string?> ReplaceTextOrReport(string path, string content) =>
 /// Copies <paramref name="source"/> onto <paramref name="destination"/> without opening
 /// the destination, or says why it could not.
 /// </summary>
-static async Task<string?> CopyOntoOrReport(string source, string destination) =>
+static async Task<WriteOutcome> CopyOntoOrReport(string source, string destination) =>
     await ReplaceOrReport(destination, async stream =>
     {
         await using var input = new FileStream(
@@ -1151,13 +1297,20 @@ static async Task<string?> CopyOntoOrReport(string source, string destination) =
 /// hold, then moved onto the name. Every write goes through here, because the property
 /// is not one a second implementation keeps -- File.Copy kept none of it.
 /// </summary>
-static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> write)
+static async Task<WriteOutcome> ReplaceOrReport(string path, Func<FileStream, Task> write)
 {
     // Random and created exclusively, not a name another process can predict. A
     // temporary named after the pid is a name anything with write access to the
     // directory can occupy first, and a write through a planted symlink lands wherever
     // that link points. CreateNew refuses to open anything that already exists, so the
     // sweep either makes this file itself or writes nothing.
+    //
+    // Reasoned, not gated, and marked as such. The destination half of this is gated --
+    // EvilPoolSweepGateTests plants a symlink at the destination and requires a real file
+    // afterwards -- but the temporary half is not, because the name is drawn inside this
+    // function and never leaves it, so nothing outside can occupy it except by racing a
+    // loop against the allocator. Treat the CreateNew above as load-bearing: it is the
+    // whole of the protection, and no test would notice it becoming Create.
     string temporary = path + $".{Path.GetRandomFileName()}.tmp";
     bool created = false;
     try
@@ -1170,7 +1323,7 @@ static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> w
         }
 
         File.Move(temporary, path, overwrite: true);
-        return null;
+        return new WriteOutcome(null, "moved");
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
@@ -1179,16 +1332,24 @@ static async Task<string?> ReplaceOrReport(string path, Func<FileStream, Task> w
         // though -- something already sitting at that name is not this sweep's to
         // remove, and deleting whatever is found there would be a worse answer than
         // the failure being reported.
+        // Assumed left behind the moment it exists, and downgraded only by a delete that
+        // returned. Derived the other way round -- "none" until something says otherwise --
+        // a cleanup that stopped being called would report that no temporary was ever
+        // created, which is the one answer that makes the leak invisible.
+        string fate = created ? "left-behind" : "none";
         try
         {
             if (created)
+            {
                 File.Delete(temporary);
+                fate = "removed";
+            }
         }
         catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
         {
         }
 
-        return $"Could not write '{path}': {ex.Message}";
+        return new WriteOutcome($"Could not write '{path}': {ex.Message}", fate);
     }
 }
 
@@ -1252,7 +1413,22 @@ sealed record PackageSweepManifest(
     int StartRank,
     int RequestedPackageCount,
     int SelectedPackageCount,
-    IReadOnlyList<SweepPackageResult> Packages);
+    IReadOnlyList<SweepPackageResult> Packages,
+
+    /// <summary>
+    /// Files this run deleted from <c>packages/</c> because it did not record them.
+    /// Empty for a run that found the pool already agreeing with its record, which is
+    /// every ordinary run: a non-empty list means either a previous sweep's leftovers
+    /// were still there or this one leaked something, and both are worth seeing.
+    /// </summary>
+    IReadOnlyList<string> RemovedFromPool,
+
+    /// <summary>
+    /// Why the pool could not be reconciled with the record, or null when it was. Set
+    /// only alongside a non-zero exit code: the pool holds a file the record does not
+    /// name, so the manifest describes it rather than pretending otherwise.
+    /// </summary>
+    string? Unreconciled);
 
 sealed record SweepPackageResult(
     int Rank,
@@ -1267,7 +1443,26 @@ sealed record SweepPackageResult(
     bool? FromCache,
     string? CleanupStatus = null,
     string? CleanupDetail = null,
-    string? Sha256 = null);
+    string? Sha256 = null,
+    string? WriteTemporary = null);
+
+/// <summary>
+/// What a write did, and what became of the temporary it writes through.
+///
+/// <para><c>Error</c> is the message, or null when the write landed.
+/// <c>TemporaryFate</c> is <c>moved</c> when it became the file, <c>removed</c> when the
+/// write failed after it existed and it was cleaned up, <c>left-behind</c> when that
+/// cleanup itself failed, and <c>none</c> when the failure happened before it existed.
+/// </para>
+///
+/// <para>Reported rather than inferred because the difference is not visible from
+/// outside. A failure before the temporary exists and a failure after it is cleaned up
+/// leave the same directory behind and the same message, so nothing downstream can tell
+/// a cleanup that ran from one that was never needed -- including the operator reading
+/// the manifest to find out whether a failed sweep left anything in the pool, which is
+/// the question <c>left-behind</c> exists to answer out loud.</para>
+/// </summary>
+readonly record struct WriteOutcome(string? Error, string TemporaryFate);
 
 [JsonSerializable(typeof(List<PackageListEntry>))]
 [JsonSerializable(typeof(PackagePinFile))]

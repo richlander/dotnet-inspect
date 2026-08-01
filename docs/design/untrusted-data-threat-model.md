@@ -44,6 +44,33 @@ process-created temporary directories are trusted roots; names appended beneath
 them are not trusted unless derived from a cryptographic key or validated
 component.
 
+**Code running in this process is not the boundary these controls defend.**
+The untrusted input in every row above is *data* — an artifact, a feed
+response, a file. It is not a caller. So a control that a `BindingFlags.NonPublic`
+call can undo is not thereby broken, because a party who can execute arbitrary
+code in this process does not need to smuggle text through a type to reach a
+sink; it can write to the sink. The claim is that narrow, and deliberately so:
+not that reflection is harmless in general, but that it is not the entry point
+any control here stands in front of. This is also not a self-serving line — no
+.NET type meets the other standard. Measured, the same technique that rewrites
+a private backing field on `SourceLinkOrigin` rewrites one on `System.Uri` —
+
+```text
+Uri backing field: _string
+Uri.OriginalString => https://example.com/<LRI>hostile
+```
+
+— making `OriginalString` return a live `U+2066` from a `Uri` constructed over
+inert text. `Uri` is the type the SourceLink origin readers rely on for
+canonicalization, so a rule that treats reflection as in scope would condemn the
+control and its substrate together and leave nothing constructible in its place.
+
+What *is* in scope is the ordinary language surface: a public constructor, a
+`with` expression, a settable property. Those are reachable by a future
+contributor writing normal code, which is how an invariant actually decays, and
+`SourceLinkProvenanceTests.ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly`
+is the gate for them. It deliberately does not claim more.
+
 ## Existing controls
 
 ### Assemblies are parsed, never loaded
@@ -100,14 +127,9 @@ counterpart, kept separate because Metadata sits below the Core infrastructure l
 `AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
 several possible readings.
 
-This is generic hardening, not a fix for a known divergence. It does **not** close the SourceLink
-provenance gap. The repository-URL reader in `AssemblyInspector` stops at the first `documents`
-entry, while `SourceDocumentPathResolver` orders mappings by descending pattern length and takes
-the first match. A duplicated key keeps document order under a stable sort, so both readers land on
-the same entry and duplication alone cannot make them disagree. They diverge on **distinct** keys,
-which are well-formed and still accepted: a map whose first entry names a trusted host and whose
-longer-matching entry names another origin reports the trusted repository while resolving source
-from the other. That gap is open work below.
+This is generic hardening, not a fix for a known divergence. The SourceLink
+provenance divergence it does **not** address is closed separately, by the
+control below.
 
 Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
 parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
@@ -115,6 +137,308 @@ duplicate-bearing JSON the same way; that is fail-closed, but it does not by its
 callers to explicit failure reporting, which remains open work below.
 
 `runfaster` still parses its trace inputs directly and is not yet covered.
+
+### SourceLink provenance is read off the URL source is fetched from
+
+Reported provenance must describe the origin that source content is actually
+fetched from, for every document the assembly resolves. When that cannot be
+established for all of them, report no repository.
+
+`SourceLinkFetch.SourceLinkProvenance` is the single owner of this rule. It
+resolves every document the assembly declares through
+`SourceLinkFetch.SourceLinkResolver` — the single owner of the mapping rule —
+and reads the origin off each **final resolved URL, after wildcard substitution,
+percent-encoding, and `System.Uri` canonicalization**. Never off the mapping
+text, and never off the mapping prefix alone. Agreement is required on the whole
+`(host, organization, repository, revision)` tuple, because
+`raw.githubusercontent.com` serves any revision reachable in a repository,
+including the head of an unmerged pull request.
+
+Every way a weaker formulation has been found to fail, all reproduced. They are
+a regression floor, not a specification of what to block: each was found only by
+attacking a previous formulation, so passing them is not evidence that the
+invariant holds. The list deliberately carries no count — nothing enforced the
+one that was here, and it had gone stale by two.
+
+- Agreement on `owner/repo` ignores the revision, so two entries on one
+  repository at different commits "agree" while serving different code.
+- `System.Uri` applies RFC 3986 dot-segment removal, so a mapping value
+  containing `../` is fetched from the traversed-to path while a regex over the
+  raw string reports the literal one.
+- Even a clean mapping is not enough. The wildcard suffix comes from the PDB
+  document path, which is equally attacker-controlled, so a benign
+  `.../dotnet/runtime/<commit>/*` resolves
+  `/_/../../../attacker/evil/main/Program.cs` into `attacker/evil`.
+- `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
+  `..%5c` survive canonicalization, so a "canonicalize, then prefix-check" step
+  passes while a server that percent-decodes before resolving dot segments still
+  traverses out. Encoded separators and encoded dot segments are rejected rather
+  than assumed resolved.
+- `https://raw.githubusercontent.com@evil.example/...` parses with host
+  `evil.example` and user info `raw.githubusercontent.com`. The host allow list
+  rejects it, since `Uri` takes the authority after the last `@`; user info is
+  additionally rejected on its own account, because a credential presented to an
+  allowed host makes the response depend on the identity presented rather than
+  on the public path the URL names.
+- `raw.githubusercontent.com` serves branch names, and a branch may contain `/`,
+  so `.../owner/repo/feature/auth/File.cs` reads equally well as revision
+  `feature` with path `auth/File.cs` or as revision `feature/auth` with path
+  `File.cs`. Nothing in the URL says which. Taking the third path segment made
+  `feature/auth` and `feature/login` report one revision and one cache identity.
+  The revision must therefore be a full commit hash, which cannot contain `/`,
+  or the URL is not attributable.
+- Whether a host matches query parameter names case-insensitively is not stated
+  by the URL, so `?VERSION=evil&version=legit` has two readings. A case-sensitive
+  match reports `legit` while a case-insensitive host may serve `evil`. A
+  parameter differing from the expected spelling only by case is not
+  attributable.
+- Azure's Items API accepts the revision as the flat `version` parameter and as
+  `versionDescriptor.version`, and the **descriptor takes precedence**. Reading
+  only `version` reported the losing selector, so a URL carrying both named one
+  revision while fetching the other. Confirmed against the live API. Both
+  spellings are read; disagreeing selectors are not attributable.
+- The cache identity must be an unambiguous serialization of the origin tuple.
+  Azure DevOps repository names and Git ref names may both contain `/` and `@`
+  (`git check-ref-format` accepts `branch@tip`), so a delimiter-joined key let
+  repository `repo@branch` at revision `tip` and repository `repo` at revision
+  `branch@tip` collide. The identity is length-prefixed. This key selects a
+  persistent source index, so a collision serves one repository's source for
+  another's assembly.
+- A query parameter repeated with *equal* values still has two readings, and the
+  host takes neither: measured against the live API,
+  `?version=aaaa&version=aaaa` returns 400 "Ambiguous values for version". An
+  earlier note here reasoned from `HttpUtility.ParseQueryString`, which joins
+  repeats with a comma, and concluded Azure would select the ref `aaaa,aaaa`.
+  That is a client decoder's behaviour, not the host's; the refusal was right
+  and the stated mechanism was wrong. A repeat is refused however its values
+  compare.
+- The repeat rule stopped at the revision selectors, and the **content**
+  selectors are where it mattered. Azure serves the *first* occurrence of
+  `path`, so `path=/fixed.cs&path=/*` substitutes every document into an
+  occurrence the host ignores: each document produces a distinct URL — enough
+  for the resolver's two-probe check, which sees only text — while every one of
+  them fetches `fixed.cs`. Measured: `path=/README.md&path=/nope.txt` returns
+  README, and `path=/.gitignore&path=/README.md` returns 404 for the *first*
+  path. Names are compared case-insensitively because the host binds them that
+  way, also measured. No parameter may be given twice.
+- The segments before `_apis` are the host's route, and joining however many
+  there were reported an organization that was assembled rather than read. A
+  project-less `dev.azure.com/{org}/_apis/...` was attributed to `{org}` at a
+  commit, and `dev.azure.com/a/b/c/_apis/...` to the organization `a/b/c` with
+  the repository page `https://dev.azure.com/a/b/c/_git/{repo}`, which is not a
+  page. Measured, the route is keyed on exactly organization and project: the
+  two-segment shape returns 200, while project-less, wrong-project and
+  wrong-organization shapes each redirect to a sign-in page on another host and
+  an extra segment returns 404. The count is now fixed per host — two on
+  `dev.azure.com`, one on `*.visualstudio.com`, where the account is the host
+  label — which is exactly what `AzureDevOpsUrlParser` builds. `DefaultCollection`
+  is dropped rather than made part of the identity, because the host serves
+  byte-identical content with and without it.
+- A wildcard confined to the **query** changes the request text without changing
+  what the host serves, on a host that ignores the query. `{"*":
+  ".../{sha}/fixed.cs?ignored=*"}` gives every document its own URL — so the
+  two-probe check, which compares request text, is satisfied — while every one of
+  them fetches `fixed.cs`, and the reported origin is genuinely where `fixed.cs`
+  is served from, so the agreement check is satisfied too. One file is then shown
+  as the source of every document under a clean attribution. Measured against
+  `raw.githubusercontent.com`: no query, `?ignored=A.cs`, `?ignored=B.cs` and
+  `?path=/other.cs` all return the same 33400 bytes with the same SHA-256. This
+  cannot be refused by the host-agnostic matcher, because the identical shape is
+  the *generated* Azure Repos form where `path=` does select the file. It is
+  refused by the host grammar instead: `raw.githubusercontent.com` URLs may not
+  carry a query, which loses nothing, since that generator builds its URL by pure
+  path concatenation and never appends one.
+- A substitution can land in a component the host does not select on, which
+  varies the request text while leaving the served file fixed. The Azure
+  spelling is
+  `{"*": ".../items?api-version=*&versionType=commit&version={sha}&path=/README.md"}`:
+  every document gets its own URL, so the two-probe check passes; `path=` never
+  moves, so every one fetches `README.md`; and the origin reported is genuinely
+  where `README.md` is served from, so agreement passes too. Measured against
+  `dev.azure.com/dnceng-public/public`, repository `dotnet-public-wiki`:
+  `api-version` of `1.0`, `7.1`, `1.0-preview` and `5.0` all return the same
+  content, SHA-256 `0129277c5fd5e35a…`. The allow list said each parameter was
+  *understood*, never that each one *selects*. Provenance now requires the
+  substituted text to land in the content-selecting component — the path for
+  `raw.githubusercontent.com`, the `path` or `scopePath` value for Azure DevOps
+  — which also refuses a substitution in the route, in the repository segment,
+  and in `version`. One reviewer cleared `api-version` on the grounds that Azure
+  answers a file-like value with 400; another defeated that by naming the PDB's
+  documents `1.0` and `7.1`, which the threat model treats as attacker-chosen.
+  `scopePath` is on the accept side because it was measured to select, not
+  because the allow list already named it: `scopePath=/README.md` returns the
+  same 985 bytes and SHA-256 as `path=/README.md`, while `scopePath=/` returns a
+  different 425-byte response. Gated by
+  `SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable`.
+- The two content selectors are each allow-listed, and their *combination* was
+  never considered. `path` names an item and `scopePath` a collection, and the
+  host refuses to be asked for both rather than preferring one: measured,
+  `scopePath=/&path=/*` and `path=/*&scopePath=/` both return 400, `Cannot
+  specify an item "path" as well as "scopePath"`. The pair passes every other
+  rule — both names are known, neither is repeated, and each carries its own
+  wildcard, so the two-probe check sees two distinct request texts — while
+  nothing states which selector governs. This is the repeated-parameter rule
+  applied to two spellings of one role: were the host to start preferring one,
+  every document would resolve through the selector that does *not* carry the
+  wildcard and they would all fetch the same content while attributing cleanly.
+  An allow list states that each entry is understood, not that any two of them
+  compose. The rule is **ambiguity, not fetchability** — `api-version` is
+  allow-listed and unvalidated, and `api-version=bogus` returns 400, which is
+  fine: a request that fails serves no content, so nothing is misattributed and
+  the failure stays visible.
+- Reading the route positionally is not enough on `dev.azure.com`, where a
+  leading `e` is the enterprise discovery prefix rather than an account.
+  `/e/{org}/_apis/git/repositories/{repo}/items` satisfies the segment count
+  exactly and reports the organization `e`. Measured: it returns 404 where the
+  same request without the prefix returns 200, so the shape serves nothing for
+  the reported origin to describe. `AzureDevOpsUrlParser` refuses it for the
+  same reason, so no generated shape is lost by refusing it here.
+- A literal `+` in a value decodes to a space under a form decoder and to a plus
+  under a percent decoder, so `version=a%2Bb&versionDescriptor.version=a+b`
+  presents two agreeing selectors to one reader and two disagreeing ones to
+  another. The descriptor wins at the host, so we reported `a+b` while Azure
+  served `a b`. A literal `+` is refused; `%2B` is unambiguous and stays accepted.
+- Azure reads `version` against `versionType`, which defaults to `branch`, so a
+  branch and a tag of one name are two different contents behind one spelling
+  and one cache identity. Measured against a live repository: `main` as a branch
+  returned 200 and as a tag 404. Only `versionType=commit` with a commit hash is
+  attributable, which is exactly what `Microsoft.SourceLink.AzureRepos.Git` and
+  `Microsoft.SourceLink.AzureDevOpsServer.Git` generate.
+- `versionOptions=previousChange` and `firstParent` serve a different commit's
+  content under an unchanged `version`, so the reported revision would not be the
+  one fetched. Both are refused.
+- The Azure path was matched at `/_apis/git/repositories/{repo}` without
+  requiring the `items` endpoint, so endpoints that ignore `version` entirely
+  were attributed to an attacker-chosen revision. The repository-metadata
+  endpoint returned byte-identical content for every revision supplied. The path
+  must now end at `items`.
+- Query parameters are allow-listed rather than deny-listed. Azure's Items API
+  takes several parameters that change which content is returned, and it grows
+  while this reader does not, so an unrecognized name may select content the
+  reported origin does not describe.
+- Absence and emptiness are different readings. A parameter present with an
+  empty value (`versionDescriptor.version=`) or present with no `=` at all was
+  treated as absent, so the flat `version` was read as unopposed and its value
+  reported — while a host that treats the descriptor as present-and-empty
+  selects the default ref instead. Only a genuinely absent parameter counts as
+  absent; a present one with nothing to say is refused on its own account.
+- Whether a hex string is an object name is a property of the host's object
+  format, not of the string. Accepting the 64-character SHA-256 length let
+  `raw.githubusercontent.com/owner/repo/<64 hex>/*` report a commit, but GitHub
+  stores SHA-1 repositories only and Git will create a branch of that name
+  (`git branch` accepts one), so the value could only be a moving ref whose head
+  moves under a fixed reported revision and a fixed cache identity. Both hosts
+  this reader knows are SHA-1-only; the SHA-256 length needs the same evidence
+  as a new host before it is admitted.
+- An origin is `(scheme, host, port)`, but the reader identifies a host by name.
+  `https://raw.githubusercontent.com:444/owner/repo/<sha>/*` was attributed to
+  GitHub and given the same persistent cache identity as port 443, so a
+  different service on that machine served content under GitHub's name and into
+  GitHub's index. A port other than the scheme's default is refused; an explicit
+  `:443` is the same origin and stays accepted. Neither generator emits a port
+  for these hosts, so nothing generated is refused.
+- The reported origin is itself artifact text, and one component of it is not
+  escaped by the parser. `Uri.AbsolutePath` neutralizes a hostile path segment
+  by leaving its percent-escape escaped, but `Uri.Host` does not: a raw `U+2066`
+  in `a<U+2066>ccount.visualstudio.com` survives into `Uri.Host`, passes the
+  `.visualstudio.com` suffix rule, and reached the rendered `RepositoryUrl` as a
+  live bidi control — a Trojan Source code point aimed at the reader's terminal
+  rather than at the fetch. `TryCheckOriginTextIsInert` now refuses any origin
+  component carrying `Cc`, `Cf`, `Cs`, `Zl` or `Zp`. It runs from
+  `TryEmitOrigin`, the single point at which an origin becomes visible to a
+  caller, so the rule is a property of the value rather than of one code path:
+  the first fix placed it in `Determine`, and the re-review found that
+  `BrowseUrl` — a rendered product path, reached from
+  `SourceLinkResolver.ConvertToGitHubBrowseUrl` and emitted as
+  `GitHubBrowseUrl` — reads an origin without going through `Determine`. Gated
+  by `SourceLinkProvenanceTests.ALiveFormatCharacterInAHostLabel_IsNotAttributable`
+  and `…NoOriginIsEverProducedCarryingAScalarThatCanActOnASink`. The second
+  asserts at the construction seam rather than over rendered text on purpose:
+  `BrowseUrl`'s own output is inert for an unrelated reason — every hostile
+  scalar in a path is percent-escaped by `Uri.AbsolutePath`, and its host must
+  equal `raw.githubusercontent.com` exactly — so a test over what it prints
+  would pass whether or not the check exists.
+
+Two consequences are deliberate scope, not gaps, and are gated as decisions so
+that changing them is visible:
+
+- The host allow list is the set of hosts whose URL grammar this reader knows,
+  not a trust boundary. SourceLink's generators also emit `*.vsts.me` and Azure
+  DevOps Server URLs on arbitrary hosts and ports; both report no repository.
+  Admitting such a host needs its own evidence — who operates the domain, where
+  the virtual directory ends, and which port it answers on, none of which the
+  URL states.
+  Gated by
+  `SourceLinkProvenanceTests.AHostWhoseUrlGrammarIsNotKnown_ReportsNoRepositoryRatherThanAGuess`.
+- The encoded-separator refusal applies inside Azure's repository segment too.
+  Two reviewers read this as over-refusal of a "repository folder", but Azure
+  DevOps has no repository folders and forbids `/` in a repository name, so no
+  such repository exists. The generator does pass the sequence through when the
+  git remote contains it, so the map shape is real even though the repository it
+  names cannot be. Accepting it would also undercut the rule that the path must
+  end at `items`: that rule is decided by splitting the path, and `%2F` survives
+  canonicalization, so our split and the server's need not agree on where the
+  repository segment ends. Gated by
+  `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
+
+One consequence is a real gap, tracked rather than closed here. Attribution is
+decided from the URL's text, offline; the fetch that follows is a separate step
+and does not compare where it *landed* with what was attributed.
+`CreateUntrustedFetchClient` follows redirects (five hops, SSRF-guarded per hop)
+and any 2xx is accepted, so a syntactically valid but nonexistent, private, or
+unauthenticated Azure route redirects to a sign-in page on another host and
+answers 203:
+
+```text
+final=https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com&...
+code=203
+type=text/html; charset=utf-8
+```
+
+The reported repository URL is still `https://dev.azure.com/contoso/widgets/_git/core`,
+so "read off the URL source is actually fetched from" is not true after a
+cross-host redirect.
+
+Content is **not** protected across the board. The authored-source path verifies:
+`AuthoredSourceAcquisition` re-checks the PDB checksum in `FromContent` and
+returns `Failed` on a mismatch, so redirected HTML cannot be shown as authored
+source there. But five CLI call sites fetch with `SourceFetcher.FetchSourceAsync`
+and render the result without any checksum check —
+`ApiCommand.cs:648` (the rendered **Original Source** section, whose text goes
+straight into `BodySlicer.ExtractMethodBody`), `ApiCommand.cs:1239`,
+`LibraryCommand.cs:1243`, and `SourceEnricher.cs:210` and `:333`. In
+`ApiCommand`, the *local repository* branch immediately above verifies a
+checksum and the network branch does not, so the asymmetry is visible in one
+screen. The slicer is a heuristic over line spans the PDB supplies, and the PDB
+is attacker-controlled, so it is not an authenticity boundary.
+
+Fixing this means comparing the post-redirect `RequestMessage.RequestUri`
+against the attributed origin, and requiring verification — or an explicit
+"unverified" label — at every consumer that renders fetched source. Both belong
+to the fetch and CLI layers: `Determine` is deliberately offline, and making a
+static metadata read depend on a network round trip is a design change. Tracked
+by **#3618**.
+
+This entry previously claimed `AuthoredSourceAcquisition` was the only consumer
+of fetched source and concluded that redirected HTML could never be rendered.
+That was false, and it was written while fixing a finding about ungated claims;
+round 18 caught it by enumerating `FetchSourceAsync` rather than the
+`…SourceBytesAsync` overloads the original search covered.
+
+Gates. `SourceLinkProvenanceTests` covers all twenty-one as named tests, plus the
+cache-identity distinction between forks and the requirement that every
+unestablished result carry a reason. Where a refusal has more than one possible
+cause, the test asserts the *reason* and not merely that the URL was refused: an
+empty selector, for instance, is refused by every downstream rule as well, so a
+test asserting only "not established" would pass with the rule it names deleted.
+`SourceLinkProvenance.BrowseUrl` makes the same claim as the origin reader, in
+the form a user is most likely to click, so it is held to the same rule and
+gated by
+`SourceLinkProvenanceTests.ABrowseLink_IsOnlyOfferedForAnAttributableGitHubOrigin`.
+`SourceLinkProvenanceTests.OnlyTheProvenanceOwner_AndTwoNonAttributingReaders_NameTheGitHubRawHost`
+and `SourceLinkMapConformanceTests.OnlyTheSourceLinkOwner_ReadsTheDocumentsMap`
+pin the reader sets by set equality, so a second implementation of either rule
+fails rather than quietly diverging.
 
 ### Artifact-derived source URLs use an SSRF-hardened client
 
@@ -225,6 +549,67 @@ structure and must not interpret inspected text as authority. JSON serializers
 provide structural escaping; Markdown, table, plain-text, and stderr paths need
 equivalent control-character and delimiter discipline.
 
+One artifact-derived string on the SourceLink path is rendered today: the
+reported `RepositoryUrl`, which `AssemblyInspector` writes to
+`audit.RepositoryUrl`. It is built from segments of a URL that came out of a
+downloaded package's PDB, so a hostile map can aim `ESC`, `CR`/`LF`, or a bidi
+override at it.
+
+The **path** components are inert incidentally. `Uri.AbsolutePath` leaves a
+percent-escape escaped, so `%1b` stays the three characters `%`, `1`, `b`, and a
+raw `U+202E` comes back as `%E2%80%AE`; measured,
+`https://github.com/ow%1bner/repo` and `https://github.com/ow%E2%80%AEner/repo`
+are what get reported.
+
+The **host** is not, and assuming otherwise was a real bypass (round 17,
+twenty-first entry). `Uri.Host` does not escape the way `Uri.AbsolutePath` does:
+a raw `U+2066` in an `account.visualstudio.com` label survives into `Uri.Host`
+unchanged, passes the `.visualstudio.com` suffix rule, and reached the reported
+URL as a live bidi control — one of the code points `rustc` made a hard error
+after Trojan Source. The first gate written for this missed it because every row
+it had was a *percent-encoded* escape, and those really are neutralized by the
+path reader; nobody had written down the raw form.
+
+So the rule is no longer "the readers happen to escape". `TryCheckOriginTextIsInert`
+refuses an origin any of whose components carries a scalar in `Cc`, `Cf`, `Cs`,
+`Zl` or `Zp` — by category, not by a list, because `Cf` is what a list misses.
+It runs from `TryEmitOrigin`, the one place an origin becomes visible to a
+caller, and not from `Determine`: `Determine` is where the round-17 fix put it,
+and the re-review pointed out that `BrowseUrl` reads an origin without going
+through `Determine` and is rendered as `GitHubBrowseUrl`. A rule enforced by one
+consumer is a rule the next consumer does not inherit — the same shape of defect
+as the one it was written to close. Refusal rather than encoding
+follows the strategy above: no legitimate repository needs a bidi control in its
+name. The rejection names the component and the code point and never the value,
+so the diagnostic channel does not carry the hazard it is reporting.
+
+Refusal by category was checked against legitimate input rather than assumed
+safe: repository names in Japanese, Chinese, Korean, Cyrillic, Greek, Arabic,
+Hebrew, Devanagari, Thai and Vietnamese, plus an emoji, a combining sequence and
+its precomposed form, all still attribute.
+
+The gates: `ALiveFormatCharacterInAHostLabel_IsNotAttributable` pins the refusal,
+`NoOriginIsEverProducedCarryingAScalarThatCanActOnASink` pins the invariant at the
+construction seam so it covers `BrowseUrl` and the cache identity as well as the
+reported URL, `AnEstablishedRepositoryUrl_CarriesNoScalarThatCanActOnASink` pins
+that anything still reported is inert, and
+`TheHostileOriginRows_MostlyEstablish_SoTheScalarGateIsNotVacuous` pins that its
+rows still establish, because a gate whose every row is refused asserts nothing.
+Disabling the check fails nine of them.
+
+`SourceLinkProvenanceResult.Reason` is the *latent* half of the same exposure.
+Its messages quote artifact text throughout — the query, the path, the host, a
+revision, a rejected map key — and today no caller renders it: all six read
+`Origin?.RepositoryUrl` and drop the reason. Issue #3590 exists to report it,
+which is exactly the change that turns these into a live path, so #3590 must
+adopt visual encoding rather than merely surfacing the strings.
+
+A test framework is a sink too. xUnit builds its row labels from the theory
+arguments, so the runner prints a raw `U+202E` from a hostile fixture to the
+same terminal — assertion *messages* under our control name the code point
+instead (`U+202E (Format) at 2`), and fixtures should assume the label is not
+under our control.
+
 ## Verification obligations
 
 Security-sensitive parsers and writers require close negative fixtures, not
@@ -235,72 +620,24 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
+| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted delimiters/control characters cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw control character survives and every neutralized form is present. The `--references` view carries no artifact text, so it is asserted only against raw controls, as a regression net. Mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone |
 
 ## Open work
 
-1. Unify SourceLink provenance with source resolution. Today `AssemblyInspector`
-   reports the repository from the first `documents` entry while
-   `SourceDocumentPathResolver` selects by longest matching pattern, so a
-   well-formed map can resolve source from one origin while provenance names
-   another.
-
-   State the fix as an invariant rather than a list of blocked tricks, because
-   each enumerated mitigation has proven incomplete under review:
-
-   > Reported provenance must describe the origin that source content is
-   > actually fetched from, for every document the assembly resolves. When that
-   > cannot be established for all of them, report no repository.
-
-   Establish it on the **final resolved URL, after wildcard substitution and
-   canonicalization** — not on the mapping text, and not on the mapping prefix
-   alone. Four concrete ways the weaker forms fail, all reproduced:
-
-   - Agreement on `owner/repo` ignores the commit, and
-     `raw.githubusercontent.com` serves any commit reachable in a repository,
-     including the head of an unmerged pull request. Two entries on one
-     repository at different commits "agree" while serving different code.
-   - `System.Uri` applies RFC 3986 dot-segment removal, so a mapping value
-     containing `../` is fetched from the traversed-to path while a regex over
-     the raw string reports the literal one.
-   - Even a clean mapping is not enough. The wildcard suffix comes from the PDB
-     document path, which is equally attacker-controlled, and
-     `EscapeSourceLinkPath` leaves `..` intact. A benign
-     `.../dotnet/runtime/<commit>/*` resolves
-     `/_/../../../attacker/evil/main/Program.cs` to a URL that canonicalizes
-     into `attacker/evil`.
-   - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
-     `..%5c` survive canonicalization, so a "canonicalize, then prefix-check"
-     step passes while a server that percent-decodes before resolving dot
-     segments still traverses out. Reject encoded separators and encoded dot
-     segments rather than assuming canonicalization removed them.
-
-   These four are evidence that the weaker forms fail, not a specification of
-   what to block; each was found only by attacking a previous formulation of
-   this item, and no formulation reviewed so far has survived contact with the
-   next reviewer. Treat the invariant as the requirement and this list as a
-   regression floor: whatever check is implemented must ship with tests
-   covering at least these cases, and passing them is not evidence that the
-   invariant holds.
-
-2. Fix GitHub repository provenance. The precondition tests the value for
-   `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
-   not contain, so GitHub-hosted assemblies report no repository at all. Match
-   the URI host instead of a substring.
-3. Extend duplicate-property rejection to `runfaster` trace parsing.
-4. Define package, symbol, source-download, and decompressed-archive byte and
+1. Extend duplicate-property rejection to `runfaster` trace parsing.
+2. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
-5. Audit every product write against the derived-path rules, including symbol
+3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
-6. Audit Markdown, plain-text, and stderr rendering for terminal control
+4. Audit Markdown, plain-text, and stderr rendering for terminal control
    characters and structure injection.
-7. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
+5. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
    migration and expand malformed PE/PDB product-entry-point coverage around
    graph depth, row count, and allocation limits.
-8. Migrate legacy metadata scanners that collapse malformed reads into empty or
+6. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
-9. Revisit filesystem containment if .NET exposes a portable atomic
+7. Revisit filesystem containment if .NET exposes a portable atomic
    no-follow/open-beneath primitive.
