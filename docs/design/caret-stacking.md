@@ -369,7 +369,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `8fa2bf44a`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `1d39ad054`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
