@@ -1447,12 +1447,22 @@ public static class IlBodyDiff
         /// false positive on a shape Roslyn does not emit — measured, it names a lambda
         /// inside a local function after the outermost method (`&lt;Run&gt;b__0_1`), not
         /// after the local function — and never a masked difference.
+        ///
+        /// The question is asked with <c>GeneratedNameKind.Any</c> on purpose. The
+        /// correspondence only ever <em>folds</em> a form on the kind Roslyn emits it on,
+        /// but this guard is not deciding a fold: it is deciding whether the per-side
+        /// rewrite must keep its hands off. Answering narrowly here would release a
+        /// state-machine-shaped method name to the rewrite on the grounds that the
+        /// correspondence would not fold it — which is precisely the reversal above.
+        /// Broad here and narrow there means such a name is folded by neither.
         /// </remarks>
         internal static bool CorrespondenceOwnsAnyLevel(string value)
         {
             for (int depth = 0; depth <= MaxNestingDepth; depth++)
             {
-                if (CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(value) is not null)
+                if (CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(
+                        value,
+                        CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any) is not null)
                     return true;
 
                 // A redundant fast path, not a rule, and so deliberately ungated in the

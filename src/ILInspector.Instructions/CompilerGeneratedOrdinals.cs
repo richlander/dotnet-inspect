@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -351,7 +352,38 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         return -1;
     }
 
-    internal static string? TryElideOrdinal(string name)
+    /// <summary>
+    /// Which metadata entity a generated name was read from.
+    /// </summary>
+    /// <remarks>
+    /// Each owned form belongs to exactly one kind: Roslyn emits
+    /// <c>&lt;M&gt;d__N</c> as a state-machine <em>type</em> and
+    /// <c>&lt;M&gt;g__L|N_K</c> as a local-function <em>method</em>. A name
+    /// carrying one form on the other kind is not a shape any compiler
+    /// produces, so nothing relates the two sides' ordinals and folding them
+    /// would mask a real difference. This mirrors the rule
+    /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
+    /// already applies to non-canonical ordinals.
+    /// </remarks>
+    internal enum GeneratedNameKind
+    {
+        /// <summary>A name read from a type definition.</summary>
+        Type,
+
+        /// <summary>A name read from a method definition or reference.</summary>
+        Method,
+
+        /// <summary>
+        /// Either kind. Used only by the ownership guard, which asks whether a
+        /// name belongs to this correspondence at all so the per-side rewrite
+        /// can keep off it. Answering broadly there costs at most a false
+        /// positive, while answering narrowly would hand an owned form to a
+        /// weaker folder.
+        /// </summary>
+        Any,
+    }
+
+    internal static string? TryElideOrdinal(string name, GeneratedNameKind kind)
     {
         if (name.Length < 4 || name[0] != '<')
             return null;
@@ -370,12 +402,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         if (rest.StartsWith("d__", StringComparison.Ordinal))
         {
-            return AllDigits(rest[3..])
+            return kind != GeneratedNameKind.Method && IsCanonicalOrdinal(rest[3..])
                 ? $"{containing}d__{OrdinalPlaceholder}"
                 : null;
         }
 
-        if (!rest.StartsWith("g__", StringComparison.Ordinal))
+        if (kind == GeneratedNameKind.Type || !rest.StartsWith("g__", StringComparison.Ordinal))
             return null;
 
         // Split at the last separator, not the first. Roslyn emits exactly one — a local
@@ -395,7 +427,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         var scope = ordinals[..underscore];
         var slot = ordinals[(underscore + 1)..];
-        if (!AllDigits(scope) || !AllDigits(slot))
+        if (!IsCanonicalOrdinal(scope) || !IsCanonicalOrdinal(slot))
             return null;
 
         // The scope ordinal `N` is the unstable member index; the slot ordinal `K`
@@ -403,16 +435,47 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         return $"{containing}g__{local}|{OrdinalPlaceholder}_{slot}";
     }
 
-    static bool AllDigits(ReadOnlySpan<char> value)
+    /// <summary>
+    /// Reports whether <paramref name="value"/> is an ordinal exactly as Roslyn
+    /// spells one.
+    /// </summary>
+    /// <remarks>
+    /// Roslyn formats these indices with an invariant <see cref="int"/>
+    /// conversion, so <c>01</c> and a value past <see cref="int.MaxValue"/> are
+    /// not forms it emits. Accepting them would let <c>&lt;M&gt;d__01</c> and
+    /// <c>&lt;M&gt;d__1</c> key alike and fold, which is a masked difference
+    /// between two names no compiler produced and that nothing else relates.
+    /// Requiring the canonical encoding costs at most a false positive on such
+    /// a name, which is the safe direction.
+    /// <para>
+    /// This is deliberately the same rule the per-side rewrite applies in
+    /// <c>IlBodyDiff.SynthesizedOrdinals</c>. The two mechanisms partition the
+    /// generated name space, so a name either mechanism would refuse must not
+    /// become foldable by arriving at the other one.
+    /// </para>
+    /// <para>
+    /// Gated by <c>CompilerGeneratedOrdinalTests.NonCanonicalOrdinals_DoNotFold</c>
+    /// against both forms and both of the local-function indices.
+    /// </para>
+    /// </remarks>
+    static bool IsCanonicalOrdinal(ReadOnlySpan<char> value)
     {
         if (value.IsEmpty)
             return false;
+
+        // A padded ordinal is rejected here, before the parse, so the range rule
+        // below is reached only by an unpadded value and stays independently
+        // observable.
+        if (value.Length > 1 && value[0] == '0')
+            return false;
+
         foreach (char c in value)
         {
             if (!char.IsAsciiDigit(c))
                 return false;
         }
-        return true;
+
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out _);
     }
 
     /// <summary>
@@ -488,7 +551,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 if (typeKeyPrefix is null)
                     continue;
 
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes()) is { } elidedType)
+                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type) is { } elidedType)
                 {
                     typeNames[typeHandle] = elidedType;
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
@@ -497,7 +560,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes()) is not { } elided)
+                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method) is not { } elided)
                         continue;
 
                     methodNames[methodHandle] = elided;
@@ -576,7 +639,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 var type = reader.GetTypeDefinition(chain[i]);
                 string name = typeNames.TryGetValue(chain[i], out var elided)
                     ? elided
-                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes())
+                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type)
                         ?? reader.GetString(type.Name);
 
                 if (i == 0)
@@ -597,9 +660,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         static string? TryEligibleName(
             MetadataReader reader,
             string name,
-            CustomAttributeHandleCollection attributes)
+            CustomAttributeHandleCollection attributes,
+            GeneratedNameKind kind)
         {
-            if (TryElideOrdinal(name) is not { } elided)
+            if (TryElideOrdinal(name, kind) is not { } elided)
                 return null;
             return HasCompilerGeneratedAttribute(reader, attributes) ? elided : null;
         }

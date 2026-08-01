@@ -45,8 +45,81 @@ public class CompilerGeneratedOrdinalTests
     [Fact]
     public void StateMachineOrdinal_FoldsWhenTheKeyIsUniqueOnBothSides()
     {
-        Assert.False(Compare([Generated("<M>d__3")], [Generated("<M>d__7")]).IsExact);
-        Assert.True(Compare([Generated("<M>d__3")], [Generated("<M>d__7")], Ordinals).IsExact);
+        // A state machine is a *type*. This fixture used to declare the name on a
+        // method, which folded only because eligibility was blind to the entity a
+        // name was read from, and so pinned a shape the compiler never emits in
+        // place of the one the corpus actually exercises.
+        Assert.False(CompareTypes(["<M>d__3"], ["<M>d__7"], IlBodyDiffNormalization.None).IsExact);
+        Assert.True(CompareTypes(["<M>d__3"], ["<M>d__7"]).IsExact);
+    }
+
+    /// <summary>
+    /// Each owned form belongs to exactly one entity kind: Roslyn emits
+    /// <c>&lt;M&gt;d__N</c> as a state-machine type and <c>&lt;M&gt;g__L|N_K</c> as a
+    /// local-function method. Carrying a form on the other kind is not a shape any
+    /// compiler produces, so nothing relates the two sides' ordinals and folding them
+    /// is a masked difference — the same rule the per-side rewrite applies to
+    /// non-canonical ordinals, applied to the entity instead of the digits.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are separately load-bearing: eligibility is consulted on the type
+    /// loop and the method loop independently, so a kind check on one does not imply
+    /// one on the other.
+    /// </remarks>
+    [Fact]
+    public void AnOwnedFormOnTheWrongEntityKind_DoesNotFold()
+    {
+        Assert.False(Compare([Generated("<M>d__3")], [Generated("<M>d__7")], Ordinals).IsExact,
+            "A state-machine name on a method is not a Roslyn shape and must not fold.");
+
+        Assert.False(CompareTypes(["<M>g__L|3_0"], ["<M>g__L|7_0"]).IsExact,
+            "A local-function name on a type is not a Roslyn shape and must not fold.");
+    }
+
+    /// <summary>
+    /// Roslyn formats these indices with an invariant <see cref="int"/> conversion, so a
+    /// padded ordinal and one past <see cref="int.MaxValue"/> are forms it cannot emit.
+    /// Folding them keys <c>&lt;M&gt;d__01</c> and <c>&lt;M&gt;d__1</c> alike, masking a
+    /// difference between two names nothing relates.
+    /// </summary>
+    /// <remarks>
+    /// The two rules are gated independently: a padded ordinal is rejected before the
+    /// parse is reached, so a case that is only padded would leave the range rule
+    /// untested. Both indices of the local-function form are covered because each is
+    /// checked by its own call.
+    /// </remarks>
+    [Theory]
+    [InlineData("<M>d__01", "<M>d__1")]
+    [InlineData("<M>d__2147483648", "<M>d__2147483649")]
+    public void NonCanonicalOrdinals_DoNotFold(string oldName, string newName)
+    {
+        Assert.False(CompareTypes([oldName], [newName]).IsExact);
+    }
+
+    [Theory]
+    [InlineData("<M>g__L|01_0", "<M>g__L|1_0")]
+    [InlineData("<M>g__L|2147483648_0", "<M>g__L|2147483649_0")]
+    // The slot is held back rather than elided, so two names differing *in* the slot
+    // never fold whatever the rule says, and a case shaped that way would pass
+    // vacuously. These hold the non-canonical slot equal on both sides and differ in
+    // the scope, so the fold is available and only the slot's own check withholds it.
+    [InlineData("<M>g__L|3_01", "<M>g__L|7_01")]
+    [InlineData("<M>g__L|3_2147483648", "<M>g__L|7_2147483648")]
+    public void NonCanonicalLocalFunctionOrdinals_DoNotFold(string oldName, string newName)
+    {
+        Assert.False(Compare([Generated(oldName)], [Generated(newName)], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// A zero ordinal is canonical and must keep folding: the padding rule rejects a
+    /// leading zero only when it is padding, so rejecting a bare <c>0</c> would silently
+    /// stop folding the first generated member of every containing method.
+    /// </summary>
+    [Fact]
+    public void AZeroOrdinal_StillFolds()
+    {
+        Assert.True(CompareTypes(["<M>d__0"], ["<M>d__7"]).IsExact);
+        Assert.True(Compare([Generated("<M>g__L|0_0")], [Generated("<M>g__L|7_0")], Ordinals).IsExact);
     }
 
     /// <summary>
@@ -73,19 +146,21 @@ public class CompilerGeneratedOrdinalTests
     {
         Assert.Equal(
             "<<Run>b__0_0>g__Local|#\0_0",
-            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>b__0_0>g__Local|0_0"));
+            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>b__0_0>g__Local|0_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Method));
 
         Assert.Equal(
             "<<Run>g__Outer|0_0>d__#\0",
-            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Outer|0_0>d__7"));
+            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Outer|0_0>d__7", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Type));
 
-        // Unchanged by depth matching: the anonymous shapes stay disowned.
-        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0"));
-        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c__DisplayClass1_0"));
-        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c"));
+        // Unchanged by depth matching: the anonymous shapes stay disowned. Asked under
+        // `Any`, which is the weakest refusal available, so these also pin that the
+        // entity-kind split did not widen ownership anywhere.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c__DisplayClass1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
 
         // A containing name that never closes is not a form at all.
-        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Local|0_0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Local|0_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
     }
 
     /// <summary>
