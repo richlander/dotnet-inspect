@@ -38,8 +38,8 @@ namespace InertText;
 ///
 /// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
 /// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees
-/// what was actually there), and invertible (<c>VisualEncoder.TryDecode</c> recovers the original
-/// exactly). This is not neutralization, which has none of the three.
+/// what was actually there), and invertible (the original can be recovered from it exactly).
+/// This is not neutralization, which has none of the three.
 ///
 /// "Inert" is scoped, and the scope matters: no terminal interprets the output as control and
 /// no bidi algorithm reorders it. It does <em>not</em> mean the output is safe to drop into a
@@ -90,9 +90,9 @@ public readonly struct InertString : IEquatable<InertString>
     /// The only way text enters the type, and the reason no member of it can take text without
     /// also naming a policy — a reflection test enforces that.
     ///
-    /// Forwards to <see cref="VisualEncoder"/> rather than duplicating the loop, and exists so
-    /// that producing inert text does not require naming the capability namespace. That is what
-    /// keeps the decoder out of the files that merely make inert text, and it is gated.
+    /// Exists so that producing inert text does not require naming the capability namespace,
+    /// which is what keeps the decoder out of the files that merely make inert text, and it is
+    /// gated. How the encoding is carried out is an implementation detail of this type.
     /// </remarks>
     /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
     /// <param name="value">The untreated text.</param>
@@ -312,9 +312,9 @@ public readonly struct InertString : IEquatable<InertString>
     /// is the obvious substitute and is wrong: the text it re-encodes is already encoded, so the
     /// backslashes double on every pass. This decodes first, and so is idempotent.
     ///
-    /// This is the second thing invertibility buys. Because <c>VisualEncoder.TryDecode</c>
-    /// recovers the original exactly, a mismatched piece can be taken back to its source text
-    /// and re-spelled under the policy actually in force, rather than rejected or trusted.
+    /// This is the second thing invertibility buys. Because the encoding can be reversed
+    /// exactly, a mismatched piece can be taken back to its source text and re-spelled under
+    /// the policy actually in force, rather than rejected or trusted.
     ///
     /// The repair only ever tightens. A piece encoded under a stricter policy keeps its
     /// spellings when spliced into a laxer sink, because composition making a value <em>less</em>
