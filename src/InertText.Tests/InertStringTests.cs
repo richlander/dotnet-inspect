@@ -1038,4 +1038,95 @@ public class InertStringTests
                 + "which files can recover the original: "
                 + string.Join("; ", offenders));
     }
+
+    /// <summary>
+    /// No public documentation in the currency namespace names the encoder type, so the
+    /// currency type's use of it stays an implementation detail rather than an advertised one.
+    /// </summary>
+    /// <remarks>
+    /// The capability is deliberately public and deliberately opt-in: a caller who needs to
+    /// decode names <c>InertText.Encoder</c> and that act is what the audit searches for. What
+    /// must not happen is the currency type handing the capability over without that opt-in.
+    ///
+    /// A signature cannot: a separate test walks the public surface and fails any member that
+    /// mentions a type from the capability namespace. Documentation is the other route, and it
+    /// is easy to miss because it changes no signature. The public constructor used to open
+    /// with "Forwards to <![CDATA[<see cref="VisualEncoder"/>]]>", which is a *navigable
+    /// reference* — every consumer reading the constructor in IntelliSense was pointed straight
+    /// at the reversing half, and two more members described their internals the same way.
+    /// Documenting what a member delegates to is describing an implementation detail as though
+    /// it were part of the contract.
+    ///
+    /// Naming the <em>namespace</em> stays allowed, and the type-level remarks do it: saying
+    /// the decoder lives in <c>InertText.Encoder</c> and that nothing here reaches it is the
+    /// opt-in disclaimer rather than a shortcut to it. The line is drawn at the type name,
+    /// which is the thing a caller would have to write in order to use it.
+    /// </remarks>
+    [Fact]
+    public void NoPublicDocumentationInTheCurrencyNamespaceNamesTheEncoderType()
+    {
+        const string EncoderType = "VisualEncoder";
+
+        DirectoryInfo? root = new(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        Assert.True(root is not null, "could not locate the repository root from the test binary");
+
+        string library = Path.Combine(root!.FullName, "src", "InertText");
+        string[] files = Directory.GetFiles(library, "*.cs", SearchOption.AllDirectories);
+
+        // Non-vacuity: a wrong path would pass silently.
+        Assert.NotEmpty(files);
+
+        List<string> offenders = [];
+        int scanned = 0;
+
+        foreach (string file in files)
+        {
+            if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string[] lines = File.ReadAllLines(file);
+
+            // The capability's own file documents itself; the rule is about the currency side.
+            if (lines.Any(l => l.StartsWith("namespace InertText.Encoder", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            scanned++;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].TrimStart();
+                if (!trimmed.StartsWith("///", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (trimmed.Contains(EncoderType, StringComparison.Ordinal))
+                {
+                    offenders.Add($"{Path.GetRelativePath(root.FullName, file)}:{i + 1}");
+                }
+            }
+        }
+
+        // The currency namespace is more than one file, so a rule that only ever saw
+        // InertString.cs would be weaker than it looks.
+        Assert.True(scanned > 1, $"expected to scan several currency-namespace files, scanned {scanned}");
+
+        Assert.True(
+            offenders.Count == 0,
+            $"Public documentation in the currency namespace names '{EncoderType}', which "
+                + "advertises the reversing half to every consumer reading these members and "
+                + "makes an implementation detail look like part of the contract. Describe what "
+                + "the member guarantees instead, and leave where the capability lives to the "
+                + $"type-level remarks: {string.Join("; ", offenders)}");
+    }
 }
