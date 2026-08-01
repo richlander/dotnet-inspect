@@ -77,30 +77,61 @@ and the reader is usually trying to work out what the artifact actually says.
 This is the central design split, and it is what lets one speller serve every
 sink:
 
-- The **predicate** (`ScalarPolicy`) answers "is this scalar permitted *here*". It
-  is per-sink and it is the caller's to choose. `TextPolicy.Field` is deny-shaped
-  and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`. `TextPolicy.Prose` is the same
-  minus a `CR`/`LF`/`TAB` exemption, for genuinely multi-line text.
+- The **policy** (`TextPolicy`) answers "is this scalar permitted *here*". It is
+  per-sink, and it is a **closed enum** rather than a predicate the caller
+  supplies. `Field` is deny-shaped and refuses `Cc`, `Cf`, `Cs`, `Zl` and `Zp`.
+  `Prose` is the same minus a `CR`/`LF`/`TAB` exemption, for genuinely
+  multi-line text. The rule table behind it is an internal `ScalarPolicy`
+  delegate, so no caller code runs during encoding or repair.
 - The **speller** (`VisualEncoder`) answers "how is a refused scalar written
   down". It is total over Unicode, and it never learns *why* a scalar was
   refused.
 
-A speller with a built-in hazard set has absorbed policy and cannot serve a sink
-whose grammar is constrained. That case is not hypothetical: the central
-typosquatting vector is a homoglyph, and Cyrillic `а` and Latin `a` are the same
-glyph, both category `Ll`. No category rule catches that and none should —
-refusing every non-Latin letter would break most of the world's text. Only an
-allow-shaped policy catches it, and because the speller is total, such a sink
-needs no spelling table of its own.
+### Why the policy set is closed
+
+An open predicate is the more obvious design and it was the first one here. Two
+things ruled it out, both measured rather than argued.
+
+**Drift.** Before this component the tree had grown five independent hand-rolled
+hazard predicates, and they disagree by up to 48 BMP characters:
+`IsRenderingHazard` refuses 76, `NeedsEscape` 76, `MetadataTableProjector`'s
+control check 65, `Field` 110, `Prose` 107. That is not hypothetical drift — it
+had already shipped a defect, since the metadata layer escapes `Cc` and `C1`
+while emitting `U+202E`, `U+200D`, `U+FEFF` and `U+2028` verbatim. A per-caller
+predicate makes each new sink a fresh opportunity to disagree, and the whole
+point of a shared component is that the rules are written once.
+
+**Disclosure.** `EnsurePermitted` has to decode before it can re-spell. A
+caller-supplied predicate would then be handed the *decoded, hostile* original
+one scalar at a time, in a file that need never name the capability namespace —
+the audit boundary walked back out through a callback, invisible to any
+reflection test over return types because the leak is an argument rather than a
+result.
+
+A closed set answers both: the rules live in one table, and a repair runs no
+caller code. Adding a kind of text is an enum member and an arm in that table,
+with no new public member anywhere, so the set stays extensible without the
+type growing.
+
+Allow-shaped rules are deliberately not expressible, and encoding could not
+serve one anyway. Repairing `Nеwtonsoft.Json` to `N\u0435wtonsoft.Json` fails
+the same letters-only check that rejected the original: what such a sink wants
+is *rejection*, which is the threat model's "reject, do not sanitize" and a
+different operation from this one.
 
 The speller's obligations:
 
 - **Total.** Defined on every Unicode scalar, including the 127 encoded scalars
   above the BMP. A `\uXXXX`-only speller is neither total nor invertible on
   exactly the inputs an attacker reaches for.
-- **Injective, in both directions.** One scalar has one spelling, so the decoder
-  refuses spellings the encoder never emits: `\U` for a BMP scalar, and `\uXXXX`
-  for a scalar with a canonical short form such as `\\`, `\^X` or `\^?`.
+- **Injective, in both directions.** One scalar has one *emitted* spelling, so
+  the decoder refuses spellings the encoder never produces: `\U` for a BMP
+  scalar, `\uXXXX` for a scalar with a canonical short form such as `\\`, `\^X`
+  or `\^?`, lowercase hex in either width, and a raw unpaired surrogate in the
+  decoder's input. The one spelling accepted but never emitted is a surrogate
+  *pair* written as two `\uXXXX` escapes, because composition produces it: a
+  .NET string is UTF-16, so `"\uD83D" + "\uDE00"` *is* `"\U0001F600"`, and
+  `Join` encodes its fragments separately.
 - **Scalar-based, not code-unit-based.** An unpaired surrogate is not a scalar.
   `Rune` cannot hold one and `EnumerateRunes` substitutes `U+FFFD`, so a speller
   built on either is lossy on the one input that cannot be written any other way.
@@ -144,7 +175,7 @@ return it is asking for an input marker — *this text came from outside*. Those
 are different propositions, and only the second one is a property of a source.
 
 **A policy belongs to the sink, and acquisition does not know the sink.**
-`Encode` takes a `ScalarPolicy` because what may pass depends on where the text
+`Encode` takes a `TextPolicy` because what may pass depends on where the text
 is going: `Field` for a table cell, `Prose` for a paragraph, something else for
 a sink with no terminal at the end of it. Where a name is read out of metadata
 there is no sink yet, so the API would have to pick a policy arbitrarily and be
@@ -301,9 +332,9 @@ differently depending on where it was encoded — which is a deliberate trade.
 
 ### Asking whether a value suits your sink
 
-That repair is exposed as `EnsurePermitted(ScalarPolicy)`, because a sink that
+That repair is exposed as `EnsurePermitted(TextPolicy)`, because a sink that
 accepts an `InertString` has no other correct way to make one safe for itself.
-The obvious substitute is wrong: `new InertString(value.ToString(), policy)`
+The obvious substitute is wrong: `new InertString(policy, value.ToString())`
 hands already-encoded text back to the encoder, so the backslashes double on
 every pass — `a\u202Eb` becomes `a\\u202Eb`, then `a\\\\u202Eb`. Because
 `EnsurePermitted` decodes before re-spelling, repeating it is a no-op.
@@ -324,8 +355,8 @@ property of the value, which is why it cannot be cached on one and why
 `EnsurePermitted` has to recompute it.
 
 Storing the producing policy on the value would not help either. Knowing which
-delegate produced a value says nothing about whether it is stricter than the
-delegate you are about to apply, short of sweeping every scalar to compare their
+policy produced a value says nothing about whether it is stricter than the one
+you are about to apply, short of sweeping every scalar to compare their
 permitted sets — so the value would carry an extra field and still pay for the
 scan.
 
@@ -342,10 +373,12 @@ act on. Each fixture records what it attacks, and six claims are asserted over
 every one of them, so adding a fixture is a single line that is immediately
 subject to all of them.
 
-The corpus also carries a payload nothing catches — the Cyrillic homoglyph — with
-both halves asserted: the category policy permits it, an allow-shaped policy
-refuses it. A corpus containing only what the default catches would quietly imply
-the default is sufficient.
+The corpus also carries a payload nothing catches — the Cyrillic homoglyph —
+and asserts the boundary directly: *no* `TextPolicy` refuses it, swept over
+`Enum.GetValues<TextPolicy>()` so a policy added later is covered without an
+edit. Category rules cannot catch it and none should, since refusing every
+non-Latin letter would break most of the world's text. A corpus containing only
+what the policies catch would quietly imply they are sufficient.
 
 ## Placement
 
