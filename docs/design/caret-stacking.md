@@ -28,7 +28,7 @@ tell which detail belongs to which expression.
 
 `System.Tuple<…>.Equals` is the worst real case in the corpus. Under
 `--focus alloc` its comparison line carries 16 facts under a single caret 370
-columns wide, above 106 wrapped detail rows, and attributes none of them. The
+columns wide, above 32 wrapped detail rows, and attributes none of them. The
 code line is 374 columns, so it is elided here at the `…`:
 
 ```csharp
@@ -57,7 +57,7 @@ of them.
 
 Every code block showing behaviour that exists is verbatim `Annotated Source`
 output rather than a sketch. The two exceptions are marked where they appear:
-the `Tuple.Equals` line below is elided because it is 330 columns wide, and the
+the `Tuple.Equals` line below is elided because it is 374 columns wide, and the
 side-aligned block under [Rejected alternatives](#side-aligned-annotations)
 depicts a layout that was never built. This one is
 `System.Reflection.RuntimeModule.ResolveSignature` under `--focus cost`; see
@@ -170,8 +170,12 @@ shrink: it is the same width on 91.8% of these lines, narrower on 1.1%, and
 wider on 7.2% — the numbered labels cost a few columns where the details were
 already the widest thing in the block.
 
-**Stacking buys attribution, and nothing else.** It does not improve fit, it
-does not narrow the block, and this document should not claim either.
+**Stacking buys attribution, and essentially nothing else.** There is no
+material aggregate improvement in either fit or block width: 1.1% of blocks do
+get narrower and the 80-column fit does tick from 23.3% to 23.4%, but those are
+rounding-scale movements against a 7.2% share that gets wider. The honest
+summary is that fit and block width are unchanged, and this document should not
+claim more.
 
 The constraint still binds on the *alternatives*, which is why it is stated
 here: side-alignment overflows the code line on 96.61% of the 29,933 lines
@@ -264,7 +268,12 @@ facts CoreLib yields, with no fact in two families and none outside them.
 `AnnotationGestureSelector.Focus` also matches a category name, and those are
 aliases of the same sets — `allocation` selects the same 16,328 as `alloc`,
 `unsafety` the same 749 as `unsafe`, and `semantics` the same 17,041 as
-`safety`.
+`safety`. That last one is a coincidence of this corpus rather than a
+definition: the `Semantics` category declares both `safety.callee` and
+`semantics.callee`, and `--focus semantics` would select the union of the two —
+but CoreLib yields **0** `semantics.callee` facts, so the two selections are
+equal here. On an assembly that produced them, `semantics` would be a strict
+superset of `safety` and would need measuring separately.
 
 Any other argument is a narrower id prefix, such as `alloc.box`, and selects a
 strict subset of one family. Stacking cannot increase under a subset: dropping
