@@ -6220,7 +6220,9 @@ public partial class CommandExecutionTests
             .ToList();
 
         // Still one caret row: all four extents are disjoint and short enough to
-        // pack onto a single line, which is the 88.6% case in CoreLib.
+        // pack onto a single line. That is the 88.6% case among the 2,886
+        // multi-extent lines of System.Private.CoreLib, as the annotated-source
+        // view prints it.
         int i = Assert.Single(caretIndexes);
         string caretRow = lines[i];
         string statement = lines[i - 1];

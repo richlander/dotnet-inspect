@@ -366,7 +366,8 @@ public static class AnnotationCaret
             // will not fit after it cannot be drawn at the column it points at,
             // and shifting it would make it point somewhere else. This is a
             // guard, not a path with known traffic: it fires on 0 of the 3,385
-            // CoreLib lines that stack.
+            // lines that stack in System.Private.CoreLib, as the
+            // annotated-source view prints it.
             if (LabelStart(i) < commentColumn + 2)
                 return null;
 
