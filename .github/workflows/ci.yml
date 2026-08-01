@@ -158,6 +158,14 @@ jobs:
               # exists today, but a `case` pattern is anchored at the start of
               # the path, so match nested ones too rather than leaving the same
               # hole open one directory down.
+              #
+              # These patterns over-match slightly: `*` spans `/`, so a path
+              # like `x/.markdownlint.d/y.cs` also trips them. That is the
+              # deliberate direction to err in -- over-matching costs one short
+              # lint run, while under-matching silently skips the job and, since
+              # `ci-required` counts `skipped` as passing, hides it. `case` has
+              # no way to anchor the basename, so tightening this would cost
+              # more legibility than the false positive is worth.
               .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
               */.markdownlint.*|*/.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
