@@ -964,7 +964,7 @@ public static class IlBodyDiff
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
         {
-            string instance = signature.Header.IsInstance ? "instance " : "";
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
             string arity = signature.GenericParameterCount > 0
                 ? $"`{signature.GenericParameterCount}"
@@ -1616,8 +1616,9 @@ public static class IlBodyDiff
             => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
         public string GetFunctionPointerType(MethodSignature<string> signature)
         {
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
-            return $"method {convention}{signature.ReturnType} *({FormatParameterList(signature)})";
+            return $"method {instance}{convention}{signature.ReturnType} *({FormatParameterList(signature)})";
         }
 
         static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
@@ -1667,6 +1668,49 @@ public static class IlBodyDiff
         for (int i = requiredCount; i < signature.ParameterTypes.Length; i++)
             builder.Add(signature.ParameterTypes[i]);
         return string.Join(", ", builder);
+    }
+
+    /// <summary>
+    /// Spells the <c>this</c> attributes of a method signature header the way ILAsm
+    /// does: <c>instance</c> for <c>HASTHIS</c>, and <c>explicit</c> for
+    /// <c>EXPLICITTHIS</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every bit of a signature header that distinguishes two methods has to reach the
+    /// rendered operand, because the operand is the whole of what the comparison sees.
+    /// <c>EXPLICITTHIS</c> was silently dropped, which made two methods with different
+    /// calling conventions render identically. That was latent while names were compared
+    /// literally — differing names still differed — and became a masked difference as
+    /// soon as <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>
+    /// folded the names, since the operand was then the only remaining discriminator.
+    /// <para>
+    /// Fixing it here rather than by widening the correspondence key is deliberate. A key
+    /// term would have to encode the signature, and a signature blob encodes type
+    /// references as metadata tokens, which legitimately differ between the two
+    /// assemblies being compared for the same logical signature — so keying on it would
+    /// suppress real folds. The renderer already decodes to a side-independent spelling,
+    /// so the difference belongs there, where it also protects every comparison that does
+    /// not fold names at all.
+    /// </para>
+    /// <para>
+    /// The bit is spelled independently of <c>HASTHIS</c>. ECMA-335 II.15.3 only defines
+    /// <c>EXPLICITTHIS</c> alongside <c>HASTHIS</c>, but untrusted metadata can set it
+    /// alone, and rendering it only in the pair would leave that shape colliding with a
+    /// static signature.
+    /// </para>
+    /// <para>
+    /// Gated end-to-end by
+    /// <c>IlBodyDiffNormalizationTests.MethodsDifferingOnlyInExplicitThis_DoNotFold</c>
+    /// and <c>..._FunctionPointersDifferingOnlyInTheirThisAttributes_AreNotEqual</c>.
+    /// </para>
+    /// </remarks>
+    static string SignatureThisPrefix(SignatureHeader header)
+    {
+        string instance = header.IsInstance ? "instance " : "";
+        string explicitThis = (header.Attributes & SignatureAttributes.ExplicitThis) != 0
+            ? "explicit "
+            : "";
+        return instance + explicitThis;
     }
 
     static string CallingConventionPrefix(SignatureCallingConvention convention)

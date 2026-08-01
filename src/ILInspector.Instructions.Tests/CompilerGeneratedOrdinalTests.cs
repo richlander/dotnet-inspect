@@ -111,6 +111,78 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// Two local functions whose signatures differ only in <c>EXPLICITTHIS</c> must not
+    /// compare equal once the correspondence folds their names.
+    /// </summary>
+    /// <remarks>
+    /// The correspondence keys a method on its declaring type, its ordinal-free name, and
+    /// its arity — deliberately not on its signature, because a signature blob encodes
+    /// type references as metadata tokens that legitimately differ between the two
+    /// assemblies being compared. Everything the key does not carry has to reach the
+    /// rendered operand instead, and <c>EXPLICITTHIS</c> did not: both headers rendered
+    /// as <c>instance</c>, so folding the names left nothing to tell the two apart.
+    ///
+    /// The assertion is deliberately not "does not fold". The names still fold, which is
+    /// correct — these really are the same member modulo ordinal as far as the key can
+    /// tell. What must survive is the <em>difference</em>, now spelled in the operand.
+    /// </remarks>
+    [Fact]
+    public void MethodsDifferingOnlyInExplicitThis_DoNotFold()
+    {
+        // 0x20 is HASTHIS; 0x60 adds EXPLICITTHIS.
+        Assert.False(Compare(
+            [new Member("<M>g__L|3_0", CompilerGenerated: true, SignatureHeader: 0x20)],
+            [new Member("<M>g__L|7_0", CompilerGenerated: true, SignatureHeader: 0x60)],
+            Ordinals).IsExact);
+
+        // The control: identical headers still fold, so the case above fails for the
+        // signature bit rather than because this shape stopped folding altogether.
+        Assert.True(Compare(
+            [new Member("<M>g__L|3_0", CompilerGenerated: true, SignatureHeader: 0x20)],
+            [new Member("<M>g__L|7_0", CompilerGenerated: true, SignatureHeader: 0x20)],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// A function-pointer type carries the same <c>this</c> attributes a method signature
+    /// does, and two that differ in them are different types.
+    /// </summary>
+    /// <remarks>
+    /// Found while fixing the <c>EXPLICITTHIS</c> hole above: the function-pointer
+    /// renderer dropped <em>both</em> bits, so <c>method instance void *()</c> and
+    /// <c>method void *()</c> rendered identically and any two operands differing only
+    /// there compared equal. Unlike the method case this needs no name folding to bite —
+    /// it is a plain rendering gap — but it is the same defect, that a signature bit the
+    /// comparison depends on never reached the text being compared.
+    ///
+    /// The signatures below return a function pointer: <c>0x1B</c> is <c>FNPTR</c>,
+    /// followed by the pointee's own header, parameter count, and return type.
+    /// </remarks>
+    [Theory]
+    [InlineData((byte)0x20, (byte)0x00)]  // HASTHIS vs static
+    [InlineData((byte)0x60, (byte)0x20)]  // HASTHIS|EXPLICITTHIS vs HASTHIS
+    public void FunctionPointersDifferingOnlyInTheirThisAttributes_AreNotEqual(
+        byte oldPointeeHeader,
+        byte newPointeeHeader)
+    {
+        Assert.False(Compare(
+            [new Member("M", CompilerGenerated: false,
+                RawSignature: [0x00, 0x00, 0x1B, oldPointeeHeader, 0x00, 0x01])],
+            [new Member("M", CompilerGenerated: false,
+                RawSignature: [0x00, 0x00, 0x1B, newPointeeHeader, 0x00, 0x01])],
+            Ordinals).IsExact);
+
+        // Identical pointees still compare equal, so the cases above fail for the
+        // attribute bits rather than because this shape never compares equal.
+        Assert.True(Compare(
+            [new Member("M", CompilerGenerated: false,
+                RawSignature: [0x00, 0x00, 0x1B, oldPointeeHeader, 0x00, 0x01])],
+            [new Member("M", CompilerGenerated: false,
+                RawSignature: [0x00, 0x00, 0x1B, oldPointeeHeader, 0x00, 0x01])],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
     /// A zero ordinal is canonical and must keep folding: the padding rule rejects a
     /// leading zero only when it is padding, so rejecting a bare <c>0</c> would silently
     /// stop folding the first generated member of every containing method.
@@ -1172,7 +1244,9 @@ public class CompilerGeneratedOrdinalTests
         string? AttributeNamespace = null,
         string? AttributeName = null,
         int GenericArity = 0,
-        bool SignatureDeclaresArity = true);
+        bool SignatureDeclaresArity = true,
+        byte SignatureHeader = 0x00,
+        byte[]? RawSignature = null);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -1396,9 +1470,16 @@ public class CompilerGeneratedOrdinalTests
         // A generic method's signature carries GENERIC (0x10) and its own parameter count,
         // which is what the operand renderer reads. A member may deliberately omit it to
         // model an assembly whose two arity records disagree.
-        BlobHandle SignatureFor(Member member) => member is { GenericArity: > 0, SignatureDeclaresArity: true }
-            ? metadata.GetOrAddBlob(new byte[] { 0x10, (byte)member.GenericArity, 0x00, 0x01 })
-            : signature;
+        BlobHandle SignatureFor(Member member) => member switch
+        {
+            { RawSignature: { } raw } => metadata.GetOrAddBlob(raw),
+            { GenericArity: > 0, SignatureDeclaresArity: true }
+                => metadata.GetOrAddBlob(
+                    new byte[] { (byte)(0x10 | member.SignatureHeader), (byte)member.GenericArity, 0x00, 0x01 }),
+            { SignatureHeader: not 0x00 }
+                => metadata.GetOrAddBlob(new byte[] { member.SignatureHeader, 0x00, 0x01 }),
+            _ => signature,
+        };
 
         // A reference to a type named `C` scoped to this module renders under the same
         // scope and type as the definition above, so only the member name distinguishes
