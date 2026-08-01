@@ -285,11 +285,13 @@ because rule 8 is not monotone. `RenderStacked` returns `null` for the whole
 line the moment any one label would start left of the gutter, so a broad focus
 can fall back to widening on account of a single early fact while a narrower
 focus, having dropped that fact, stacks the two later extents successfully.
-Rule 8 fires on **0 of the 2,842** lines that stack under any of the five
-families here, so no such line exists in this corpus and the 2,842 does bound
-every narrower argument over CoreLib — but that is a measurement, not a
-consequence of subsetting, and it would have to be re-measured on another
-assembly.
+Naming the guard's rate against the lines that *stack* would be circular, since
+a line rule 8 rejects does not stack by construction. Measured against the set
+that **qualifies** to stack before rule 8 runs, the guard fires on **0 of
+2,842** — so all 2,842 qualifying lines do stack, no such line exists in this
+corpus, and the 2,842 does bound every narrower argument over CoreLib. That is a
+measurement, not a consequence of subsetting, and it would have to be
+re-measured on another assembly.
 
 The bound is also specific to the **stacks** column. The other columns are not
 monotone in the same direction: dropping one of two disagreeing extents turns a
@@ -338,7 +340,7 @@ exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `372c15593`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `a14d3ddce`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
