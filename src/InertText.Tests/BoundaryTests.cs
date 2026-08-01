@@ -22,11 +22,16 @@ public class BoundaryTests
     private const string Hazard = "a\u202Eb\\c";
 
     [Theory]
-    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    [MemberData(nameof(BoundaryCorpus.Names), MemberType = typeof(BoundaryCorpus))]
     public void Truncate_LeavesAWellFormedValueAtEveryBudget(string name)
     {
-        InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        InertString full = BoundaryCorpus.ByName(name);
         string text = full.ToString();
+
+        // The decoded text of the whole value, read once. A cut in the encoded text names a
+        // position in this string, and that is the coordinate system the atomicity guarantee
+        // is stated in.
+        Assert.True(VisualEncoder.TryDecode(text, out string? whole));
 
         // Past the end as well as inside it, because a budget is caller-supplied and an
         // over-budget request is the common case rather than an edge one.
@@ -39,16 +44,49 @@ public class BoundaryTests
 
             // The whole point: what survives is still readable as encoded text, so the repair
             // path leaves it alone instead of re-encoding its backslashes.
-            Assert.True(VisualEncoder.TryDecode(cut.ToString(), out _));
+            Assert.True(VisualEncoder.TryDecode(cut.ToString(), out string? kept));
             Assert.Equal(cut, cut.EnsurePermitted(TextPolicy.Field));
+
+            // Decoding a prefix of encoded text gives a prefix of the decoded text, which is
+            // what lets the cut be named as a single position in the whole value below.
+            Assert.True(kept.Length <= whole.Length);
+            Assert.Equal(whole[..kept.Length], kept);
+
+            // Well-formed encoded text is not enough on its own. Each half of a spelled
+            // surrogate pair is a well-formed \uXXXX escape, so a cut between them decodes and
+            // survives the repair path while still handing a sink a lone surrogate. The harm is
+            // only visible on the decoded side, so that is where it is asserted.
+            AssertNoScalarDivided(whole, 0, kept.Length);
+        }
+    }
+
+    /// <summary>
+    /// A window of encoded text names a range of the decoded text; that range must not fall
+    /// between the halves of a surrogate pair.
+    /// </summary>
+    /// <remarks>
+    /// This is the atomicity guarantee stated where it can be falsified. It says nothing about
+    /// lone surrogates the value already contained -- the corpus carries two of those on
+    /// purpose -- only that a bound may not create one that the whole value did not have.
+    /// </remarks>
+    private static void AssertNoScalarDivided(string decoded, int from, int to)
+    {
+        foreach (int at in (int[])[from, to])
+        {
+            Assert.False(
+                at > 0
+                    && at < decoded.Length
+                    && char.IsHighSurrogate(decoded[at - 1])
+                    && char.IsLowSurrogate(decoded[at]),
+                $"bound at {at} divides the surrogate pair at {at - 1}");
         }
     }
 
     [Theory]
-    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    [MemberData(nameof(BoundaryCorpus.Names), MemberType = typeof(BoundaryCorpus))]
     public void Truncate_KeepsAsMuchAsTheBudgetAllows(string name)
     {
-        InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        InertString full = BoundaryCorpus.ByName(name);
         string text = full.ToString();
 
         for (int budget = 0; budget <= text.Length; budget++)
@@ -176,14 +214,22 @@ public class BoundaryTests
     }
 
     [Theory]
-    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    [MemberData(nameof(BoundaryCorpus.Names), MemberType = typeof(BoundaryCorpus))]
     public void TruncateRange_ReturnsASubsetOfEveryWindowAsked(string name)
     {
-        InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        InertString full = BoundaryCorpus.ByName(name);
         string text = full.ToString();
+
+        Assert.True(VisualEncoder.TryDecode(text, out string? whole));
 
         for (int start = 0; start <= text.Length; start++)
         {
+            // Where the window's near bound landed after snapping, named in the decoded text.
+            // Opening a window at a position and measuring what is left reports the snapped
+            // start; the text before it decodes to everything the window drops.
+            int snapped = text.Length - full.Truncate(start..).Length;
+            Assert.True(VisualEncoder.TryDecode(text[..snapped], out string? dropped));
+
             for (int end = 0; end <= text.Length; end++)
             {
                 InertString window = full.Truncate(start..Math.Max(start, end));
@@ -194,8 +240,13 @@ public class BoundaryTests
                 // direction a caller cannot check.
                 Assert.Contains(kept, text[start..Math.Max(start, end)]);
 
-                Assert.True(VisualEncoder.TryDecode(kept, out _));
+                Assert.True(VisualEncoder.TryDecode(kept, out string? inside));
                 Assert.Equal(window, window.EnsurePermitted(TextPolicy.Field));
+
+                // Neither bound may divide a surrogate pair of the decoded text. The budget
+                // sweep can only ever check the far bound, because it cuts from zero; the near
+                // bound exists only here, and the same token walk places both.
+                AssertNoScalarDivided(whole, dropped.Length, dropped.Length + inside.Length);
             }
         }
     }
@@ -257,6 +308,13 @@ public class BoundaryTests
         // Ground truth has to come from outside the walker, so it is taken by decoding the
         // window and encoding it again from scratch: that path runs AppendSpelling and never
         // consults NextToken.
+        //
+        // That oracle is only sound for DIRECTLY-ENCODED values, which is why this sweep does
+        // not run over BoundaryCorpus like the others. Re-encoding asks what a fresh encode of
+        // the decoded text would spell, and for a composed value that is a different question
+        // from what the value was spelled with -- see
+        // TruncateRange_KeepsTheSpellingsCompositionEmitted, where the two disagree and the
+        // walker is right.
         InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
         string text = full.ToString();
 
@@ -283,6 +341,27 @@ public class BoundaryTests
     }
 
     [Fact]
+    public void TruncateRange_KeepsTheSpellingsCompositionEmitted()
+    {
+        // Forms names the spellings emitted while producing the value, and composition unions
+        // them -- so a window's Forms has to describe what a reader of that window actually
+        // sees. Here the reader sees two \uXXXX escapes, and the walker says BmpHex.
+        InertString split = BoundaryCorpus.ByName("ComposedSurrogatePair");
+
+        Assert.Equal(@"\uD83D\uDE00", split.ToString());
+        Assert.Equal(VisualForm.BmpHex, split.Forms);
+        Assert.Equal(VisualForm.BmpHex, split.Truncate(..split.Length).Forms);
+
+        // Decode-then-re-encode, the oracle the directly-encoded sweep uses, disagrees: the two
+        // escapes decode to one astral scalar, and Field permits So, so a fresh encode emits it
+        // raw and reports None. That is the answer to a different question -- what encoding
+        // this text again would spell, not what this value was spelled with -- and it is the
+        // wrong one here, because nothing re-encodes a value on its way to a sink.
+        Assert.True(VisualEncoder.TryDecode(split.ToString(), out string? decoded));
+        Assert.Equal(VisualForm.None, VisualEncoder.Encode(TextPolicy.Field, decoded).Forms);
+    }
+
+    [Fact]
     public void IndexOfFirstEncoded_LocatesTheFirstSpelling()
     {
         Assert.Equal(1, new InertString(TextPolicy.Field, Hazard).IndexOfFirstEncoded());
@@ -303,10 +382,10 @@ public class BoundaryTests
     }
 
     [Theory]
-    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    [MemberData(nameof(BoundaryCorpus.Names), MemberType = typeof(BoundaryCorpus))]
     public void IndexOfFirstEncoded_AgreesWithWasEncoded(string name)
     {
-        InertString value = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        InertString value = BoundaryCorpus.ByName(name);
 
         Assert.Equal(value.WasEncoded, value.IndexOfFirstEncoded() >= 0);
 
