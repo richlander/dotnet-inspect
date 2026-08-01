@@ -589,6 +589,13 @@ public class DeclarationIndexTests
     /// rather than a hand-written line number, because the whole question is what counts as
     /// leading trivia and that is Roslyn's answer to give. Every fixture compiles.
     /// </para>
+    /// <para>
+    /// Several fixtures exist only to make a sub-rule's misreading change an ANSWER rather than
+    /// merely shift state, which is what a mutation can see: the last two put a comment after a
+    /// block that must have closed, and the single-line <c>/* … */</c> before a further comment
+    /// gates the opening test in both directions — treating <c>/*/</c> as closed, and treating a
+    /// closed one-line block as still open.
+    /// </para>
     /// </summary>
     [Fact]
     public void ABlockCommentSpanningATerminatorLine_TrailsTheDeclarationItStartedOn()
@@ -604,6 +611,50 @@ public class DeclarationIndexTests
             "class C\n{\n    int A;\n    /*/ still open\n    */ int B;\n}",
             "class C\n{\n    int A; /* trailing\n    comment */\n    // leading B\n    int B;\n}",
             "class C\n{\n    int A; /*/\n    still inside */\n    int B;\n}",
+            "class C\n{\n    /* single line */ int A;\n    /* next comment */\n    int B;\n}",
+        ];
+
+        foreach (var fixture in fixtures)
+        {
+            var lines = fixture.Split('\n');
+            var expected = RoslynDeclarations(lines);
+            Assert.NotNull(expected);
+
+            var actual = DeclarationIndex.Build(lines).Declarations;
+            Assert.Equal(
+                expected.Select(d => $"{d.Kind} {d.Name} trivia={d.TriviaStartLine} sig={d.SignatureStartLine}"),
+                actual.Select(d => $"{d.Kind} {d.Name} trivia={d.TriviaStartLine} sig={d.SignatureStartLine}"));
+        }
+    }
+
+    /// <summary>
+    /// An <c>assembly:</c> or <c>module:</c> attribute list belongs to the compilation unit, not to
+    /// whatever declaration follows it. It was treated as leading trivia of that declaration, so a
+    /// slice would open with an assembly attribute that has nothing to do with the member selected.
+    /// Roslyn also puts a file header comment above such a list inside the list's own trivia, so a
+    /// unit attribute has to clear what came before it rather than merely decline to extend it.
+    /// <para>
+    /// The close negatives are the point: <c>[Obsolete]</c>, <c>[type: Obsolete]</c> and
+    /// <c>[return: ...]</c> are part of the declaration that follows and must still be kept. Roslyn
+    /// is the oracle rather than hand-written line numbers. Every fixture compiles.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ACompilationUnitAttribute_IsNotTheNextDeclarationsTrivia()
+    {
+        string[] fixtures =
+        [
+            "using System;\n[assembly: CLSCompliant(true)]\nclass A1 { }",
+            "[module: System.CLSCompliant(true)]\nclass A2 { }",
+            "// file header\nusing System;\n[assembly: System.Reflection.AssemblyMetadata(\"k\",\"v\")]\nclass A3 { }",
+            "using System;\n[Obsolete]\nclass A4 { }",
+            "using System;\n[type: Obsolete]\nclass A5 { }",
+            "class A6\n{\n    [return: System.Diagnostics.CodeAnalysis.NotNull]\n    string M() => \"\";\n}",
+            "using System;\n[assembly: System.Reflection.AssemblyDescription(\"d\")]\n[Obsolete]\nclass A7 { }",
+            "using System;\n[assembly: System.Reflection.AssemblyProduct(\"p\")]\n\n[assembly: System.Reflection.AssemblyCompany(\"c\")]\nclass A8 { }",
+            "using System;\nclass assemblyAttribute : Attribute { }\n[assembly]\nclass A9 { }",
+            "using System;\nclass assemblyAttribute : Attribute { }\n[assembly()]\nclass A10 { }",
+            "using System;\nclass moduleAttribute : Attribute { }\n[module, Obsolete]\nclass A11 { }",
         ];
 
         foreach (var fixture in fixtures)

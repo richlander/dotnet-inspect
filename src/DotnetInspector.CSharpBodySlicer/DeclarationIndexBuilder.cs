@@ -48,6 +48,10 @@ internal static class DeclarationIndexBuilder
         int lastClosed = -1;
         bool inAttribute = false;
         int attributeDepth = 0;
+        int attributeStart = 0;
+        int attributeWords = 0;
+        bool unitTarget = false;
+        bool unitAttribute = false;
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
         bool inBlockComment = false;
@@ -152,15 +156,48 @@ internal static class DeclarationIndexBuilder
             // when it opens where a header has not yet started.
             if (inAttribute)
             {
-                if (text == "[") attributeDepth++;
-                else if (text == "]" && --attributeDepth == 0) inAttribute = false;
+                if (text == "[")
+                {
+                    attributeDepth++;
+                }
+                else if (text == "]" && --attributeDepth == 0)
+                {
+                    inAttribute = false;
+
+                    // An "assembly:" or "module:" list belongs to the compilation unit, not to
+                    // whatever follows it. It therefore neither opens trivia nor lets earlier
+                    // trivia through: Roslyn reports the next declaration's leading trivia as
+                    // starting after the list, so a file header comment above one belongs to the
+                    // list too. Every other target -- "type:", "return:", "field:" -- is part of
+                    // the declaration that follows and is kept.
+                    if (unitAttribute)
+                        triviaStart = -1;
+                    else if (triviaStart < 0)
+                        triviaStart = attributeStart;
+                }
+                else if (attributeDepth == 1)
+                {
+                    // The colon is what makes this a target rather than an attribute name:
+                    // "[assembly]" applies a type called assemblyAttribute and IS the following
+                    // declaration's trivia. A kind test on the word would be redundant -- literals,
+                    // comments and directives are skipped before this point, and every punctuator
+                    // the scanner emits is one character.
+                    if (attributeWords == 0)
+                        unitTarget = text is "assembly" or "module";
+                    else if (attributeWords == 1 && text == ":" && unitTarget)
+                        unitAttribute = true;
+                    attributeWords++;
+                }
                 continue;
             }
             if (pending.Count == 0 && text == "[")
             {
                 inAttribute = true;
                 attributeDepth = 1;
-                if (triviaStart < 0) triviaStart = tok.Line + 1;
+                attributeStart = tok.Line + 1;
+                attributeWords = 0;
+                unitTarget = false;
+                unitAttribute = false;
                 continue;
             }
 
