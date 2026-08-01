@@ -249,7 +249,7 @@ public static class AnnotationCaret
     /// could, every one does -- 100%. That is close to necessary but not quite:
     /// one fact with an extent is one extent and agrees with itself, so the loop
     /// above cannot reject it, but the bounds check below still can, and would
-    /// on a negative column, an empty extent, or an extent running past
+    /// on a negative column, a non-positive length, or an extent running past
     /// <paramref name="lineLength"/> because a consumer re-wrapped the line. In
     /// this corpus none of those occurs, so the rate is 100% as measured rather
     /// than 100% by construction. The 91.7% measures how
@@ -398,7 +398,14 @@ public static class AnnotationCaret
     /// the same structural fact this remark states below: extents sharing a start
     /// column can never share a row, so the 136 lines carrying two distinct
     /// extents at one column cannot take a single row whatever the packer does.
-    /// Among the 2,452 that can, the rate is 2,289 (93.4%). 3,884
+    /// Among the remaining 2,452 the rate is 2,289 (93.4%). "Remaining" is the
+    /// careful word: those 2,452 are not all able to take one row either -- 163
+    /// of them are refused by the row admission below because their extents sit
+    /// too close together. They are left in deliberately. Crowding is the thing
+    /// this rate exists to measure, so excluding lines for being crowded would
+    /// drive it to 100% and measure nothing. A shared start column is excluded
+    /// because it is a different phenomenon: two extents anchored at one column
+    /// are a nesting, not a packing failure. 3,884
     /// of 6,566 trails (59.2%) render at true width, but that rate is padded by
     /// a structural immunity: the last trail on a row has no successor, so its
     /// clip limit is <c>int.MaxValue</c> and it renders at true width by
