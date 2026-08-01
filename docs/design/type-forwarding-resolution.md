@@ -195,12 +195,25 @@ a `MetadataTypeDefinitionName`.
 
 ```csharp
 public readonly record struct AssemblyCatalogId(Guid Value);
-public readonly record struct AssemblyCandidateId(Guid Value);
+public readonly record struct AssemblyCatalogGenerationId(Guid Value);
+internal readonly record struct AssemblyCandidateId(Guid Value);
 
-public sealed record ResolvedAssemblyCandidate(
-    AssemblyCatalogId Catalog,
-    AssemblyCandidateId Id,
-    ResolvedAssemblyReference Assembly);
+public sealed class ResolvedAssemblyCandidate
+{
+    internal ResolvedAssemblyCandidate(
+        AssemblyCatalogId catalog,
+        AssemblyCandidateId id,
+        ResolvedAssemblyReference assembly)
+    {
+        Catalog = catalog;
+        Id = id;
+        Assembly = assembly;
+    }
+
+    internal AssemblyCatalogId Catalog { get; }
+    internal AssemblyCandidateId Id { get; }
+    public ResolvedAssemblyReference Assembly { get; }
+}
 ```
 
 `ResolvedAssemblyReference` remains the context-free descriptor it is today:
@@ -224,8 +237,10 @@ When an acquisition layer cannot prove that two inputs are one candidate, it
 keeps them distinct. Splitting can cause a conservative miss; merging distinct
 assemblies can fabricate a resolution.
 
-The ids are inspection currency, not persisted identities or sort keys. Both
-use globally unique values, but uniqueness is not the mismatch detector:
+The ids are inspection currency, not persisted identities or sort keys.
+Candidate identity is internal; consumers receive the descriptor but cannot
+reconstruct a candidate key from it. Both ids use globally unique values, but
+uniqueness is not the mismatch detector:
 correspondence APIs first compare `AssemblyCatalogId` and return a typed
 `IncomparableCatalogs` result. Consumers do not use record equality to turn a
 cross-catalog comparison into an ordinary "different definition" answer.
@@ -394,16 +409,19 @@ public sealed class ResolvedTypeDefinitionKey
 {
     internal ResolvedTypeDefinitionKey(
         AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
         AssemblyCandidateId assembly,
         TypeDefinitionToken definition)
     {
         Catalog = catalog;
+        Generation = generation;
         Assembly = assembly;
         Definition = definition;
     }
 
     public AssemblyCatalogId Catalog { get; }
 
+    internal AssemblyCatalogGenerationId Generation { get; }
     internal AssemblyCandidateId Assembly { get; }
     internal TypeDefinitionToken Definition { get; }
 }
@@ -468,9 +486,9 @@ public abstract record TypeResolutionOutcome
 }
 ```
 
-The hop list is evidence, not identity. `ResolvedTypeDefinitionKey` answers
-exact correspondence inside one acquisition catalog. The catalog exposes the
-only comparison operation:
+The hop list is evidence, not identity. `ResolvedTypeDefinitionKey` is the
+opaque input to exact correspondence inside one acquisition catalog generation.
+The catalog exposes the only comparison operation:
 
 ```csharp
 public abstract record DefinitionCorrespondence
@@ -478,31 +496,42 @@ public abstract record DefinitionCorrespondence
     public sealed record Same : DefinitionCorrespondence;
     public sealed record Different : DefinitionCorrespondence;
     public sealed record IndeterminateDuplicateArtifact(
-        ResolvedTypeDefinitionKey Left,
-        ResolvedTypeDefinitionKey Right,
-        MetadataTypeDefinitionAddress SharedAddress,
-        AssemblyReferenceIdentity SharedIdentity)
+        DuplicateArtifactEvidence Evidence)
         : DefinitionCorrespondence;
     public sealed record IncomparableCatalogs(
         AssemblyCatalogId Left,
         AssemblyCatalogId Right) : DefinitionCorrespondence;
+    public sealed record StaleGeneration(
+        AssemblyCatalogGenerationId Left,
+        AssemblyCatalogGenerationId Right) : DefinitionCorrespondence;
 }
+
+public sealed record DuplicateArtifactCandidateEvidence(
+    ResolvedAssemblyReference Assembly,
+    MetadataTypeDefinitionAddress Address);
+
+public sealed record DuplicateArtifactEvidence(
+    ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates);
 ```
 
 The catalog owns duplicate-artifact detection because it can inspect both
-candidates and their addresses. Consumers never derive that relation from MVID,
-token, identity, or path. `Different` is returned only after the catalog rules
-out the duplicate-artifact condition, so it remains a safe negative.
+candidates and their addresses. Evidence is class-scoped: a deterministic,
+complete candidate set rather than the pair that happened to be compared.
+Consumers never derive that relation from MVID, token, identity, or path.
+`Different` is returned only after the catalog rules out the duplicate-artifact
+condition, so it remains a safe negative.
 
 `ResolvedTypeDefinitionKey` is an opaque capability, not a value-equatable
 record. Candidate and token are internal to the catalog implementation. Product
 consumers can retain the key and pass it back to catalog APIs, but cannot hash,
-order, or field-compare it to reconstruct correspondence.
+order, or field-compare its internal candidate/token tuple to reconstruct
+correspondence.
 
-The inspection and its graph cache keep the catalog alive and use one key space
-for the target and all candidates. A key is never serialized or reused after
-the cache and catalog are released. A cross-catalog comparison is visible data,
-not a false-valued equality.
+The inspection and its graph cache keep the catalog generation alive and use
+one key space for the target and all candidates. A key is never serialized or
+reused after its generation is invalidated or the catalog is released. A
+cross-catalog or stale-generation comparison is visible data, not a false-valued
+equality.
 
 `MetadataTypeDefinitionAddress` is the durable coordinate precedent established
 by `MetadataMethodAddress`: MVID plus metadata token. It can be rendered,
@@ -557,10 +586,25 @@ or disposes a session that a consumer cache expects to retain. This removes the
 reason `LibraryBodyIndex` currently repeats the traversal beside
 `TypeForwardResolver`.
 
+Candidate discovery and correspondence are separate phases. A caller or graph
+plan first acquires every candidate needed by its scope, forwarder chains,
+adjacency, and signature binding requests, then freezes an
+`AssemblyCatalogGenerationId`. Definition keys and join tokens are minted only
+against that frozen candidate set, so duplicate correspondence classes are
+complete and token arms cannot change beneath a cache.
+
+A later progressive lens may discover additional candidates. The catalog then
+starts a new generation and invalidates every resolution plan, join token, and
+`ScopeGraph` lease from the previous generation. It never mutates or reclassifies
+an issued token. Callers-first and graph-first execution may pay for one rebuild,
+but converge on the same frozen generation and answers.
+
 The acquisition catalog caches:
 
 - opened sessions by `AssemblyCandidateId`;
-- binding outcomes by `(AssemblyReferenceIdentity, AssemblyResolutionScope)`;
+- binding outcomes by
+  `(AssemblyCatalogGenerationId, AssemblyReferenceIdentity,
+  AssemblyResolutionScope)`;
 
 Each resolution context composes that catalog and caches:
 
@@ -829,6 +873,10 @@ public abstract record TypeCorrespondenceFailure
     public sealed record IncomparableCatalogs(
         AssemblyCatalogId Left,
         AssemblyCatalogId Right) : TypeCorrespondenceFailure;
+
+    public sealed record StaleGeneration(
+        AssemblyCatalogGenerationId Left,
+        AssemblyCatalogGenerationId Right) : TypeCorrespondenceFailure;
 }
 
 public abstract record CandidateTypeRelation
@@ -881,23 +929,61 @@ permissiveness rule to keep synchronized with the matcher.
   the complete assembly/module/current origin instead of collapsing failures
   into one bucket.
 
-```csharp
-public abstract record DefinitionJoinToken(AssemblyCatalogId Catalog, Guid Value)
-{
-    public sealed record Exact(AssemblyCatalogId Catalog, Guid Value)
-        : DefinitionJoinToken(Catalog, Value);
+`UnresolvedBindingKey` has the same internal-constructor and generation scope
+as `DefinitionJoinToken`; it cannot survive or compare across a generation
+advance.
 
-    public sealed record IndeterminateDuplicateArtifact(
-        AssemblyCatalogId Catalog,
-        Guid Value,
-        DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence)
-        : DefinitionJoinToken(Catalog, Value);
+```csharp
+public enum DefinitionJoinKind
+{
+    Exact,
+    IndeterminateDuplicateArtifact
+}
+
+public sealed class DefinitionJoinToken : IEquatable<DefinitionJoinToken>
+{
+    readonly AssemblyCatalogId _catalog;
+    readonly AssemblyCatalogGenerationId _generation;
+    readonly Guid _value;
+
+    internal DefinitionJoinToken(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        Guid value,
+        DefinitionJoinKind kind,
+        DuplicateArtifactEvidence? evidence)
+    {
+        _catalog = catalog;
+        _generation = generation;
+        _value = value;
+        Kind = kind;
+        Evidence = evidence;
+    }
+
+    public DefinitionJoinKind Kind { get; }
+    public DuplicateArtifactEvidence? Evidence { get; }
+
+    public bool Equals(DefinitionJoinToken? other) =>
+        other is not null
+        && _catalog == other._catalog
+        && _generation == other._generation
+        && _value == other._value
+        && Kind == other.Kind;
+
+    public override bool Equals(object? obj) =>
+        obj is DefinitionJoinToken other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(_catalog, _generation, _value, Kind);
 }
 ```
 
-The catalog returns the same token value for definitions in one correspondence
-class. Duplicate-artifact tokens deliberately join but retain an indeterminate
-arm; they never masquerade as exact tokens.
+The constructor and `(catalog, generation, value)` fields are internal. Equality
+and hashing use that triple plus `Kind`; class-scoped `Evidence` is excluded.
+The catalog returns one token class for every definition correspondence class
+in a frozen generation. Duplicate-artifact tokens deliberately join but retain
+an indeterminate kind; consumers cannot construct an exact token or change an
+issued token's kind.
 
 Named types nested under generic instances, arrays, byrefs, and pointers use the
 same recursive correspondence projection. Replacing only the declaring
@@ -905,9 +991,9 @@ assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
 
 Graph joins hash only catalog-issued join tokens, never
-`ResolvedTypeDefinitionKey`. A member key containing only `Exact` tokens yields
-an exact edge. Matching keys containing any
-`IndeterminateDuplicateArtifact` token yield an
+`ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
+`Exact` yields an exact edge. Matching keys containing any token whose kind is
+`IndeterminateDuplicateArtifact` yield an
 `IndeterminateCorrespondence` edge carrying the catalog's duplicate evidence.
 
 When both sides have the same degraded key under one catalog and binding scope,
@@ -917,11 +1003,14 @@ incomplete-graph evidence; it does not report exact definition correspondence.
 Every non-success remains attached to its storage node, never enters a shared
 unresolved bucket, and never becomes an ordinary "no edge."
 
-This preserves today's full-identity join when a local scope omits platform
-dependencies while making its confidence explicit. Version-skewed identities
-follow the explicit local binding policy above instead of this fallback.
-Different complete reference identities, names, origins, or scopes remain
-different, and a known resolution never joins through the degraded projection.
+Today's graph joins on canonical simple assembly names and therefore merges
+version, culture, token, and several core-library facade spellings. The
+degraded projection is intentionally narrower: it preserves an unavailable join
+only when the complete binding request agrees. Version-skewed or differently
+identified references remain separate storage nodes with incomplete evidence.
+Trusted platform policy resolves supported core-library facade differences
+before this fallback. This compatibility narrowing is explicit and gated; it is
+not described as preservation of the old graph.
 
 For `CurrentAssembly` and `ModuleReference`, the degraded component also carries
 the source candidate (and module name where present); those origins cannot join
@@ -933,10 +1022,10 @@ separate even when an indeterminate correspondence edge joins them.
 
 This is a separate migration slice because it changes graph-key construction
 and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
-catalog that minted its keys; cache reuse checks `AssemblyCatalogId` and reports
-a typed mismatch rather than returning misses from a dead key space. It neither
-serializes keys nor mixes keys from another catalog. It is not a separate
-forwarding model.
+catalog that minted its keys; cache reuse checks both `AssemblyCatalogId` and
+`AssemblyCatalogGenerationId`, reporting a typed mismatch rather than returning
+misses from a dead key space. It neither serializes keys nor mixes keys from
+another catalog or generation. It is not a separate forwarding model.
 
 ### Source and API consumers
 
@@ -960,9 +1049,11 @@ Source and API consumers receive `ResolvedAssemblyReference` or
 Platform type-to-library discovery keeps its user-query contract separate from
 `MetadataTypeDefinitionName`. `PlatformTypeLookupPattern` is parsed from user
 input and preserves the current exact-name, dotted-suffix/unqualified-name, and
-generic-arity-normalized matching semantics. It queries an index of structured
-definition names and returns every match as typed candidates; it does not
-pretend an unqualified pattern is an exact metadata identity.
+generic-arity-normalized matching semantics, plus ordinal-ignore-case
+comparison, `+`/`.` nested-name equivalence, and primitive-alias normalization.
+It queries an index of structured definition names and returns every match as
+typed candidates; it does not pretend an unqualified pattern is an exact
+metadata identity.
 
 The current consumers migrate with those contracts:
 
@@ -1181,6 +1272,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Direct callers and graph joins report the same catalog-owned
   duplicate-artifact evidence; neither hashes raw definition keys or drops the
   edge.
+- A three-copy duplicate class receives one generation-stable indeterminate join
+  token and class-scoped evidence regardless of discovery order.
 - A version-skewed local `--bin` reference is an explicit
   `IdentityPolicyRequired` incomplete result, not a version-blind caller or an
   authoritative empty answer.
@@ -1193,12 +1286,16 @@ Claim: direct callers and transitive call graphs share one definition identity.
   target type.
 - Rendering `Call Graph` before `Callers` and in the opposite order produces
   the same direct caller set.
+- Discovering an additional candidate advances the catalog generation,
+  invalidates old graph tokens, and rebuilds instead of reclassifying a token.
 - Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
   candidates preserve the current caller-tree builder choice.
 - A cross-catalog definition comparison is a typed mismatch, not `false`.
-- A scope without platform acquisition retains current full-identity graph
-  joins as explicitly indeterminate edges; unavailable types with different
-  complete origins do not join.
+- A scope without platform acquisition joins the same complete unavailable
+  binding request as an explicitly indeterminate edge.
+- Current canonical-simple-name-only joins with different versions, cultures,
+  tokens, or unsupported local facade identities no longer join; both storage
+  nodes and the compatibility diagnostic remain visible.
 - Ambiguous, rejected, and cross-catalog graph types remain visible and cannot
   join through a shared key.
 - Forwarded declaring, parameter, and return types use resolved correspondence.
@@ -1208,6 +1305,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   forwarder candidates and returns typed ambiguity.
 - Unqualified and generic platform patterns retain the current `INumber<T>` and
   `List`/`List\`1` lookup behavior through `PlatformTypeLookupPattern`.
+- Platform lookup retains case-insensitive, nested `+`/`.`, and primitive-alias
+  behavior.
 - Parallel body analysis opens and probes each candidate once.
 
 ### Architecture gates
@@ -1220,11 +1319,21 @@ Prefer dependency and visibility constraints over source scans:
 - `ResolvedTypeDefinitionKey` has no value equality available to consumers;
   graph correspondence can hash only catalog-issued join tokens and all other
   correspondence goes through the catalog comparison API;
+- candidate ids and join-token constructors are internal, and the internal
+  `CatalogMemberJoinKey` factory accepts only catalog-issued
+  `DefinitionJoinToken` or `UnresolvedBindingKey` values;
 - Analysis and the CLI cannot access the probe's reader-backed internals;
 - path-only compatibility adapters are internal and deleted with their final
   consumer.
 
-A narrow source gate may additionally forbid `Path.Combine` over
+`GraphCorrespondenceArchitectureTests` is the named narrow source/API-usage gate
+for the intentionally public durable address: it fails if graph key or join
+factories consume `ResolvedTypeDefinitionKey`,
+`MetadataTypeDefinitionAddress`, `TypeDefinitionToken`,
+`ResolvedAssemblyReference`, or descriptor provenance. Visibility cannot own
+that part because durable addresses are public by design.
+
+A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
 not the owner of the invariant.
 
