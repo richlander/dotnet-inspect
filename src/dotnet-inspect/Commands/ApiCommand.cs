@@ -59,6 +59,16 @@ public class ApiCommand
         })
     };
 
+    /// <summary>
+    /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,
+    /// and the pipeline publishes no overview sections -- the state that would otherwise render the
+    /// full default view instead of a bounded one. Extracted so the decision is directly testable.
+    /// </summary>
+    internal static bool HasNoBareSelectOverview(ApiOptions options, string[] bareSelectSections)
+        => options.SelectDefault
+            && options.Select is not { Length: > 0 }
+            && bareSelectSections.Length == 0;
+
     // ===== Shared Preamble =====
 
     internal record PreambleResult(
@@ -106,11 +116,46 @@ public class ApiCommand
                 projection: options));
         }
 
+        // Bare -S renders the fixed overview: the sections whose length does not depend on which
+        // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
+        // same shape for a 250-member class and an 8-member enum, where the member sections it used
+        // to render varied from one section to eight.
+        //
+        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
+        // different command with its own overview (decompiled source, signature, learn order), so it
+        // is converted on its own. Type *listing* has no Fixed section to offer - every section it
+        // publishes is a per-kind member table that grows with the assembly - and in fact publishes
+        // no Info preset either, so its bare -S has always resolved to an empty set and fallen
+        // through to the verbosity ladder. That is pre-existing behavior, preserved here. See #3547.
+        var usesFixedOverview = singleTypeMode && options is TypeOptions;
+        var bareSelectSections = usesFixedOverview
+            ? memberPipeline.FixedOverviewSectionNames
+            : singleTypeMode
+                ? memberPipeline.InfoSectionNames
+                : typePipeline.InfoSectionNames;
+
+        // A fixed-overview bare -S that resolves to no sections has to fail loudly. SelectResolver
+        // hands back an empty-but-non-null set, and IsRequested's `include is { Count: > 0 }` reads
+        // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
+        // for a bounded overview into the widest output the command has, with the scanner
+        // backpressure -S exists to apply switched off.
+        //
+        // Scoped to the fixed-overview path on purpose. Type listing reaches that same empty-set
+        // fallthrough today and depends on it, so guarding every path would turn a working command
+        // into an error. Slice 4c gives listing a Fixed section and can then adopt this guard.
+        if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return (null!, 1);
+        }
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select,
             knownSections,
-            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
+            bareSelectSections,
             singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
