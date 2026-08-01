@@ -270,12 +270,14 @@ public static class AnnotationCaret
     /// A line can be mixed: some facts are about an expression and some are only
     /// known to be about the statement. Widening the whole line because of the
     /// latter discards placement the anchoring layer successfully recovered for
-    /// the former, and 615 lines are mixed — 499 of them with a single surviving
+    /// the former, and 355 lines are mixed — 254 of them with a single surviving
     /// extent — measured over <c>System.Private.CoreLib</c> as the
-    /// annotated-source view prints it. (The overlay render is a different
-    /// population: 609 and 498.) <c>System.Tuple&lt;…&gt;.Equals</c> is the
+    /// annotated-source view prints it, summed over the five focus families.
+    /// The focus filter matters: <c>--focus</c> promotes only one family to
+    /// carets, so counting over every collected fact describes a render no
+    /// invocation produces. <c>System.Tuple&lt;…&gt;.Equals</c> is the
     /// extreme: 16 facts of which 8 have an extent, so widening renders one
-    /// 330-column caret and attributes nothing. So the placeable facts stack,
+    /// 370-column caret and attributes nothing. So the placeable facts stack,
     /// and the rest are listed against the line without a caret, which is
     /// precisely what is known about them.
     /// </para>

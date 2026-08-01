@@ -206,10 +206,13 @@ public class AnnotationGestureTests
         // narrowing would underline an expression true of only some of the
         // facts sharing the caret. Marking the extent-less fact '-' removes the
         // ambiguity that justified widening, so the surviving extent is drawn.
-        // 615 lines of System.Private.CoreLib, as the annotated-source view
-        // prints it, mix facts with and without extents; 499 of them have
-        // exactly one surviving extent, so this is the majority shape. (The
-        // overlay render is a different population: 609 and 498.)
+        // 355 lines of System.Private.CoreLib, as the annotated-source view
+        // prints it, mix facts with and without extents; 254 of them have
+        // exactly one surviving extent, so this is the majority shape. That is
+        // summed over the five focus families: --focus promotes only one family
+        // to carets, so a count over every collected fact would describe a
+        // render no invocation produces. The two categories below are a unit
+        // convenience -- Stack is category-agnostic and never sees the filter.
         const string Line = "        Sink(new object());";
         var narrowed = Fact(Alloc, "has-extent");
         var bare = Fact(Unsafety, "no-extent");
