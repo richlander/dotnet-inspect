@@ -119,7 +119,9 @@ public static class HttpRetryHelper
                 var statusCode = response.StatusCode;
                 response.Dispose();
 
-                // Not found is not retryable
+                // Not found is not retryable, and is the one status that genuinely means the
+                // package is absent rather than the source being unreadable, so it is not
+                // recorded as a source failure.
                 if (statusCode == HttpStatusCode.NotFound)
                 {
                     return new HttpRetryResult(null, statusCode);
@@ -129,6 +131,7 @@ public static class HttpRetryHelper
                 if (!IsRetryableStatus(statusCode))
                 {
                     log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
+                    FeedFailureTelemetry.Record(url, statusCode);
                     return new HttpRetryResult(null, statusCode);
                 }
 
@@ -141,6 +144,7 @@ public static class HttpRetryHelper
                 if (!isRetryable)
                 {
                     log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
+                    FeedFailureTelemetry.Record(url, null);
                     return new HttpRetryResult(null, null);
                 }
 
@@ -174,6 +178,7 @@ public static class HttpRetryHelper
             if (attempts++ >= retryCount)
             {
                 log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
+                FeedFailureTelemetry.Record(url, null);
                 return new HttpRetryResult(null, null);
             }
 
