@@ -593,6 +593,23 @@ public class ApiCommand
         }
         else if (options.Tabular)
         {
+            if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
+            {
+                // Deliberately the same machinery as the fall-through below -- projection,
+                // diagnostics, and row limiting all included -- differing only in WHAT is
+                // serialized. Writing straight to the console here instead skipped
+                // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
+                // the same projection against `Type Info` and `Library Info` reported that the
+                // field does not exist.
+                var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
+                    options.Columns, options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
+                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
+                return 0;
+            }
+
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
