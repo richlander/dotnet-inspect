@@ -335,12 +335,15 @@ public static class AnnotationCaret
     /// <see cref="AnnotationAnchor.ComputeCaretExtents"/> worked to recover, so
     /// this either states it truthfully or marks that it could not. Measured
     /// over <c>System.Private.CoreLib</c> as the annotated-source view prints
-    /// it, by rendering each of the 3,385 lines that stack through this method
-    /// and reading the output back: 3,056 (90.3%) take a single row, 326 take
-    /// two, and three take more, none above four. Restricted to the 2,886
-    /// multi-extent lines, 2,557 (88.6%) take one row, and 3,949 of 6,986
-    /// trails (56.5%) render at true width. No stacked caret row is wider than
-    /// the code line it annotates, on any of those 3,385 lines.
+    /// it, summed over the five focus families and counted after the focus
+    /// filter, because <c>--focus</c> promotes only the requested family to
+    /// carets and a figure taken over every collected fact describes a render
+    /// no invocation produces. Rendering each of the 2,842 lines that stack
+    /// through this method and reading the output back: 2,543 (89.5%) take a
+    /// single row, 297 take two, and two take more, neither above four. 3,884
+    /// of 6,566 trails (59.2%) render at true width. No stacked caret row is
+    /// wider than the code line it annotates, on any of those 2,842 lines,
+    /// against 20 (0.70%) under the widening render this replaces.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
@@ -365,9 +368,10 @@ public static class AnnotationCaret
             // The gutter owns everything left of commentColumn + 2. A label that
             // will not fit after it cannot be drawn at the column it points at,
             // and shifting it would make it point somewhere else. This is a
-            // guard, not a path with known traffic: it fires on 0 of the 3,385
+            // guard, not a path with known traffic: it fires on 0 of the 2,842
             // lines that stack in System.Private.CoreLib, as the
-            // annotated-source view prints it.
+            // annotated-source view prints it, summed over the five focus
+            // families and counted after the focus filter.
             if (LabelStart(i) < commentColumn + 2)
                 return null;
 

@@ -6220,9 +6220,10 @@ public partial class CommandExecutionTests
             .ToList();
 
         // Still one caret row: all four extents are disjoint and short enough to
-        // pack onto a single line. That is the 88.6% case among the 2,886
-        // multi-extent lines of System.Private.CoreLib, as the annotated-source
-        // view prints it.
+        // pack onto a single line. That is the 89.5% case among the 2,842 lines
+        // of System.Private.CoreLib that stack, as the annotated-source view
+        // prints it, summed over the five focus families and counted after the
+        // focus filter that --focus applies.
         int i = Assert.Single(caretIndexes);
         string caretRow = lines[i];
         string statement = lines[i - 1];
