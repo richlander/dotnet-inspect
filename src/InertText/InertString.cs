@@ -217,25 +217,64 @@ public readonly struct InertString : IEquatable<InertString>
     /// <param name="maxLength">The largest encoded length the caller can accept.</param>
     public InertString Truncate(int maxLength)
     {
+        // Clamped here rather than expressed as a Range, because Index refuses a negative value
+        // at construction and would turn a lenient budget into the exception this member exists
+        // not to throw.
+        string text = Text;
+        return Bound(0, Math.Clamp(maxLength, 0, text.Length));
+    }
+
+    /// <summary>
+    /// Takes as much of <paramref name="range"/> as can be taken without dividing a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The general form of <see cref="Truncate(int)"/>, for a caller that wants a window rather
+    /// than a prefix, and the reason getting one does not require probing for a bound the exact
+    /// slicer will accept. Total: every range is answerable, including a reversed one and one
+    /// that runs off either end, both of which are read as the part that overlaps the text.
+    ///
+    /// Both bounds move inward — the start forward to the next whole spelling, the end back to
+    /// the previous one — so the result is always a subset of what was asked for. That
+    /// asymmetry is the point: returning less than a caller asked for is something it can
+    /// detect from <see cref="Length"/>, while returning more is not. A window that contains no
+    /// whole spelling is therefore empty rather than approximated.
+    ///
+    /// Use <see cref="this[Range]"/> instead when the bounds are a claim about the text rather
+    /// than a request, since that member refuses what this one adjusts.
+    /// </remarks>
+    /// <param name="range">The window to take, in encoded characters.</param>
+    public InertString Truncate(Range range)
+    {
         string text = Text;
 
-        if (maxLength >= text.Length)
-        {
-            return this;
-        }
+        // Index.GetOffset does not validate, so a from-end index past the start of the text
+        // arrives negative and an absolute one can run past the end. Clamping both is what
+        // makes every range answerable.
+        int start = Math.Clamp(range.Start.GetOffset(text.Length), 0, text.Length);
+        int end = Math.Clamp(range.End.GetOffset(text.Length), 0, text.Length);
 
-        int boundary = VisualEncoder.BoundaryAtOrBefore(text, Math.Max(0, maxLength), out VisualForm forms);
-        return new InertString(text[..boundary], forms);
+        return Bound(start, Math.Max(start, end));
+    }
+
+    private InertString Bound(int start, int end)
+    {
+        string text = Text;
+        (int from, int to, VisualForm forms) = VisualEncoder.WindowWithin(text, start, end);
+
+        // An unbounded request keeps this value rather than rebuilding an identical one, so the
+        // common case of a budget nobody is near costs nothing.
+        return from == 0 && to == text.Length
+            ? this
+            : new InertString(text[from..to], forms);
     }
 
     /// <summary>Takes the part of this value that <paramref name="range"/> names.</summary>
     /// <remarks>
-    /// The exact form, for a caller that already knows where it wants to cut — and the reason
-    /// <see cref="Truncate"/> does not need a variant per budget shape. Where that member moves
-    /// an unusable cut, this one refuses it: a range given deliberately is a claim about the
-    /// text, and silently returning a different span than the one named would be the worse
-    /// answer. Neither bound is moved, in particular not the start, because moving a start down
-    /// would hand back more text than was asked for.
+    /// The exact form, for a caller whose bounds are a claim about the text rather than a
+    /// request. Where <see cref="Truncate(Range)"/> adjusts an unusable cut, this one refuses
+    /// it: silently returning a different span than the one named would be the worse answer
+    /// when the span was chosen deliberately. Neither bound is moved here, in particular not
+    /// the start, because moving a start down would hand back more text than was asked for.
     ///
     /// Slicing yields a new value and leaves this one untouched, as it must — this is a
     /// <see langword="readonly"/> <see langword="struct"/> over an immutable
@@ -259,7 +298,7 @@ public readonly struct InertString : IEquatable<InertString>
             {
                 throw new ArgumentException(
                     "The range divides an encoded spelling, so the result could not be decoded. "
-                        + $"Use {nameof(Truncate)} to cut at the nearest whole spelling instead.",
+                        + $"Use {nameof(Truncate)}(Range) to take the largest whole window inside it instead.",
                     nameof(range));
             }
 

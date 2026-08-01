@@ -212,11 +212,98 @@ public class BoundaryTests
         Assert.NotEqual(@"a\u2", reencoded.ToString());
     }
 
+    [Theory]
+    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    public void TruncateRange_ReturnsASubsetOfEveryWindowAsked(string name)
+    {
+        InertString full = new InertString(TextPolicy.Field, AdversarialCorpus.ByName(name).Payload);
+        string text = full.ToString();
+
+        for (int start = 0; start <= text.Length; start++)
+        {
+            for (int end = 0; end <= text.Length; end++)
+            {
+                InertString window = full.Truncate(start..Math.Max(start, end));
+                string kept = window.ToString();
+
+                // Both bounds move inward, so what comes back must appear inside the window
+                // that was asked for -- never one character to the left of it, which is the
+                // direction a caller cannot check.
+                Assert.Contains(kept, text[start..Math.Max(start, end)]);
+
+                Assert.True(VisualEncoder.TryDecode(kept, out _));
+                Assert.Equal(window, window.EnsurePermitted(TextPolicy.Field));
+            }
+        }
+    }
+
+    [Fact]
+    public void TruncateRange_MovesTheStartForwardAndTheEndBack()
+    {
+        InertString full = new InertString(TextPolicy.Field, Hazard);
+
+        // \u202E occupies 1..7, so a window opening inside it starts after it, not before.
+        Assert.Equal(@"b\\", full.Truncate(2..10).ToString());
+        Assert.Equal("b", full.Truncate(2..9).ToString());
+
+        // And a window wholly inside one spelling holds nothing whole, so it is empty rather
+        // than widened to the spelling that encloses it.
+        Assert.True(full.Truncate(2..6).IsEmpty);
+    }
+
+    [Fact]
+    public void TruncateRange_AnswersEveryRangeWithoutThrowing()
+    {
+        InertString full = new InertString(TextPolicy.Field, Hazard);
+
+        // The three shapes the exact slicer refuses: past the end, reversed, and empty.
+        Assert.Equal(full.ToString(), full.Truncate(0..int.MaxValue).ToString());
+        Assert.True(full.Truncate(9..2).IsEmpty);
+        Assert.True(full.Truncate(4..4).IsEmpty);
+
+        // From-end indices, including one that runs off the front.
+        Assert.Equal(@"b\\c", full.Truncate(^4..).ToString());
+        Assert.Equal(full.ToString(), full.Truncate(^99..).ToString());
+    }
+
+    [Fact]
+    public void TruncateRange_AgreesWithTheBudgetForm()
+    {
+        InertString full = new InertString(TextPolicy.Field, Hazard);
+
+        for (int budget = 0; budget <= full.Length; budget++)
+        {
+            Assert.Equal(full.Truncate(budget), full.Truncate(..budget));
+        }
+    }
+
+    [Fact]
+    public void TruncateRange_ReportsOnlyTheSpellingsInTheWindow()
+    {
+        InertString full = new InertString(TextPolicy.Field, "\u202E\u0001");
+
+        Assert.Equal(VisualForm.BmpHex | VisualForm.Caret, full.Forms);
+        Assert.Equal(VisualForm.Caret, full.Truncate(6..).Forms);
+        Assert.Equal(VisualForm.BmpHex, full.Truncate(..6).Forms);
+    }
+
     [Fact]
     public void IndexOfFirstEncoded_LocatesTheFirstSpelling()
     {
         Assert.Equal(1, new InertString(TextPolicy.Field, Hazard).IndexOfFirstEncoded());
         Assert.Equal(0, new InertString(TextPolicy.Field, "\u202Ea").IndexOfFirstEncoded());
+    }
+
+    [Fact]
+    public void IndexOfFirstEncoded_LocatesAWindowTheExactSlicerAccepts()
+    {
+        // The two members compose: the index names a bound, and taking from it succeeds
+        // without probing, which is what makes showing an untreated prefix a two-call job.
+        InertString full = new InertString(TextPolicy.Field, Hazard);
+        int first = full.IndexOfFirstEncoded();
+
+        Assert.Equal("a", full[..first].ToString());
+        Assert.Equal(VisualForm.None, full[..first].Forms);
     }
 
     [Theory]

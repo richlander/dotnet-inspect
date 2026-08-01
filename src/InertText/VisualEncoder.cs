@@ -425,28 +425,40 @@ public static class VisualEncoder
             && char.IsLowSurrogate((char)low);
 
     /// <summary>
-    /// The largest index at or below <paramref name="limit"/> that does not divide a token,
-    /// reporting the spellings the text up to it contains.
+    /// The largest window inside <paramref name="start"/>..<paramref name="end"/> whose bounds
+    /// both fall between tokens, reporting the spellings it contains.
     /// </summary>
-    internal static int BoundaryAtOrBefore(string encoded, int limit, out VisualForm forms)
+    /// <remarks>
+    /// Both bounds move inward — the start forward, the end back — so the window is always a
+    /// subset of the one asked for. Moving either bound outward would hand back text the caller
+    /// did not ask for, which is the one direction it has no way to check.
+    /// </remarks>
+    internal static (int Start, int End, VisualForm Forms) WindowWithin(string encoded, int start, int end)
     {
-        forms = VisualForm.None;
-        int i = 0;
+        int from = 0;
 
-        while (i < encoded.Length)
+        while (from < start && from < encoded.Length)
         {
-            int width = NextToken(encoded, i, out VisualForm form);
+            from += NextToken(encoded, from, out _);
+        }
 
-            if (i + width > limit)
+        VisualForm forms = VisualForm.None;
+        int to = from;
+
+        while (to < end)
+        {
+            int width = NextToken(encoded, to, out VisualForm form);
+
+            if (to + width > end)
             {
                 break;
             }
 
             forms |= form;
-            i += width;
+            to += width;
         }
 
-        return i;
+        return (from, to, forms);
     }
 
     /// <summary>
