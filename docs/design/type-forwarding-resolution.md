@@ -35,6 +35,9 @@ Each consumer then reconstructs the relationship it needs:
   different lifetime.
 - `PdbContext`, `SourceLinkService`, `SourceEnricher`, and `ApiServices`
   recover a target assembly name and construct a sibling path.
+- `PlatformResolver.FindLibraryContainingType` sweeps framework files and
+  returns the first defining or forwarding assembly name, while
+  `IsFacadeOnlyAssembly` separately interprets forwarder rows.
 - `CallerScopeFilter`, `CallerScopeTypeFilter`, and
   `MemberPattern.MatchesCrossAssembly` compare different projections of a
   type's assembly spelling.
@@ -114,6 +117,7 @@ alias set.
 | --- | --- |
 | **Type definition name** | Metadata namespace plus root-to-leaf metadata type-name segments. This is a lookup value, not a display spelling or universal type identity. |
 | **Assembly reference identity** | The ECMA-335 name, version, culture, and public-key token from one `AssemblyRef`. |
+| **Assembly catalog** | The lifetime and identity boundary for acquired candidates, opened images, and every cache containing candidate-local keys. |
 | **Assembly candidate** | One assembly selected by one acquisition catalog. It is not inferred from a path or from simple-name equality. |
 | **Definition key** | The catalog-local identity of one `TypeDef`: assembly candidate plus metadata token. |
 | **Definition address** | A durable MVID-scoped metadata token. It locates a definition but is not sufficient adversarial correspondence evidence. |
@@ -190,9 +194,11 @@ a `MetadataTypeDefinitionName`.
 ### Assembly candidate
 
 ```csharp
+public readonly record struct AssemblyCatalogId(Guid Value);
 public readonly record struct AssemblyCandidateId(Guid Value);
 
 public sealed record ResolvedAssemblyCandidate(
+    AssemblyCatalogId Catalog,
     AssemblyCandidateId Id,
     ResolvedAssemblyReference Assembly);
 ```
@@ -201,10 +207,11 @@ public sealed record ResolvedAssemblyCandidate(
 identity, optional path, opener, and provenance. It does not contain an id that
 can only be minted after a context exists.
 
-`AssemblyCandidateId` is minted by the package, platform, project, or local
-acquisition catalog. Equality means "the same acquired assembly in this
-catalog." A single caller operation builds one catalog and uses it for the
-target and every candidate; it never compares ids minted by separate catalogs.
+`AssemblyCatalogId` identifies the key space. `AssemblyCandidateId` is minted
+by the package, platform, project, or local acquisition catalog. Equality means
+"the same acquired assembly in this catalog." One caller inspection, including
+all progressive `Callers` and `Call Graph` renders and their reusable graph
+caches, retains one catalog and uses it for the target and every candidate.
 The id does not mean:
 
 - the same simple name;
@@ -217,10 +224,11 @@ When an acquisition layer cannot prove that two inputs are one candidate, it
 keeps them distinct. Splitting can cause a conservative miss; merging distinct
 assemblies can fabricate a resolution.
 
-The id is operation currency, not a persisted identity or sort key. It uses a
-globally unique value so accidental comparison across catalogs cannot produce a
-false equality, but the same assembly acquired in two operations normally has
-two ids.
+The ids are inspection currency, not persisted identities or sort keys. Both
+use globally unique values, but uniqueness is not the mismatch detector:
+correspondence APIs first compare `AssemblyCatalogId` and return a typed
+`IncomparableCatalogs` result. Consumers do not use record equality to turn a
+cross-catalog comparison into an ordinary "different definition" answer.
 
 Package coordinates, selected TFM, platform framework, and local path remain
 provenance, not fields in `AssemblyReferenceIdentity`. Structuring that
@@ -380,6 +388,7 @@ implementation cannot accidentally satisfy the structured interface.
 
 ```csharp
 public readonly record struct ResolvedTypeDefinitionKey(
+    AssemblyCatalogId Catalog,
     AssemblyCandidateId Assembly,
     TypeDefinitionToken Definition);
 
@@ -443,17 +452,37 @@ public abstract record TypeResolutionOutcome
 ```
 
 The hop list is evidence, not identity. `ResolvedTypeDefinitionKey` answers
-exact correspondence inside one acquisition catalog. A `Callers` operation and
-its graph cache keep that catalog alive and use one key space for the target and
-all candidates. The key is never serialized or reused after the catalog is
-released.
+exact correspondence inside one acquisition catalog. The catalog exposes the
+only comparison operation:
+
+```csharp
+public abstract record DefinitionCorrespondence
+{
+    public sealed record Same : DefinitionCorrespondence;
+    public sealed record Different : DefinitionCorrespondence;
+    public sealed record IncomparableCatalogs(
+        AssemblyCatalogId Left,
+        AssemblyCatalogId Right) : DefinitionCorrespondence;
+}
+```
+
+The inspection and its graph cache keep the catalog alive and use one key space
+for the target and all candidates. A key is never serialized or reused after
+the cache and catalog are released. A cross-catalog comparison is visible data,
+not a false-valued equality.
 
 `MetadataTypeDefinitionAddress` is the durable coordinate precedent established
 by `MetadataMethodAddress`: MVID plus metadata token. It can be rendered,
 persisted, and checked against a reader before dereferencing. It is not
 cryptographic identity; two adversarial modules can share an MVID, so the
 address alone must not establish cross-artifact correspondence. The exact
-operation-local key remains separate.
+catalog-local key remains separate.
+
+The address exposes no handle. Metadata owns an internal dereference operation
+that first verifies the MVID, validates that the token denotes a `TypeDef`, and
+checks its row against the target reader's `TypeDef` table before constructing
+a transient handle. No consumer may cast `TypeDefinitionToken.Value` directly
+to a handle.
 
 The assembly descriptor and type name are materialized provenance. Stable
 projections may render or persist the descriptor's identity and provenance;
@@ -475,34 +504,48 @@ source" as a complete answer.
 
 ## Resolution context and lifetime
 
-`TypeResolutionContext` owns every opened image for one operation:
+The acquisition catalog owns one `AssemblyInspectionSession` for every opened
+candidate. `TypeResolutionContext` composes those sessions and owns only
+resolution state:
 
 ```text
 ResolvedAssemblyCandidate
-  -> context-owned AssemblyImage
+  -> catalog-owned AssemblyInspectionSession
       -> declaration probe
       -> cached (assembly candidate, type name) result
 ```
 
-The engine never opens a stream and lends its reader to a consumer. It never
-disposes a reader that a consumer cache expects to retain. This removes the
+This extends the single PE-lifetime owner established by
+`AssemblyInspectionSession`; it does not create a parallel `PEReader` owner.
+The catalog outlives every `TypeResolutionContext` and graph cache that contains
+its keys. The engine never opens a second stream, lends a reader to a consumer,
+or disposes a session that a consumer cache expects to retain. This removes the
 reason `LibraryBodyIndex` currently repeats the traversal beside
 `TypeForwardResolver`.
 
-The context consumes one acquisition catalog and caches:
+The acquisition catalog caches:
 
-- opened images by `AssemblyCandidateId`;
-- declaration probes by `(AssemblyCandidateId, MetadataTypeDefinitionName)`;
+- opened sessions by `AssemblyCandidateId`;
 - binding outcomes by `(AssemblyReferenceIdentity, AssemblyResolutionScope)`;
+
+Each resolution context composes that catalog and caches:
+
+- declaration probes by `(AssemblyCandidateId, MetadataTypeDefinitionName)`;
 - completed resolutions by `TypeResolutionRequest`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
 
+The catalog and resolution caches support concurrent Analysis. Candidate open,
+declaration probe, binding, and completed-resolution entries are single-flight:
+parallel body-analysis workers observe one result and one owned session.
+Synchronization does not hold a cache lock while invoking an external opener or
+binding resolver.
+
 The public outcome contains no reader-backed value. Its descriptors, address,
 identities, name, and evidence can leave the context in the same sense that
 `PrintedBodyMap` can leave the decompiler. Its catalog-local definition key may
-be compared only with another key produced under the same catalog.
+be compared only through the catalog correspondence API.
 
 ## Resolution algorithm
 
@@ -575,56 +618,119 @@ incomplete evidence. It cannot fabricate one.
 ### Analysis type provenance
 
 Analysis keeps its own `TypeRef`; this design does not unify it with the
-Decompiler `TypeRef`.
+Decompiler `TypeRef`. The metadata lookup value introduced here is not a
+CLI/type-level selector and does not answer that separate open design question.
 
-When `TypeRefDecoder` decodes a metadata `TypeRef`, it also retains the complete
-originating `AssemblyReferenceIdentity` as typed provenance. Structural
-`TypeRef` equality remains Analysis-owned and does not absorb resolution:
+When `TypeRefDecoder` decodes a metadata `TypeRef`, it also retains its complete
+resolution scope as typed provenance. Structural `TypeRef` equality remains
+Analysis-owned and does not absorb resolution:
 
 ```csharp
-public sealed record TypeReferenceOrigin(
-    AssemblyReferenceIdentity Assembly,
+public abstract record TypeReferenceOrigin
+{
+    public sealed record AssemblyReference(
+        AssemblyReferenceIdentity Assembly) : TypeReferenceOrigin;
+
+    public sealed record CurrentAssembly : TypeReferenceOrigin;
+
+    public sealed record ModuleReference(
+        string ModuleName) : TypeReferenceOrigin;
+}
+
+public sealed record ResolvableTypeReference(
+    TypeReferenceOrigin Origin,
     MetadataTypeDefinitionName Type);
 ```
 
 The origin is excluded from display and from existing shape equality. It is
 separate typed provenance and must not be recovered from, or cached by,
 structural `TypeRef` equality. Resolution caches key on
-`TypeReferenceOrigin`, never on `TypeRef`.
+`ResolvableTypeReference`, never on `TypeRef`.
 
 This replaces #3476's proposed `RawAssembly` string with the full identity the
 metadata actually supplied. Two `AssemblyRef` rows with different identity
 therefore remain different resolution inputs even when Analysis shape equality
 canonicalizes their simple names together.
 
+The resolution plan combines `CurrentAssembly` with the candidate that supplied
+the row and starts from that candidate. `ModuleReference` remains typed and maps
+to module acquisition or the explicit unsupported-module outcome; it is never
+invented as an assembly identity. Nil, module, and assembly scopes therefore do
+not collapse into a nullable assembly field.
+
 ### Caller matching
 
 The target member's declaring `TypeDef` produces one
 `ResolvedTypeDefinitionKey`. Each candidate call site's open declaring type is
-resolved through its `TypeReferenceOrigin`.
+resolved through its `ResolvableTypeReference`. A callee declared by a
+`TypeDef` in the candidate image starts from that candidate and materializes its
+own definition key; it does not need a `TypeReferenceOrigin`.
 
 The correspondence rule is then:
 
 ```text
-candidate resolved definition key == target resolved definition key
+catalog.Compare(candidate definition key, target definition key)
 ```
 
 There is no facade-name membership test.
 
+Two distinct candidates that carry the same assembly identity, MVID, and
+`TypeDef` token are not silently called either same or different. Unless the
+catalog proves they are one candidate, correspondence is `Indeterminate` with
+duplicate-artifact evidence. This preserves exact correspondence without
+turning the scope-contains-a-copy case into a success-shaped miss.
+
 Generic member matching, parameter arity, and signature comparison remain
 Analysis concerns after the declaring definitions correspond.
 
-### The three caller gates
+### Caller scope reachability and the three gates
 
 Assembly selection, type prefiltering, and member matching must not each derive
-forwarder reachability. The cheap first gate remains metadata-only:
+forwarder reachability. One `CallerScopeReachabilityPlan` snapshots the scope
+under the inspection catalog:
+
+1. Read each candidate's own identity, assembly references, matching structured
+   `TypeRef` names, and matching own `TypeDef` names.
+2. Resolve the target type through only those matching references. A candidate
+   whose matching reference resolves to the target definition is a direct
+   seed. A candidate with indeterminate matching evidence is retained as an
+   indeterminate seed.
+3. Bind assembly references to catalog candidates and build reverse adjacency.
+4. Compute the transitive graph set as reverse-reference closure from all
+   direct and indeterminate seeds.
+
+An unread reference set or an unavailable, ambiguous, or rejected adjacency
+binding cannot prove a negative. Its carrier remains an indeterminate graph
+candidate and widens closure under its own candidate identity, matching the
+current rule that unknown reachability must not truncate everything above it.
+
+This replaces `CallerScopeFilter`'s assembly-spelling proof with a proof against
+definition correspondence. A facade need not be in the caller scope: resolving
+the matching reference may acquire and traverse it through binding policy. The
+work remains query-directed because it resolves only the target structured name
+through references actually present in scope candidates; it does not seed from
+or sweep every framework facade.
+
+The plan exposes two projections from one catalog and one metadata snapshot:
+
+- direct callers use the seed set and then the structured-name negative below;
+- call graph uses the reverse closure.
+
+The graph projection is therefore never narrower than the direct projection.
+If graph sessions were opened first, direct callers may reuse them. If direct
+callers were opened first, the graph opens the additional closure candidates.
+The current `_selectedScopePaths`, `_graphScopes`, and graph-first reuse cache
+must migrate together; replacing only `CallerScopeTypeFilter` is not sound.
+
+The cheap direct-caller negative is:
 
 1. Decode the candidate image's `TypeRef` rows.
 2. Compare the structured namespace and nested-name segments with the target,
    deliberately ignoring assembly spelling.
-3. Rule the image out only when every readable row has a different structured
+3. Compare the candidate's own `TypeDef` structured names as well.
+4. Rule the image out only when every readable row has a different structured
    type name and the image does not define that name itself.
-4. Retain malformed or undecidable rows.
+5. Retain malformed or undecidable rows.
 
 Forwarding changes which assembly defines a type, not the namespace and metadata
 name a call site records. This name-only negative therefore remains sound while
@@ -632,51 +738,82 @@ avoiding forwarder resolution for the majority of a scope. It is wider than
 today's assembly-qualified filter, which is the safe direction.
 
 Only images admitted by that gate resolve the complete
-`TypeReferenceOrigin`. One `CallerResolutionPlan` owns those resolutions for a
-candidate image:
+`ResolvableTypeReference`. One `CallerResolutionPlan` owns those resolutions
+for a candidate image:
 
 ```csharp
+public abstract record TypeCorrespondenceFailure
+{
+    public sealed record Resolution(
+        TypeResolutionOutcome NonSuccess) : TypeCorrespondenceFailure;
+
+    public sealed record DuplicateArtifact(
+        ResolvedTypeDefinition Left,
+        ResolvedTypeDefinition Right) : TypeCorrespondenceFailure;
+
+    public sealed record IncomparableCatalogs(
+        AssemblyCatalogId Left,
+        AssemblyCatalogId Right) : TypeCorrespondenceFailure;
+}
+
 public abstract record CandidateTypeRelation
 {
     public sealed record SameDefinition : CandidateTypeRelation;
     public sealed record DifferentDefinition : CandidateTypeRelation;
     public sealed record Indeterminate(
-        TypeResolutionOutcome Outcome) : CandidateTypeRelation;
+        TypeCorrespondenceFailure Failure) : CandidateTypeRelation;
 }
 ```
 
-The direct-caller path replaces its assembly-spelling closure gate with this
-structured-name gate; otherwise a facade-only caller would still be discarded
-before resolution. All remaining gates consume projections of this relation:
+All remaining gates consume projections of this relation:
 
 - `SameDefinition` stays in scope and may match.
 - `DifferentDefinition` may be ruled out.
 - `Indeterminate` must not be ruled out by a prefilter. The final consumer
   retains the diagnostic and does not fabricate a match.
 
-At image scope, relations combine without losing the row that supplied them:
+At image scope, relations combine without losing the row or `TypeDef` that
+supplied them:
 
 - any `SameDefinition` keeps the image;
 - all `DifferentDefinition` rules it out;
 - otherwise the image is `Indeterminate`.
 
-The final matcher still resolves the exact origin carried by the call site's
-declaring `TypeRef`; one genuine row cannot vouch for a differently identified
-row beside it.
+The final matcher still resolves the exact origin or own definition carried by
+the call site; one genuine row cannot vouch for a differently identified row
+beside it.
 
 The prefilter's soundness is therefore structural: there is no second
 permissiveness rule to keep synchronized with the matcher.
 
 ### Call graph
 
-`CallerGraphKey` eventually replaces its assembly-spelling component with
-`ResolvedTypeDefinitionKey`. `Callers` and `Call Graph` then join on the same
-definition relation.
+`CallerGraphKey` is split into two concepts:
+
+- a total `GraphNodeStorageKey`, scoped by source candidate and metadata
+  location, retains every node and edge even when correspondence cannot be
+  established;
+- an optional `ResolvedMemberCorrespondenceKey` exists only when the declaring
+  type and every identity-bearing named type in the open parameter and return
+  signature have a resolved definition key.
+
+Named types nested under generic instances, arrays, byrefs, and pointers use the
+same recursive correspondence projection. Replacing only the declaring
+assembly fragment would leave forwarded parameter and return types stringly and
+is not a migration.
+
+Graph joins use only `ResolvedMemberCorrespondenceKey`. An unresolved,
+unavailable, ambiguous, rejected, or cross-catalog type use remains attached to
+its storage node and produces incomplete-graph evidence; it never enters a
+shared unresolved bucket and never becomes an ordinary "no edge." This makes
+the graph storage total without fabricating correspondence.
 
 This is a separate migration slice because it changes graph-key construction
-and cache identity. The graph cache retains the acquisition catalog that minted
-its keys; it neither serializes them nor mixes keys from another catalog. It is
-not a separate forwarding model.
+and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
+catalog that minted its keys; cache reuse checks `AssemblyCatalogId` and reports
+a typed mismatch rather than returning misses from a dead key space. It neither
+serializes keys nor mixes keys from another catalog. It is not a separate
+forwarding model.
 
 ### Source and API consumers
 
@@ -688,6 +825,14 @@ Source and API consumers receive `ResolvedAssemblyReference` or
 - `SourceEnricher` and `SourceFileCollector` do not construct sibling paths.
 - `ApiServices.ResolveForwardedTypes` resolves each structured type through the
   engine and opens the returned descriptor.
+- `PlatformResolver.FindLibraryContainingType` becomes a typed platform-catalog
+  query. Its trusted ref-pack index returns all defining and forwarding
+  candidates deterministically; explicit platform source policy selects one or
+  reports ambiguity. It never returns a first-enumerated simple-name string.
+- `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
+  classification that consumes typed declaration inventory. Classification is
+  not cross-assembly resolution, but Services may not interpret raw forwarder
+  rows after the architecture gate lands.
 
 The forwarder-related path sinks in #3460 disappear by construction. General
 artifact-derived path components elsewhere still need `HardenedPath`; that is a
@@ -704,7 +849,7 @@ for diagnostics by:
 3. path, when provenance includes one.
 
 Candidates whose complete diagnostic projection is equal remain equal because
-their serialized rows are indistinguishable. The operation-local candidate id
+their serialized rows are indistinguishable. The catalog-local candidate id
 is never used to make persisted output appear stable.
 
 Hop evidence is naturally ordered from the starting assembly to the defining
@@ -736,18 +881,25 @@ Resolution is query-directed:
   project, or local scope;
 - the engine opens only the starting assembly and assemblies named by the
   forwarder chain;
-- each assembly image is opened once per context;
+- each assembly image is opened once per catalog;
 - each `(assembly, type)` declaration probe runs once;
-- callers sharing a reference reuse the completed resolution.
+- callers sharing a reference reuse the completed resolution;
+- caller reachability resolves only target-name references present in the scope
+  snapshot;
+- graph signature correspondence resolves only named type occurrences in edges
+  being indexed and caches each resolvable origin once.
 
-The design does not require a sweep over every framework assembly and does not
-re-seed the caller-scope closure from every facade. The structural performance
-gate for the forwarded `XmlReader` caller is:
+The cross-assembly engine does not require a sweep over every framework assembly
+and does not re-seed the caller-scope closure from every facade. The platform
+type-to-library discovery capability is separately explicit and uses its
+catalog's cached ref-pack index. The structural performance gate for the
+forwarded `XmlReader` caller is:
 
 - the real caller is found;
 - the same number of caller sessions are opened as the exact query requires;
 - the framework scope does not saturate;
-- no target file is reopened by the forwarder engine.
+- no target file is reopened by the forwarder engine;
+- each unique matching reference and signature origin is resolved at most once.
 
 Wall-clock measurements may accompany implementation evidence but do not
 replace these structural counts.
@@ -772,10 +924,13 @@ without returning a stringly or nullable result.
 
 ### Slice 2: context and resolution engine
 
-- Add `TypeResolutionContext`.
+- Extend `AssemblyInspectionSession` as the single candidate image owner, add
+  the catalog lifetime, and compose `TypeResolutionContext` over those sessions.
 - Add `IAssemblyBindingResolver` with typed outcomes and explicit adapters from
   existing resolvers.
 - Implement the iterative cross-assembly engine.
+- Make catalog and resolution caches safe for concurrent Analysis with
+  single-flight opens and probes.
 - Route current `TypeForwardResolver` tests through the engine.
 - Keep compatibility adapters only where needed for the next migration.
 
@@ -796,6 +951,8 @@ changing their successful results.
 
 - Migrate `PdbContext`, `SourceLinkService`, `SourceEnricher`,
   `SourceFileCollector`, and `ApiServices`.
+- Migrate `PlatformResolver.FindLibraryContainingType` to the typed platform
+  catalog and `IsFacadeOnlyAssembly` to Metadata-owned classification.
 - Delete forwarder-target sibling-path construction.
 
 Claim: forwarded source and API resolution consume descriptors and cannot turn
@@ -804,9 +961,9 @@ an inspected assembly name into a path.
 ### Slice 5: direct caller correspondence
 
 - Retain typed `TypeReferenceOrigin` during Analysis decoding.
-- Build `CallerResolutionPlan`.
-- Migrate assembly selection, type prefiltering, and
-  `MatchesCrossAssembly`.
+- Build `CallerScopeReachabilityPlan` and `CallerResolutionPlan`.
+- Replace `_selectedScopePaths`, direct/graph scope reuse, type prefiltering,
+  and `MatchesCrossAssembly` as one coherent gate migration.
 - Port #3476's real framework fixture and close negative controls.
 - Do not port `ForwardedTypeAliases`.
 
@@ -815,7 +972,10 @@ definition keys, with no spelling alias model.
 
 ### Slice 6: graph correspondence and cleanup
 
-- Migrate `CallerGraphKey`.
+- Split total graph storage identity from optional resolved member
+  correspondence, including every named signature type.
+- Make unresolved edges visible as incomplete graph evidence.
+- Bind `ScopeGraph` cache lifetime and reuse to its catalog.
 - Remove legacy path, alias, and compatibility helpers.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
@@ -828,6 +988,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 
 - Every public outcome arm is enumerated by tests.
 - No public result exposes `MetadataReader`, `PEReader`, or metadata handles.
+- `MetadataTypeDefinitionAddress` cannot be dereferenced until MVID, token
+  table, and row bounds all validate against the target reader.
 - `MetadataTypeDefinitionName` cannot be constructed from a rejected
   relationship chain.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
@@ -861,12 +1023,29 @@ Claim: direct callers and transitive call graphs share one definition identity.
   forwarder resolution.
 - A candidate with a matching name through any assembly spelling reaches the
   shared resolver.
+- A same-named type from another assembly passes the name-only prefilter but is
+  rejected by resolved definition correspondence; the current
+  assembly-sensitive prefilter pins move to this end-to-end gate.
 - A candidate image is not reread after its reference identities were
   snapshotted.
 - Resolution caches distinguish origins that structural `TypeRef` equality
   canonicalizes together.
+- Nil, module, and assembly reference origins remain distinct.
+- The target candidate's own `TypeDef` is retained without a `TypeRef`.
+- A duplicate candidate that the catalog cannot unify is indeterminate rather
+  than same or different by spelling.
+- A facade outside the caller scope seeds a direct caller through typed
+  resolution, and reverse closure retains callers above it.
+- Rendering `Call Graph` before `Callers` and in the opposite order produces
+  the same direct caller set.
+- A cross-catalog definition comparison is a typed mismatch, not `false`.
+- Unresolved graph edges remain visible and cannot join through a shared key.
+- Forwarded declaring, parameter, and return types use resolved correspondence.
 - `Callers` and `Call Graph` agree after the graph migration.
 - Forwarded source acquisition opens the resolver-selected descriptor.
+- Platform type-to-library lookup is deterministic under multiple definition or
+  forwarder candidates and returns typed ambiguity.
+- Parallel body analysis opens and probes each candidate once.
 
 ### Architecture gates
 
@@ -875,6 +1054,8 @@ Prefer dependency and visibility constraints over source scans:
 - the single-image probe is the only public Metadata API that interprets a
   forwarder declaration for resolution;
 - the cross-assembly engine is the only product API that follows hops;
+- graph correspondence cannot compare catalog-local keys without the catalog
+  comparison API;
 - Analysis and the CLI cannot access the probe's reader-backed internals;
 - path-only compatibility adapters are internal and deleted with their final
   consumer.
@@ -924,14 +1105,12 @@ The open issues found during #3476 become model requirements:
 
 ## Review questions
 
-1. Does one catalog per caller operation provide the right lifetime and scope
-   for `AssemblyCandidateId`, including the call-graph cache that consumes it?
-2. Is MVID plus `TypeDef` token the right durable, explicitly non-cryptographic
+1. Is MVID plus `TypeDef` token the right durable, explicitly non-cryptographic
    address, or should the first slice reuse a more general existing metadata
    address type?
-3. Which existing assembly-image owner should `TypeResolutionContext` compose
-   so Slice 2 extends the single-open architecture rather than creating another
-   lifetime owner?
-4. Which non-success outcomes must become user-visible Finding failures in the
+2. Should the platform type-to-library index be a capability on the platform
+   acquisition catalog or a reusable Metadata declaration index consumed by
+   that catalog?
+3. Which non-success outcomes must become user-visible Finding failures in the
    first consumer migration, and which can remain typed internal diagnostics
    until their section is migrated?
