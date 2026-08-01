@@ -19,13 +19,17 @@ namespace ILInspector.Decompiler.Annotations;
 /// narrowest printed node carrying that exact offset, supplied by
 /// <see cref="AnnotationAnchor.ComputeCaretExtents"/>. Where the raise erased
 /// the offset there is no sub-token to point at. Such a fact is listed under
-/// <see cref="UnplacedMarker"/> if some other fact on the line was placed, and
-/// where <em>no</em> fact on the line has an extent the underline covers the
+/// <see cref="UnplacedMarker"/> when the line stacks and some other fact on it
+/// was placed, and where <em>no</em> fact on the line has an extent the
+/// underline covers the
 /// trimmed statement instead — exactly what the facts are still known to be
 /// about, and no more. Statement width is also the defensive answer when a
-/// stacked label would not fit beside the gutter, which no line of
-/// <c>System.Private.CoreLib</c> reaches as the annotated-source view prints
-/// it. A span-carrying datum (a compiler diagnostic) brings its own range;
+/// stacked label would not fit beside the gutter: that rejects the stacked
+/// layout for the whole line, so the line widens and no fact on it is marked
+/// unplaced. No line of
+/// <c>System.Private.CoreLib</c> reaches that case as the annotated-source view
+/// prints it. A span-carrying datum (a compiler diagnostic) brings its own
+/// range;
 /// that is a property of the datum, not of this gesture.</item>
 /// </list>
 /// </remarks>
@@ -121,7 +125,9 @@ public static class AnnotationCaret
     /// <see cref="AnnotationAnchor.ComputeCaretExtents"/>. When every fact on
     /// the line points at the same characters the line narrows to that one
     /// extent; otherwise it stacks a numbered caret per distinct extent and
-    /// lists any fact with no extent under <see cref="UnplacedMarker"/>. See
+    /// lists any fact with no extent under <see cref="UnplacedMarker"/>. If the
+    /// stacked layout is rejected — a label that will not clear the gutter — the
+    /// line widens instead and no fact is marked unplaced. See
     /// <see cref="Agreed"/> and <see cref="Stack"/>.
     /// </param>
     public static IReadOnlyList<string> Render(
@@ -288,8 +294,13 @@ public static class AnnotationCaret
     /// </para>
     /// <para>
     /// Extents sharing a start column are always a nesting, so they can never
-    /// share a row. Widest first puts the outer extent on the upper row, which
-    /// matches the order the printer records nesting in. That orders
+    /// share a row. Widest first puts the outer extent on the upper row, so
+    /// reading down the rows moves inward. That is a presentation choice, and
+    /// it is the <em>reverse</em> of the order the printer records nesting in:
+    /// <c>RecordExpressionRanges</c> reverses its parent-first walk precisely so
+    /// that a node is recorded after every one of its descendants, which is the
+    /// descendants-before-ancestors contract the anchor relies on. Nothing here
+    /// inherits that order. Widest-first orders
     /// <i>same-start</i> extents only, and it is not what clips anything: a
     /// trail is cut short only by the next label on its own row, so a nested
     /// extent sent to a different row never shortens its parent. Nor does it
@@ -360,7 +371,14 @@ public static class AnnotationCaret
     /// no invocation produces. Rendering each of the 2,842 lines that stack
     /// through this method and reading the output back: 2,543 (89.5%) take a
     /// single row, 297 take two, and two take more, neither above four. 3,884
-    /// of 6,566 trails (59.2%) render at true width. No stacked caret row is
+    /// of 6,566 trails (59.2%) render at true width, but that rate is padded by
+    /// a structural immunity: the last trail on a row has no successor, so its
+    /// clip limit is <c>int.MaxValue</c> and it renders at true width by
+    /// construction. Those 2,842 lines occupy 3,144 rows, so 3,144 of the 3,884
+    /// could not have been clipped. Of the 3,422 trails that were actually
+    /// exposed to a successor, only 740 (21.6%) survived at true width and
+    /// 2,682 (78.4%) were cut short. That is the figure with information in it.
+    /// No stacked caret row is
     /// wider than the code line it annotates, which is structural rather than
     /// measured: <see cref="Stack"/> sends any extent reaching past
     /// <c>lineLength</c> to the unplaced list, labels grow leftward, and the
@@ -368,9 +386,14 @@ public static class AnnotationCaret
     /// rightmost column is bounded by the line. The 0 observed on those 2,842
     /// lines checks that derivation and cannot falsify it. The figure that does
     /// carry information is the comparison: the widening render this replaces
-    /// overhangs on 20 lines (0.70%), because it shifts the start column
-    /// rightward while keeping the full extent length — the freedom given up
-    /// here.
+    /// overhangs on 20 lines (0.70%). Its underline is not a fact's extent at
+    /// all — with no agreement it falls back to
+    /// <c>new CaretExtent(statementColumn, trimmed.Length)</c>, the whole
+    /// trimmed statement — and it is placed at
+    /// <c>pad = Math.Max(1, caretColumn - commentColumn - 2)</c>, whose floor of
+    /// 1 shifts the underline rightward when the statement starts near the
+    /// gutter. Nothing then bounds or clips it against the line, which is the
+    /// freedom given up here.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
