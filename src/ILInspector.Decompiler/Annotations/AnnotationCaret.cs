@@ -296,7 +296,10 @@ public static class AnnotationCaret
     /// carets, so counting over every collected fact describes a render no
     /// invocation produces. <c>System.Tuple&lt;…&gt;.Equals</c> is the
     /// extreme: 16 facts of which 8 have an extent, so widening renders one
-    /// 330-column caret and attributes nothing. So the placeable facts stack,
+    /// 370-column caret and attributes nothing (measured off the render, which
+    /// is the only way this figure has ever been got right: it was recorded as
+    /// 370, "corrected" to 330 on a recapture of the wrong render, and measured
+    /// back to 370 -- re-measure before changing it). So the placeable facts stack,
     /// and the rest are listed against the line without a caret, which is
     /// precisely what is known about them.
     /// </para>
