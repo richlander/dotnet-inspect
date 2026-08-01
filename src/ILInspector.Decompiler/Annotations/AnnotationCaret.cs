@@ -349,8 +349,16 @@ public static class AnnotationCaret
     /// through this method and reading the output back: 2,543 (89.5%) take a
     /// single row, 297 take two, and two take more, neither above four. 3,884
     /// of 6,566 trails (59.2%) render at true width. No stacked caret row is
-    /// wider than the code line it annotates, on any of those 2,842 lines,
-    /// against 20 (0.70%) under the widening render this replaces.
+    /// wider than the code line it annotates, which is structural rather than
+    /// measured: <see cref="Stack"/> sends any extent reaching past
+    /// <c>lineLength</c> to the unplaced list, labels grow leftward, and the
+    /// gutter guard bails out rather than shifting a trail rightward, so the
+    /// rightmost column is bounded by the line. The 0 observed on those 2,842
+    /// lines checks that derivation and cannot falsify it. The figure that does
+    /// carry information is the comparison: the widening render this replaces
+    /// overhangs on 20 lines (0.70%), because it shifts the start column
+    /// rightward while keeping the full extent length — the freedom given up
+    /// here.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
