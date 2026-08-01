@@ -153,13 +153,12 @@ public class AnnotationGestureTests
     }
 
     [Fact]
-    public void CaretWidensWhenTwoFactsOnTheLineDisagreeAboutTheExtent()
+    public void CaretsStackWhenTwoFactsOnTheLineDisagreeAboutTheExtent()
     {
-        // The other half of the all-or-nothing rule: both facts narrow, but to
-        // different characters. Stacking two carets was rejected as a design, so
-        // the only correct answer is the statement -- the smallest span true of
-        // both. Distinct from the partial case below, which is a missing entry
-        // rather than a conflicting one, and gated by a different branch.
+        // Both facts narrow, but to different characters. Widening to the
+        // statement was the old answer; it points at everything and therefore
+        // at nothing, and leaves the details below unattributable. Each extent
+        // now gets its own numbered caret. See docs/design/caret-stacking.md.
         const string Line = "        Sink(new object(), new int[1]);";
         var first = Fact(Alloc, "object");
         var second = Fact(Unsafety, "array");
@@ -177,21 +176,38 @@ public class AnnotationGestureTests
         Assert.Equal(firstColumn, AnnotationCaret.Render(Line, "    ", [first], extents: extents)[0].IndexOf('^'));
         Assert.Equal(secondColumn, AnnotationCaret.Render(Line, "    ", [second], extents: extents)[0].IndexOf('^'));
 
-        string shared = AnnotationCaret.Render(Line, "    ", [first, second], extents: extents)[0];
+        var rendered = AnnotationCaret.Render(Line, "    ", [first, second], extents: extents);
+        string caretLine = rendered[0];
+
+        // Two carets on one row, each still at the column of its own extent and
+        // at its own true width -- not one widened underline.
+        Assert.Equal(2, caretLine.Count(c => c == '.'));
+        Assert.Equal(firstColumn, caretLine.IndexOf('^'));
+        Assert.Equal(secondColumn, caretLine.LastIndexOf('^') - "new int[1]".Length + 1);
+
+        // The statement underline is precisely what must no longer appear.
         int statementColumn = Line.Length - Line.TrimStart().Length;
-        Assert.Equal(statementColumn, shared.IndexOf('^'));
-        Assert.Equal(Line.Trim().Length, shared.Count(c => c == '^'));
+        Assert.NotEqual(Line.Trim().Length, caretLine.Count(c => c == '^'));
+        Assert.NotEqual(statementColumn, caretLine.IndexOf('^'));
+
+        // Each caret is labelled, and each label has a matching numbered detail
+        // row, so a reader can attribute every fact to a specific expression.
+        Assert.Contains("1.", caretLine, StringComparison.Ordinal);
+        Assert.Contains("2.", caretLine, StringComparison.Ordinal);
+        Assert.Contains(rendered, l => l.Contains("1. alloc.new(object)", StringComparison.Ordinal));
+        Assert.Contains(rendered, l => l.Contains("2. unsafe.stackalloc(array)", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void CaretWidensWhenOnlySomeFactsOnTheLineHaveAnExtent()
+    public void CaretIsDrawnAndFactsWithoutAnExtentAreMarkedWhenTheLineIsMixed()
     {
-        // The agreement rule is all-or-nothing, and the case that matters is
-        // PARTIAL: one fact narrows, another has no printed node to point at.
-        // Narrowing there would underline an expression that is true of only
-        // some of the facts sharing the caret. 615 lines in CoreLib mix facts
-        // with and without extents, 499 of them with a single surviving extent,
-        // so this is the difference between right and wrong on real output.
+        // The PARTIAL case: one fact narrows, another has no printed node to
+        // point at. This used to widen to the statement, on the reasoning that
+        // narrowing would underline an expression true of only some of the
+        // facts sharing the caret. Marking the extent-less fact '-' removes the
+        // ambiguity that justified widening, so the surviving extent is drawn.
+        // 615 CoreLib lines mix facts with and without extents; 499 of them
+        // have exactly one surviving extent, so this is the majority shape.
         const string Line = "        Sink(new object());";
         var narrowed = Fact(Alloc, "has-extent");
         var bare = Fact(Unsafety, "no-extent");
@@ -202,17 +218,46 @@ public class AnnotationGestureTests
             [narrowed] = new AnnotationAnchor.CaretExtent(column, "new object()".Length),
         };
 
-        // Non-vacuity: alone, this fact really does narrow.
+        // Non-vacuity: alone, this fact really does narrow, and the statement
+        // underline it must not fall back to is a different geometry entirely.
         string alone = AnnotationCaret.Render(Line, "    ", [narrowed], extents: extents)[0];
         Assert.Equal(column, alone.IndexOf('^'));
         Assert.Equal("new object()".Length, alone.Count(c => c == '^'));
 
-        // Together with a fact that has no extent, the caret must widen back to
-        // the whole statement rather than keep the one extent that survived.
-        string shared = AnnotationCaret.Render(Line, "    ", [narrowed, bare], extents: extents)[0];
+        var rendered = AnnotationCaret.Render(Line, "    ", [narrowed, bare], extents: extents);
+        string caretLine = rendered[0];
+
+        // The surviving extent keeps its own column and width.
+        Assert.Equal(column, caretLine.IndexOf('^'));
+        Assert.Equal("new object()".Length, caretLine.Count(c => c == '^'));
+
         int statementColumn = Line.Length - Line.TrimStart().Length;
-        Assert.Equal(statementColumn, shared.IndexOf('^'));
-        Assert.Equal(Line.Trim().Length, shared.Count(c => c == '^'));
+        Assert.NotEqual(statementColumn, caretLine.IndexOf('^'));
+        Assert.NotEqual(Line.Trim().Length, caretLine.Count(c => c == '^'));
+
+        // The placed fact is numbered; the fact with nowhere to point is listed
+        // under the unplaced marker rather than silently sharing the caret.
+        Assert.Contains(rendered, l => l.Contains("1. alloc.new(has-extent)", StringComparison.Ordinal));
+        Assert.Contains(rendered, l => l.Contains("-  unsafe.stackalloc(no-extent)", StringComparison.Ordinal));
+        Assert.DoesNotContain(rendered, l => l.Contains("1. unsafe.stackalloc", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CaretStillWidensWhenNoFactOnTheLineHasAnExtent()
+    {
+        // The boundary of the rule above: stacking needs at least one placeable
+        // fact. With none, there is nothing to number and nothing to point at,
+        // so the statement underline remains the only honest answer.
+        const string Line = "        Sink(new object());";
+        var first = Fact(Alloc, "one");
+        var second = Fact(Unsafety, "two");
+
+        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>();
+        string caretLine = AnnotationCaret.Render(Line, "    ", [first, second], extents: extents)[0];
+
+        int statementColumn = Line.Length - Line.TrimStart().Length;
+        Assert.Equal(statementColumn, caretLine.IndexOf('^'));
+        Assert.Equal(Line.Trim().Length, caretLine.Count(c => c == '^'));
     }
 
     [Fact]
