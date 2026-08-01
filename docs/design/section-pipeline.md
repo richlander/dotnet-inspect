@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Sixteen routes into the same defect
+### Seventeen routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and sixteen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and seventeen different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -127,8 +127,9 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | The implementing type is in the **global namespace**, so its coarse name does not round-trip between reflection and IL and *both* edge mechanisms go inert | one shared name normalizer, plus a population-wide assertion that reflection can spell every type the IL index contains |
 | A `callvirt` on a **constructed generic** resolves to a declaring type with no namespace and no name, so the edge points at nothing and the member can never be a node | a product fix: `TypeRef.GenericInstance` carries the definition's identity, plus an assertion that no call has an unnameable declaring type |
 | The implementation satisfies a **BCL** interface and only the BCL ever dispatches it (`list.Sort(new Comparer())`), so no product IL names the interface member | the product-assembly filter removed from the interface-contract loop, so construction edges are reachable for BCL contracts |
+| The implementation **overrides a BCL virtual** that only the BCL ever invokes (`ToString` reached through `string.Format`), so no product IL names the override either | the same filter removed from the base-definition loop |
 
-That the enumeration reached sixteen is itself the finding. After each fix the class looked closed, and the next route was found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached seventeen is itself the finding. After each fix the class looked closed, and all but the last were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The thirteenth is instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
 
@@ -145,6 +146,8 @@ The fix belongs in the product and had to be placed carefully. Putting it in `Me
 The scope of what that defect had been hiding is the part worth remembering: **the gate's own evidence was resting on it.** Until the fix, every call whose declaring type was a constructed generic fell out of the forward closure, so the pinned BCL type surface, the reflection surface pin, and the reverse walk were all reasoning over a graph with a systematic hole. Fixing it grew the pinned BCL surface from 65 entries to 97, all of them generic collections and delegate types, with nothing removed. A dangerous primitive reached through a `Lazy<LibraryBodyIndex>` would have been invisible to three claims at once.
 
 The sixteenth arrived immediately after, and it is the same lesson in a different place: **a filter above a mechanism silently disables it.** The interface-contract loop skipped any contract not declared in a product assembly. That looked like a harmless cost optimization — a BCL member is not in the IL index, so it can produce no ancestor edge anyway — but it also skipped the *construction* edges for those types, in exactly the case where construction is the only possible link. A type implementing `IComparer<string>` and handed to `List<T>.Sort` is never named by any product IL instruction; without a constructor edge it is unreachable from the section that built it. Removing the filter costs nothing and closes the route.
+
+The seventeenth is the same filter in the *other* call site, and it is the one route the author found rather than a reviewer — by attacking the weak point the previous fix had left explicitly listed. `Link` is called twice per type: once for interface contracts, and once for `GetBaseDefinition()` overrides. Fixing only the first left a product type overriding `object.ToString` and reached solely through `string.Format` completely unreachable, for exactly the same reason. **Closing a route in one call site is not closing the route** — when the fix is "remove a filter", grep for every place that filter is spelled. The two removals also grew the pinned BCL surface by one entry, `System.HashCode`, which is the mechanical proof that the second removal admitted edges the first did not.
 
 The second mechanism is therefore independent of dispatch entirely: **an instance member cannot be dispatched to without an instance, and the `newobj` that creates one is a recorded edge.** Construction edges run from the concrete type's constructors to every member occupying an interface slot — which also covers the inherited case, since it is the *derived* type that gets constructed.
 

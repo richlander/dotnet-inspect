@@ -2299,12 +2299,17 @@ public class SectionPipelineTests
                     if (!method.IsVirtual)
                         continue;
 
+                    // No product-assembly filter on the base definition either, and for the same
+                    // reason as the contract loop above. An override of a *BCL* virtual that only
+                    // the BCL invokes -- `ToString` reached through string.Format, `Equals` through
+                    // a dictionary lookup, `Stream.Read` through a copy helper -- is named by no
+                    // product IL instruction at all. Filtering it here skipped its construction
+                    // edge and left the override unreachable from the section that built it.
+                    // Resolving a BCL ancestor still yields no keys, so the ancestor loop adds
+                    // nothing for it; only the construction edge is gained.
                     var baseDefinition = method.GetBaseDefinition();
-                    if (baseDefinition != method
-                        && IsProductAssembly(baseDefinition.DeclaringType?.Assembly.GetName().Name))
-                    {
+                    if (baseDefinition != method)
                         Link(constructorKeys, baseDefinition, method);
-                    }
                 }
             }
         }
@@ -2669,9 +2674,9 @@ public class SectionPipelineTests
         // churn reason, at no cost in coverage: a product helper's own BCL calls are already inside
         // this same closure, which is what the previous route proved.
         //
-        // This literal grew from 65 to 98 entries across two fixes in this PR, and every addition
+        // This literal grew from 65 to 99 entries across three fixes in this PR, and every addition
         // is a generic collection, delegate type, or value type -- List, Dictionary, Span, Func,
-        // ValueTuple, Guid. Nothing was removed. That is worth stating plainly: until
+        // ValueTuple, Guid, HashCode. Nothing was removed. That is worth stating plainly: until
         // TypeRef.GenericInstance carried a real name, *every* call whose declaring type was a
         // constructed generic resolved to a nameless type and fell out of this projection, and
         // until the BCL-contract filter came off the interface loop, a type dispatched only by the
@@ -2744,6 +2749,7 @@ public class SectionPipelineTests
                 "System.Func",
                 "System.Globalization.CultureInfo",
                 "System.Guid",
+                "System.HashCode",
                 "System.IDisposable",
                 "System.IO.File",
                 "System.IO.Path",
