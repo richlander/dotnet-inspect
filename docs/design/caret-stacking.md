@@ -29,6 +29,8 @@ tell which detail belongs to which expression.
 `System.Tuple<…>.Equals` is the worst real case in the corpus — 16 facts, one
 330-column caret:
 
+The line is 330 columns wide, so it is elided here at the `…`:
+
 ```csharp
 return comparer.Equals(m_Item1, V_0.m_Item1) && comparer.Equals(m_Item2, V_0.m_Item2) && … (330 cols)
 //  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (330 carets)
@@ -48,6 +50,14 @@ work everywhere, and makes it the only behaviour: **`stacked`**.
 Anything else is a later style added beside it. Nothing here is contingent on
 those styles existing, and nothing here should be generalised in anticipation
 of them.
+
+Every code block showing behaviour that exists is verbatim `Annotated Source`
+output rather than a sketch. The two exceptions are marked where they appear:
+the `Tuple.Equals` line below is elided because it is 330 columns wide, and the
+side-aligned block under [Rejected alternatives](#side-aligned-annotations)
+depicts a layout that was never built. This one is
+`System.Reflection.RuntimeModule.ResolveSignature` under `--focus cost`; see
+[Reproducing these figures](#reproducing-these-figures).
 
 ```csharp
     if (!V_0.IsMemberRef && !V_0.IsMethodDef && !V_0.IsTypeSpec && !V_0.IsSignature && !V_0.IsFieldDef)
@@ -79,34 +89,51 @@ of them.
    Width is information the anchoring layer worked to compute, so the renderer
    states it truthfully or marks that it could not.
 6. **List the facts below,** left-aligned in the existing gutter, numbered to
-   match, wrapped to `Budget`.
+   match, wrapped to `Budget`. One row per fact, in input order within an
+   extent group; the number is written once, on the group's first fact, and the
+   groups appear in the rule 2 order the carets were numbered in. Rows for
+   facts with no extent are appended after all numbered rows.
 7. **A fact with no extent is listed, not drawn.** `AnnotationAnchor` withholds
    an extent when it cannot identify the characters a fact is about. Such a
    fact keeps its place in the list below the carets, marked `-` instead of a
    number. A line may carry both kinds at once — a **mixed** line — and
    stacking still engages: the placeable facts get numbered carets, the rest
    are listed under `-`.
+8. **The gutter wins.** A label is drawn immediately before the characters it
+   points at, so a caret near the start of a line can push its label left into
+   the comment gutter. Moving the label would make it point somewhere else, so
+   when any label on a line would begin left of the gutter, that line does not
+   stack at all: it falls back to the widening render this document replaces.
+   This is a guard rather than a path with traffic — it fires on **0 of the
+   3,385 lines that stack** in the corpus below — but it is reachable, and a
+   line is never rendered with a label that lies about its column.
 
 Rule 4's two-column threshold is a *spill* threshold, not a render floor: a
 genuinely one-character expression renders one caret, never a padded two.
-`HebrewCalendar.CheckHebrewYearValue` is the case that proves it — caret `2.`
-is the single argument `y`, and the mix of clipped and full trails on one row
-is what the rules produce:
+`System.Globalization.HebrewCalendar.CheckHebrewYearValue` under `--focus
+alloc` is the case that proves it — caret `2.` is the single argument `y`, and
+the mix of clipped and full trails on one row is what the rules produce (detail
+rows omitted here; the carets are verbatim):
 
 ```csharp
-    throw new ArgumentOutOfRangeException(varName, y, SR.Format(SR.ArgumentOutOfRange_Range, 5343, 5999));
+        throw new ArgumentOutOfRangeException(varName, y, SR.Format(SR.ArgumentOutOfRange_Range, 5343, 5999));
 //          1.^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^~ 2.^                                       3.^^~ 4.^^^^
 ```
 
-And rule 2, on a line with two nested pairs:
+And rule 2, on a line with two nested pairs —
+`System.Numerics.Vector.IsSubnormal` under `--focus safety`:
 
 ```csharp
         return LessThan<uint>(Abs<T>(vector).As<T, uint>() - Vector<uint>.One, Create<uint>(8388607)).As<uint, T>();
-//             1.^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//             2.^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//                            3.^^^^^^^^^^^^^^^^^^^^^^^^^^^^                   5.^^^^^^^^^^^^^^^^^^^^^
-//                            4.^^^^^^^^^^^^^^
+//           1.^^^^^^^^^^^~ 3.^^^^^^^^^^^^^^^^^^^^^^^^^^^^                   5.^^^^^^^^^^^^^^^^^^^^^
+//           2.^^^^^^^^^^^~ 4.^^^^^^^^^^^^^^
 ```
+
+Carets `1.` and `2.` share a start column, as do `3.` and `4.`, so neither pair
+can share a row. The outer member of each pair is drawn first and the row below
+carries the inner one, which is why the second row is the shorter of the two.
+Both members of the first pair clip to `~`: `3.`'s label is the next thing on
+row one, and rule 4 packs `4.` onto row two directly beneath it.
 
 ### Why this is the style that has to work
 
@@ -127,7 +154,7 @@ included. Whole rendered block on those 3,385 lines:
 
 | terminal | widen (today) | stacked |
 | --- | ---: | ---: |
-| 80 cols | 27.8% | **28.0%** |
+| 80 cols | 27.8% | 28.0% |
 | 100 cols | 53.3% | 53.3% |
 | 120 cols | 69.5% | 69.5% |
 | 160 cols | 86.5% | 86.5% |
@@ -157,23 +184,29 @@ ambiguity that argument rests on — an extent-less fact is now visibly marked
 `-` rather than silently sharing an underline — so the surviving extent is
 drawn.
 
-The dominant shape, and the reason this matters, is `stackalloc`:
+The dominant shape, and the reason this matters, is `stackalloc` — here in
+`Interop.CallStringMethod` under `--focus lifetime`, first as it renders today:
 
 ```csharp
-        Span<char> V_0 = stackalloc char[256];
-    //  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    //   lifetime.stack-bound(Span<char>)
-    //   unsafe.stackalloc(byte*)
+    Span<char> V_0 = stackalloc char[256];
+//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//   unsafe.stackalloc(byte*)
+//   lifetime.stack-bound(Span<char>)
 ```
 
-Both facts are about `stackalloc char[256]`. Widening underlines
-`Span<char> V_0 =` as well, which neither fact claims. Under rule 7:
+Both facts are about `stackalloc char[256]`, but only `lifetime.stack-bound`
+carries an extent; `AnnotationAnchor` does not place `unsafe.stackalloc`. So the
+`-` is a statement about *this pipeline's* knowledge, not about the fact — it
+says no characters were identified for it, which is weaker than and different
+from a claim that it covers the whole statement. Widening, meanwhile,
+underlines `Span<char> V_0 =` as well, which neither fact claims. Under
+rule 7:
 
 ```csharp
-        Span<char> V_0 = stackalloc char[256];
-    //                 1.^^^^^^^^^^^^^^^^^^^^
-    //  1. lifetime.stack-bound(Span<char>)
-    //  -  unsafe.stackalloc(byte*)
+    Span<char> V_0 = stackalloc char[256];
+//                 1.^^^^^^^^^^^^^^^^^^^^
+//  1. lifetime.stack-bound(Span<char>)
+//  -  unsafe.stackalloc(byte*)
 ```
 
 The `-` is doing real work here: it says the second fact has no characters to
@@ -182,9 +215,12 @@ point at, which is a different claim from "it is about the whole statement".
 Stacking needs at least one placeable fact. A line where *no* fact has an
 extent still has nothing to point at, so it widens exactly as before.
 
-- Lines whose facts all agree on one extent, and lines carrying a single fact —
-  **90.1%** of caret-bearing lines — keep exactly today's geometry, including
-  the inline-detail shortcut.
+- Lines whose facts all agree on one extent, and lines carrying a single fact,
+  keep exactly today's geometry, including the inline-detail shortcut. That is
+  25,628 lines: **88.3%** of the 29,013 lines carrying at least one extent, or
+  **81.0%** of all 31,640 caret-bearing lines. (It is *not* 90.1% — that is the
+  single-distinct-extent share, 26,127 of 29,013, and 499 of those are mixed
+  lines whose geometry does change. See [Measurements](#measurements).)
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
   where some other fact does have one: it is marked `-` instead of widening the
@@ -201,13 +237,14 @@ render is not a claim about anything.
 
 | | |
 | --- | ---: |
-| caret lines carrying at least one extent | 29,013 |
+| caret-bearing lines | 31,640 |
+| …carrying at least one extent | 29,013 |
 | …with a single distinct extent | 26,127 (90.1%) |
 | …with two or more distinct extents | 2,886 (9.9%) |
 | worst line | 8 distinct extents |
 
-Of the single-extent lines, all but 499 carry no extent-less fact and so keep
-today's geometry exactly. The 499 are the mixed lines of rule 7, which gain a
+Of the 26,127 single-extent lines, all but 499 carry no extent-less fact and so
+keep today's geometry exactly — 25,628 lines, the 88.3% quoted above. The 499 are the mixed lines of rule 7, which gain a
 drawn caret and a `-` row where they previously widened:
 
 | | |
@@ -228,6 +265,46 @@ Applying the specification above to those 2,886 multi-extent lines:
 3,949 of 6,986 trails (56.5%) render at true width, and 527 lines (18.3%) have
 no clipped trail at all. Clipping concentrates exactly where extents nest.
 
+### Reproducing these figures
+
+The specification above is implemented in `AnnotationCaret` and shipped in
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `8c17dcb35`.
+
+Every code block in this document is a verbatim excerpt of `Annotated Source`
+output for the member and focus family named beside it:
+
+```bash
+dotnet-inspect member "System.Reflection.RuntimeModule" ResolveSignature \
+    --all --focus cost -S "Annotated Source"
+dotnet-inspect member "System.Globalization.HebrewCalendar" CheckHebrewYearValue \
+    --all --focus alloc -S "Annotated Source"
+dotnet-inspect member "System.Numerics.Vector" IsSubnormal \
+    --all --focus safety -S "Annotated Source"
+dotnet-inspect member "Interop" CallStringMethod \
+    --all --focus lifetime -S "Annotated Source"
+```
+
+`--all` is required: all but one of these members are non-public.
+
+Columns in a snippet are **final rendered columns**, which is not the geometry
+the research render produces. Three coordinate systems exist and mixing them is
+the easiest way to read a correct caret as a misaligned one:
+
+1. The **research render** emits the code line at its own nesting indent and
+   prefixes each hoisted caret row with a `HoistMarker` control character.
+2. `ApiOutputFormatter` adds `BodyIndentWidth` (4) to **code lines only**, drops
+   the marker, and leaves hoisted caret rows at column 0.
+3. What a snippet shows is therefore a code line indented four columns further
+   than the raw render, above caret rows that were not moved at all.
+
+A caret verified against the raw code line will appear four columns off. Verify
+against the rendered pair, both taken from the same output.
+
+The corpus figures come from the probes described in #3656; they walk
+`System.Private.CoreLib` with `IrImporter.ImportAssembly`, call the production
+`AnnotationAnchor` and `AnnotationCaret` entry points rather than reimplementing
+them, and read every width back off rendered output.
+
 ## Rejected alternatives
 
 Each was mocked up against real CoreLib lines before being rejected. Several
@@ -244,6 +321,9 @@ One caret per row with its text beside it. Genuinely attractive — association
 becomes spatial, so numbering disappears, and with one caret per row there is
 no neighbour to collide with, so clipping disappears too. A single-extent line
 collapses to one row.
+
+The layout this rejects was never implemented, so unlike every other code block
+in this document the following is a mockup, not a render:
 
 ```csharp
     Span<char> V_0 = stackalloc char[256];
