@@ -1113,10 +1113,10 @@ public abstract class TypeResolutionFailure
     public sealed class UnregisteredAssembly : TypeResolutionFailure
     {
         internal UnregisteredAssembly(
-            ResolvedAssemblyReference assembly) =>
-            Assembly = assembly;
+            AssemblyAcquisitionRegistration registration) =>
+            Registration = registration;
 
-        public ResolvedAssemblyReference Assembly { get; }
+        public AssemblyAcquisitionRegistration Registration { get; }
     }
 
     public sealed class InvalidBindingPolicy : TypeResolutionFailure
@@ -1994,9 +1994,12 @@ The cheap direct-caller negative is step 1 of the plan:
 2. Compare the structured namespace and nested-name segments with the target,
    deliberately ignoring assembly spelling.
 3. Compare the candidate's own `TypeDef` structured names as well.
-4. Rule the image out only when every readable row has a different structured
-   type name and the image does not define that name itself.
-5. Retain malformed or undecidable rows.
+4. Rule the image out only when both row enumerations completed, no row is
+   undecidable, every row has a different structured type name, and the image
+   does not define that name itself.
+5. If either enumeration fails, retain the candidate itself as indeterminate in
+   both direct-caller and graph projections. Retain individual malformed or
+   undecidable rows when enumeration otherwise continues.
 
 Forwarding changes which assembly defines a type, not the namespace and metadata
 name a call site records. This name-only negative therefore remains sound while
@@ -2562,6 +2565,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
   return `UnsupportedScope` rather than guessing a source domain.
 - A frozen context rejects an unregistered requesting-assembly origin before
   policy invocation and neither mutates the catalog nor routes it as global.
+- Unregistered assembly starts and binding origins both produce the
+  registration-bearing `UnregisteredAssembly` arm without reconstructing a
+  descriptor from the opaque handle.
 - External consumers can create assembly-descriptor and assembly-reference
   requests and can forward an existing `TypeResolutionStart` to another type.
 - External consumers can inspect but cannot forge decoder-produced
@@ -2623,6 +2629,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An indeterminate relation is not rejected by a prefilter.
 - A candidate with no matching structured type name is rejected without
   forwarder resolution.
+- A candidate whose `TypeRef` or `TypeDef` enumeration fails is retained as an
+  indeterminate candidate in both direct and graph projections; the
+  no-matching-name negative gate applies only to complete readable
+  enumerations.
 - A candidate with a matching name through any assembly spelling reaches the
   shared resolver.
 - A same-named type from another assembly passes the name-only prefilter but is
