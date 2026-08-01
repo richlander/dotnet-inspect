@@ -325,12 +325,15 @@ extent still has nothing to point at, so it widens exactly as before.
   that is counted and why the focus family has to be named before the number
   means anything. That denominator is the whole shipped population on purpose —
   the claim is how much existing output this changes, not a rate of some
-  outcome among the cases capable of it. Read the other way it is a mechanism
-  rather than a measurement: 27,091 + 2,931 is exactly 30,022, so the 2,842 is
-  precisely the complement, and **every line that can stack does**. `Agreed`
-  returns null on exactly the lines this model treats differently — any fact
-  missing an extent, or two extents disagreeing — so the two populations are
-  the same set by construction, not by coincidence.
+  outcome among the cases capable of it. Read the other way it is close to a
+  mechanism: 27,091 + 2,931 is exactly 30,022, so the 2,842 is precisely the
+  complement, and **every line that can stack does**. The selector is
+  `Stack(...) is { Count: > 0 }`, not `Agreed`: `Agreed` returns null on
+  **5,773** lines, but 2,931 of those have no extent at all and so render
+  unchanged, leaving exactly the 2,842. The remaining gap is `Agreed`'s final
+  bounds check, which could in principle reject a line that agrees; it rejects
+  **0** on this corpus, so the identity is exact here by measurement rather
+  than guaranteed by construction.
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
   where some other fact does have one, and only when that line stacks: it is
@@ -562,19 +565,25 @@ in this document the following is a mockup, not a render:
 //                   ^^^^^^^^^^^^^^^^^^^^  lifetime.stack-bound(Span<char>)
 ```
 
-Rejected as *the* style on measurement, not taste: aligning after the widest
-caret pushes text a mean **77 columns** past the end of the code line and
-overflows it on **96.61%** of the lines carrying an extent, leaving 28.1%
-intact at 80 columns against 75.7% for the bare code — or **36.4%** once the
-denominator is restricted to the 22,662 lines whose bare code fits at all.
+Rejected as *the* style on measurement, not taste. Every figure here is one
+row per fact with a one-column gap after the widest caret, which is what the
+sketch above shows; a two-column gap moves each of them by a few tenths and
+changes nothing. Aligning after the widest caret pushes text a mean **77
+columns** past the end of the code line and overflows it on **96.61%** of the
+lines carrying an extent, leaving 28.1% intact at 80 columns against 75.7%
+for the bare code — or **36.4%** once the denominator is restricted to the
+22,662 lines whose bare code fits at all. The other 63.6% of those lines wrap,
+and the wrap destroys the very adjacency that motivates the style. Quoting a
+wrap rate over all 29,933 lines instead would read 71.9%, but 7,271 of them
+overflow 80 columns before any annotation is added and wrap whatever style is
+chosen, so that number measures the corpus rather than the style.
 Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
 on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
 filed as #3610. That number is derived, not measured directly: the line is
-**57,940** characters, one extent covers all of it, and the style above sets
-text two columns past the caret. At a one-column gap it is 57,941; the gap is
-a style parameter, so the line length is the figure that means anything. It
-wraps 71.9% of lines, and the wrap destroys the very adjacency that motivates
-it. The obvious first candidate for a wide style.
+**57,940** characters, one extent covers all of it, and 57,942 is where a
+two-column gap would land. At the one-column gap used everywhere else here it
+is 57,941. The gap is a style parameter, so the line length is the figure that
+means anything. The obvious first candidate for a wide style.
 
 ### Constant-width caret trails
 
