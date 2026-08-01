@@ -27,20 +27,28 @@ everything and therefore at nothing, above a stack of details with no way to
 tell which detail belongs to which expression.
 
 `System.Tuple<…>.Equals` is the worst real case in the corpus. Under
-`--focus alloc` its comparison line carries 16 facts under a single caret 330
+`--focus alloc` its comparison line carries 16 facts under a single caret 370
 columns wide, above 32 wrapped detail rows, and attributes none of them. The
-code line is 330 columns, reaching final column 334 after the body indent, so it
+code line is 370 columns, reaching final column 374 after the body indent, so it
 is elided here at the `…`:
 
 ```csharp
-    return comparer.Equals(m_Item1, objTuple.m_Item1) && comparer.Equals(m_Item2, … (330 cols)
-//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (330 carets)
+    return comparer.Equals(m_Item1, objTuple.m_Item1) && comparer.Equals(m_Item2, … (370 cols)
+//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (370 carets)
 //   alloc.box(T1; alloc=boxed T1; path=branch; path-confidence=behind-branch; …  ×16, unattributed
 ```
 
 Under the model specified below the same line renders 8 numbered carets on a
 single row, with 8 of the 16 facts attributed to the expression each is about
-and the other 8 marked `-`.
+and the other 8 marked `-`. The block does not grow: both renders are one caret
+row above the same 32 detail rows, and the stacked caret row ends at column 372
+rather than 374.
+
+> This width has now been mis-stated in two directions across review rounds —
+> recorded as 370, "corrected" to 330, and measured back to 370. It is 370. The
+> value was re-derived from the render itself rather than from agreement with
+> the rest of this document; internal consistency was what let the wrong value
+> survive. Re-measure before changing it again.
 
 The facts are right. The anchoring is right. Only the render throws the
 information away.
@@ -58,7 +66,7 @@ of them.
 
 Every code block showing behaviour that exists is verbatim `Annotated Source`
 output rather than a sketch. The two exceptions are marked where they appear:
-the `Tuple.Equals` line below is elided because it is 330 columns wide, and the
+the `Tuple.Equals` line below is elided because it is 370 columns wide, and the
 side-aligned block under [Rejected alternatives](#side-aligned-annotations)
 depicts a layout that was never built. This one is
 `System.Reflection.RuntimeModule.ResolveSignature` under `--focus cost`; see
@@ -199,8 +207,18 @@ included. Whole rendered block on those 2,842 lines:
 | 120 cols | 65.9% | 65.9% |
 | 160 cols | 84.9% | 84.9% |
 
+That denominator is padded, and the padding is most of it: the block can never
+be narrower than the code line, so a line whose code alone overflows the
+terminal cannot fit under *any* caret model. At 80 columns only 730 of the 2,842
+have code that fits at all — the other 2,112 are structurally incapable of the
+outcome being counted. Restricted to the 730 that could fit, the rates are 90.5%
+widening and 91.1% stacked. At the wider terminals the padded rate and the
+code-fits share converge almost exactly (100 cols: 48.3% fit, 48.3% code-fits;
+120: 65.9% / 66.0%; 160: 84.9% / 84.9%), which says the block width simply *is*
+the code width there.
+
 Terminal fit is unchanged, because on these dense lines the block width is set
-by the wrapped detail rows, which both models share. Nor does the block itself
+by the code line and the wrapped detail rows, which both models share. Nor does the block itself
 shrink: it is the same width on 91.8% of these lines, narrower on 1.1%, and
 wider on 7.2% — the numbered labels cost a few columns where the details were
 already the widest thing in the block.
@@ -367,9 +385,16 @@ with a single surviving extent gives **2,842**. Everything else — **30,022
 lines, 91.4%** of all 32,864 caret lines — keeps exactly today's geometry,
 including the inline-detail shortcut. Two populations make up that remainder and
 they keep it for different reasons: **27,091** lines narrow to one agreed extent,
-and **2,931** lines have no fact with an extent at all and widen exactly as they
-do today. An earlier revision quoted only the first of those as "everything
-else", which understated the unchanged share by the whole no-extent population.
+and **2,931** lines have no fact with an extent at all and widen to output
+identical to today's. An earlier revision quoted only the first of those as
+"everything else", which understated the unchanged share by the whole no-extent
+population.
+
+"Unchanged" here is a claim about rendered output, not about the code path. A
+no-extent line now enters `Stack`, which walks the facts, finds no extent for
+any of them, collects them all as unplaced and returns an empty group list; the
+`{ Count: > 0 }` guard then fails and the widening branch runs exactly as
+before. The bytes are the same; the work done to reach them is not.
 
 `--focus lifetime` never stacks: no line in CoreLib carries two lifetime facts
 that disagree about the extent. The gesture is worth having anyway, but this
@@ -412,7 +437,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `21b57ab91`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `89c56d1bd`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
