@@ -432,6 +432,11 @@ public static class VisualEncoder
     /// Both bounds move inward — the start forward, the end back — so the window is always a
     /// subset of the one asked for. Moving either bound outward would hand back text the caller
     /// did not ask for, which is the one direction it has no way to check.
+    ///
+    /// Total in both bounds, which is what lets a caller pass a range straight through without
+    /// clamping it first: a bound below zero or past the end is read as the nearest end of the
+    /// text, and an end below the start gives an empty window, because the end walks from the
+    /// start and only ever advances.
     /// </remarks>
     internal static (int Start, int End, VisualForm Forms) WindowWithin(string encoded, int start, int end)
     {
@@ -445,7 +450,7 @@ public static class VisualEncoder
         VisualForm forms = VisualForm.None;
         int to = from;
 
-        while (to < end)
+        while (to < end && to < encoded.Length)
         {
             int width = NextToken(encoded, to, out VisualForm form);
 

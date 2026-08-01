@@ -264,6 +264,11 @@ public class BoundaryTests
         // From-end indices, including one that runs off the front.
         Assert.Equal(@"b\\c", full.Truncate(^4..).ToString());
         Assert.Equal(full.ToString(), full.Truncate(^99..).ToString());
+
+        // And both bounds past the end, which is what the walker's own bounds check answers
+        // rather than a clamp at the call site.
+        Assert.True(full.Truncate(99..100).IsEmpty);
+        Assert.Equal(full.ToString(), full.Truncate(0..int.MaxValue).ToString());
     }
 
     [Fact]

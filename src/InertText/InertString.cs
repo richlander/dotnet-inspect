@@ -215,14 +215,7 @@ public readonly struct InertString : IEquatable<InertString>
     /// cannot name a spelling that was dropped with the tail.
     /// </remarks>
     /// <param name="maxLength">The largest encoded length the caller can accept.</param>
-    public InertString Truncate(int maxLength)
-    {
-        // Clamped here rather than expressed as a Range, because Index refuses a negative value
-        // at construction and would turn a lenient budget into the exception this member exists
-        // not to throw.
-        string text = Text;
-        return Bound(0, Math.Clamp(maxLength, 0, text.Length));
-    }
+    public InertString Truncate(int maxLength) => Bound(0, maxLength);
 
     /// <summary>
     /// Takes as much of <paramref name="range"/> as can be taken without dividing a spelling.
@@ -248,12 +241,10 @@ public readonly struct InertString : IEquatable<InertString>
         string text = Text;
 
         // Index.GetOffset does not validate, so a from-end index past the start of the text
-        // arrives negative and an absolute one can run past the end. Clamping both is what
-        // makes every range answerable.
-        int start = Math.Clamp(range.Start.GetOffset(text.Length), 0, text.Length);
-        int end = Math.Clamp(range.End.GetOffset(text.Length), 0, text.Length);
-
-        return Bound(start, Math.Max(start, end));
+        // arrives negative and an absolute one can run past the end. Neither is clamped here,
+        // because the walker is total in both bounds and a clamp that never changes an answer
+        // is a line nothing can hold true.
+        return Bound(range.Start.GetOffset(text.Length), range.End.GetOffset(text.Length));
     }
 
     private InertString Bound(int start, int end)
