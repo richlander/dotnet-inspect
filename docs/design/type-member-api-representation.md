@@ -39,38 +39,83 @@ deliberately separate:
   catalog-local key. `TypeResolutionOutcome.Resolved` carries that payload plus
   the ordered forwarding-hop evidence.
 
-The decision map is:
+The map is grouped by library so ownership is visible in the structure instead
+of repeated in every row.
 
-`Current` means a source declaration exists at this branch's base. `Proposed`
-means the structured forwarding design specifies the contract but its delivery
-slices have not implemented it. `Design-level scope` names a required pairing
-whose shared product carrier does not yet exist.
+### Current product currencies
 
-| Currency | Status | Owner | Scope and lifetime | Authoritative for | Not authoritative for |
-| --- | --- | --- | --- | --- | --- |
-| `TypeDefinitionHandle`, `TypeReferenceHandle`, `MemberReferenceHandle`, and other SRM handles | Current | MetadataPrimitives / reader-local code | One live `MetadataReader` | Reading one metadata row and following validated relationships | Escaping a reader, cross-assembly identity, persistence, display |
-| Raw MethodDef token | Current | Metadata | One physical metadata module | Naming a MethodDef row while its module is independently known | Assembly-scoped identity or durable location by itself |
-| `MetadataMethodAddress` | Current | MetadataPrimitives | MVID plus validated MethodDef handle/token | Re-locating a method after reopening and revalidating its physical module | Cryptographic artifact identity or cross-module correspondence |
-| `TypeDefinitionToken`, `ExportedTypeToken` | Proposed | Metadata | One registered candidate's manifest module; multi-module exports are rejected | Naming a validated metadata-table row beside its candidate | Definition correspondence by itself |
-| `MetadataTypeDefinitionName` | Proposed | Metadata | Reader-independent lookup value | Exact `TypeDef` / `ExportedType` name lookup, including nested metadata segments and arity | Assembly selection, signature shape, CLI selection, display, universal identity |
-| `ResolvableTypeReference` | Proposed | Analysis → Metadata seam | Decoder-produced provenance plus lookup name | Preserving whether a reference came from an assembly, the current assembly, intrinsic core library, or a module | Resolution without the source candidate, structural `TypeRef` equality |
-| `TypeResolutionRequest` | Proposed | Metadata | One resolution operation | Typed start candidate/binding target plus exact lookup name | Replacing a decoded reference's provenance or serving as a reusable identity |
-| `ResolvedAssemblyCandidate` | Proposed | Metadata catalog | One catalog | The catalog-local descriptor for an acquired assembly; its candidate id addresses catalog-owned inventory and session state | Owning sessions itself, or durable identity outside the catalog |
-| `TypeResolutionOutcome` | Proposed | Metadata resolution | One frozen catalog generation | The complete resolution verdict, including non-success evidence and ordered forwarding hops | Definition equality or a success-shaped nullable result |
-| `TypeForwardingHop` | Proposed | Metadata resolution | One resolution outcome | Evidence for one verified `ExportedType` declaration and its exact target reference, retained even when target binding fails | Proof that target binding completed, definition identity, or correspondence |
-| `ResolvedTypeDefinition` | Proposed | Metadata resolution | One frozen catalog generation | The successful definition payload: candidate, exact name, durable address, and opaque key | Carrying forwarding hops, equality through object comparison, persistence as a whole |
-| `ResolvedTypeDefinitionKey` | Proposed | Metadata catalog | One frozen catalog generation | Input to the catalog's exact `DefinitionCorrespondence` operation | Hashing, sorting, cross-catalog comparison, durable storage |
-| `DefinitionCorrespondence` | Proposed | Metadata catalog | One catalog comparison operation, including catalog/generation compatibility validation | Typed same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
-| `MetadataTypeDefinitionAddress` | Proposed | Metadata | Durable MVID plus validated TypeDef token | Re-locating one definition after reopening the same module | Proof that two artifacts correspond |
-| `DefinitionJoinToken` | Proposed | Metadata catalog | One frozen catalog generation | Hashable exact-or-indeterminate projection issued by the catalog for graph joins | Display, persistence, reconstruction from addresses |
-| `ILInspector.Analysis.TypeRef` | Current | Analysis | Analysis evidence and caches | Structural IL/signature shape, call matching, Analysis-specific trust evidence | Exact forwarded-definition correspondence, compile-back fidelity |
-| `ILInspector.Decompiler.Pipeline.TypeRef` | Current | Decompiler | One imported pipeline/body | Symbolic body/codegen shape, including function pointers and the supported function-pointer modifier subset | Arbitrary declaration modifiers, Analysis identity, catalog correspondence, API persistence |
-| `TypeNode` | Current | Metadata API extraction | Metadata extraction operation | Rich signature facts and the inputs to display/canonical projections | Cross-layer public currency or definition correspondence |
-| `ApiType`, `ApiMember`, `ApiParameter` | Current | Metadata/API output | Materialized and JSON-capable | API inventory, presentation fields, persisted API identity projections | Reader-local resolution or body identity |
-| `MemberTargetSelector` | Current | Metadata resolver / CLI input | One selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
-| `MemberAnchor` plus module scope | Current values plus design-level scope | Metadata API identity / round-trip design | Durable API identity interpreted beside module name and MVID | Exact selected API member, persisted selector/digest workflows | Method-body evidence identity without translation |
-| `MethodIdentity`, `MemberRef` | Current | Analysis | Body and call-site evidence | Physical method/body and decoded call-site identity | API selector spelling or cross-version API identity |
-| `ResearchSubjectKey` identity projection | Current | Research | Cross-producer body composition | Joining subjects by `(Kind, Id)` through Research's identity comparer | Default record equality/hash or the `Display`, `TypeName`, and `MemberName` presentation fields |
+#### Reader-local SRM
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeDefinitionHandle`, `TypeReferenceHandle`, `MemberReferenceHandle`, and other SRM handles | One live `MetadataReader` | Which row to read and which validated relationship to follow | Cross-reader identity, persistence, or display |
+
+#### `ILInspector.MetadataPrimitives`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
+| `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
+
+#### `ILInspector.Metadata`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| Raw MethodDef token | One independently known physical module | Which MethodDef row to address | Assembly identity or durable location by itself |
+| `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
+| `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
+| `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
+
+#### `ILInspector.Analysis`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeRef` | Analysis evidence and caches | Structural IL/signature shape, call matching, and Analysis trust evidence | Exact forwarded-definition correspondence or compile-back fidelity |
+| `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
+
+#### `ILInspector.Decompiler`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `Pipeline.TypeRef` | One imported pipeline/body | Symbolic body/codegen shape, function pointers, and the supported function-pointer modifier subset | Arbitrary declaration modifiers, Analysis identity, catalog correspondence, or API persistence |
+
+#### `ILInspector.Research`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `ResearchSubjectKey` identity projection | Cross-producer body composition | Which subjects join by `(Kind, Id)` through Research's identity comparer | Default record equality/hash or the `Display`, `TypeName`, and `MemberName` presentation fields |
+
+`MemberAnchor` is interpreted beside physical module scope when exact physical
+identity is required. The round-trip design calls that pairing
+`ModuleIdentity`; current product code has `MemberAnchor` and the tools-specific
+`RoundTripModuleIdentity`, not a shared product type named `ModuleIdentity`.
+
+### Proposed forwarding currencies
+
+These contracts belong to the structured forwarding design and remain proposed
+until its delivery slices implement them.
+
+#### `ILInspector.Analysis` forwarding provenance
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
+
+#### `ILInspector.Metadata` forwarding resolution
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeDefinitionToken`, `ExportedTypeToken` | One registered candidate's manifest module; multi-module exports are rejected | Which validated metadata row the candidate contains | Definition correspondence by itself |
+| `MetadataTypeDefinitionName` | Reader-independent lookup value | Which exact `TypeDef` / `ExportedType` name to probe, including nesting and arity | Assembly selection, signature shape, CLI selection, display, or universal identity |
+| `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
+| `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory/session state the catalog owns | Session ownership or durable identity outside the catalog |
+| `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
+| `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
+| `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
+| `ResolvedTypeDefinitionKey` | One frozen catalog generation | What the catalog may compare for exact definition correspondence | Hashing, sorting, cross-catalog comparison, or durable storage |
+| `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
+| `MetadataTypeDefinitionAddress` | MVID plus validated TypeDef token | Where to re-locate a definition after reopening the module | Proof that two artifacts correspond |
+| `DefinitionJoinToken` | One frozen catalog generation | Hashable exact-or-indeterminate definition class for graph joins | Display, persistence, or reconstruction from addresses |
 
 The table separates four axes that are often collapsed:
 
@@ -85,9 +130,6 @@ The table separates four axes that are often collapsed:
 
 Member currency has the same separation: selector in, anchor out, module scope
 beside the anchor, and producer-native body identity retained for body evidence.
-The owning round-trip design calls that scope `ModuleIdentity`; current product
-code has `MemberAnchor` and the tools-specific `RoundTripModuleIdentity`, not a
-shared product type named `ModuleIdentity`.
 
 ### Conversion ownership
 
