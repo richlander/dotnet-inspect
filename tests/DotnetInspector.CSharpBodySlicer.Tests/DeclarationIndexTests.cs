@@ -500,6 +500,24 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// A file-scoped namespace's end is a maximum over the rows it encloses, so it is only as good
+    /// as the worst of them. A member whose brace never closes reports the last line as a guess;
+    /// the namespace used to adopt that guess and still call its own span measured, because the
+    /// unknown-span marking keyed on lost lexical depth and an unclosed brace never loses it.
+    /// </summary>
+    [Fact]
+    public void AFileScopedNamespaceOverAnUnclosedMember_ReportsAnUnknownSpan()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            class A {
+            // trailing comment
+            """);
+
+        Assert.All(index.Declarations, d => Assert.False(d.SpanKnown));
+    }
+
+    /// <summary>
     /// The punctuators <see cref="DeclarationIndexBuilder"/> accepts inside a speculatively matched
     /// type argument list are load-bearing: drop the array, tuple, pointer, or qualified-name
     /// entries and each of these initializers stops matching, so its commas split declarators and
@@ -526,6 +544,37 @@ public class DeclarationIndexTests
         Assert.Equal(
             ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"],
             index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
+    }
+
+    /// <summary>
+    /// A speculative type argument list must leave its own groups balanced. <c>a &lt; b(name: c &gt; d)</c>
+    /// reaches a <c>&gt;</c> with a <c>(</c> still open; accepting it skipped the <c>(</c> and left the
+    /// matching <c>)</c> to drive the caller's group depth negative, after which no later comma could
+    /// separate a declarator and every trailing declarator vanished from the index. All three shapes
+    /// below compile.
+    /// </summary>
+    [Fact]
+    public void ARelationalComparisonThatOpensAGroup_DoesNotMatchATypeArgumentList()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                static int x = 1, c = 2, d = 3;
+                static int b(bool name) => 1;
+                static int p = 1, q = 2, r = 3, s = 4;
+                static int m(bool v) => 0;
+                static int[] arr = new int[9];
+
+                static bool a = x < b(name: c > d), f = true;
+                static int g = x < p ? q : m(r > s), h = 1;
+                static bool k = x < arr[c > d ? 1 : 0], n = false;
+            }
+            """);
+
+        var fields = index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name);
+        Assert.Equal(
+            ["x", "c", "d", "p", "q", "r", "s", "arr", "a", "f", "g", "h", "k", "n"],
+            fields);
     }
 
     /// <summary>

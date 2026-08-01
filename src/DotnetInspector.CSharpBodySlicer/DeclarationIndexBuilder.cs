@@ -322,13 +322,19 @@ internal static class DeclarationIndexBuilder
             // Everything after a file-scoped namespace is inside it -- a file cannot open a second
             // one, and nothing can precede it but usings and attributes, which are not rows.
             int end = rows[i].SignatureEndLine;
+            bool guessed = depthLost;
             for (int j = i + 1; j < rows.Count; j++)
+            {
                 end = Math.Max(end, rows[j].EndLine);
+                guessed |= !rows[j].SpanKnown;
+            }
             rows[i].EndLine = end;
 
-            // The span reaches every later declaration, so if the scan lost its place anywhere
-            // after this row opened, the end it reports is a guess. Report it unknown instead.
-            if (depthLost)
+            // The end is a maximum over the rows this namespace encloses, so it is only as good as
+            // the worst of them: a row that never closed reports the last line as a guess, and
+            // adopting that guess as a measured namespace end would claim a span the scan never
+            // saw. The same holds if the scan lost its place anywhere after this row opened.
+            if (guessed)
                 rows[i].SpanKnown = false;
         }
 
@@ -656,9 +662,17 @@ internal static class DeclarationIndexBuilder
     /// relational <c>&lt;</c> distinguishable: <c>x = a &lt; b, y = c &gt; d</c> contains an
     /// <c>=</c>, and no type argument list does.
     /// </summary>
+    /// <remarks>
+    /// The closing <c>&gt;</c> must also leave every <c>(</c> and <c>[</c> opened inside the region
+    /// closed. A type argument list balances its groups — <c>Func&lt;(int a, int[] b), string&gt;</c>
+    /// does — but <c>a &lt; b(name: c &gt; d)</c> does not, and accepting it would hand the caller a
+    /// region that swallows the <c>(</c> and leaves the matching <c>)</c> behind to drive the
+    /// caller's group depth negative, after which no later comma can ever separate a declarator.
+    /// </remarks>
     private static int TypeArgumentListEnd(List<ScanToken> pending, int start, Func<ScanToken, string> text)
     {
         int angle = 0;
+        int group = 0;
         for (int i = start; i < pending.Count; i++)
         {
             var t = pending[i];
@@ -678,7 +692,7 @@ internal static class DeclarationIndexBuilder
             {
                 angle--;
                 if (angle <= 0)
-                    return angle == 0 ? i : -1;
+                    return angle == 0 && group == 0 ? i : -1;
                 continue;
             }
 
@@ -686,7 +700,19 @@ internal static class DeclarationIndexBuilder
             // syntax. Anything else -- an operator, a literal, a brace -- is not. ":" is here for
             // the two halves of "global::"; the scanner emits one-character punctuators, so a
             // "::" token never arrives.
-            if (c is "," or "." or "?" or "[" or "]" or "*" or "(" or ")" or ":")
+            if (c is "(" or "[")
+            {
+                group++;
+                continue;
+            }
+
+            if (c is ")" or "]")
+            {
+                group--;
+                continue;
+            }
+
+            if (c is "," or "." or "?" or "*" or ":")
                 continue;
             return -1;
         }
