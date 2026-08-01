@@ -97,6 +97,190 @@ public static class AnnotationAnchor
     }
 
     /// <summary>
+    /// The characters a caret should underline for one fact: a
+    /// <paramref name="Column"/> and <paramref name="Length"/> into the printed
+    /// line the fact is anchored to.
+    /// </summary>
+    /// <remarks>
+    /// This is deliberately in <em>line-relative text</em> coordinates rather
+    /// than node identity, so a consumer holding only the rendered line can
+    /// place the underline. It narrows the caret <em>within</em> the line the
+    /// fact already anchors to; it never moves a fact to another line.
+    /// </remarks>
+    public readonly record struct CaretExtent(int Column, int Length);
+
+    /// <summary>
+    /// The narrowest printed extent for each annotation that has one — the
+    /// printed node carrying exactly the fact's own IL offset, which is what the
+    /// fact is about, rather than the whole statement containing it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Anchoring answers <em>which line</em>; this answers <em>which characters
+    /// on it</em>. The two are separate because they fail separately: a fact
+    /// whose exact offset was erased by the raise still anchors to a covering
+    /// statement, but has no sub-token to point at, so it is simply absent here
+    /// and the caller keeps the statement-wide underline. Measured over
+    /// <c>System.Private.CoreLib</c> as the annotated-source view prints it —
+    /// that is, with callee bodies imported — 33,657 of 37,800 facts (89.04%)
+    /// get an extent. Every figure quoted in this file is from that render.
+    /// The C#-only overlay prints the same members without importing callee
+    /// bodies, which shifts a few printed ranges and yields 33,729; a figure
+    /// here is only meaningful against a stated render, because the printed
+    /// text is what extents are measured in.
+    /// </para>
+    /// <para>
+    /// Several printed nodes can carry one offset — the importer stamps a whole
+    /// subtree from a single instruction — so the narrowest printed range wins,
+    /// that being the one that names the fact most precisely.
+    /// </para>
+    /// <para>
+    /// An extent is produced only when the narrow node prints on the same line
+    /// as the statement the fact anchors to. Where a statement wraps and the
+    /// sub-expression prints on a continuation line (283 facts in the same
+    /// corpus), narrowing would put the underline under a line the fact is not
+    /// attached to; those keep the statement-wide caret until the caret block
+    /// can be emitted against the narrow node's own line.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<IAnnotation, CaretExtent> ComputeCaretExtents(
+        IReadOnlyList<IAnnotation> annotations,
+        List<StatementSpan> statements,
+        PrintedRangeMap printedRanges)
+    {
+        var extents = new Dictionary<IAnnotation, CaretExtent>();
+        if (annotations.Count == 0 || printedRanges.Count == 0)
+            return extents;
+
+        var narrowest = NarrowestPrintedByOffset(printedRanges);
+        if (narrowest.Count == 0)
+            return extents;
+
+        // Indexed by the same coordinates TryGetLineColumn reports, so a column
+        // from there indexes straight into these lines. Split on '\n' alone: a
+        // '\r' left at a line's end is whitespace and is trimmed below.
+        var lines = printedRanges.Output.Split('\n');
+
+        foreach (var annotation in annotations)
+        {
+            if (!narrowest.TryGetValue(annotation.SourceOffset, out var node))
+                continue;
+            if (Best(statements, annotation.SourceOffset) is not { } owner)
+                continue;
+            if (!TryGetPrintedLine(owner, printedRanges, out int ownerLine))
+                continue;
+            // A failure here zeroes the out parameters, so dropping this guard
+            // would not change a result -- length 0 is rejected by the trim
+            // either way. It stays because relying on that is a trap.
+            if (!printedRanges.TryGetLineColumn(node, out int line, out int column, out int length))
+                continue;
+            if (line != ownerLine || line >= lines.Length)
+                continue;
+            if (!TryTrimToPrinted(lines[line], ref column, ref length))
+                continue;
+            extents[annotation] = new CaretExtent(column, length);
+        }
+        return extents;
+    }
+
+    /// <summary>
+    /// Shrinks an extent onto the printed characters it covers, dropping
+    /// whitespace at either end.
+    /// </summary>
+    /// <remarks>
+    /// A statement's printed range begins at its line's indent, so when the
+    /// narrowest node carrying an offset is the statement itself the raw extent
+    /// covers the leading whitespace and a caret drawn from it would start left
+    /// of the code. Measured over <c>System.Private.CoreLib</c> as the
+    /// annotated-source view prints it, the trim moves 205 of the 33,657
+    /// extents and rejects none of them. Trimming makes such
+    /// an extent coincide with the statement-wide default rather than
+    /// mis-drawing, and leaves every extent that already named an expression
+    /// untouched.
+    /// <para>
+    /// The clamp on the far end is defensive rather than load-bearing today:
+    /// <see cref="PrintedRangeMap.TryGetLineColumn"/> refuses any range that
+    /// crosses a line break, so of the 33,657 ranges the caller delivers here,
+    /// 0 overhang the line and 650 end exactly on its last character. It is
+    /// kept, and gated, because this is an internal helper taking a
+    /// caller-supplied range: the cost is one
+    /// <see cref="Math.Min(int, int)"/> and the alternative is an out-of-range
+    /// read the first time a second caller passes a range this one would not.
+    /// </para>
+    /// </remarks>
+    internal static bool TryTrimToPrinted(string lineText, ref int column, ref int length)
+    {
+        // length <= 0 is redundant with the end <= start rejection below, and is
+        // kept because this is a documented precondition of an internal helper,
+        // not an accident of the loop bounds.
+        if (column < 0 || length <= 0 || column >= lineText.Length)
+            return false;
+        int end = Math.Min(column + length, lineText.Length);
+        int start = column;
+        while (start < end && char.IsWhiteSpace(lineText[start]))
+            start++;
+        while (end > start && char.IsWhiteSpace(lineText[end - 1]))
+            end--;
+        if (end <= start)
+            return false;
+        column = start;
+        length = end - start;
+        return true;
+    }
+
+    /// <summary>
+    /// The narrowest printed node carrying each source offset. Built once per
+    /// function, because it is a scan of the whole range map and every fact
+    /// queries it.
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="LoadStackSlot"/> prints as <c>S_n</c> and a
+    /// <see cref="CaughtException"/> as <c>__exception</c>: stand-ins the raise
+    /// emits where it could not recover the value an instruction produced, or
+    /// where the value has no C# spelling. Each carries the offset of the
+    /// instruction that consumed it, so on a line like
+    /// <c>return new ConstructorInvoker(S_0);</c> it is narrower than the
+    /// <c>new</c> it sits inside and would win on width alone, underlining the
+    /// argument instead of the allocation the fact is about. Width is therefore
+    /// only the tie-break among real expressions; a stand-in wins only when
+    /// nothing else carries the offset, which is the case where it genuinely is
+    /// the value on the line (<c>_ = S_0;</c>). Measured over
+    /// <c>System.Private.CoreLib</c>, preferring real expressions moves 50 of
+    /// 10,646 <c>alloc.new</c> underlines onto the allocation; no fact in that
+    /// corpus shares an offset with a printed <c>__exception</c>, which is
+    /// excluded because it is the same shape, not because it was observed.
+    /// </remarks>
+    static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
+    {
+        var narrowest = new Dictionary<int, IrNode>();
+        var widths = new Dictionary<int, int>();
+        var standIn = new HashSet<int>();
+        foreach (var printed in printedRanges)
+        {
+            int offset = printed.Node.SourceOffset;
+            if (offset < 0)
+                continue;
+            bool slot = printed.Node is LoadStackSlot or CaughtException;
+            if (widths.TryGetValue(offset, out int best))
+            {
+                bool bestIsSlot = standIn.Contains(offset);
+                if (slot && !bestIsSlot)
+                    continue;
+                int width = printed.Characters.End.Value - printed.Characters.Start.Value;
+                if (slot == bestIsSlot && best <= width)
+                    continue;
+            }
+            widths[offset] = printed.Characters.End.Value - printed.Characters.Start.Value;
+            narrowest[offset] = printed.Node;
+            if (slot)
+                standIn.Add(offset);
+            else
+                standIn.Remove(offset);
+        }
+        return narrowest;
+    }
+
+    /// <summary>
     /// Finds the printed line for an anchored statement, climbing to the nearest
     /// printed ancestor when the owner belongs to an inline expression body (for
     /// example, a raised lambda). Facts stay visible instead of being dropped.
