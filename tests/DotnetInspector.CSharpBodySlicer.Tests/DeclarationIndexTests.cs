@@ -930,6 +930,76 @@ public class DeclarationIndexTests
     private static string FormatWithAttributes(DeclarationSpan s) =>
         $"{Format(s)} trivia={s.TriviaStartLine} attrs=[{string.Join(",", s.AttributeLists)}]";
 
+    /// <summary>
+    /// An operator whose symbol contains <c>=</c> — <c>==</c>, <c>!=</c>, <c>&lt;=</c>, <c>&gt;=</c>,
+    /// and the C# 14 compound family — spells its NAME in punctuation, and the header cut that
+    /// looks for an assignment used to cut there. That discarded the parameter list, and a header
+    /// with no parameter list is not an operator: it became a field named <c>operator</c>, with the
+    /// real member lost. Block-bodied, it was worse — the cut made the body look like an
+    /// initializer and swallowed the members that followed.
+    /// <para>
+    /// This is gated here or nowhere: the corpus contains no equality or comparison operator at
+    /// all, so <c>EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex</c> passed for the
+    /// wrong reason. The close negatives are the operators that do NOT contain <c>=</c> and the
+    /// real assignments that do. Roslyn is the oracle; the fixture compiles.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AnOperatorWhoseSymbolContainsEquals_IsNotCutAtIt()
+    {
+        string[] fixtures =
+        [
+            """
+            namespace N;
+            public struct V
+            {
+                public int X;
+                public static bool operator ==(V a, V b) => a.X == b.X;
+                public static bool operator !=(V a, V b) => a.X != b.X;
+                public static bool operator <=(V a, V b) => a.X <= b.X;
+                public static bool operator >=(V a, V b) => a.X >= b.X;
+                public override bool Equals(object? o) => o is V v && v.X == X;
+                public override int GetHashCode() => X;
+            }
+            """,
+            """
+            namespace N;
+            public struct W
+            {
+                public int X;
+                public static bool operator ==(W a, W b) { return a.X == b.X; }
+                public static bool operator !=(W a, W b) { return a.X != b.X; }
+                public override bool Equals(object? o) => o is W v && v.X == X;
+                public override int GetHashCode() => X;
+            }
+            """,
+            """
+            namespace N;
+            public struct U
+            {
+                public static U operator +(U a, U b) => a;
+                public static bool operator <(U a, U b) => true;
+                public static bool operator >(U a, U b) => true;
+                public static U operator >>>(U a, int b) => a;
+                public static U operator checked +(U a, U b) => a;
+                public int Field = 1;
+                public System.Func<int, bool> Ge = x => x >= 0;
+            }
+            """,
+        ];
+
+        foreach (var fixture in fixtures)
+        {
+            var lines = fixture.Split('\n');
+            var expected = RoslynDeclarations(lines);
+            Assert.NotNull(expected);
+
+            Assert.Equal(
+                expected.Select(Format),
+                DeclarationIndex.Build(lines).Declarations.Select(Format));
+        }
+    }
+
     private static string Format(Declaration d) =>
         $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
 

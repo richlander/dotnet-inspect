@@ -542,14 +542,33 @@ internal static class DeclarationIndexBuilder
         int arrowLine = -1;
         bool cutAtEquals = false;
         depth = 0;
+        bool inOperatorSymbol = false;
         for (int i = 0; i < pending.Count; i++)
         {
             var t = pending[i];
-            if (t.Kind != ScanTokenKind.Punctuator) continue;
+            if (t.Kind != ScanTokenKind.Punctuator)
+            {
+                // An operator spells its name in punctuation, and "==", "!=", "<=", ">=" and the
+                // compound "+=" family contain an "=" that is part of that NAME, not an
+                // assignment. Cutting there discards the parameter list, and a header with no
+                // parameter list is not recognized as an operator at all: it becomes a field named
+                // "operator", and for a block-bodied one the cut also makes the body look like an
+                // initializer, which swallows the members that follow.
+                if (depth == 0 && IsKeyword(pending, i, "operator", text))
+                    inOperatorSymbol = true;
+                continue;
+            }
+
             var c = text(t);
-            if (c is "(" or "[" or "{") depth++;
+            if (c is "(" or "[" or "{")
+            {
+                depth++;
+                // The symbol ends where the parameter list opens, so an expression-bodied
+                // operator's "=>" is still found.
+                inOperatorSymbol = false;
+            }
             else if (c is ")" or "]" or "}") depth--;
-            else if (c == "=" && depth == 0)
+            else if (c == "=" && depth == 0 && !inOperatorSymbol)
             {
                 bool arrow = i + 1 < pending.Count
                     && pending[i + 1].Kind == ScanTokenKind.Punctuator
