@@ -296,6 +296,24 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
+                // And vote again on the body's self-references, for the same reason the
+                // foreign check above runs twice: IrPasses.Run can ADD reference nodes.
+                // LambdaRaisingPass imports a lambda's body and attaches it here, so a
+                // self-reference written inside a lambda is not a node at all when the
+                // vote above happens — and RewriteSelfCalls, which runs after this point,
+                // rewrites calls anywhere in the body, dropping their type arguments.
+                // A non-identity `Own<int>(1)` inside a lambda in `Own<T>(T x)` would
+                // become `Own(1)` against `static string Own(T x)`: CS1503, at Full.
+                //
+                // Defensive: no fixture reaches this arm, because a lambda in a generic
+                // context is never raised (#3665), and a local function only has type
+                // parameters to judge when its host is generic. That makes today's safety
+                // a coincidence of an unrelated open bug rather than a property of this
+                // pass. LambdasInGenericContextsAreNotRaised pins the coincidence, so
+                // fixing #3665 fails there and points here instead of silently reopening
+                // #3631.
+                if (!TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
+                    continue;
                 if (environment is not null && !SubstituteEnvironment(body, environment))
                     continue;
                 bool allowLocals = environment is null;

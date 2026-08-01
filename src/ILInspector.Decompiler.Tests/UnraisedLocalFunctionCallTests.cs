@@ -188,6 +188,64 @@ public class UnraisedLocalFunctionCallTests
     }
 
     /// <summary>
+    /// The premise the generic gate's pre-pipeline vote rests on: a lambda in a generic
+    /// context is never raised, so <c>LambdaRaisingPass</c> cannot materialize a
+    /// self-reference after that vote.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="LocalFunctionRaisingPass"/> judges a candidate's type parameters before
+    /// <c>IrPasses.Run</c>, which can ADD reference nodes — <c>LambdaRaisingPass</c>
+    /// imports a lambda's body and attaches it to the tree. A non-identity self-reference
+    /// written inside a lambda is therefore not a node when the vote happens, while
+    /// <c>RewriteSelfCalls</c> runs afterwards and rewrites calls anywhere in the body.
+    /// The pass re-votes after the pipeline for that reason, but nothing reaches that arm
+    /// today: a local function only has type parameters worth judging when its host is
+    /// generic, and every lambda in a generic host lives in a generic display class,
+    /// which is never raised (#3665).
+    /// <para>
+    /// That is a coincidence of an unrelated open bug, not a property of this pass, so it
+    /// is pinned here rather than assumed. If #3665 is fixed, this test fails and the
+    /// fixer is pointed at the ordering instead of silently reopening #3631. The
+    /// non-generic control proves the assertion is about the generic context and not
+    /// about lambda raising being broken outright.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void LambdasInGenericContextsAreNotRaised()
+    {
+        var type = typeof(GenericContextLambdaSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+
+        // Control: lambda raising works, so the two assertions below are about the
+        // generic context rather than about a dead pass.
+        var control = Import(nameof(GenericContextLambdaSamples.NonGenericHost));
+        Assert.Contains("=>", control);
+
+        foreach (string name in new[]
+        {
+            nameof(GenericContextLambdaSamples.GenericHostCachedLambda),
+            nameof(GenericContextLambdaSamples.GenericHostCapturingLambda),
+        })
+        {
+            string output = Import(name);
+            // Still the stamped compiler-generated closure identity, never recovered
+            // lambda syntax. Both forms — the cached `<>c` singleton and the capturing
+            // `<>c__DisplayClass` instance — decode through the same `___c` prefix.
+            Assert.DoesNotContain("=>", output);
+            Assert.Contains("___c", output);
+        }
+
+        string Import(string methodName)
+        {
+            var function = IrImporter.Import(source, type.FullName!, methodName);
+            Assert.NotNull(function);
+            var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+            Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+            return result.Output!;
+        }
+    }
+
+    /// <summary>
     /// The gate for the node the sweep sees rather than the one the printer sees.
     /// <c>ldftn</c> over a local function imports as <c>LoadFunctionPointer</c> and only
     /// becomes <c>AddressOfMethod</c> in <c>MethodAddressPass</c>, which runs after this

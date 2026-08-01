@@ -6797,3 +6797,34 @@ public static class SiblingLocalFunctionReferenceSamples
     }
 }
 #pragma warning restore CS8387
+
+// The premise that makes the local-function generic gate's pre-pipeline vote safe.
+//
+// That vote runs before IrPasses.Run, which can ADD reference nodes: LambdaRaisingPass
+// imports a lambda's body and attaches it to the tree. A self-reference written inside a
+// lambda is therefore not a node when the vote happens. The pass now re-votes afterwards,
+// but that arm is unreachable today for a reason that has nothing to do with this pass —
+// a lambda in a generic context is never raised (#3665), and a local function only has
+// type parameters worth judging when its host is generic.
+//
+// These three exist so that coincidence is a tested fact rather than an assumption.
+public static class GenericContextLambdaSamples
+{
+    public static string NonGenericHost()
+    {
+        Func<string> f = () => "x";
+        return f();
+    }
+
+    public static string GenericHostCachedLambda<T>(T t)
+    {
+        Func<string> f = () => typeof(T).Name;
+        return f();
+    }
+
+    public static string GenericHostCapturingLambda<T>(T t)
+    {
+        Func<string> f = () => t!.ToString()!;
+        return f();
+    }
+}
