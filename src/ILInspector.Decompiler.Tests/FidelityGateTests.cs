@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
 /// recompile it inside a reconstructed shape of its type, and compare the body under
-/// compile-back fidelity contract V1. A method that recompiles to a different body
+/// the compile-back fidelity contract. A method that recompiles to a different body
 /// changed the measured program shape — the worst decompiler failure class,
 /// invisible to parse/bind checks. This pins the green set so a regression that turns
 /// an exact method into a diff fails CI, while the documented baseline records the
@@ -19,7 +19,7 @@ public class FidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods that still differ under compile-back fidelity contract V1 — the open
+    /// Methods that still differ under the compile-back fidelity contract — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
@@ -154,7 +154,7 @@ public class FidelityGateTests
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
-        // Compile-back fidelity contract V1 reclassifies these previously
+        // The compile-back fidelity contract reclassifies these previously
         // opcode-exact rows because a value, symbolic target, or branch target
         // differs after recompilation.
         "CapturingLambda",
@@ -199,7 +199,7 @@ public class FidelityGateTests
     };
 
     /// <summary>
-    /// Methods a prior fidelity check fix turned exact under contract V1. Pinning them guards the
+    /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -543,7 +543,7 @@ public class FidelityGateTests
         });
 
         Assert.True(unexpected.Count == 0,
-            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
+            "New fidelity check contract diffs (decompiled C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
     }
@@ -627,7 +627,7 @@ public class FidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            "Compile-back fidelity contract V1 was unavailable for: "
+            "The compile-back fidelity contract was unavailable for: "
             + string.Join(", ", unavailable));
     }
 

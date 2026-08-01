@@ -1063,9 +1063,21 @@ public static class IlBodyDiff
         // caller that asked only for the per-side rewrite gets exactly what that option
         // documents, including its own treatment of `g__`; this composition narrows no
         // option the caller did not opt into.
+        //
+        // Known and accepted cost, measured rather than assumed: a MemberReference names
+        // a method the correspondence never indexed, so an owned name arriving that way
+        // is declined here and never folded by either option, where the per-side rewrite
+        // alone would have folded it. A generic local function reached through a
+        // MemberReference is the real Roslyn shape that hits this, and it reports
+        // OperandDiff under the composed contract where main reported Exact. That is a
+        // false positive, not a masked difference, and it is the direction this design
+        // deliberately errs in: the correspondence cannot establish that two
+        // differently numbered names denote the same member without seeing both
+        // definitions, and folding without that evidence is the defect (#3645) rather
+        // than the feature. No corpus row is affected -- Area=Fidelity is 68/0.
         string MethodNameOutsideCorrespondence(string raw)
             => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
-                && CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(raw) is not null
+                && SynthesizedOrdinals.CorrespondenceOwnsAnyLevel(raw)
                     ? raw
                     : NormalizeMemberName(raw, SynthesizedMemberKind.Method);
 
@@ -1412,6 +1424,51 @@ public static class IlBodyDiff
 
             replacement = $"<{normalizedInner}{value[close..digitsStart]}{Placeholder}{value[digitsEnd..]}";
             return true;
+        }
+
+        /// <summary>
+        /// Reports whether the compiler-generated correspondence owns this name at any
+        /// level of the <em>same</em> enclosing-name chain this rewrite recurses through.
+        /// </summary>
+        /// <remarks>
+        /// Checking only the outermost name is not enough, because the rewrite does not
+        /// stop there either: it folds the outer ordinal and then recurses on the
+        /// enclosing name under the same grammar. A name whose outer form is `b__` but
+        /// whose enclosing name is a `g__` local function therefore had its `g__` ordinal
+        /// folded by the rewrite even while the correspondence was declining to fold it —
+        /// the exact reversal the guard exists to prevent, reached one level down.
+        ///
+        /// The walk peels exactly what the recursion peels, so the two cannot disagree
+        /// about which levels exist, and it is bounded by the same
+        /// <see cref="MaxNestingDepth"/> over the same untrusted input. Ownership at any
+        /// level declines the whole name rather than the owned level alone: the outer
+        /// ordinal is the rewrite's to fold, but folding it would still emit a name whose
+        /// inner ordinal was elided on one side and not the other. Declining costs a
+        /// false positive on a shape Roslyn does not emit — measured, it names a lambda
+        /// inside a local function after the outermost method (`&lt;Run&gt;b__0_1`), not
+        /// after the local function — and never a masked difference.
+        /// </remarks>
+        internal static bool CorrespondenceOwnsAnyLevel(string value)
+        {
+            for (int depth = 0; depth <= MaxNestingDepth; depth++)
+            {
+                if (CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(value) is not null)
+                    return true;
+
+                // A redundant fast path, not a rule, and so deliberately ungated in the
+                // manner this file already documents for the rewrite's own: `< 2` short
+                // -circuits the `<>`-prefixed anonymous shapes, whose containing name is
+                // empty. Relaxing it to `< 0` peels an empty string, which the next
+                // iteration rejects for length and then terminates on, so the answer and
+                // the termination are the same and no test can tell the two apart.
+                int close = FindClosingAngle(value);
+                if (close < 2)
+                    return false;
+
+                value = value[1..close];
+            }
+
+            return false;
         }
 
         /// <summary>

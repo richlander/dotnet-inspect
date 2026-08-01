@@ -311,6 +311,46 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// Rewrites a Roslyn mangled name to its ordinal-free form, or returns null when the
     /// name is not one of the recognized ordinal-bearing shapes.
     /// </summary>
+    /// <summary>
+    /// Finds the <c>&gt;</c> that closes the name's leading <c>&lt;</c>, matching nesting
+    /// rather than taking the first one.
+    /// </summary>
+    /// <remarks>
+    /// The containing name in a generated name may itself be generated, so the first
+    /// <c>&gt;</c> can close an inner name instead of the containing one. Taking it
+    /// splits the name in the wrong place and this method then fails to recognize a form
+    /// it owns: <c>&lt;&lt;Run&gt;b__0_0&gt;g__Local|0_0</c> parsed at the first angle
+    /// yields a remainder of <c>b__0_0&gt;g__Local|0_0</c>, which matches neither
+    /// <c>d__</c> nor <c>g__</c>, so a local function the correspondence is responsible
+    /// for is disowned. Two consequences, both bad: the correspondence stops folding a
+    /// name it should fold, and — because IlBodyDiff asks this same predicate which names
+    /// are the correspondence's — the per-side rewrite is handed a name it should never
+    /// have been handed and folds it on weaker evidence.
+    ///
+    /// Found by adversarial review (round 12); gated by
+    /// GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned and, end-to-end,
+    /// by CompilerGeneratedCorrespondence_KeepsTheRewriteOffAnOwnedNameNestedInsideAnother.
+    /// The scan is a single left-to-right pass over the name, so a hostile name cannot
+    /// amplify it (see docs/design/untrusted-data-threat-model.md).
+    /// </remarks>
+    static int FindClosingAngle(string name)
+    {
+        int depth = 0;
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (name[i] == '<')
+            {
+                depth++;
+            }
+            else if (name[i] == '>' && --depth == 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     internal static string? TryElideOrdinal(string name)
     {
         if (name.Length < 4 || name[0] != '<')
@@ -319,8 +359,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         // A generated name folds only when it names the construct it belongs to. The
         // anonymous shapes — `<>c`, `<>c__DisplayClassN_K`, `<>9__N_K` — open with an
         // empty pair of brackets, so their ordinal is their only discriminator and
-        // eliding it would merge unrelated closures.
-        int close = name.IndexOf('>', 1);
+        // eliding it would merge unrelated closures. Depth matching still reports 1 for
+        // those, so they are rejected here exactly as before.
+        int close = FindClosingAngle(name);
         if (close <= 1)
             return null;
 

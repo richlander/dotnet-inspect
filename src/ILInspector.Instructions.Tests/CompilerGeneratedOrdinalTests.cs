@@ -50,6 +50,45 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// A generated name whose <em>containing</em> name is itself generated is still one
+    /// this correspondence owns. Parsing at the first <c>&gt;</c> instead of the matching
+    /// one splits <c>&lt;&lt;Run&gt;b__0_0&gt;g__Local|0_0</c> after <c>&lt;&lt;Run&gt;</c>,
+    /// leaving <c>b__0_0&gt;g__Local|0_0</c>, which matches no owned form — so the name is
+    /// disowned and the ordinal is never elided.
+    ///
+    /// Two things go wrong when that happens, and the second is the dangerous one.
+    /// The correspondence stops folding a name it is responsible for, which costs a false
+    /// positive. And IlBodyDiff asks this same predicate which names belong to the
+    /// correspondence, so a disowned name is handed to the per-side rewrite, which folds
+    /// it with no two-sided evidence at all — a masked difference. That end-to-end
+    /// consequence is gated separately by
+    /// IlBodyDiffNormalizationTests.CompilerGeneratedCorrespondence_KeepsTheRewriteOffAnOwnedNameNestedInsideAnother.
+    ///
+    /// The negative cases pin that depth matching did not widen ownership: the
+    /// <c>&lt;&gt;</c>-prefixed anonymous shapes still report a closing angle of 1 and
+    /// stay disowned, which is what keeps unrelated closures from merging.
+    /// </summary>
+    [Fact]
+    public void GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned()
+    {
+        Assert.Equal(
+            "<<Run>b__0_0>g__Local|#\0_0",
+            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>b__0_0>g__Local|0_0"));
+
+        Assert.Equal(
+            "<<Run>g__Outer|0_0>d__#\0",
+            CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Outer|0_0>d__7"));
+
+        // Unchanged by depth matching: the anonymous shapes stay disowned.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c__DisplayClass1_0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c"));
+
+        // A containing name that never closes is not a form at all.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Local|0_0"));
+    }
+
+    /// <summary>
     /// The decisive control for the two-sided rule. Both sides call an identically named
     /// local function, so the bodies are exact before normalization. Adding an unrelated
     /// same-key member to one side makes the key ambiguous there. A resolver-local
