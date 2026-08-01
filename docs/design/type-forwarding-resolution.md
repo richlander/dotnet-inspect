@@ -358,6 +358,9 @@ public abstract record AssemblyBindingOutcome
 
     public sealed record Missing : AssemblyBindingOutcome;
 
+    public sealed record Unavailable(
+        AssemblyBindingFailure Failure) : AssemblyBindingOutcome;
+
     public sealed record Ambiguous(
         ImmutableArray<ResolvedAssemblyCandidate> Candidates)
         : AssemblyBindingOutcome;
@@ -387,10 +390,23 @@ implementation cannot accidentally satisfy the structured interface.
 ### Resolution outcome
 
 ```csharp
-public readonly record struct ResolvedTypeDefinitionKey(
-    AssemblyCatalogId Catalog,
-    AssemblyCandidateId Assembly,
-    TypeDefinitionToken Definition);
+public sealed class ResolvedTypeDefinitionKey
+{
+    internal ResolvedTypeDefinitionKey(
+        AssemblyCatalogId catalog,
+        AssemblyCandidateId assembly,
+        TypeDefinitionToken definition)
+    {
+        Catalog = catalog;
+        Assembly = assembly;
+        Definition = definition;
+    }
+
+    public AssemblyCatalogId Catalog { get; }
+
+    internal AssemblyCandidateId Assembly { get; }
+    internal TypeDefinitionToken Definition { get; }
+}
 
 public readonly record struct MetadataTypeDefinitionAddress(
     Guid ModuleVersionId,
@@ -436,6 +452,7 @@ public abstract record TypeResolutionOutcome
 
     public sealed record Unavailable(
         AssemblyReferenceIdentity Reference,
+        AssemblyBindingFailure Failure,
         ImmutableArray<TypeForwardingHop> Hops)
         : TypeResolutionOutcome;
 
@@ -477,6 +494,11 @@ candidates and their addresses. Consumers never derive that relation from MVID,
 token, identity, or path. `Different` is returned only after the catalog rules
 out the duplicate-artifact condition, so it remains a safe negative.
 
+`ResolvedTypeDefinitionKey` is an opaque capability, not a value-equatable
+record. Candidate and token are internal to the catalog implementation. Product
+consumers can retain the key and pass it back to catalog APIs, but cannot hash,
+order, or field-compare it to reconstruct correspondence.
+
 The inspection and its graph cache keep the catalog alive and use one key space
 for the target and all candidates. A key is never serialized or reused after
 the cache and catalog are released. A cross-catalog comparison is visible data,
@@ -503,7 +525,8 @@ The distinction between the four non-success outcomes is load-bearing:
 
 - `NotFound` means a readable assembly authoritatively neither defined nor
   forwarded the requested type.
-- `Unavailable` means policy could not supply an assembly needed to continue.
+- `Unavailable` means policy could not supply or select an assembly needed to
+  continue and carries the binding-policy reason.
 - `Ambiguous` means policy found several assembly candidates or one image
   contained competing declarations and the engine could not select one.
 - `Rejected` means malformed metadata, a cycle, an exhausted budget, an open
@@ -621,8 +644,29 @@ The acquisition owner supplies the policy:
 - a local caller scope uses its acquired catalog and reports ambiguity when the
   catalog cannot prove one binding.
 
-An unavailable or ambiguous answer may lose a caller, but it is reported as
-incomplete evidence. It cannot fabricate one.
+The caller policies are explicit:
+
+- package and project catalogs bind through the restored asset selection that
+  acquired the candidate, including its selected TFM;
+- platform catalogs may apply trusted framework roll-forward while preserving
+  public-key token and culture; this policy owns the
+  `System.Xml.ReaderWriter` to `System.Private.Xml` case and does not depend on
+  the local resolver's current default;
+- an unordered local `--bin` catalog requires complete identity agreement. More
+  than one plausible simple-name candidate is `Ambiguous`. A sole candidate
+  with version-skewed identity is `Unavailable(IdentityPolicyRequired)`, not an
+  inferred roll-forward.
+
+The last rule intentionally narrows today's version-blind caller matching. A
+version-skewed local caller becomes an indeterminate diagnostic rather than a
+reported caller until acquisition policy can prove the binding. That behavior
+change is compatibility evidence, not a silent miss. An explicit future local
+roll-forward option belongs to the binding resolver and must carry its own
+policy name and gates.
+
+An unavailable or ambiguous answer may therefore omit exact correspondence,
+but every affected caller or graph edge retains incomplete evidence. It cannot
+fabricate one or present the omission as an authoritative empty result.
 
 ## Consumer model
 
@@ -819,14 +863,17 @@ permissiveness rule to keep synchronized with the matcher.
 
 ### Call graph
 
-`CallerGraphKey` is split into three concepts:
+`CallerGraphKey` is split into four concepts:
 
 - a total `GraphNodeStorageKey`, scoped by source candidate and metadata
   location, retains every node and edge even when correspondence cannot be
   established;
-- an optional `ResolvedMemberCorrespondenceKey` exists only when the declaring
-  type and every identity-bearing named type in the open parameter and return
-  signature have a resolved definition key;
+- a catalog-issued `DefinitionJoinToken` projects an opaque definition key into
+  either `Exact` or `IndeterminateDuplicateArtifact`. Tokens are stable only for
+  that catalog and are the only hashable definition correspondence values;
+- an optional `CatalogMemberJoinKey` exists when the declaring type
+  and every identity-bearing named type in the open parameter and return
+  signature have a catalog-issued join token;
 - a `DegradedMemberCorrespondenceKey` substitutes a
   catalog-owned `UnresolvedBindingKey` plus structured type name only for an
   unavailable named type. The binding key represents the exact cached
@@ -834,23 +881,47 @@ permissiveness rule to keep synchronized with the matcher.
   the complete assembly/module/current origin instead of collapsing failures
   into one bucket.
 
+```csharp
+public abstract record DefinitionJoinToken(AssemblyCatalogId Catalog, Guid Value)
+{
+    public sealed record Exact(AssemblyCatalogId Catalog, Guid Value)
+        : DefinitionJoinToken(Catalog, Value);
+
+    public sealed record IndeterminateDuplicateArtifact(
+        AssemblyCatalogId Catalog,
+        Guid Value,
+        DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence)
+        : DefinitionJoinToken(Catalog, Value);
+}
+```
+
+The catalog returns the same token value for definitions in one correspondence
+class. Duplicate-artifact tokens deliberately join but retain an indeterminate
+arm; they never masquerade as exact tokens.
+
 Named types nested under generic instances, arrays, byrefs, and pointers use the
 same recursive correspondence projection. Replacing only the declaring
 assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
 
-Exact graph joins use `ResolvedMemberCorrespondenceKey`. When both sides have
-the same degraded key under one catalog and binding scope, the graph retains an
-`IndeterminateCorrespondence` edge and emits incomplete-graph evidence; it does
-not report exact definition correspondence. `NotFound`, ambiguous, rejected, or
-cross-catalog uses do not degraded-join. Every non-success remains attached to
-its storage node, never enters a shared unresolved bucket, and never becomes an
-ordinary "no edge."
+Graph joins hash only catalog-issued join tokens, never
+`ResolvedTypeDefinitionKey`. A member key containing only `Exact` tokens yields
+an exact edge. Matching keys containing any
+`IndeterminateDuplicateArtifact` token yield an
+`IndeterminateCorrespondence` edge carrying the catalog's duplicate evidence.
 
-This preserves today's useful join when a local scope omits platform
-dependencies while making its confidence explicit. Different complete
-reference identities, names, origins, or scopes remain different, and a known
-resolution never joins through the degraded projection.
+When both sides have the same degraded key under one catalog and binding scope,
+the graph likewise retains an `IndeterminateCorrespondence` edge and emits
+incomplete-graph evidence; it does not report exact definition correspondence.
+`NotFound`, ambiguous, rejected, or cross-catalog uses do not degraded-join.
+Every non-success remains attached to its storage node, never enters a shared
+unresolved bucket, and never becomes an ordinary "no edge."
+
+This preserves today's full-identity join when a local scope omits platform
+dependencies while making its confidence explicit. Version-skewed identities
+follow the explicit local binding policy above instead of this fallback.
+Different complete reference identities, names, origins, or scopes remain
+different, and a known resolution never joins through the degraded projection.
 
 For `CurrentAssembly` and `ModuleReference`, the degraded component also carries
 the source candidate (and module name where present); those origins cannot join
@@ -885,6 +956,13 @@ Source and API consumers receive `ResolvedAssemblyReference` or
   classification that consumes typed declaration inventory. Classification is
   not cross-assembly resolution, but Services may not interpret raw forwarder
   rows after the architecture gate lands.
+
+Platform type-to-library discovery keeps its user-query contract separate from
+`MetadataTypeDefinitionName`. `PlatformTypeLookupPattern` is parsed from user
+input and preserves the current exact-name, dotted-suffix/unqualified-name, and
+generic-arity-normalized matching semantics. It queries an index of structured
+definition names and returns every match as typed candidates; it does not
+pretend an unqualified pattern is an exact metadata identity.
 
 The current consumers migrate with those contracts:
 
@@ -1100,6 +1178,14 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - The target candidate's own `TypeDef` is retained without a `TypeRef`.
 - A duplicate candidate that the catalog cannot unify is indeterminate rather
   than same or different by spelling.
+- Direct callers and graph joins report the same catalog-owned
+  duplicate-artifact evidence; neither hashes raw definition keys or drops the
+  edge.
+- A version-skewed local `--bin` reference is an explicit
+  `IdentityPolicyRequired` incomplete result, not a version-blind caller or an
+  authoritative empty answer.
+- Trusted platform roll-forward resolves the forwarded `XmlReader` fixture even
+  when the generic local resolver's roll-forward default is disabled.
 - A facade outside the caller scope seeds a direct caller through typed
   resolution, and reverse closure retains callers above it.
 - A depth-two graph caller that reaches the selected member through another
@@ -1120,6 +1206,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Forwarded source acquisition opens the resolver-selected descriptor.
 - Platform type-to-library lookup is deterministic under multiple definition or
   forwarder candidates and returns typed ambiguity.
+- Unqualified and generic platform patterns retain the current `INumber<T>` and
+  `List`/`List\`1` lookup behavior through `PlatformTypeLookupPattern`.
 - Parallel body analysis opens and probes each candidate once.
 
 ### Architecture gates
@@ -1129,8 +1217,9 @@ Prefer dependency and visibility constraints over source scans:
 - the single-image probe is the only public Metadata API that interprets a
   forwarder declaration for resolution;
 - the cross-assembly engine is the only product API that follows hops;
-- graph correspondence cannot compare catalog-local keys without the catalog
-  comparison API;
+- `ResolvedTypeDefinitionKey` has no value equality available to consumers;
+  graph correspondence can hash only catalog-issued join tokens and all other
+  correspondence goes through the catalog comparison API;
 - Analysis and the CLI cannot access the probe's reader-backed internals;
 - path-only compatibility adapters are internal and deleted with their final
   consumer.
