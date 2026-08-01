@@ -124,10 +124,12 @@ public static class AnnotationCaret
     /// Per-fact underline extents from
     /// <see cref="AnnotationAnchor.ComputeCaretExtents"/>. When every fact on
     /// the line points at the same characters the line narrows to that one
-    /// extent; otherwise it stacks a numbered caret per distinct extent and
-    /// lists any fact with no extent under <see cref="UnplacedMarker"/>. If the
-    /// stacked layout is rejected — a label that will not clear the gutter — the
-    /// line widens instead and no fact is marked unplaced. See
+    /// extent; otherwise, when at least one distinct extent is placeable and
+    /// every label clears the gutter, it stacks a numbered caret per distinct
+    /// extent and lists any fact with no extent under
+    /// <see cref="UnplacedMarker"/>. If no fact has a usable extent, or a label
+    /// will not clear the gutter, the line widens instead and no fact is marked
+    /// unplaced. See
     /// <see cref="Agreed"/> and <see cref="Stack"/>.
     /// </param>
     public static IReadOnlyList<string> Render(
@@ -239,6 +241,9 @@ public static class AnnotationCaret
     /// the 2,282 two-fact, 714 three-fact or 318 four-or-more-fact lines
     /// narrows. Two facts of one family on one line never share an extent in
     /// this corpus, so for them the disagreement return below does all the work.
+    /// The 82.43% headline is therefore padded: 29,550 of its lines carry a
+    /// single fact and cannot disagree at all. Conditioned on the 3,314 lines
+    /// that could, agreement is 0.
     /// That is what this measures, not a mechanism — what is compared is
     /// rendered extents, not offsets, and nothing prevents two facts sharing
     /// one. Density is not the only reason this returns null: 2,459 of the
@@ -288,7 +293,7 @@ public static class AnnotationCaret
     /// carets, so counting over every collected fact describes a render no
     /// invocation produces. <c>System.Tuple&lt;…&gt;.Equals</c> is the
     /// extreme: 16 facts of which 8 have an extent, so widening renders one
-    /// 370-column caret and attributes nothing. So the placeable facts stack,
+    /// 330-column caret and attributes nothing. So the placeable facts stack,
     /// and the rest are listed against the line without a caret, which is
     /// precisely what is known about them.
     /// </para>
@@ -370,30 +375,39 @@ public static class AnnotationCaret
     /// carets and a figure taken over every collected fact describes a render
     /// no invocation produces. Rendering each of the 2,842 lines that stack
     /// through this method and reading the output back: 2,543 (89.5%) take a
-    /// single row, 297 take two, and two take more, neither above four. 3,884
+    /// single row, 297 take two, and two take more, neither above four. That
+    /// 89.5% is itself padded — 254 of those lines carry a single extent group
+    /// and cannot occupy more than one row — so the rate among the 2,588 lines
+    /// with something to pack is 2,289 (88.4%). 3,884
     /// of 6,566 trails (59.2%) render at true width, but that rate is padded by
     /// a structural immunity: the last trail on a row has no successor, so its
     /// clip limit is <c>int.MaxValue</c> and it renders at true width by
     /// construction. Those 2,842 lines occupy 3,144 rows, so 3,144 of the 3,884
     /// could not have been clipped. Of the 3,422 trails that were actually
-    /// exposed to a successor, only 740 (21.6%) survived at true width and
-    /// 2,682 (78.4%) were cut short. That is the figure with information in it.
+    /// exposed to a successor, 740 (21.6%) survived at true width. Five of those
+    /// are immune too, their extents being no longer than <c>MinTrail</c>, which
+    /// row admission already reserves; among the 3,417 trails that could
+    /// genuinely be cut, 735 (21.5%) survived and 2,682 (78.5%) were clipped.
+    /// That is the figure with information in it.
     /// No stacked caret row is
     /// wider than the code line it annotates, which is structural rather than
     /// measured: <see cref="Stack"/> sends any extent reaching past
     /// <c>lineLength</c> to the unplaced list, labels grow leftward, and the
     /// gutter guard bails out rather than shifting a trail rightward, so the
     /// rightmost column is bounded by the line. The 0 observed on those 2,842
-    /// lines checks that derivation and cannot falsify it. The figure that does
-    /// carry information is the comparison: the widening render this replaces
-    /// overhangs on 20 lines (0.70%). Its underline is not a fact's extent at
-    /// all — with no agreement it falls back to
-    /// <c>new CaretExtent(statementColumn, trimmed.Length)</c>, the whole
-    /// trimmed statement — and it is placed at
-    /// <c>pad = Math.Max(1, caretColumn - commentColumn - 2)</c>, whose floor of
-    /// 1 shifts the underline rightward when the statement starts near the
-    /// gutter. Nothing then bounds or clips it against the line, which is the
-    /// freedom given up here.
+    /// lines checks that derivation and cannot falsify it.
+    /// </para>
+    /// <para>
+    /// The comparison against the widening render is narrower than it first
+    /// looks, and an earlier revision of this remark overstated it twice. No
+    /// caret <em>glyph</em> overhangs the code line in <em>either</em> render:
+    /// measured over the same 2,842 lines, both are 0, because the widening
+    /// underline covers the trimmed statement, which ends within the line. What
+    /// differs is the rendered <em>row</em>. Widening appends the first detail
+    /// string to the caret row when it fits the inline budget, and on 20 lines
+    /// (0.70%) that appended text carries the row past the end of the code line.
+    /// Stacking never appends detail to a caret row, so it is 0. The contrast is
+    /// about where detail is placed, not about bounding the underline.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
