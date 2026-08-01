@@ -24,8 +24,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// environment shared with another local function or read any other way, a
 /// captured variable stored more than once (reassigned, so no single value is
 /// live at every call site), and a body that itself calls a local function
-/// (recursion / nesting), which keeps the import non-recursive. A no-op when the
-/// seam is absent.</para>
+/// (recursion / nesting), which keeps the import non-recursive. Every call declines when the
+/// seam is absent, and each is stamped as such.</para>
 /// </summary>
 public sealed class LocalFunctionRaisingPass : IIrPass
 {
@@ -33,36 +33,55 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        // Without the cross-method seam this pass cannot import a body, so it is a
-        // no-op — it never looks at a call and therefore has no opinion to record.
-        // Stamping here would report "declined" for calls the pass never considered,
-        // and the product always supplies the seam.
-        if (context.ImportMethodBody is null)
-            return;
+        // Deliberately NOT gated on the seam being present. Without it no body can be
+        // imported, so every such call is declined — and three shipped output paths
+        // print with no seam (CSharpBodyDiff and two ResearchViews lenses), where
+        // staying silent reproduces #3631 verbatim: a decoded name declared nowhere,
+        // reported Full.
+        if (context.ImportMethodBody is not null)
+            RaiseCalls(function, context);
 
-        RaiseCalls(function, context);
-
-        // A call whose local-function name has no matching declaration in the output is
-        // one this pass considered and did not raise. Stamp it while that is known: the
-        // printer and fidelity must not re-derive it from the name, which reads
-        // identically before the pass runs, when the very same call may still be
-        // raised (#3631). Keyed on the emitted declarations rather than on the
-        // CompilerGenerated fact that gates raising, because the question here is about
-        // this pass's own output: a mangled call left undeclared must be spelled
-        // honestly even when that metadata fact was unavailable.
-        var declared = function.Descendants
-            .OfType<LocalFunctionStatement>()
-            .Select(d => d.Name)
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var call in function.Descendants.OfType<Call>())
+        // Every call site of a local function this pass RAISED was rewritten to a
+        // LocalFunctionInvocation, so any Call still carrying a synthesized
+        // local-function name is one that was not raised. Stamp it
+        // while that is known: the printer and fidelity must not re-derive it from the
+        // name, which reads identically before the pass runs, when the very same call
+        // may still be raised (#3631).
+        //
+        // Deliberately NOT keyed on whether some declaration of the decoded name was
+        // emitted. Two local functions in disjoint scopes may share a source name
+        // (`<M>g__F|0_0` and `<M>g__F|0_1`), and when one is raised, spelling the
+        // declined one `F` binds to the WRONG function rather than to nothing —
+        // undetectable in the output and worse than the unspellable name.
+        //
+        // Keyed on the name shape rather than the CompilerGenerated fact that gates
+        // raising, because the question here is about this pass's own output: a mangled
+        // call left undeclared must be spelled honestly even when that fact was
+        // unavailable.
+        //
+        // Covers the method-group nodes too, not only calls. A local function converted
+        // to a delegate (`Func<int, int> d = F;`) or taken by function pointer lowers to
+        // `ldftn`, which imports as DelegateCreation/AddressOfMethod and carries no Call
+        // at all — so raising never sees it, nothing declares it, and decoding its name
+        // spells a member that does not exist (CS0117) at Full.
+        foreach (var node in function.Descendants)
         {
-            if (GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(call.Callee.Name)
-                && !declared.Contains(CSharpNaming.MethodName(call.Callee.Name)))
+            switch (node)
             {
-                call.MarkLocalFunctionRaiseDeclined();
+                case Call call when Declined(call.Callee):
+                    call.MarkLocalFunctionRaiseDeclined();
+                    break;
+                case DelegateCreation delegateCreation when Declined(delegateCreation.Method):
+                    delegateCreation.MarkLocalFunctionRaiseDeclined();
+                    break;
+                case AddressOfMethod addressOf when Declined(addressOf.Method):
+                    addressOf.MarkLocalFunctionRaiseDeclined();
+                    break;
             }
         }
+
+        static bool Declined(MethodRef method)
+            => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(method.Name);
     }
 
     static void RaiseCalls(IrFunction function, PassContext context)

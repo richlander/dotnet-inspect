@@ -6555,3 +6555,41 @@ public static class UnraisedLocalFunctionSamples
         static int F(int n) { if (n > 0) return n; return -n; }
     }
 }
+
+// Two local functions in DISJOINT scopes sharing one source name, so the compiler emits
+// <M>g__Pick|0_0 and <M>g__Pick|0_1. One is raised and one is declined: the declined
+// call must not be spelled `Pick`, which would silently bind to the raised function.
+public static class DuplicateLocalFunctionNameSamples
+{
+    public static int PickOne(bool b, int[] xs)
+    {
+        if (b)
+        {
+            int Pick(int n) => n + 1;                    // raised
+            return Pick(1);
+        }
+        else
+        {
+            int Pick(int n)                              // declined: foreach body
+            {
+                int t = 0;
+                foreach (int v in xs) t += v * n;
+                return t;
+            }
+            return Pick(2);
+        }
+    }
+}
+
+// A local function converted to a delegate lowers to `ldftn` with NO call site, so
+// raising never sees it and nothing declares it. Its name must still be spelled
+// honestly rather than decoded into a member that does not exist.
+public static class LocalFunctionMethodGroupSamples
+{
+    public static int UsesMethodGroup(int x)
+    {
+        static int F(int n) => n + 1;
+        System.Func<int, int> d = F;
+        return d(x);
+    }
+}

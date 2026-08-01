@@ -2844,8 +2844,13 @@ public sealed class AddressOfMethod : IrExpression
         FunctionPointerType = functionPointerType;
     }
 
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public TypeRef? FunctionPointerType { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaiseDeclined"/>
+    internal void MarkLocalFunctionRaiseDeclined()
+        => Method = Method with { LocalFunctionRaiseDeclined = true };
+
     public override TypeRef? ResultType
         => FunctionPointerType ?? TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
     public override IEnumerable<TypeRef> DirectTypes
@@ -2877,8 +2882,13 @@ public sealed class DelegateCreation : IrExpression
     }
 
     public TypeRef DelegateType { get; }
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaiseDeclined"/>
+    internal void MarkLocalFunctionRaiseDeclined()
+        => Method = Method with { LocalFunctionRaiseDeclined = true };
+
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => DelegateType;
     public override IEnumerable<TypeRef> DirectTypes

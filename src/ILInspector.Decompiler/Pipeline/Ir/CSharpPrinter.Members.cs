@@ -579,7 +579,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
-        string name = CSharpNaming.SourceMethodName(method.Name);
+        string name = CSharpNaming.SourceMethodName(method);
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -666,7 +666,7 @@ public sealed partial class CSharpPrinter
         string typeArguments = method.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
-        string name = $"{CSharpNaming.SourceMethodName(method.Name)}{typeArguments}";
+        string name = $"{CSharpNaming.SourceMethodName(method)}{typeArguments}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeQualifierText(method.DeclaringType)}.{name}"
             : $"&{name}";
