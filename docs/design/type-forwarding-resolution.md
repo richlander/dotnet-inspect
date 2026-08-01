@@ -1,5 +1,9 @@
 # Structured type-forwarding resolution
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md)
+> is the entry point for choosing a type or member currency. This document owns
+> forwarding resolution mechanics and contracts.
+
 ## Status
 
 Design for replacing the current collection of type-forwarder helpers and
