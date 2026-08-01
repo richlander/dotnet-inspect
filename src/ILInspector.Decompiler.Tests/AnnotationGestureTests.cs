@@ -261,6 +261,64 @@ public class AnnotationGestureTests
     }
 
     [Fact]
+    public void FactsSharingAnExtentShareOneCaretAndOneNumber()
+    {
+        // Rule 1 of the display model: the unit is the extent, not the fact.
+        // Two facts about the same characters get one caret and one number,
+        // with both texts listed under it -- otherwise a line would grow a
+        // redundant caret per fact and re-underline the same characters.
+        const string Line = "        Sink(new object(), new int[1]);";
+        var first = Fact(Alloc, "one");
+        var second = Fact(Alloc, "two");
+        var third = Fact(Unsafety, "three");
+
+        int shared = Line.IndexOf("new object()", StringComparison.Ordinal);
+        int other = Line.IndexOf("new int[1]", StringComparison.Ordinal);
+        var extents = new Dictionary<IAnnotation, AnnotationAnchor.CaretExtent>
+        {
+            [first] = new AnnotationAnchor.CaretExtent(shared, "new object()".Length),
+            [second] = new AnnotationAnchor.CaretExtent(shared, "new object()".Length),
+            [third] = new AnnotationAnchor.CaretExtent(other, "new int[1]".Length),
+        };
+
+        var rendered = AnnotationCaret.Render(Line, "    ", [first, second, third], extents: extents);
+        string caretLine = rendered[0];
+
+        // Three facts, two extents, so two carets and two numbers -- not three.
+        Assert.Equal(2, caretLine.Count(c => c == '.'));
+        Assert.Contains("1.", caretLine, StringComparison.Ordinal);
+        Assert.Contains("2.", caretLine, StringComparison.Ordinal);
+        Assert.DoesNotContain("3.", caretLine, StringComparison.Ordinal);
+
+        // Non-vacuity: the two carets really are at the two distinct extents.
+        // The first trail collides with the second caret's label, so rule 5
+        // clips its last column to the truncation glyph rather than overrun it;
+        // the second trail is last on the row and keeps its true width.
+        Assert.Equal(shared, caretLine.IndexOf('^'));
+        Assert.Equal(1, caretLine.Count(c => c == '~'));
+
+        var runs = new List<int>();
+        for (int c = 0; c < caretLine.Length; c++)
+        {
+            if (caretLine[c] != '^' || (c > 0 && caretLine[c - 1] == '^'))
+                continue;
+            int width = caretLine.AsSpan(c).IndexOfAnyExcept('^');
+            runs.Add(width < 0 ? caretLine.Length - c : width);
+        }
+
+        Assert.Equal(2, runs.Count);
+        Assert.True(runs[0] < "new object()".Length, "the colliding trail must be clipped");
+        Assert.Equal("new int[1]".Length, runs[1]);
+
+        // Both facts sharing the extent are listed, and only the first carries
+        // the number: the second is indented to sit under it.
+        Assert.Contains(rendered, l => l.Contains("1. alloc.new(one)", StringComparison.Ordinal));
+        Assert.Contains(rendered, l => l.Contains("alloc.new(two)", StringComparison.Ordinal)
+            && !l.Contains("2.", StringComparison.Ordinal));
+        Assert.Contains(rendered, l => l.Contains("2. unsafe.stackalloc(three)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void NothingIsRenderedForABlankLineOrNoFacts()
     {
         Assert.Empty(AnnotationCaret.Render("        Work();", "    ", []));

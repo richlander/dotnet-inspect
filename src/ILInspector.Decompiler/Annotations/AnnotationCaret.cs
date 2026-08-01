@@ -18,10 +18,13 @@ namespace ILInspector.Decompiler.Annotations;
 /// Annotations.cs), so the span has to be recovered from the printed tree: the
 /// narrowest printed node carrying that exact offset, supplied by
 /// <see cref="AnnotationAnchor.ComputeCaretExtents"/>. Where the raise erased
-/// the offset there is no sub-token to point at and the underline covers the
-/// trimmed statement instead — exactly what the fact is still known to be
-/// about, and no more. A span-carrying datum (a compiler diagnostic) brings its
-/// own range; that is a property of the datum, not of this gesture.</item>
+/// the offset there is no sub-token to point at. Such a fact is listed under
+/// <see cref="UnplacedMarker"/> if some other fact on the line was placed, and
+/// only where <em>no</em> fact on the line has an extent does the underline
+/// cover the trimmed statement instead — exactly what the facts are still known
+/// to be about, and no more. A span-carrying datum (a compiler diagnostic)
+/// brings its own range; that is a property of the datum, not of this
+/// gesture.</item>
 /// </list>
 /// </remarks>
 public static class AnnotationCaret
@@ -224,7 +227,8 @@ public static class AnnotationCaret
     /// phenomenon — more facts on a line means more distinct offsets on it — so
     /// 27,414 of those lines hold a single fact and 92.1% of them narrow, while
     /// narrowing falls to 12.1% at two facts, 1.1% at three, and 0% at four or
-    /// more. The lines this returns null for are precisely the dense ones.
+    /// more. Density is not the only reason this returns null, though: 2,156 of
+    /// the 6,012 null lines carry a single fact that has no extent at all.
     /// </remarks>
     static AnnotationAnchor.CaretExtent? Agreed(
         IReadOnlyList<IAnnotation> annotations,
@@ -263,11 +267,12 @@ public static class AnnotationCaret
     /// A line can be mixed: some facts are about an expression and some are only
     /// known to be about the statement. Widening the whole line because of the
     /// latter discards placement the anchoring layer successfully recovered for
-    /// the former — and the densest lines in the corpus are exactly the mixed
-    /// ones. <c>System.Tuple&lt;…&gt;.Equals</c> carries 16 facts of which 8
-    /// have an extent; widening renders one 331-column caret and attributes
-    /// nothing. So the placeable facts stack, and the rest are listed against
-    /// the line without a caret, which is precisely what is known about them.
+    /// the former, and 615 lines in the corpus are mixed — 499 of them with a
+    /// single surviving extent. <c>System.Tuple&lt;…&gt;.Equals</c> is the
+    /// extreme: 16 facts of which 8 have an extent, so widening renders one
+    /// 330-column caret and attributes nothing. So the placeable facts stack,
+    /// and the rest are listed against the line without a caret, which is
+    /// precisely what is known about them.
     /// </para>
     /// <para>
     /// Extents sharing a start column are always a nesting, so they can never
@@ -325,9 +330,12 @@ public static class AnnotationCaret
     /// <see cref="AnnotationAnchor.ComputeCaretExtents"/> worked to recover, so
     /// this either states it truthfully or marks that it could not. Measured
     /// over <c>System.Private.CoreLib</c> as the annotated-source view prints
-    /// it, this puts 2,557 of the 2,886 multi-extent lines (88.6%) on a single
-    /// row and none above four, with 3,949 of 6,986 trails (56.5%) at true
-    /// width.
+    /// it, by rendering each of the 3,385 lines that stack through this method
+    /// and reading the output back: 3,056 (90.3%) take a single row, 326 take
+    /// two, and three take more, none above four. Restricted to the 2,886
+    /// multi-extent lines, 2,557 (88.6%) take one row, and 3,949 of 6,986
+    /// trails (56.5%) render at true width. No stacked caret row is wider than
+    /// the code line it annotates, on any of those 3,385 lines.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
@@ -351,7 +359,9 @@ public static class AnnotationCaret
         {
             // The gutter owns everything left of commentColumn + 2. A label that
             // will not fit after it cannot be drawn at the column it points at,
-            // and shifting it would make it point somewhere else.
+            // and shifting it would make it point somewhere else. This is a
+            // guard, not a path with known traffic: it fires on 0 of the 3,385
+            // CoreLib lines that stack.
             if (LabelStart(i) < commentColumn + 2)
                 return null;
 
