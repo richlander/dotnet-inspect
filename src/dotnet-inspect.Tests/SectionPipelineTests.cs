@@ -2028,8 +2028,14 @@ public class SectionPipelineTests
         // does not, so `IBodyOpener::Open` was not a node at all -- which silently dropped both the
         // real `callvirt` edge into it and the hierarchy edge out of it, and is why the first
         // attempt at closing interface dispatch stayed green. Product members that appear only as
-        // callees are added so abstract and interface declarations can carry edges. The product
-        // namespace filter is what keeps the BCL out of the graph.
+        // callees are added so abstract and interface declarations can carry edges.
+        //
+        // BCL callees are still not nodes *here*. Admitting them all was measured and is unusable:
+        // `ResearchDiff+<BodyIndexEntries>d__26::MoveNext()` is a pinned opener and implements
+        // `IEnumerator::MoveNext`, so a global BCL node routes every `foreach` in the section layer
+        // into an opener and the gate reports most of the section layer on a clean tree. The narrow
+        // set of BCL ancestors that genuinely needs to be a node is admitted below, after the
+        // hierarchy pass has worked out which ones they are.
         definedKeys.UnionWith(calls
             .Select(call => call.Callee)
             .Where(callee => callee.DeclaringType.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
@@ -2100,6 +2106,7 @@ public class SectionPipelineTests
         // exactly: it reports the member that actually occupies each interface slot, whatever it
         // is named and wherever it is declared. `GetBaseDefinition` does the same for overrides.
         var hierarchyEdges = new List<(string CallerKey, string CalleeKey)>();
+        var valueTypeContractImplementations = new HashSet<string>(StringComparer.Ordinal);
         var unmappableContracts = new List<string>();
 
         // Reflection reports members; this graph is keyed by IL signatures. Rebuilding an IL
@@ -2231,6 +2238,37 @@ public class SectionPipelineTests
             // became a genuine node with a real incoming edge, and the ancestor mechanism catches
             // that shape on its own. Re-deriving the witness rather than trusting the comment is
             // what exposed the BCL-contract filter that had been disabling this loop.
+            // A value type needs no construction event at all. `new T[1]`, a `default(T)` field, a
+            // struct field of a constructed class -- each materializes an instance with no `newobj`
+            // anywhere, so the construction edge below is not merely missing, it is structurally
+            // unavailable. Combine that with a *BCL* ancestor, which is not a node in this graph,
+            // and both mechanisms are inert at once: the island routes 18, 19 and 20 all landed on.
+            //
+            // Route 20 is what proves this is categorical rather than one more primitive to deny.
+            // MAI-Code reported it as `Array.CreateInstance` and proposed adding that to the
+            // materialization pin. Building the negative case first -- the rule that found route 19
+            // -- showed the reflection was decorative: `new DisposeValueOpener[1]`, box, `callvirt
+            // IDisposable::Dispose` is plain C#, uses no primitive at all, and escaped identically.
+            // Any pin entry would have left that variant open.
+            //
+            // Edges cannot express this. Two attempts were measured and both are unusable, because
+            // a BCL contract member is shared by every implementation of it: admitting all BCL
+            // callees as nodes routes every `foreach` in the section layer into the pinned
+            // `MoveNext` opener, and narrowing to value types still drags `Object::ToString()` and
+            // `Object::Equals(object)` in, which widens the forward closure until the reflection
+            // surface pin breaks. Precision would need to know *which* struct a given caller holds.
+            //
+            // So this is asserted as a claim instead of walked as an edge. Such an implementation
+            // is materializable by any section without leaving a trace, so the honest requirement
+            // is that none of them may reach an opener at all. That is checked directly against
+            // `reached` below -- no edges, no over-approximation, and it fails closed.
+            if (implementation.DeclaringType?.IsValueType is true
+                && !ancestorKeys.Any(definedKeys.Contains))
+            {
+                foreach (var implementationKey in implementationKeys)
+                    valueTypeContractImplementations.Add(implementationKey);
+            }
+
             if (implementation.IsStatic)
                 return;
 
@@ -2523,6 +2561,34 @@ public class SectionPipelineTests
         // legitimate Sections members (the accessor itself, the Unbounded scanner lambdas that use
         // it, and their enclosing factory), and excusing those would require an allow list.
         Assert.Empty(ungatedSectionCallers);
+
+        // THIRD CLAIM: no product value type's implementation of a *BCL* contract may reach an
+        // opener, gated accessor or not. Neither of the other two claims can cover this, and the
+        // reason is structural rather than a gap in matching.
+        //
+        // The reverse walk needs an edge from a section to the implementation. A reference type
+        // gives one up: it cannot exist without a `newobj`, or without one of the audited
+        // materialization primitives. A value type gives up nothing. `new T[1]`, a `default(T)`
+        // field, a struct field of some other type -- all materialize an instance, and every one of
+        // them is a *type token* instruction, which `DirectCalls` does not record. Dispatch then
+        // goes through the BCL contract, which belongs to no product node. There is no edge to find
+        // because the product IL never names the type or the implementation.
+        //
+        // So the requirement is stated over the population instead of derived from the graph: such
+        // an implementation is reachable from any section, therefore none of them may open an
+        // index. This is what closes route 20, whose plain-C# form uses no reflection and no
+        // primitive at all -- `new DisposeValueOpener[1]`, box, `callvirt IDisposable::Dispose`.
+        var valueTypeContractOpeners = valueTypeContractImplementations
+            .Where(reached.Contains)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(valueTypeContractOpeners);
+
+        // Non-vacuity: the population must be non-empty, or the claim above is a statement about
+        // nothing. Product structs do implement BCL contracts -- `Equals`, `ToString`, `Dispose` --
+        // so this is armed by ordinary code rather than by a fixture that could be deleted.
+        Assert.NotEmpty(valueTypeContractImplementations);
 
         // Non-vacuity assertions, because every gate in this PR that lacked one turned out to be
         // asserting nothing at all.
