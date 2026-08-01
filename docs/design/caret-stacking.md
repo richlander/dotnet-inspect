@@ -226,17 +226,28 @@ code-fits share converge almost exactly (100 cols: 48.3% fit, 48.3% code-fits;
 the code width there.
 
 Terminal fit is unchanged, because on these dense lines the block width is set
-by the code line and the wrapped detail rows, which both models share. Nor does the block itself
-shrink: it is the same width on 91.8% of these lines, narrower on 1.1%, and
-wider on 7.2% — the numbered labels cost a few columns where the details were
-already the widest thing in the block.
+by the code line and the wrapped detail rows, which both models share. Nor does
+the block itself shrink much: it is the same width on 91.8% of these lines,
+narrower on 1.1%, and wider on 7.2% — the numbered labels cost a few columns
+where the details were already the widest thing in the block.
 
-**Stacking buys attribution, and essentially nothing else.** There is no
-material aggregate improvement in either fit or block width: 1.1% of blocks do
-get narrower and the 80-column fit does tick from 23.3% to 23.4%, but those are
-rounding-scale movements against a 7.2% share that gets wider. The honest
-summary is that fit and block width are unchanged, and this document should not
-claim more.
+That 1.1% is padded, and by an order of magnitude. A block is never narrower
+than its code line, so a block already *at* the code width cannot shrink at all,
+and **2,612 of the 2,842 are**. Only **230** could shrink; **30** did, which is
+**13.0%**, not 1.1%. The 7.2% that get wider are not padded the same way — any
+block can grow — so the two shares are not comparable as stated, and the
+narrowing is a real effect on the small population where narrowing is even
+possible.
+
+**Stacking buys attribution, and little else.** Fit does not move: unpadded, the
+80-column rate goes from 90.5% to 91.1% on the 730 lines that could fit, and the
+padded 23.3% → 23.4% should not be quoted as the takeaway when the partitioned
+figures sit a paragraph above. Block width moves on a small population and in
+both directions: 13.0% of the blocks that could narrow do, against 7.2% of all
+blocks getting wider. The honest summary is that neither fit nor block width
+changes materially in aggregate, and this document should not claim more — but
+it should not claim the narrowing is rounding noise either, because on the
+lines where narrowing is possible it is not.
 
 The constraint still binds on the *alternatives*, which is why it is stated
 here: side-alignment overflows the code line on 96.61% of the 29,933 lines
@@ -553,9 +564,15 @@ Compact, supposedly. An earlier revision claimed a 4-wide trail fits 87.5% of
 multi-extent lines on one row. That figure has no probe behind it anywhere and
 does not reproduce, so it is withdrawn rather than replaced: a fixed-width
 packer is not implemented here, and two independent reconstructions of what it
-would do disagreed with each other (88.4% and 87.2% on the same corpus). The
-honest statement is that its packing advantage over the shipped model is
-unmeasured and was never established. Nothing below depends on it.
+would do disagreed with each other (88.4% and 87.2% on the same corpus).
+
+It can be settled without a figure, though, and against the alternative. Row
+admission reserves `Math.Min(Extent.Length, MinTrail)` columns — capped at
+`MinTrail`, which is 2. **The shipped packer is already width-independent above
+two columns**: a trail's real width never affects whether the next one joins its
+row. A fixed 4-wide trail would reserve *more*, so it packs no better than what
+ships and, where it reserves 4 against a 2-column extent, worse. The claimed
+compactness advantage runs backwards.
 
 Rejected because it **misstates width**. A 4-wide trail under the single
 character `y` in `ArgumentOutOfRangeException(varName, y, …)` claims a
