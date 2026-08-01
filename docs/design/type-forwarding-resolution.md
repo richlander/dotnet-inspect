@@ -373,11 +373,15 @@ descriptor or extract path, identity, opener, or provenance. The handle is not
 a definition key or a claim that visible descriptor fields identify a physical
 file.
 
-`ResolvedAssemblyReference.Identity` is the selected image's `AssemblyDef`
-identity, never the incoming `AssemblyRef` identity that requested it. The
-request remains in the binding outcome and forwarding hop. An adapter over
-today's resolver must therefore normalize the legacy request-shaped descriptor
-from its selected inventory entry before creating the canonical pair.
+`ResolvedAssemblyReference.Identity` is verified selected-entry identity
+evidence, never the incoming `AssemblyRef` identity that requested it. Package,
+platform, and project owners may obtain it from a trusted inventory before the
+selected file can be opened. On a successful open, Metadata validates the
+actual `AssemblyDef` against that evidence before using the candidate; mismatch
+is `CandidateOpenFailureKind.InvalidImage`. An owner may select an unreadable
+descriptor only when it has such independent identity evidence. An arbitrary
+local file whose identity cannot be read is `CandidateUnavailable` before
+selection. The request remains in the binding outcome and forwarding hop.
 
 The owner creates one handle per selected candidate and reuses it in every
 descriptor and request that it knows denotes that candidate. The inspection
@@ -421,10 +425,10 @@ adapter per inspection. Today's per-path `AssemblyDependencyResolver` instances
 are inventory inputs to those shared adapters, not independent registration
 owners. Each adapter retains one registration per canonical selected entry. In
 particular, the platform adapter keys registrations by the platform catalog's
-selected entry, reads that entry's definition identity, and ignores the
-incoming reference identity when constructing the canonical descriptor. This
-makes requests for different compatible versions converge on one registration
-under framework roll-forward.
+selected entry, uses that inventory entry's verified definition identity, and
+ignores the incoming reference identity when constructing the canonical
+descriptor. This makes requests for different compatible versions converge on
+one registration under framework roll-forward.
 
 The plan classifies the initial target through the same inventories: a selected
 platform entry uses the platform owner, a selected package asset uses the
@@ -452,7 +456,7 @@ authoritative shape.
 
 ### Resolution start
 
-There are three legitimate starts and they stay explicit:
+There are four legitimate starts and they stay explicit:
 
 ```csharp
 public abstract class AssemblyBindingOrigin
@@ -528,6 +532,20 @@ public abstract class TypeResolutionStart
         public AssemblyBindingOrigin.RequestingAssembly Origin { get; }
         public AssemblyResolutionScope Scope { get; }
     }
+
+    public sealed class Module : TypeResolutionStart
+    {
+        internal Module(
+            string name,
+            AssemblyBindingOrigin.RequestingAssembly origin)
+        {
+            Name = name;
+            Origin = origin;
+        }
+
+        public string Name { get; }
+        public AssemblyBindingOrigin.RequestingAssembly Origin { get; }
+    }
 }
 
 public sealed class TypeResolutionRequest
@@ -565,6 +583,16 @@ public sealed class TypeResolutionRequest
                 AssemblyBindingOrigin.FromAssembly(requestingAssembly),
                 scope),
             type);
+
+    public static TypeResolutionRequest FromModule(
+        ResolvedAssemblyReference requestingAssembly,
+        string moduleName,
+        MetadataTypeDefinitionName type) =>
+        new(
+            new TypeResolutionStart.Module(
+                moduleName,
+                AssemblyBindingOrigin.FromAssembly(requestingAssembly)),
+            type);
 }
 ```
 
@@ -586,6 +614,11 @@ without synthesizing an assembly identity. Policy derives the answer from that
 candidate's acquisition domain. The core-library target remains a distinct
 binding/cache arm even when policy selects the same candidate that an explicit
 `AssemblyRef` would select.
+
+`Module` preserves a decoded `ModuleRef` name and requesting candidate. The
+first engine has no module acquisition policy, so it returns the typed
+`UnsupportedModuleReference` rejection; Analysis never fabricates that verdict
+or turns the module into an assembly identity.
 
 This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
@@ -779,6 +812,7 @@ public sealed class AssemblyBindingPolicyVersion
 public abstract record AssemblyBindingTarget
 {
     private protected AssemblyBindingTarget() { }
+    private protected abstract int Discriminator { get; }
 
     public static AssemblyBindingTarget Reference(
         AssemblyReferenceIdentity identity) =>
@@ -788,9 +822,15 @@ public abstract record AssemblyBindingTarget
         new IntrinsicCoreLibrary();
 
     public sealed record AssemblyReference(
-        AssemblyReferenceIdentity Identity) : AssemblyBindingTarget;
+        AssemblyReferenceIdentity Identity) : AssemblyBindingTarget
+    {
+        private protected override int Discriminator => 0;
+    }
 
-    public sealed record IntrinsicCoreLibrary : AssemblyBindingTarget;
+    public sealed record IntrinsicCoreLibrary : AssemblyBindingTarget
+    {
+        private protected override int Discriminator => 1;
+    }
 }
 
 public sealed class AssemblyBindingRequest
@@ -1060,6 +1100,14 @@ public abstract class TypeResolutionFailure
             Module = module;
 
         public ModuleFileReference Module { get; }
+    }
+
+    public sealed class UnsupportedModuleReference : TypeResolutionFailure
+    {
+        internal UnsupportedModuleReference(string moduleName) =>
+            ModuleName = moduleName;
+
+        public string ModuleName { get; }
     }
 
     public sealed class UnregisteredAssembly : TypeResolutionFailure
@@ -1473,10 +1521,11 @@ ResolvedAssemblyCandidate
 ```
 
 `AssemblyInventoryReader` is a bounded, non-owning operation, not a second
-reader owner. It opens at most `MaxConcurrentInventoryOpens` source streams
-(default 8), materializes the snapshot, and disposes both stream and temporary
-`PEReader` immediately. Adjacency-only candidates retain no session or OS file
-handle. A later body/declaration consumer may open one durable
+reader owner. Inventory reads and durable-session construction share one
+`MaxConcurrentSourceOpens` semaphore (default 8). The inventory reader
+materializes the snapshot and disposes both stream and temporary `PEReader`
+immediately. Adjacency-only candidates retain no session or OS file handle. A
+later body/declaration consumer may open one durable
 `AssemblyInspectionSession`; the snapshot prevents decoding identity,
 references, or forwarding inventory again.
 
@@ -1484,7 +1533,7 @@ Slice 2 evolves durable sessions to construct `PEReader` with
 `PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
 after construction. The catalog may retain prefetched image memory, but holds
 no source file handle for the lifetime of a context. Candidate, retained-image
-byte, and inventory-open concurrency budgets are explicit plan inputs; budget
+byte, and source-open concurrency budgets are explicit plan inputs; budget
 exhaustion is a typed failure rather than an `IOException`-shaped partial
 answer.
 
@@ -1628,8 +1677,8 @@ catalog, and caches:
 `TypeResolutionCacheKey` is an internal projection; it does not use the public
 request object's reference equality. Its start arm contains either the internal
 candidate id plus scope or the closed binding target plus binding-domain key
-plus scope, followed by the structurally equatable
-`MetadataTypeDefinitionName`.
+plus scope, or the source candidate plus module name, followed by the
+structurally equatable `MetadataTypeDefinitionName`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
@@ -1663,8 +1712,9 @@ For one builder request:
 
 1. Require the type request in the discovery manifest; otherwise return
    `Rejected(PlanExpansionRequired(Type(request)))`.
-2. Resolve the start when it is a reference or core-library binding. First
-   validate a
+2. If the start is `Module`, return
+   `Rejected(UnsupportedModuleReference(name))`. Otherwise resolve the start
+   when it is a reference or core-library binding. First validate a
    requesting-assembly origin against the active builder catalog and return
    `Rejected(UnregisteredAssembly)` if absent. Construct its
    `AssemblyBindingCacheKey`, add it to the discovery manifest, and read or
@@ -1776,6 +1826,7 @@ Analysis-owned and does not absorb resolution:
 public abstract record TypeReferenceOrigin
 {
     private protected TypeReferenceOrigin() { }
+    private protected abstract int Discriminator { get; }
 
     public sealed record AssemblyReference : TypeReferenceOrigin
     {
@@ -1783,22 +1834,26 @@ public abstract record TypeReferenceOrigin
             Assembly = assembly;
 
         public AssemblyReferenceIdentity Assembly { get; }
+        private protected override int Discriminator => 0;
     }
 
     public sealed record CurrentAssembly : TypeReferenceOrigin
     {
         internal CurrentAssembly() { }
+        private protected override int Discriminator => 1;
     }
 
     public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin
     {
         internal IntrinsicCoreLibrary() { }
+        private protected override int Discriminator => 2;
     }
 
     public sealed record ModuleReference : TypeReferenceOrigin
     {
         internal ModuleReference(string moduleName) => ModuleName = moduleName;
         public string ModuleName { get; }
+        private protected override int Discriminator => 3;
     }
 }
 
@@ -1830,7 +1885,8 @@ the row and starts from that candidate. `IntrinsicCoreLibrary` covers signature
 primitive type codes that have no `TypeRef` row and resolves through the
 candidate's `AssemblyBindingTarget.IntrinsicCoreLibrary` policy request; it
 never synthesizes an assembly identity. `ModuleReference` remains typed and
-maps to module acquisition or the explicit unsupported-module outcome; it is
+maps to `TypeResolutionStart.Module` and the explicit
+`UnsupportedModuleReference` outcome until module acquisition exists; it is
 never invented as an assembly identity. Intrinsic, nil, module, and assembly
 scopes therefore do not collapse into a nullable assembly field.
 
@@ -2196,13 +2252,14 @@ Trusted platform policy resolves supported core-library facade differences
 before this fallback. This compatibility narrowing is explicit and gated; it is
 not described as preservation of the old graph.
 
-For `CurrentAssembly` and `ModuleReference`, the degraded component also carries
-the source candidate (and module name where present); those origins cannot join
-across candidate images. `IntrinsicCoreLibrary` carries the candidate's binding
-scope. An unavailable `AssemblyReference` may join across source candidates
-only when the catalog returns the same `UnresolvedBindingKey`; distinct source
-binding domains therefore remain distinct. The total storage keys remain
-separate even when an indeterminate correspondence edge joins them.
+Every metadata-driven degraded component carries the source candidate through
+`AssemblyBindingDomainKey`. `CurrentAssembly` and `ModuleReference` additionally
+retain the module/current arm and module name where present;
+`IntrinsicCoreLibrary` retains its distinct target and scope. An unavailable
+`AssemblyReference` degraded-joins only within the same source domain when its
+complete identity and scope also agree. Cross-source fragmentation is the
+intentional soundness boundary: without resolved correspondence, the catalog
+has no proof that two private binding domains denote one type.
 
 This is a separate migration slice because it changes graph-key construction
 and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
@@ -2326,7 +2383,7 @@ forwarded `XmlReader` caller is:
 - the real caller is found;
 - forwarding-inventory opens equal the distinct candidates selected by scope
   adjacency plus newly selected forwarder targets;
-- peak live source streams never exceed `MaxConcurrentInventoryOpens`, and no
+- peak live source streams never exceed `MaxConcurrentSourceOpens`, and no
   adjacency-only stream or durable-session source stream remains open after
   construction;
 - framework traversal does not expand through ordinary dependencies of those
@@ -2371,7 +2428,7 @@ without returning a stringly or nullable result.
 - Add catalog-owned `AssemblyInventorySnapshot` values for every discovered
   candidate and open prefetched `AssemblyInspectionSession` values only on
   demand; inventory reads and durable-session opens are separate single-flight
-  operations.
+  operations sharing the source-open semaphore.
 - Add the catalog lifetime and compose `TypeResolutionContext` over snapshots
   plus optional sessions without retaining adjacency-only readers.
 - Add public `IAssemblyBindingPolicy` descriptor selections and the
@@ -2457,6 +2514,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   cache entry per source domain.
 - Public result hierarchies cannot be externally extended, and product
   consumers cannot construct correspondence verdict arms.
+- External-compilation gates cannot derive from `AssemblyBindingTarget`,
+  `TypeReferenceOrigin`, or `AssemblyResolutionProvenance`; their
+  private-protected abstract discriminators close the synthesized record copy
+  constructor path.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
   selection through factories but cannot construct catalog candidates.
 - An external fake policy receives and distinguishes explicit reference and
@@ -2521,6 +2582,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - A `File`-row-terminated `ExportedType` chain produces
   `ExportedFromModule`, and the cross-assembly engine produces
   `UnsupportedModuleExport` carrying the same `ModuleFileReference`.
+- A decoded `ModuleRef` origin produces
+  `UnsupportedModuleReference(moduleName)` through `FromModule`; Analysis
+  neither manufactures the failure nor treats the name as an assembly.
 - A zero `#Strings` name index is rejected by name construction and retained as
   undecidable by the caller prefilter.
 - Intra-image `ExportedType` cycle.
@@ -2590,7 +2654,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   that candidate remains reachable through
   `caller -> facade -> implementation`; the candidate is not a direct seed.
 - An unreadable selected facade retains its incoming scope carrier as an
-  indeterminate seed, so callers above the carrier are not truncated.
+  indeterminate seed, so callers above the carrier are not truncated. The
+  fixture supplies verified inventory identity and a failing opener; an
+  unidentifiable local file instead fails before selection as
+  `CandidateUnavailable`.
 - A depth-two graph caller that reaches the selected member through another
   method in the target assembly is retained even though it never names the
   target type.
@@ -2607,8 +2674,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
   candidates preserve the current caller-tree builder choice.
 - A cross-catalog definition comparison is a typed mismatch, not `false`.
-- A scope without platform acquisition joins the same complete unavailable
-  binding request as an explicitly indeterminate edge.
+- Within one source candidate, a scope without platform acquisition joins the
+  same complete unavailable binding request as an explicitly indeterminate
+  edge; equal requests from different source candidates remain distinct and
+  surface the compatibility diagnostic.
 - Current canonical-simple-name-only joins with different versions, cultures,
   tokens, or unsupported local facade identities no longer join; both storage
   nodes and the compatibility diagnostic remain visible.
@@ -2627,7 +2696,7 @@ Claim: direct callers and transitive call graphs share one definition identity.
   one demanded durable session, and shares each declaration probe
   single-flight.
 - A scope wider than the process file-handle limit still holds at most
-  `MaxConcurrentInventoryOpens` source streams, releases every adjacency-only
+  `MaxConcurrentSourceOpens` source streams, releases every adjacency-only
   stream, and reports retained-image budget exhaustion as
   `CandidateOpenFailureKind.ResourceBudget`.
 

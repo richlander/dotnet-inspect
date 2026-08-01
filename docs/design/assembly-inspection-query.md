@@ -178,6 +178,7 @@ original value-equal record to a registration-backed, non-equatable descriptor:
 public abstract record AssemblyResolutionProvenance
 {
     private protected AssemblyResolutionProvenance() { }
+    private protected abstract int Discriminator { get; }
 
     public static AssemblyResolutionProvenance Package(
         string packageId,
@@ -205,20 +206,32 @@ public abstract record AssemblyResolutionProvenance
         string PackageId,
         string PackageVersion,
         string? Tfm,
-        string? Rid) : AssemblyResolutionProvenance;
+        string? Rid) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 0;
+    }
 
     public sealed record PlatformAsset(
         string Framework,
         string? FrameworkVersion,
-        string ResolverSource) : AssemblyResolutionProvenance;
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 1;
+    }
 
     public sealed record ProjectAsset(
         string Project,
         string? Tfm,
-        string? Rid) : AssemblyResolutionProvenance;
+        string? Rid) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 2;
+    }
 
     public sealed record LocalAsset(
-        string ResolverSource) : AssemblyResolutionProvenance;
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 3;
+    }
 }
 
 var reference = ResolvedAssemblyReference.Create(
