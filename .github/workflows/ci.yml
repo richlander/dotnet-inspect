@@ -114,6 +114,15 @@ jobs:
               eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
+              # The package sweep builds the EVIL pool the decompiler corpus is
+              # run over, and EvilPoolSweepGateTests runs it as a subprocess.
+              # Left out of this list, a change to it ran neither this lane nor
+              # the gates, and reported green over jobs that had skipped.
+              eng/prepare-decompiler-package-sweep.cs) CODE=true ;;
+              # The pin the sweep reads, and what EvilPoolPinTests holds to the
+              # sweep's own rules. Under docs/, which no arm here would catch.
+              docs/data/nuget-top-packages.lock.json) CODE=true ;;
+              docs/data/nuget-top-packages.json) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.
@@ -194,6 +203,7 @@ jobs:
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
               eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
+              eng/prepare-decompiler-package-sweep.cs) DECOMPILER=true ;;
               *.md) ;;
               src/*) DECOMPILER=true ;;
               tests/*) DECOMPILER=true ;;
