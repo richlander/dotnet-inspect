@@ -291,7 +291,9 @@ public static partial class ResearchViews
                 : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, printedRanges, annotations, annotatedInstrLines);
-        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly) };
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            annotations, AnnotationAnchor.ComputeSpans(imported), printedRanges);
+        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
@@ -409,7 +411,10 @@ public static partial class ResearchViews
     // structured annotations into a trailing "// ..." comment; IL lines are framed
     // as "// ..." comments indented under the preceding C# line, reading the indent
     // straight from that line's leading whitespace.
-    static string RenderMixedStream(IReadOnlyList<AnnotatedSourceLine> stream, AnnotationGestureSelector gestures)
+    static string RenderMixedStream(
+        IReadOnlyList<AnnotatedSourceLine> stream,
+        AnnotationGestureSelector gestures,
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
     {
         var sb = new StringBuilder();
         string csIndent = "";
@@ -429,7 +434,7 @@ public static partial class ResearchViews
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
             sb.AppendLf(text);
-            foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true))
+            foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents))
                 sb.AppendLf(caretLine);
         }
         return sb.ToString().TrimEnd();
@@ -491,7 +496,9 @@ public static partial class ResearchViews
         AnnotationGestureSelector gestures)
     {
         var stream = CorrelateOverlay(raised, output, printedRanges, annotations);
-        return RenderOverlayStream(output, stream, gestures);
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            annotations, AnnotationAnchor.ComputeSpans(raised), printedRanges);
+        return RenderOverlayStream(output, stream, gestures, extents);
     }
 
     // The C#-only correlation: anchor each annotation group to its printed C# line
@@ -547,7 +554,8 @@ public static partial class ResearchViews
     static string RenderOverlayStream(
         string output,
         IReadOnlyList<AnnotatedSourceLine> stream,
-        AnnotationGestureSelector gestures)
+        AnnotationGestureSelector gestures,
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
     {
         bool any = false;
         foreach (var line in stream)
@@ -567,7 +575,7 @@ public static partial class ResearchViews
             lines.Add(side.Count > 0
                 ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(side)}"
                 : line.Text);
-            lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true));
+            lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents));
         }
         return string.Join("\n", lines);
     }
