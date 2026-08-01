@@ -123,7 +123,7 @@ alias set.
 | **Definition address** | A durable MVID-scoped metadata token. It locates a definition but is not sufficient adversarial correspondence evidence. |
 | **Declaration probe** | The bounded single-image operation that says whether an assembly defines, forwards, or does not contain one type. |
 | **Resolution** | Repeated declaration probes joined by assembly-reference resolution until a definition or a typed non-success outcome is reached. |
-| **Binding policy** | The caller-supplied rule that maps an `AssemblyBindingRequest` (reference identity, binding origin, and scope) to zero, one, or several assembly candidates. |
+| **Binding policy** | The caller-supplied rule that maps an `AssemblyBindingRequest` (reference-or-core-library target, binding origin, and scope) to zero, one, or several assembly candidates. |
 | **Hop** | One verified `ExportedType` declaration and the `AssemblyRef` it names. |
 
 The vocabulary deliberately does not use **alias**. An alias is a derived set of
@@ -452,7 +452,7 @@ authoritative shape.
 
 ### Resolution start
 
-There are two legitimate starts and they stay explicit:
+There are three legitimate starts and they stay explicit:
 
 ```csharp
 public abstract class AssemblyBindingOrigin
@@ -461,7 +461,7 @@ public abstract class AssemblyBindingOrigin
 
     public static AssemblyBindingOrigin Global() => new GlobalOrigin();
 
-    public static AssemblyBindingOrigin FromAssembly(
+    public static RequestingAssembly FromAssembly(
         ResolvedAssemblyReference assembly) =>
         new RequestingAssembly(assembly.Registration);
 
@@ -514,6 +514,20 @@ public abstract class TypeResolutionStart
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
     }
+
+    public sealed class CoreLibrary : TypeResolutionStart
+    {
+        internal CoreLibrary(
+            AssemblyBindingOrigin.RequestingAssembly origin,
+            AssemblyResolutionScope scope)
+        {
+            Origin = origin;
+            Scope = scope;
+        }
+
+        public AssemblyBindingOrigin.RequestingAssembly Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
 }
 
 public sealed class TypeResolutionRequest
@@ -541,6 +555,16 @@ public sealed class TypeResolutionRequest
         AssemblyResolutionScope scope,
         MetadataTypeDefinitionName type) =>
         new(new TypeResolutionStart.Reference(value, origin, scope), type);
+
+    public static TypeResolutionRequest FromCoreLibrary(
+        ResolvedAssemblyReference requestingAssembly,
+        AssemblyResolutionScope scope,
+        MetadataTypeDefinitionName type) =>
+        new(
+            new TypeResolutionStart.CoreLibrary(
+                AssemblyBindingOrigin.FromAssembly(requestingAssembly),
+                scope),
+            type);
 }
 ```
 
@@ -556,6 +580,12 @@ freeze, then policy receives only that opaque registration. A frozen context
 rejects an origin whose registration is absent from its generation as
 `UnregisteredAssembly` before invoking policy; it never mutates the catalog or
 degrades the origin to global routing.
+
+`CoreLibrary` asks policy for the requesting candidate's intrinsic core library
+without synthesizing an assembly identity. Policy derives the answer from that
+candidate's acquisition domain. The core-library target remains a distinct
+binding/cache arm even when policy selects the same candidate that an explicit
+`AssemblyRef` would select.
 
 This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
@@ -746,19 +776,36 @@ public sealed class AssemblyBindingPolicyVersion
     public AssemblyBindingPolicyVersion() { }
 }
 
+public abstract record AssemblyBindingTarget
+{
+    private protected AssemblyBindingTarget() { }
+
+    public static AssemblyBindingTarget Reference(
+        AssemblyReferenceIdentity identity) =>
+        new AssemblyReference(identity);
+
+    public static AssemblyBindingTarget CoreLibrary() =>
+        new IntrinsicCoreLibrary();
+
+    public sealed record AssemblyReference(
+        AssemblyReferenceIdentity Identity) : AssemblyBindingTarget;
+
+    public sealed record IntrinsicCoreLibrary : AssemblyBindingTarget;
+}
+
 public sealed class AssemblyBindingRequest
 {
     public AssemblyBindingRequest(
-        AssemblyReferenceIdentity identity,
+        AssemblyBindingTarget target,
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope)
     {
-        Identity = identity;
+        Target = target;
         Origin = origin;
         Scope = scope;
     }
 
-    public AssemblyReferenceIdentity Identity { get; }
+    public AssemblyBindingTarget Target { get; }
     public AssemblyBindingOrigin Origin { get; }
     public AssemblyResolutionScope Scope { get; }
 }
@@ -885,7 +932,7 @@ public abstract class AssemblyBindingOutcome
 internal interface IAssemblyBindingResolver
 {
     AssemblyBindingOutcome Resolve(
-        AssemblyReferenceIdentity identity,
+        AssemblyBindingTarget target,
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope);
 }
@@ -910,8 +957,8 @@ The internal structurally equatable `AssemblyBindingDomainKey` is a closed
 value with `Global` and `RequestingCandidate(AssemblyCandidateId)` arms. It is
 generation-scoped and is the only origin projection permitted in binding and
 resolution cache keys. `AssemblyBindingCacheKey` is the structural tuple of
-that domain key, complete reference identity, and scope; the containing cache
-supplies the generation.
+that domain key, closed binding target, and scope; the containing cache supplies
+the generation.
 
 `AssemblyBindingOutcome.ExpansionRequired` is produced only by a frozen cache
 lookup for an absent binding-only root. External policies cannot return it.
@@ -958,7 +1005,8 @@ Resolution rejection is a closed, inspectable hierarchy:
 public enum CandidateOpenFailureKind
 {
     Unreadable,
-    InvalidImage
+    InvalidImage,
+    ResourceBudget
 }
 
 public sealed record CandidateOpenFailure(
@@ -1144,18 +1192,18 @@ public abstract class TypeResolutionAmbiguity
     public sealed class AssemblyBinding : TypeResolutionAmbiguity
     {
         internal AssemblyBinding(
-            AssemblyReferenceIdentity reference,
+            AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             ImmutableArray<ResolvedAssemblyCandidate> candidates)
         {
-            Reference = reference;
+            Target = target;
             Origin = origin;
             Scope = scope;
             Candidates = candidates;
         }
 
-        public AssemblyReferenceIdentity Reference { get; }
+        public AssemblyBindingTarget Target { get; }
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
         public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
@@ -1207,20 +1255,20 @@ public abstract class TypeResolutionOutcome
         public ResolvedAssemblyCandidate LastAssembly { get; }
     }
 
-    public sealed class UnboundReference : TypeResolutionOutcome
+    public sealed class UnboundBinding : TypeResolutionOutcome
     {
-        internal UnboundReference(
-            AssemblyReferenceIdentity reference,
+        internal UnboundBinding(
+            AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             ImmutableArray<TypeForwardingHop> hops) : base(hops)
         {
-            Reference = reference;
+            Target = target;
             Origin = origin;
             Scope = scope;
         }
 
-        public AssemblyReferenceIdentity Reference { get; }
+        public AssemblyBindingTarget Target { get; }
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
     }
@@ -1228,19 +1276,19 @@ public abstract class TypeResolutionOutcome
     public sealed class Unavailable : TypeResolutionOutcome
     {
         internal Unavailable(
-            AssemblyReferenceIdentity reference,
+            AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             AssemblyBindingFailure failure,
             ImmutableArray<TypeForwardingHop> hops) : base(hops)
         {
-            Reference = reference;
+            Target = target;
             Origin = origin;
             Scope = scope;
             Failure = failure;
         }
 
-        public AssemblyReferenceIdentity Reference { get; }
+        public AssemblyBindingTarget Target { get; }
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
         public AssemblyBindingFailure Failure { get; }
@@ -1396,8 +1444,9 @@ The distinction between the five non-success outcomes is load-bearing:
 
 - `NotFound` means a readable assembly authoritatively neither defined nor
   forwarded the requested type.
-- `UnboundReference` means policy authoritatively found no candidate for the
-  exact reference and scope; no readable last assembly is invented.
+- `UnboundBinding` means policy authoritatively found no candidate for the
+  exact reference or core-library target and scope; no readable last assembly
+  is invented.
 - `Unavailable` means policy could not supply or select an assembly needed to
   continue and carries the binding-policy reason.
 - `Ambiguous` means policy found several assembly candidates or one image
@@ -1411,23 +1460,39 @@ source" as a complete answer.
 
 ## Resolution context and lifetime
 
-The acquisition catalog owns one `AssemblyInspectionSession` for every opened
-candidate. `TypeResolutionContext` composes those sessions and owns only
-resolution state:
+The acquisition catalog separates adjacency inventory from durable inspection
+sessions:
 
 ```text
 ResolvedAssemblyCandidate
-  -> catalog-owned AssemblyInspectionSession
+  -> materialized AssemblyInventorySnapshot
+      -> identity, AssemblyRefs, ExportedType forwarding targets
+  -> optional catalog-owned AssemblyInspectionSession
       -> declaration probe
       -> cached (assembly candidate, type name) result
 ```
 
-This extends the single PE-lifetime owner established by
-`AssemblyInspectionSession`; it does not create a parallel `PEReader` owner.
-The catalog outlives every `TypeResolutionContext` and graph cache that contains
-its keys. The engine never opens a second stream, lends a reader to a consumer,
-or disposes a session that a consumer cache expects to retain. This removes the
-reason `LibraryBodyIndex` currently repeats the traversal beside
+`AssemblyInventoryReader` is a bounded, non-owning operation, not a second
+reader owner. It opens at most `MaxConcurrentInventoryOpens` source streams
+(default 8), materializes the snapshot, and disposes both stream and temporary
+`PEReader` immediately. Adjacency-only candidates retain no session or OS file
+handle. A later body/declaration consumer may open one durable
+`AssemblyInspectionSession`; the snapshot prevents decoding identity,
+references, or forwarding inventory again.
+
+Slice 2 evolves durable sessions to construct `PEReader` with
+`PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
+after construction. The catalog may retain prefetched image memory, but holds
+no source file handle for the lifetime of a context. Candidate, retained-image
+byte, and inventory-open concurrency budgets are explicit plan inputs; budget
+exhaustion is a typed failure rather than an `IOException`-shaped partial
+answer.
+
+This preserves the single PE-lifetime owner established by
+`AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
+a session that a consumer cache expects to retain. The catalog outlives every
+`TypeResolutionContext` and graph cache containing its keys. This removes the
+reason `LibraryBodyIndex` currently repeats traversal beside
 `TypeForwardResolver`.
 
 Candidate discovery and correspondence are separate phases.
@@ -1444,16 +1509,17 @@ first supplies a manifest with two root kinds:
 
 The builder executes those roots provisionally, including every per-hop
 scope-tightening transition. Each encountered
-`(AssemblyBindingDomainKey, AssemblyReferenceIdentity,
+`(AssemblyBindingDomainKey, AssemblyBindingTarget,
 AssemblyResolutionScope)` binding is added to the manifest; each selected
 registration and forwarded continuation extends the work queue. It does not
 bind references outside the explicit type and adjacency roots or sweep
 framework assemblies.
 
-Provisional resolution uses catalog-owned sessions and candidate ids but does
-not issue definition keys, join tokens, graph leases, or a public
-`TypeResolutionContext`. Discovery reaches a fixed point when a complete queue
-pass adds no request, binding pair, or registration.
+Provisional resolution uses materialized inventories, optional catalog-owned
+sessions, and candidate ids but does not issue definition keys, join tokens,
+graph leases, or a public `TypeResolutionContext`. Discovery reaches a fixed
+point when a complete queue pass adds no request, binding pair, or
+registration.
 
 The builder is bounded by the plan's candidate and relationship budgets.
 Stable acquisition registrations make repeated selections idempotent; an owner
@@ -1533,17 +1599,18 @@ therefore converge on the same fixed-point candidate set and answers.
 The acquisition catalog caches:
 
 - candidate ids by `AssemblyAcquisitionRegistration` reference identity;
-- opened sessions by `AssemblyCandidateId`;
+- materialized inventory snapshots by `AssemblyCandidateId`;
+- durable sessions, only when demanded, by `AssemblyCandidateId`;
 - declaration results by
   `(AssemblyCandidateId, MetadataTypeDefinitionName)`;
 - provisional discovery bindings by
-  `(discovery epoch, AssemblyBindingDomainKey, AssemblyReferenceIdentity,
+  `(discovery epoch, AssemblyBindingDomainKey, AssemblyBindingTarget,
   AssemblyResolutionScope)`;
 - provisional resolution recipes by
   `(discovery epoch, TypeResolutionCacheKey)`;
 - binding outcomes by
   `(AssemblyCatalogGenerationId, AssemblyBindingDomainKey,
-  AssemblyReferenceIdentity, AssemblyResolutionScope)`;
+  AssemblyBindingTarget, AssemblyResolutionScope)`;
 - frozen resolution recipes by
   `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`, with their binding
   dependency snapshots;
@@ -1560,15 +1627,16 @@ catalog, and caches:
 
 `TypeResolutionCacheKey` is an internal projection; it does not use the public
 request object's reference equality. Its start arm contains either the internal
-candidate id plus scope or the complete assembly reference identity plus
-binding-domain key plus scope, followed by the structurally equatable
+candidate id plus scope or the closed binding target plus binding-domain key
+plus scope, followed by the structurally equatable
 `MetadataTypeDefinitionName`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
 
-The catalog and resolution caches support concurrent Analysis. Candidate open,
-declaration probe, binding, and completed-resolution entries are single-flight:
+The catalog and resolution caches support concurrent Analysis. Inventory read,
+durable-session open, declaration probe, binding, and completed-resolution
+entries are single-flight:
 parallel body-analysis workers observe one result and one owned session.
 Synchronization does not hold a cache lock while invoking an external opener or
 binding policy.
@@ -1595,12 +1663,13 @@ For one builder request:
 
 1. Require the type request in the discovery manifest; otherwise return
    `Rejected(PlanExpansionRequired(Type(request)))`.
-2. Resolve the start when it is an assembly reference. First validate a
+2. Resolve the start when it is a reference or core-library binding. First
+   validate a
    requesting-assembly origin against the active builder catalog and return
    `Rejected(UnregisteredAssembly)` if absent. Construct its
    `AssemblyBindingCacheKey`, add it to the discovery manifest, and read or
    populate the provisional binding outcome. Binding `Selected` continues;
-   `Missing` returns `UnboundReference`; `Unavailable` returns `Unavailable`;
+   `Missing` returns `UnboundBinding`; `Unavailable` returns `Unavailable`;
    `Ambiguous` returns `Ambiguous`; and binding `Rejected` returns
    `Rejected(InvalidBindingPolicy)`. Frozen-only `ExpansionRequired` maps to
    `Rejected(PlanExpansionRequired(Binding(request)))`.
@@ -1614,9 +1683,10 @@ For one builder request:
    `Rejected(UnsupportedModuleExport(module))`.
 10. On `Forwarded`, append one hop.
 11. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
-12. Construct the target binding request, add its key to the discovery
-    manifest, read or populate its provisional cache entry, and apply the same
-    exhaustive outcome mapping as step 2.
+12. Wrap the forwarder's exact target identity in
+    `AssemblyBindingTarget.Reference`, construct the binding request, add its
+    key to the discovery manifest, read or populate its provisional cache
+    entry, and apply the same exhaustive outcome mapping as step 2.
 13. Stop on repeated assembly candidate or the hop budget with the corresponding
     `Rejected` failure.
 14. Otherwise repeat at step 3.
@@ -1758,7 +1828,8 @@ canonicalizes their simple names together.
 The resolution plan combines `CurrentAssembly` with the candidate that supplied
 the row and starts from that candidate. `IntrinsicCoreLibrary` covers signature
 primitive type codes that have no `TypeRef` row and resolves through the
-candidate's core-library binding policy. `ModuleReference` remains typed and
+candidate's `AssemblyBindingTarget.IntrinsicCoreLibrary` policy request; it
+never synthesizes an assembly identity. `ModuleReference` remains typed and
 maps to module acquisition or the explicit unsupported-module outcome; it is
 never invented as an assembly identity. Intrinsic, nil, module, and assembly
 scopes therefore do not collapse into a nullable assembly field.
@@ -1988,7 +2059,7 @@ permissiveness rule to keep synchronized with the matcher.
 - a `DegradedMemberCorrespondenceKey` substitutes a
   catalog-owned `UnresolvedBindingKey` plus structured type name only for an
   unavailable named type. The binding key represents the exact cached
-  `(AssemblyBindingDomainKey, AssemblyReferenceIdentity,
+  `(AssemblyBindingDomainKey, AssemblyBindingTarget,
   AssemblyResolutionScope)` request, preserving the complete
   assembly/module/current origin instead of collapsing failures into one
   bucket.
@@ -2227,7 +2298,10 @@ Resolution is query-directed:
   local inventories to one Metadata-owned catalog;
 - the engine opens only the starting assembly and assemblies named by the
   forwarder chain;
-- each assembly image is opened once per catalog;
+- each candidate inventory is read once; a candidate that later needs a
+  durable session incurs at most one additional prefetched-image open;
+- source streams close immediately after inventory or prefetched-session
+  construction;
 - each `(assembly, type)` declaration probe runs once;
 - callers in the same source candidate sharing a resolvable reference reuse the
   completed resolution; different source candidates remain distinct binding
@@ -2252,6 +2326,9 @@ forwarded `XmlReader` caller is:
 - the real caller is found;
 - forwarding-inventory opens equal the distinct candidates selected by scope
   adjacency plus newly selected forwarder targets;
+- peak live source streams never exceed `MaxConcurrentInventoryOpens`, and no
+  adjacency-only stream or durable-session source stream remains open after
+  construction;
 - framework traversal does not expand through ordinary dependencies of those
   candidates;
 - no target file is reopened by the forwarder engine;
@@ -2291,8 +2368,12 @@ without returning a stringly or nullable result.
   hierarchies after their descriptor and catalog dependencies exist.
 - Add one `InspectionAcquisitionPlan` per inspection and collapse today's
   per-path resolver instances into its shared owner adapters.
-- Extend `AssemblyInspectionSession` as the single candidate image owner, add
-  the catalog lifetime, and compose `TypeResolutionContext` over those sessions.
+- Add catalog-owned `AssemblyInventorySnapshot` values for every discovered
+  candidate and open prefetched `AssemblyInspectionSession` values only on
+  demand; inventory reads and durable-session opens are separate single-flight
+  operations.
+- Add the catalog lifetime and compose `TypeResolutionContext` over snapshots
+  plus optional sessions without retaining adjacency-only readers.
 - Add public `IAssemblyBindingPolicy` descriptor selections and the
   Metadata-internal candidate-interning adapter, with explicit adapters from
   existing resolvers.
@@ -2371,13 +2452,20 @@ Claim: direct callers and transitive call graphs share one definition identity.
   declaration/resolution cache entry; `!=` returns false.
 - Independently minted equal `DefinitionJoinToken` and
   `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
+- Independently constructed equal reference and intrinsic-core-library
+  `AssemblyBindingTarget` values compare and hash equally and hit one binding
+  cache entry per source domain.
 - Public result hierarchies cannot be externally extended, and product
   consumers cannot construct correspondence verdict arms.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
   selection through factories but cannot construct catalog candidates.
+- An external fake policy receives and distinguishes explicit reference and
+  intrinsic-core-library binding targets; no core-library identity is
+  synthesized.
 - An external fake policy can construct every `AssemblyBindingFailureKind`.
 - Reusing the canonical descriptor, including `candidate.Assembly`, yields one
-  candidate id, one opened session, and `Same` correspondence.
+  candidate id, one inventory snapshot, at most one demanded durable session,
+  and `Same` correspondence.
 - A second `ResolvedAssemblyReference.Create` call with identical visible
   values and the identical `Func<Stream>` instance receives a fresh
   registration and remains a distinct candidate.
@@ -2425,8 +2513,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - A definition/forwarder conflict is ambiguous.
 - Missing type.
 - Missing target assembly.
-- A missing initial or forwarded binding returns `UnboundReference` with the
-  exact reference and scope, not `NotFound` or `CandidateUnavailable`.
+- A missing initial, forwarded, or core-library binding returns
+  `UnboundBinding` with the exact target and scope, not `NotFound` or
+  `CandidateUnavailable`.
 - Ambiguous target assembly.
 - Malformed metadata.
 - A `File`-row-terminated `ExportedType` chain produces
@@ -2468,8 +2557,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
   assembly-sensitive prefilter pins move to this end-to-end gate.
 - Two local or project binding domains resolve the same `AssemblyRef` to their
   respective private copies without sharing a binding outcome or candidate.
-- A candidate image is not reread after its reference identities were
-  snapshotted.
+- A candidate's identity, references, and forwarding inventory are decoded
+  once from its snapshot; opening a later durable session does not decode them
+  again.
 - Resolution caches distinguish origins that structural `TypeRef` equality
   canonicalizes together.
 - Two source candidates carrying the same structured name and equal
@@ -2533,7 +2623,13 @@ Claim: direct callers and transitive call graphs share one definition identity.
   `List`/`List\`1` lookup behavior through `PlatformTypeLookupPattern`.
 - Platform lookup retains case-insensitive, nested `+`/`.`, and primitive-alias
   behavior.
-- Parallel body analysis opens and probes each candidate once.
+- Parallel analysis performs one inventory read per candidate, opens at most
+  one demanded durable session, and shares each declaration probe
+  single-flight.
+- A scope wider than the process file-handle limit still holds at most
+  `MaxConcurrentInventoryOpens` source streams, releases every adjacency-only
+  stream, and reports retained-image budget exhaustion as
+  `CandidateOpenFailureKind.ResourceBudget`.
 
 ### Architecture gates
 
