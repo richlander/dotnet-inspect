@@ -23,7 +23,7 @@ namespace ILInspector.Decompiler.Tests;
 /// carries an identical <c>&gt;g__</c> name, so judging by the name alone degrades
 /// methods whose final output is perfectly valid — the real-world corpus sensor
 /// measured exactly that. Instead the pass, the only component that knows, stamps
-/// <see cref="MethodRef.LocalFunctionRaiseDeclined"/> on every call it considered and
+/// <see cref="MethodRef.LocalFunctionRaise"/> on every call it considered and
 /// left undeclared; the printer and fidelity both read that stamp. Hence the two
 /// halves — the spelling must show the compiler-generated identity, and the fidelity
 /// must degrade — the raised control must keep both its source spelling and
@@ -300,6 +300,66 @@ public class UnraisedLocalFunctionCallTests
         Assert.DoesNotContain($"{nameof(RaisedLocalFunctionMethodGroupSamples)}.F", output);
         Assert.DoesNotContain("_g__F_", output);
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// A generic local function must be declined, not raised. LocalFunctionStatement
+    /// carries no type-parameter list, so raising `Tag&lt;T&gt;` declared `static int Tag()`
+    /// and rewrote both call sites to `Tag()`, collapsing the `&lt;int&gt;` and `&lt;string&gt;`
+    /// instantiations into one — uncompilable (CS0411) and reported Full.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(GenericLocalFunctionSamples.TwoInstantiations))]
+    [InlineData(nameof(GenericLocalFunctionSamples.CalledAndUsedAsMethodGroup))]
+    public void GenericLocalFunction_IsDeclinedAndSpelledHonestly(string methodName)
+    {
+        var type = typeof(GenericLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        // No declaration was emitted, so no reference may claim the source spelling.
+        Assert.DoesNotContain("int Tag<", output);
+        Assert.DoesNotContain("int Tag(", output);
+        Assert.Contains("_g__Tag_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// The raised-set key must distinguish same-named types that render identically.
+    /// <c>ToDisplayString</c> omits namespace and assembly, so keying on it let a
+    /// reference to one type's local function match a declaration raised from a
+    /// different type's same-named one — output that compiles and silently binds to
+    /// the wrong method.
+    /// </summary>
+    [Fact]
+    public void Identity_DistinguishesSameNamedTypesThatRenderIdentically()
+    {
+        var a = TypeRef.Definition("AsmA", "NsA", "Owner");
+        var b = TypeRef.Definition("AsmB", "NsB", "Owner");
+
+        // The precondition that makes this a real hazard rather than a hypothetical.
+        Assert.Equal(a.ToDisplayString(), b.ToDisplayString());
+
+        Assert.NotEqual(
+            LocalFunctionRaisingPass.Identity(MethodRefFor(a)),
+            LocalFunctionRaisingPass.Identity(MethodRefFor(b)));
+
+        // Same declaring type must still match, or grouping would split call sites.
+        Assert.Equal(
+            LocalFunctionRaisingPass.Identity(MethodRefFor(a)),
+            LocalFunctionRaisingPass.Identity(MethodRefFor(TypeRef.Definition("AsmA", "NsA", "Owner"))));
+
+        static MethodRef MethodRefFor(TypeRef declaringType) => new(
+            declaringType,
+            "<M>g__F|0_0",
+            TypeRef.CoreLib("System", "Int32"),
+            [],
+            false);
     }
 
     static int CountOccurrences(string haystack, string needle)

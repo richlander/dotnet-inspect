@@ -97,13 +97,21 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 : LocalFunctionRaiseState.Declined;
     }
 
-    static (string Type, string Name) Identity(MethodRef method)
-        => (method.DeclaringType.ToDisplayString(), method.Name);
+    // Keyed on the declaring TypeRef itself, never on its rendered display text.
+    // ToDisplayString omits namespace and assembly, so `NsA.Owner` and `NsB.Owner`
+    // — or same-named types from two assemblies — render identically and would let
+    // a reference to one borrow the other's declaration and bind to the WRONG
+    // method. TypeRef implements hand-written structural equality (assembly,
+    // namespace, name, and recursively type arguments), so it is safe as a key and
+    // does not hit the ImmutableArray reference-equality trap that rules out using
+    // the MethodRef record itself.
+    internal static (TypeRef Type, string Name) Identity(MethodRef method)
+        => (method.DeclaringType, method.Name);
 
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
-    static HashSet<(string Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
+    static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
     {
-        var raised = new HashSet<(string Type, string Name)>();
+        var raised = new HashSet<(TypeRef Type, string Name)>();
 
         var groups = function.Descendants.OfType<Call>()
             .Where(c => c.Parent is not null && GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee))
@@ -111,8 +119,10 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // ParameterTypes is an ImmutableArray, whose Equals is reference (not
             // structural), so two call sites to the same local function carry
             // non-equal MethodRef instances and would split into separate groups.
-            // Local-function mangled names are unique within a type.
-            .GroupBy(c => (c.Callee.DeclaringType.ToDisplayString(), c.Callee.Name))
+            // Local-function mangled names are unique within a type. This is the
+            // same key the raised set uses, so what is grouped and what is recorded
+            // as raised can never disagree.
+            .GroupBy(c => Identity(c.Callee))
             .ToList();
 
         var declarations = new List<LocalFunctionStatement>();
@@ -122,6 +132,16 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             var method = calls[0].Callee;
             if (method.HasThis)
                 continue;  // instance receiver — out of this slice
+
+            // LocalFunctionStatement has no generic-parameter representation, so a
+            // generic local function would be declared as `static int F(T n)` — the
+            // type parameter list dropped, `T` undeclared — while its call sites lose
+            // their type arguments. That is the #3631 failure exactly: uncompilable
+            // C# (CS0246/CS0411/CS0123) reported as Full. Decline until declarations
+            // can carry type parameters and constraints; declining routes it through
+            // the honest-spelling path instead.
+            if (!method.TypeArguments.IsEmpty)
+                continue;
 
             var environment = ResolveEnvironment(method, calls, function);
             // A display-class parameter we could not resolve to a clean, single-use

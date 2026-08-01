@@ -6618,3 +6618,26 @@ public static class RaisedLocalFunctionMethodGroupSamples
         return F(x) + d(x);
     }
 }
+
+// Generic local functions. LocalFunctionStatement carries no type-parameter list, so
+// raising one would declare `static int Tag()` and drop `<int>`/`<string>` from every
+// call site — uncompilable C# reported as Full (#3631's failure mode). The pass must
+// decline them, which routes both shapes through the honest-spelling path instead.
+// The type parameter is deliberately absent from the signature: a generic local
+// function whose signature MENTIONS T is already declined for an unrelated reason
+// (unprintable body), so it could not prove the generic gate does anything.
+public static class GenericLocalFunctionSamples
+{
+    public static int TwoInstantiations()
+    {
+        static int Tag<T>() => 1;
+        return Tag<int>() + Tag<string>();
+    }
+
+    public static int CalledAndUsedAsMethodGroup()
+    {
+        static int Tag<T>() => 1;
+        System.Func<int> d = Tag<int>;
+        return Tag<int>() + d();
+    }
+}
