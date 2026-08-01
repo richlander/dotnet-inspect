@@ -465,32 +465,4 @@ public static class VisualEncoder
 
         return (from, to, forms);
     }
-
-    /// <summary>
-    /// Reports whether <paramref name="start"/> and <paramref name="end"/> both fall between
-    /// tokens, naming the spellings the text between them contains.
-    /// </summary>
-    internal static bool TryFormsWithin(string encoded, int start, int end, out VisualForm forms)
-    {
-        forms = VisualForm.None;
-        int i = 0;
-
-        while (i < start)
-        {
-            i += NextToken(encoded, i, out _);
-        }
-
-        if (i != start)
-        {
-            return false;
-        }
-
-        while (i < end)
-        {
-            i += NextToken(encoded, i, out VisualForm form);
-            forms |= form;
-        }
-
-        return i == end;
-    }
 }

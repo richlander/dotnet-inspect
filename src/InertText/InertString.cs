@@ -222,9 +222,8 @@ public readonly struct InertString : IEquatable<InertString>
     /// </summary>
     /// <remarks>
     /// The general form of <see cref="Truncate(int)"/>, for a caller that wants a window rather
-    /// than a prefix, and the reason getting one does not require probing for a bound the exact
-    /// slicer will accept. Total: every range is answerable, including a reversed one and one
-    /// that runs off either end, both of which are read as the part that overlaps the text.
+    /// than a prefix. Total: every range is answerable, including a reversed one and one that
+    /// runs off either end, both of which are read as the part that overlaps the text.
     ///
     /// Both bounds move inward — the start forward to the next whole spelling, the end back to
     /// the previous one — so the result is always a subset of what was asked for. That
@@ -232,8 +231,11 @@ public readonly struct InertString : IEquatable<InertString>
     /// detect from <see cref="Length"/>, while returning more is not. A window that contains no
     /// whole spelling is therefore empty rather than approximated.
     ///
-    /// Use <see cref="this[Range]"/> instead when the bounds are a claim about the text rather
-    /// than a request, since that member refuses what this one adjusts.
+    /// There is deliberately no exact counterpart that refuses an unusable window. An indexer
+    /// wears the syntax of ordinary slicing while throwing on bounds that look perfectly
+    /// reasonable — six of the twelve positions in an eleven-character value divide a spelling —
+    /// and it would buy nothing, because comparing <see cref="Length"/> against the width that
+    /// was asked for already reports whether anything had to move.
     /// </remarks>
     /// <param name="range">The window to take, in encoded characters.</param>
     public InertString Truncate(Range range)
@@ -257,44 +259,6 @@ public readonly struct InertString : IEquatable<InertString>
         return from == 0 && to == text.Length
             ? this
             : new InertString(text[from..to], forms);
-    }
-
-    /// <summary>Takes the part of this value that <paramref name="range"/> names.</summary>
-    /// <remarks>
-    /// The exact form, for a caller whose bounds are a claim about the text rather than a
-    /// request. Where <see cref="Truncate(Range)"/> adjusts an unusable cut, this one refuses
-    /// it: silently returning a different span than the one named would be the worse answer
-    /// when the span was chosen deliberately. Neither bound is moved here, in particular not
-    /// the start, because moving a start down would hand back more text than was asked for.
-    ///
-    /// Slicing yields a new value and leaves this one untouched, as it must — this is a
-    /// <see langword="readonly"/> <see langword="struct"/> over an immutable
-    /// <see cref="string"/>, so nothing here can be aliased.
-    /// </remarks>
-    /// <param name="range">The part to take, in encoded characters.</param>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="range"/> falls outside the encoded text.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// Either bound divides a spelling, so the result could not be read back.
-    /// </exception>
-    public InertString this[Range range]
-    {
-        get
-        {
-            string text = Text;
-            (int offset, int length) = range.GetOffsetAndLength(text.Length);
-
-            if (!VisualEncoder.TryFormsWithin(text, offset, offset + length, out VisualForm forms))
-            {
-                throw new ArgumentException(
-                    "The range divides an encoded spelling, so the result could not be decoded. "
-                        + $"Use {nameof(Truncate)}(Range) to take the largest whole window inside it instead.",
-                    nameof(range));
-            }
-
-            return new InertString(text.Substring(offset, length), forms);
-        }
     }
 
     /// <summary>

@@ -56,10 +56,12 @@ public class BoundaryTests
             int kept = full.Truncate(budget).Length;
 
             // Snapping down is only defensible if it stops at the first position it can, so
-            // every position it skipped has to be one the exact slicer refuses.
+            // every position it skipped has to be one that divides a spelling. Opening a window
+            // at a position answers that: the start moves forward only when it has to, so it
+            // keeps the whole tail exactly when the position was already a boundary.
             for (int longer = kept + 1; longer <= budget; longer++)
             {
-                Assert.Throws<ArgumentException>(() => full[..longer]);
+                Assert.NotEqual(text.Length - longer, full.Truncate(longer..).Length);
             }
         }
     }
@@ -150,51 +152,12 @@ public class BoundaryTests
     }
 
     [Fact]
-    public void Indexer_RefusesABoundThatDividesASpelling()
-    {
-        InertString full = new InertString(TextPolicy.Field, Hazard);
-
-        Assert.Throws<ArgumentException>(() => full[..4]);
-        Assert.Throws<ArgumentException>(() => full[3..]);
-    }
-
-    [Fact]
-    public void Indexer_TakesTheNamedSpanWhenBothBoundsAreWhole()
-    {
-        InertString full = new InertString(TextPolicy.Field, Hazard);
-
-        Assert.Equal(@"\u202E", full[1..7].ToString());
-        Assert.Equal(VisualForm.BmpHex, full[1..7].Forms);
-        Assert.Equal(@"b\\", full[7..10].ToString());
-        Assert.Equal(VisualForm.Backslash, full[7..10].Forms);
-    }
-
-    [Fact]
-    public void Indexer_DoesNotMoveTheStart()
-    {
-        InertString full = new InertString(TextPolicy.Field, Hazard);
-
-        // Moving a start down to the nearest boundary would hand back more text than was asked
-        // for, which is the one direction a caller cannot check.
-        ArgumentException error = Assert.Throws<ArgumentException>(() => full[2..7]);
-        Assert.Equal("range", error.ParamName);
-    }
-
-    [Fact]
-    public void Indexer_RefusesABoundOutsideTheText()
-    {
-        InertString full = new InertString(TextPolicy.Field, Hazard);
-
-        Assert.Throws<ArgumentOutOfRangeException>(() => full[..(full.Length + 1)]);
-    }
-
-    [Fact]
-    public void Indexer_LeavesTheOriginalIntact()
+    public void TruncateRange_LeavesTheOriginalIntact()
     {
         InertString full = new InertString(TextPolicy.Field, Hazard);
         string before = full.ToString();
 
-        _ = full[1..7];
+        _ = full.Truncate(1..7);
 
         Assert.Equal(before, full.ToString());
         Assert.Equal(VisualForm.BmpHex | VisualForm.Backslash, full.Forms);
@@ -300,15 +263,16 @@ public class BoundaryTests
     }
 
     [Fact]
-    public void IndexOfFirstEncoded_LocatesAWindowTheExactSlicerAccepts()
+    public void IndexOfFirstEncoded_NamesABoundThatNeedsNoAdjustment()
     {
-        // The two members compose: the index names a bound, and taking from it succeeds
-        // without probing, which is what makes showing an untreated prefix a two-call job.
+        // The two members compose: the index is always a boundary, so taking up to it returns
+        // the untreated prefix whole rather than a shortened one.
         InertString full = new InertString(TextPolicy.Field, Hazard);
         int first = full.IndexOfFirstEncoded();
 
-        Assert.Equal("a", full[..first].ToString());
-        Assert.Equal(VisualForm.None, full[..first].Forms);
+        Assert.Equal("a", full.Truncate(..first).ToString());
+        Assert.Equal(first, full.Truncate(..first).Length);
+        Assert.Equal(VisualForm.None, full.Truncate(..first).Forms);
     }
 
     [Theory]
