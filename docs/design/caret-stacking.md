@@ -257,6 +257,21 @@ earlier draft of this document:
   both an `alloc` and a `safety` fact is counted once under each — because that
   is two different renders, and it is the render that is being measured.
 
+Those five families cover every argument that can widen this table. They
+**partition** the corpus: `alloc`, `unsafe`, `lifetime`, `cost` and `safety`
+select 16,328 + 749 + 928 + 2,820 + 17,041 facts, which is exactly the 37,866
+facts CoreLib yields, with no fact in two families and none outside them.
+`AnnotationGestureSelector.Focus` also matches a category name, and those are
+aliases of the same sets — `allocation` selects the same 16,328 as `alloc`,
+`unsafety` the same 749 as `unsafe`, and `semantics` the same 17,041 as
+`safety`.
+
+Any other argument is a narrower id prefix, such as `alloc.box`, and selects a
+strict subset of one family. Stacking cannot increase under a subset: dropping
+facts can only remove distinct extents and remove extent-less facts, and a line
+stacks only when it has two of the former or one of each. So the figures below
+are an upper bound on what any `--focus` argument produces.
+
 Extents are measured in printed characters, so a figure that does not name its
 render is not a claim about anything.
 
