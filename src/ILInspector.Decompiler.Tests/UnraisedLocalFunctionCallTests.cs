@@ -686,6 +686,54 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
     }
 
+    /// <summary>
+    /// A real System.Private.CoreLib witness for the whole bug class, found by a round-9
+    /// reviewer's corpus sweep rather than synthesized.
+    /// <para>
+    /// <c>StringSearchValues.CreateFromNormalizedValues</c> is NOT generic, yet it contains
+    /// <c>PickAhoCorasickImplementation&lt;TCaseSensitivity&gt;</c>, called four times with four
+    /// DIFFERENT concrete instantiations. Raising it collapsed all four into one declaration
+    /// with no type-parameter list, whose body then referenced a <c>TCaseSensitivity</c> bound
+    /// to nothing (CS0246), and printed all four distinct calls IDENTICALLY as
+    /// <c>PickAhoCorasickImplementation(V_5, uniqueValues)</c> — losing the distinction
+    /// entirely. `main` reports that as Full.
+    /// </para>
+    /// <para>
+    /// This pins the positional-identity gate against real framework code: the arguments are
+    /// concrete definition types, not the host's method generic parameters, so the raise is
+    /// declined and all four instantiations stay visible.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void CoreLibNonIdentityGenericLocalFunction_IsDeclinedAndKeepsItsInstantiations()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(
+            source, "System.Buffers.StringSearchValues", "CreateFromNormalizedValues");
+        // Loud, not skipped: if CoreLib stops carrying this shape the canary must say so
+        // rather than pass vacuously.
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        // Declined: no declaration, and the mangled name is visible. The ordinal moves
+        // between CoreLib versions, so it is deliberately not pinned.
+        Assert.Contains("_g__PickAhoCorasickImplementation_", output);
+        Assert.DoesNotContain("static SearchValues<string> PickAhoCorasickImplementation(", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+
+        // The four instantiations the raise would have collapsed are all still distinguishable.
+        foreach (string instantiation in new[]
+        {
+            "CaseSensitive", "CaseInsensitiveUnicode", "CaseInsensitiveAsciiLetters", "CaseInsensitiveAscii",
+        })
+        {
+            Assert.Contains(instantiation, output);
+        }
+    }
+
     static string PrintShadowSample(string methodName, out DecompilationFidelity fidelity)
     {
         var type = typeof(ShadowedGenericLocalFunctionSamples);
