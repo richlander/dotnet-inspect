@@ -37,6 +37,7 @@ internal static class DeclarationIndexBuilder
     {
         var tokens = BodySlicer.ScanTokens(lines);
         var rows = new List<Row>();
+        bool depthLost = false;
 
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
         // collection initializer. Members are only recognized inside a type, so an anonymous
@@ -92,6 +93,9 @@ internal static class DeclarationIndexBuilder
 
         foreach (var tok in tokens)
         {
+            if (!tok.DepthKnown)
+                depthLost = true;
+
             if (tok.Kind == ScanTokenKind.Directive)
                 continue;
 
@@ -295,15 +299,37 @@ internal static class DeclarationIndexBuilder
 
         // A file whose braces never close leaves rows open. Report the end as the last line rather
         // than -1, and mark the span unknown, so a caller cannot mistake a truncated file for a
-        // measured span. A file-scoped namespace is the one row that legitimately ends there.
+        // measured span. A file-scoped namespace is the one row that legitimately stays open, and
+        // it is resolved separately below.
         foreach (var r in rows)
         {
-            if (r.EndLine < 0)
+            if (r.EndLine < 0 && !r.ClosesAtEndOfFile)
             {
                 r.EndLine = lines.Count;
-                if (!r.ClosesAtEndOfFile)
-                    r.SpanKnown = false;
+                r.SpanKnown = false;
             }
+        }
+
+        // A file-scoped namespace *scopes* the rest of the file, but its declaration ends where its
+        // last member ends, not at the last physical line: a trailing comment belongs to the file,
+        // not to the namespace. Ending at EOF would put trailing trivia inside the declaration and
+        // disagree with the span of every other row.
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (!rows[i].ClosesAtEndOfFile)
+                continue;
+
+            // Everything after a file-scoped namespace is inside it -- a file cannot open a second
+            // one, and nothing can precede it but usings and attributes, which are not rows.
+            int end = rows[i].SignatureEndLine;
+            for (int j = i + 1; j < rows.Count; j++)
+                end = Math.Max(end, rows[j].EndLine);
+            rows[i].EndLine = end;
+
+            // The span reaches every later declaration, so if the scan lost its place anywhere
+            // after this row opened, the end it reports is a guess. Report it unknown instead.
+            if (depthLost)
+                rows[i].SpanKnown = false;
         }
 
         // Depth counts enclosing declarations, not braces. A file-scoped namespace opens no brace,
@@ -543,7 +569,8 @@ internal static class DeclarationIndexBuilder
     /// </para>
     /// <para>
     /// <em>Before</em> the segment's <c>=</c> a <c>&lt;</c> is always a generic bracket, so angle
-    /// depth is simply counted. The lookahead alone is not enough there: it admits
+    /// depth is simply counted. The scanner emits one-character punctuators, so the <c>&gt;&gt;</c>
+    /// closing two nested lists arrives as two tokens and needs no special handling. The lookahead alone is not enough there: it admits
     /// <c>Action&lt;string, int, float&gt; A</c>, where the comma after <c>string</c> is followed
     /// by a name and another comma — exactly a declarator list's shape. Two type arguments happen
     /// to survive the lookahead; three do not.
@@ -585,10 +612,9 @@ internal static class DeclarationIndexBuilder
                     if (c is "(" or "[" or "{") depth++;
                     else if (c is ")" or "]" or "}") depth--;
                     else if (c == "=" && depth == 0) sawEquals = true;
-                    else if (!sawEquals && depth == 0)
+                    else if (!sawEquals && depth == 0 && c is "<" or ">")
                     {
-                        // ">>" closing two nested type argument lists arrives as one token.
-                        angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+                        angle += c == "<" ? 1 : -1;
                         if (angle < 0) angle = 0;
                     }
                     else if (sawEquals && depth == 0 && c == "<"
@@ -642,17 +668,25 @@ internal static class DeclarationIndexBuilder
                 return -1;
 
             var c = text(t);
-            if (c.Length > 0 && c.All(ch => ch is '<' or '>'))
+            if (c == "<")
             {
-                angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+                angle++;
+                continue;
+            }
+
+            if (c == ">")
+            {
+                angle--;
                 if (angle <= 0)
                     return angle == 0 ? i : -1;
                 continue;
             }
 
             // Tuple elements, arrays, pointers, nullability, and qualified names are all type
-            // syntax. Anything else -- an operator, a literal, a brace -- is not.
-            if (c is "," or "." or "?" or "[" or "]" or "*" or "(" or ")" or "::")
+            // syntax. Anything else -- an operator, a literal, a brace -- is not. ":" is here for
+            // the two halves of "global::"; the scanner emits one-character punctuators, so a
+            // "::" token never arrives.
+            if (c is "," or "." or "?" or "[" or "]" or "*" or "(" or ")" or ":")
                 continue;
             return -1;
         }
@@ -816,7 +850,9 @@ internal static class DeclarationIndexBuilder
             if (pending[i].Kind != ScanTokenKind.Punctuator)
                 continue;
             var c = text(pending[i]);
-            angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+            if (c is not ("<" or ">"))
+                continue;
+            angle += c == "<" ? 1 : -1;
             if (angle == 0)
                 return i + 1 < pending.Count && text(pending[i + 1]) == "(";
         }

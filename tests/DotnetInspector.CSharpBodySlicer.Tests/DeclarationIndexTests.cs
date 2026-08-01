@@ -454,6 +454,81 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// A file-scoped namespace <em>scopes</em> the rest of the file, but its declaration ends where
+    /// its last member ends. Trailing trivia belongs to the file, not to the namespace — Roslyn's
+    /// span says so, and no corpus file happens to have any, so without this the gate agreed only
+    /// by luck and one added trailing comment anywhere in the repository would have turned it red.
+    /// </summary>
+    [Fact]
+    public void AFileScopedNamespace_EndsAtItsLastMemberNotAtTheLastLine()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            class C { }
+            // trailing comment
+
+
+            """);
+
+        var ns = index.Declarations.Single(d => d.Kind == DeclarationKind.Namespace);
+        Assert.Equal(2, ns.EndLine);
+        Assert.True(ns.SpanKnown);
+
+        var empty = DeclarationIndex.Build("namespace N;");
+        Assert.Equal(1, empty.Declarations.Single().EndLine);
+    }
+
+    /// <summary>
+    /// A file-scoped namespace's span reaches every later declaration, so it cannot be better known
+    /// than they are. Its EOF-closing special case used to skip the unknown-span marking entirely,
+    /// which reported a measured span for a file whose brace structure the scan could not follow —
+    /// exactly the guess the type exists to avoid.
+    /// </summary>
+    [Fact]
+    public void AFileScopedNamespaceOverAConditionalRegion_ReportsAnUnknownSpan()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            #if FEATURE
+            class A { }
+            #else
+            class B { }
+            #endif
+            """);
+
+        Assert.All(index.Declarations, d => Assert.False(d.SpanKnown));
+    }
+
+    /// <summary>
+    /// The punctuators <see cref="DeclarationIndexBuilder"/> accepts inside a speculatively matched
+    /// type argument list are load-bearing: drop the array, tuple, pointer, or qualified-name
+    /// entries and each of these initializers stops matching, so its commas split declarators and
+    /// invent fields named for a type. Every entry in that allow list appears below.
+    /// </summary>
+    [Fact]
+    public void ATypeArgumentListInAnInitializer_MayContainAnyTypeSyntax()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            using System;
+            public unsafe class C
+            {
+                public object a = new Func<int[], string, int>(null), b = null;
+                public object c = new Func<(int, string), string, int>(null), d = null;
+                public object e = new Func<int*[], string, int>(null), f = null;
+                public object g = new Func<System.Text.Rune, string, int>(null), h = null;
+                public object i = new Func<global::System.Guid, string, int>(null), j = null;
+                public object k = new Func<int?, string, int>(null), l = null;
+                public object m = new Func<Func<int, int>, string, int>(null), n = null;
+            }
+            """);
+
+        Assert.Equal(
+            ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"],
+            index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
+    }
+
+    /// <summary>
     /// A local function is a declaration Roslyn recognizes and the index deliberately does not: it
     /// is not a member, and reporting one would let a body-line lookup return something that has no
     /// metadata counterpart. Nothing here recognizes a local function — the enclosing scope of a
@@ -721,8 +796,9 @@ public class DeclarationIndexTests
         tree.GetLineSpan(new Microsoft.CodeAnalysis.Text.TextSpan(position, 0)).StartLinePosition.Line + 1;
 
     /// <summary>
-    /// A file-scoped namespace runs to the end of the file, which is what the index reports too,
-    /// but Roslyn's node ends at the last token rather than the last line.
+    /// The last line of a declaration, from its span, which excludes trailing trivia. A file-scoped
+    /// namespace ends at its last member for the same reason every other row does — it scopes the
+    /// rest of the file, but a trailing comment is not part of the declaration.
     /// </summary>
     private static int EndLine(SyntaxNode node) =>
         node.SyntaxTree.GetLineSpan(node.Span).EndLinePosition.Line + 1;
