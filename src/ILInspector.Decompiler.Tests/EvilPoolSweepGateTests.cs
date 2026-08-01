@@ -744,6 +744,13 @@ public class EvilPoolSweepGateTests
         File.WriteAllBytes(stale, world.FixtureBytes);
         MakeUnwritable(stallDirectory);
 
+        // A leftover the run *can* remove, named to sort ahead of the one it cannot, so
+        // the walk reaches it first. What the run managed before it failed is the part of
+        // its report that a failure is most likely to lose.
+        string removable = Path.Combine(
+            world.OutputDirectory, "packages", "000-removable.tmp");
+        File.WriteAllBytes(removable, world.FixtureBytes);
+
         try
         {
             var sweep = world.Run();
@@ -758,6 +765,16 @@ public class EvilPoolSweepGateTests
             // record misdescribes.
             Assert.NotNull(world.ReportedManifest(sweep)["Unreconciled"]?.GetValue<string>());
 
+            // Exactly what left the pool, and nothing else. Both halves matter and each
+            // fails on its own: a run that discards the removals it managed before the
+            // failure deletes evidence off disk and omits it from the record, and a run
+            // that records a removal before performing it names a file that is still
+            // sitting in the pool. Measured, both left every case green -- the first by
+            // clearing the list in the catch, the second by recording ahead of the delete.
+            Assert.False(File.Exists(removable), "the removable leftover was not removed.");
+            Assert.Equal<IEnumerable<string>>(
+                [removable], world.ReportedRemovals(sweep));
+
             // Both packages were pooled and recorded: the run did its work, and the
             // failure is about the pool it could not clean rather than about them.
             Assert.Equal("selected", world.ReportedStatus(sweep));
@@ -768,6 +785,166 @@ public class EvilPoolSweepGateTests
         {
             RestoreWritable(stallDirectory);
         }
+    }
+
+    /// <summary>
+    /// A sweep refuses a pool directory that is a link out of the output directory.
+    ///
+    /// <para><see cref="ASweepRemovesALinkPlantedInThePoolWithoutDeletingWhatItPointsAt"/>
+    /// keeps the reconciliation from descending through a link it finds <em>in</em> the
+    /// pool. That argument bounds the deletion to the pool, and is only as good as the
+    /// boundary it starts from -- <c>Directory.CreateDirectory</c> is satisfied by an
+    /// existing symlink, so a linked pool root put every copy and every deletion outside
+    /// the output directory while the run exited 0. Measured against the code before this:
+    /// the sweep wrote its assemblies into the link's target, deleted a file there, and
+    /// reported success.</para>
+    ///
+    /// <para>Refused rather than replaced, and refused before anything is written: removing
+    /// the link would be this step deleting something the caller put on a path the caller
+    /// named, which is a larger liberty than declining to run.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesAPoolDirectoryThatIsALinkOutOfTheOutputDirectory()
+    {
+        using var world = SweepWorld.Create();
+
+        if (OperatingSystem.IsWindows())
+            Assert.Skip("planting a link needs privileges an unelevated Windows process lacks.");
+
+        string elsewhere = Path.Combine(world.Scratch, "elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        string bystander = Path.Combine(elsewhere, "keep.dll");
+        File.WriteAllBytes(bystander, world.FixtureBytes);
+
+        Directory.CreateDirectory(world.OutputDirectory);
+        Directory.CreateSymbolicLink(Path.Combine(world.OutputDirectory, "packages"), elsewhere);
+
+        var sweep = world.Run();
+
+        // The argument refusal, not a copy failure: nothing should have been attempted.
+        Assert.True(sweep.ExitCode == 2, world.Explain(sweep, "a pool directory that is a link"));
+
+        Assert.True(File.Exists(bystander), "the sweep deleted a file outside the output directory.");
+        Assert.Equal(world.FixtureBytes, File.ReadAllBytes(bystander));
+        Assert.False(
+            File.Exists(Path.Combine(elsewhere, LeadAssembly)),
+            "the sweep pooled an assembly outside the output directory.");
+    }
+
+    /// <summary>
+    /// A sweep leaves what the caller put beside the pool alone.
+    ///
+    /// <para>The reconciliation is scoped to <c>packages/</c> on purpose, because the
+    /// output directory is shared: <c>deep-inspect.yml</c> writes its acquisition log into
+    /// the output directory, beside <c>packages/</c> rather than inside it. The scope is
+    /// what keeps a step that deletes from reaching that file, and the scope is one
+    /// argument -- measured, widening the walk from <c>packages/</c> to the output
+    /// directory deleted a planted sibling and left all nineteen cases green.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepLeavesWhatTheCallerPutBesideThePoolAlone()
+    {
+        using var world = SweepWorld.Create();
+
+        Directory.CreateDirectory(world.OutputDirectory);
+        string sibling = Path.Combine(world.OutputDirectory, "acquisition.log");
+        File.WriteAllBytes(sibling, world.FixtureBytes);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a file beside the pool"));
+
+        Assert.True(File.Exists(sibling), "the sweep removed a file beside the pool.");
+        Assert.Equal(world.FixtureBytes, File.ReadAllBytes(sibling));
+
+        // Nor claimed as one, which is the half a run could get wrong while leaving the
+        // file alone.
+        Assert.DoesNotContain(sibling, world.ReportedRemovals(sweep));
+    }
+
+    /// <summary>
+    /// Removing a leftover from the pool frees the name, and not the bytes another name
+    /// still refers to.
+    ///
+    /// <para>The reconciliation treats a hard link as the file it is indistinguishable
+    /// from, which is right, and rests on unlinking a name being the only thing that
+    /// happens. Nothing held it to that: a walk that truncated each leftover before
+    /// unlinking it emptied a consumer's file through a shared inode and left all nineteen
+    /// cases green, because from inside the pool the outcome looks identical.</para>
+    ///
+    /// <para>The plant here is a leftover to be reconciled away, which is a different path
+    /// from
+    /// <see cref="ASweepReplacesWhatIsPlantedAtItsDestinationRatherThanWritingThroughIt"/>:
+    /// there the hard link stands at a destination and is replaced by a write, here it is
+    /// unrecorded and is removed by the walk.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRemovingALeftoverFreesTheNameAndNotTheBytesBehindIt()
+    {
+        using var world = SweepWorld.Create();
+
+        string outside = Path.Combine(world.Scratch, "consumer-owned.bin");
+        byte[] owned = [.. world.FixtureBytes.Take(64)];
+        File.WriteAllBytes(outside, owned);
+
+        string leftoverDirectory = Path.Combine(
+            world.OutputDirectory, "packages", "999-sweep.stale", "1.0.0");
+        Directory.CreateDirectory(leftoverDirectory);
+        string leftover = Path.Combine(leftoverDirectory, "Sweep.Stale.dll");
+        PlantAt(leftover, outside, Plant.HardLink);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 0, world.Explain(sweep, "a leftover hard-linked outside the pool"));
+
+        Assert.False(File.Exists(leftover), "the leftover was not removed.");
+        Assert.Contains(leftover, world.ReportedRemovals(sweep));
+
+        // The bytes the other name still refers to, untouched: unlinking is all that
+        // happened.
+        Assert.True(File.Exists(outside), "the sweep deleted a file outside the pool.");
+        Assert.Equal(owned, File.ReadAllBytes(outside));
+    }
+
+    /// <summary>
+    /// A leftover whose name differs from a recorded one only in case is a leftover.
+    ///
+    /// <para>The recorded set is compared ordinally. Comparing it any other way lets an
+    /// unrecorded file pass for the recorded one it resembles and stay in the pool over an
+    /// exit code of 0 -- measured, a case-insensitive comparer left all nineteen cases
+    /// green while the planted file survived.</para>
+    ///
+    /// <para>Skipped where the filesystem cannot tell the two names apart, because there
+    /// the planted file is the recorded file and the case would be asserting nothing. An
+    /// earlier version of this claim said the assertion would be vacuous everywhere, which
+    /// was simply wrong: where the two names coexist, only one of them is recorded.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRemovesALeftoverThatDiffersFromARecordedNameOnlyInCase()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+
+        // Beside the subject's own pooled assembly, differing from it only in case.
+        string pooled = world.SubjectDestination;
+        string variant = Path.Combine(
+            Path.GetDirectoryName(pooled)!,
+            Path.GetFileName(pooled).ToUpperInvariant());
+
+        if (string.Equals(variant, pooled, StringComparison.Ordinal) || File.Exists(variant))
+            Assert.Skip("this filesystem cannot hold both spellings, so the plant is the recorded file.");
+
+        File.WriteAllBytes(variant, world.FixtureBytes);
+
+        var second = world.Run();
+
+        Assert.True(second.ExitCode == 0, world.Explain(second, "a leftover differing only in case"));
+
+        Assert.False(File.Exists(variant), "the case-variant leftover stayed in the pool.");
+        Assert.True(File.Exists(pooled), "the recorded assembly was removed instead.");
+        world.AssertPoolMatchesRecord([variant]);
     }
 
     /// <summary>
@@ -1331,6 +1508,15 @@ public class EvilPoolSweepGateTests
             Assert.True(File.Exists(ManifestPath), Explain(sweep, "a run that wrote no manifest"));
             return JsonNode.Parse(File.ReadAllText(ManifestPath))!;
         }
+
+        /// <summary>
+        /// The paths the sweep recorded removing from the pool, in the order it recorded
+        /// them. The manifest is the gate on those removals; the stderr line beside each
+        /// one is an operator convenience and is not asserted anywhere.
+        /// </summary>
+        public string[] ReportedRemovals((int ExitCode, string Output, string Errors) sweep) =>
+            [.. (ReportedManifest(sweep)["RemovedFromPool"]?.AsArray() ?? [])
+                .Select(removed => removed!.GetValue<string>())];
 
         /// <summary>
         /// What the sweep recorded became of the temporary a failing write went through:

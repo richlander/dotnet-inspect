@@ -386,6 +386,27 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
     return;
 }
 
+// The pool root has to be a directory this step owns, because everything downstream is
+// bounded by it: the copies land under it, and the reconciliation deletes what it finds
+// under it. ReconcilePool refuses to descend through a link precisely so that deletion
+// cannot leave the pool -- but that argument is only as good as the boundary it starts
+// from, and CreateDirectory is satisfied by an existing symlink. Measured: with the pool
+// root a link, a sweep wrote its assemblies outside the output directory, deleted a file
+// outside it, and exited 0.
+//
+// Refused rather than replaced. Removing the link would be this step deleting something
+// the caller put there, on a path the caller named, which is a bigger liberty than
+// refusing to run.
+if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
+{
+    Console.Error.WriteLine(
+        $"The pool directory '{packageDirectory}' is a link to '{pooledElsewhere}'. "
+        + "This step writes and deletes under that directory, so it must be a real "
+        + "directory rather than a link out of the output directory.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 // The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
@@ -762,11 +783,12 @@ if (unwritable is not null)
 // How the walk itself is bounded, and why every removal is recorded, is on ReconcilePool.
 var removedFromPool = new List<string>();
 
-// Ordinal, because these are paths on a filesystem that distinguishes case, and
-// comparing them any other way would let an unrecorded file whose name differs from a
-// recorded one only in case pass for the recorded one and stay in the pool. That is
-// unverified: no case here plants such a file, because whether the assertion means
-// anything depends on the filesystem the suite happens to run on.
+// Ordinal, because these are paths, and comparing them any other way would let an
+// unrecorded file whose name differs from a recorded one only in case pass for the
+// recorded one and stay in the pool. Gated where the filesystem can tell the two names
+// apart, and skipped where it cannot, rather than left unverified: the earlier claim
+// that such a case "would pass whichever way the code was written" was simply wrong on
+// a case-sensitive filesystem, where the two files coexist and only one is recorded.
 var recordedAssemblies = new HashSet<string>(
     assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
 string? unreconciled = null;
@@ -814,10 +836,18 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
     // enumeration this replaced materialized for its own reasons; it is spelled out here
     // so the property is not re-lost by someone making the walk lazy again.
     //
-    // Unverified rather than gated: on ext4 the skip does not happen, measured over 5000
+    // That much is unverified: on ext4 the skip does not happen, measured over 5000
     // entries, so a case asserting it would pass on this filesystem whichever way the
-    // code was written and would be evidence of nothing.
-    FileSystemInfo[] entries = [.. new DirectoryInfo(directory).EnumerateFileSystemInfos()];
+    // code was written.
+    //
+    // Sorted, so that a destructive walk visits the pool in an order that does not depend
+    // on how the filesystem happens to lay a directory out. What this step did before a
+    // failure is part of what it reports, so which removals precede a failure has to be a
+    // fact about the pool rather than about readdir -- otherwise the case that holds the
+    // report to the disk is only sometimes exercising the path it is about.
+    FileSystemInfo[] entries =
+        [.. new DirectoryInfo(directory).EnumerateFileSystemInfos()
+            .OrderBy(entry => entry.FullName, StringComparer.Ordinal)];
 
     foreach (FileSystemInfo entry in entries)
     {
