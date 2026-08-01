@@ -496,7 +496,7 @@ fires on **0** of the 3,105 lines qualifying to stack before it runs.
 The specification above is implemented in `AnnotationCaret` and shipped in
 [#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `721adb61a`.
 Every figure below it was re-measured after
-[#3661](https://github.com/richlander/dotnet-inspect/pull/3661) taught the
+[#3674](https://github.com/richlander/dotnet-inspect/pull/3674) taught the
 anchor to adopt a printed descendant for a fact whose own node prints nothing,
 which gave 1,841 more facts an extent and moved almost every number here. Each
 probe was first replayed against `74b4f546c` and reproduced the superseded
