@@ -755,11 +755,23 @@ if (unwritable is not null)
 // Reconciling afterwards touches only what the run did not record.
 //
 // Scoped to packages/, which is the sweep's own: it names every child and records what
-// it put there. Files elsewhere under the output directory belong to the caller.
-// Deletions are announced -- a leftover the sweep removes is still a fault somewhere,
-// and a silent cleanup is how one goes unnoticed for a release.
+// it put there. Files elsewhere under the output directory belong to the caller -- the
+// deep-inspect workflow writes its acquisition log into the output directory, beside
+// packages/ rather than inside it, and it is not this step's to remove.
+//
+// Every removal is recorded in the manifest, not merely printed. This step deletes
+// unrecorded files under packages/, and a write temporary this run leaked is an
+// unrecorded file under packages/ -- so a reconciliation that only cleaned up would
+// quietly erase the evidence of a leak, and the disk check in EvilPoolSweepGateTests
+// that used to catch one would pass over a swept pool. Measured: with the removals
+// unreported, a sweep that skipped its temporary cleanup while still reporting it as
+// "removed" left all seventeen cases green. Recording them keeps the fact the check was
+// looking for, and puts it where an operator reads it: a run that had to remove
+// anything is a run where something else went wrong.
+var removedFromPool = new List<string>();
 var recordedAssemblies = new HashSet<string>(
     assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
+string? unreconciled = null;
 try
 {
     foreach (string pooled in Directory.GetFiles(packageDirectory, "*", SearchOption.AllDirectories))
@@ -768,6 +780,7 @@ try
             continue;
 
         File.Delete(pooled);
+        removedFromPool.Add(pooled);
         Console.Error.WriteLine(
             $"removed '{pooled}' from the pool: this sweep did not record it.");
     }
@@ -777,10 +790,12 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     // Reported, and the run fails: the pool now holds something the record does not
     // name, which is the state this whole step exists to prevent. Exiting 0 here would
     // hand a consumer a pool the manifest misdescribes.
-    Console.Error.WriteLine(
-        $"Could not reconcile the pool under '{packageDirectory}' with the record: {ex.Message}");
+    unreconciled = $"Could not reconcile the pool under '{packageDirectory}': {ex.Message}";
+    Console.Error.WriteLine(unreconciled);
     Environment.ExitCode = 1;
 }
+
+removedFromPool.Sort(StringComparer.Ordinal);
 
 var manifest = new PackageSweepManifest(
     SchemaVersion: 1,
@@ -789,7 +804,9 @@ var manifest = new PackageSweepManifest(
     StartRank: startRank,
     RequestedPackageCount: packageCount,
     SelectedPackageCount: assemblies.Count,
-    Packages: results);
+    Packages: results,
+    RemovedFromPool: removedFromPool,
+    Unreconciled: unreconciled);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
 unwritable = (await ReplaceTextOrReport(
     manifestPath,
@@ -1352,7 +1369,22 @@ sealed record PackageSweepManifest(
     int StartRank,
     int RequestedPackageCount,
     int SelectedPackageCount,
-    IReadOnlyList<SweepPackageResult> Packages);
+    IReadOnlyList<SweepPackageResult> Packages,
+
+    /// <summary>
+    /// Files this run deleted from <c>packages/</c> because it did not record them.
+    /// Empty for a run that found the pool already agreeing with its record, which is
+    /// every ordinary run: a non-empty list means either a previous sweep's leftovers
+    /// were still there or this one leaked something, and both are worth seeing.
+    /// </summary>
+    IReadOnlyList<string> RemovedFromPool,
+
+    /// <summary>
+    /// Why the pool could not be reconciled with the record, or null when it was. Set
+    /// only alongside a non-zero exit code: the pool holds a file the record does not
+    /// name, so the manifest describes it rather than pretending otherwise.
+    /// </summary>
+    string? Unreconciled);
 
 sealed record SweepPackageResult(
     int Rank,

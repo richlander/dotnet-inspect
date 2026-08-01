@@ -556,7 +556,11 @@ public class EvilPoolSweepGateTests
         Assert.Equal("acquisition-failed", world.ReportedStatus(second));
 
         world.AssertOnlyTheLeadWasPooled(second);
-        world.AssertNoTemporaryLeftBehind();
+
+        // Named, not merely gone. The sweep says which file it removed, so a run that had
+        // to remove one is visible to whoever reads the manifest -- and so a leak this
+        // step would otherwise quietly tidy away cannot pass for a clean pool.
+        world.AssertPoolMatchesRecord([world.SubjectDestination]);
     }
 
     /// <summary>
@@ -643,6 +647,64 @@ public class EvilPoolSweepGateTests
 
         world.AssertOnlyTheLeadWasPooled(sweep);
         world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// A sweep that cannot reconcile the pool with its record says so, and fails.
+    ///
+    /// <para>The other side of <see cref="ASweepIntoAReusedDirectoryPoolsOnlyWhatItRecorded"/>:
+    /// there the leftover is removed, here it cannot be. Exiting 0 would hand a consumer a
+    /// pool holding an assembly the manifest does not name, which is the state the
+    /// reconciliation exists to prevent -- so the failure to prevent it has to be as loud
+    /// as the thing it was preventing.</para>
+    ///
+    /// <para>The stray sits in a directory of its own, and every package the sweep is
+    /// about is acquired, copied, and recorded normally. That is deliberate and is what
+    /// makes the case about the reconciliation: an earlier shape here made the
+    /// <em>subject's own</em> directory unwritable, which fails the copy, and a copy
+    /// failure exits 1 too -- so the case passed while the exit code under test was
+    /// mutated to 0. Nothing else in this run can fail, so the exit code can only have
+    /// come from the reconciliation. Measured after the rework: setting that exit code to
+    /// 0 turns this case, and only this case, red.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotReconcileThePoolSaysSoAndFails()
+    {
+        using var world = SweepWorld.Create();
+
+        // A file the sweep will not record, in a directory that will not let it go. Given
+        // a rank no window here reaches, so it is a leftover rather than a destination.
+        string stallDirectory = Path.Combine(
+            world.OutputDirectory, "packages", "999-sweep.stale", "1.0.0");
+        Directory.CreateDirectory(stallDirectory);
+        string stale = Path.Combine(stallDirectory, "Sweep.Stale.dll");
+        File.WriteAllBytes(stale, world.FixtureBytes);
+        MakeUnwritable(stallDirectory);
+
+        try
+        {
+            var sweep = world.Run();
+
+            Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pool that cannot be reconciled"));
+
+            // Still there -- which is the point, and why the run had to fail.
+            Assert.True(File.Exists(stale), "the leftover was removed after all.");
+
+            // The reason, in the manifest rather than only on stderr: a consumer reading
+            // the pool reads this file, and a pool that could not be reconciled is one its
+            // record misdescribes.
+            Assert.NotNull(world.ReportedManifest(sweep)["Unreconciled"]?.GetValue<string>());
+
+            // Both packages were pooled and recorded: the run did its work, and the
+            // failure is about the pool it could not clean rather than about them.
+            Assert.Equal("selected", world.ReportedStatus(sweep));
+            Assert.True(File.Exists(world.LeadDestination), "the lead was not pooled.");
+            Assert.True(File.Exists(world.SubjectDestination), "the subject was not pooled.");
+        }
+        finally
+        {
+            RestoreWritable(stallDirectory);
+        }
     }
 
     /// <summary>
@@ -1357,7 +1419,24 @@ public class EvilPoolSweepGateTests
         /// those is a sweep that did not finish -- measured: suppressing the write whenever
         /// the pool came out empty left every case green.</para>
         /// </summary>
-        public void AssertNoTemporaryLeftBehind()
+        public void AssertNoTemporaryLeftBehind() => AssertPoolMatchesRecord(removals: []);
+
+        /// <summary>
+        /// The pool holds exactly what the sweep recorded, and the sweep says which files
+        /// it had to remove to make that true.
+        ///
+        /// <para>The removals are the half a set difference over the disk cannot see. The
+        /// sweep deletes unrecorded files under <c>packages/</c>, and a write temporary it
+        /// leaked is an unrecorded file under <c>packages/</c> -- so once it started
+        /// reconciling, a sweep that skipped its cleanup and still reported the temporary
+        /// as <c>removed</c> had the evidence swept up behind it, and the disk check that
+        /// used to catch exactly that passed. Measured: with the removals unreported, that
+        /// mutation left all seventeen cases green, and reverting the reconciliation turned
+        /// it red again. Asking what the sweep removed puts the fact back, and takes it
+        /// from the sweep's own record rather than from a name this harness would have to
+        /// know.</para>
+        /// </summary>
+        public void AssertPoolMatchesRecord(string[] removals)
         {
             if (!Directory.Exists(OutputDirectory))
                 return;
@@ -1378,6 +1457,13 @@ public class EvilPoolSweepGateTests
                     .Order(StringComparer.Ordinal)];
 
             Assert.Equal(expected, present);
+
+            var manifest = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
+            Assert.Null(manifest["Unreconciled"]?.GetValue<string>());
+            string[] recordedRemovals =
+                [.. (manifest["RemovedFromPool"]?.AsArray() ?? [])
+                    .Select(removed => removed!.GetValue<string>())];
+            Assert.Equal<IEnumerable<string>>(removals, recordedRemovals);
         }
 
         public void Dispose()
