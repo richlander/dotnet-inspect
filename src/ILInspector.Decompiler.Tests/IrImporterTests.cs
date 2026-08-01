@@ -3670,16 +3670,19 @@ public class RaisingPassTests
     [Fact]
     public void UnraisedLocalFunctionCall_RendersSanitizedNameNotSourceName()
     {
-        // A call to the compiler-generated local function <Outer>g__Helper|0_0 that no
-        // pass raised — CSharpPrinter.Print has no cross-method resolver, so
-        // LocalFunctionRaisingPass never runs and no declaration of Helper is emitted.
-        // Rendering the call as `Helper()` would therefore be a call to a method that
-        // exists nowhere: CS0103 dressed as ordinary recovered C# (#3631). The
-        // sanitized spelling keeps the compiler-generated identity visible instead, and
-        // the method degrades to Partial.
+        // A call to the compiler-generated local function <Outer>g__Helper|0_0 that the
+        // raising pass considered and declined — the seam is present but the body
+        // cannot be imported, so no declaration of Helper is emitted. Rendering the
+        // call as `Helper()` would therefore be a call to a method that exists nowhere:
+        // CS0103 dressed as ordinary recovered C# (#3631). The sanitized spelling keeps
+        // the compiler-generated identity visible instead, and the method degrades to
+        // Partial.
         var voidType = TypeRef.CoreLib("System", "Void");
         var callee = new MethodRef(TypeRef.CoreLib("Synthetic", "Owner"),
-            "<Outer>g__Helper|0_0", voidType, [], HasThis: false);
+            "<Outer>g__Helper|0_0", voidType, [], HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
 
         var container = new BlockContainer();
         var block = new Block(0);
@@ -3689,7 +3692,7 @@ public class RaisingPassTests
         var signature = new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "Owner"), signature, [], container);
 
-        IrPasses.Run(function);
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(_ => null));
         string output = CSharpPrinter.Print(function).Output!;
 
         Assert.DoesNotContain("Helper()", output);

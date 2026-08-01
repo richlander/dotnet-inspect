@@ -33,8 +33,40 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        // Without the cross-method seam this pass cannot import a body, so it is a
+        // no-op — it never looks at a call and therefore has no opinion to record.
+        // Stamping here would report "declined" for calls the pass never considered,
+        // and the product always supplies the seam.
         if (context.ImportMethodBody is null)
             return;
+
+        RaiseCalls(function, context);
+
+        // A call whose local-function name has no matching declaration in the output is
+        // one this pass considered and did not raise. Stamp it while that is known: the
+        // printer and fidelity must not re-derive it from the name, which reads
+        // identically before the pass runs, when the very same call may still be
+        // raised (#3631). Keyed on the emitted declarations rather than on the
+        // CompilerGenerated fact that gates raising, because the question here is about
+        // this pass's own output: a mangled call left undeclared must be spelled
+        // honestly even when that metadata fact was unavailable.
+        var declared = function.Descendants
+            .OfType<LocalFunctionStatement>()
+            .Select(d => d.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var call in function.Descendants.OfType<Call>())
+        {
+            if (GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(call.Callee.Name)
+                && !declared.Contains(CSharpNaming.MethodName(call.Callee.Name)))
+            {
+                call.MarkLocalFunctionRaiseDeclined();
+            }
+        }
+    }
+
+    static void RaiseCalls(IrFunction function, PassContext context)
+    {
 
         var groups = function.Descendants.OfType<Call>()
             .Where(c => c.Parent is not null && GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee))

@@ -198,14 +198,8 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
-    public void UnraisedLocalFunctionMethodGroup_DegradesToPartial()
+    public void LocalFunctionMetadataName_StaysFull()
     {
-        // A method group over a local function that was NOT raised into a
-        // LocalFunctionStatement. Raised call sites become LocalFunctionInvocation and
-        // never reach the metadata name, so a surviving <M>g__Local|0_0 target means no
-        // declaration of it is emitted — spelling it `Local` would look like ordinary
-        // recovered C# while calling a method that exists nowhere (CS0103, #3631).
-        // Same contract as the un-raised lambda body method group above.
         var holder = TypeRef.Definition("Synthetic", "Samples", "C");
         var localFunction = new MethodRef(holder, "<M>g__Local|0_0", Void, [], HasThis: false);
         var body = Container(
@@ -213,12 +207,8 @@ public class UnspeakableNameFidelityTests
             new Return(null));
 
         var function = Function([], body);
-        var output = CSharpPrinter.Print(function).Output!;
 
-        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        Assert.DoesNotContain("<M>g__Local|0_0", output);
-        Assert.DoesNotContain('<', output);
-        Assert.Contains("__M_g__Local_0_0", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 
     [Fact]

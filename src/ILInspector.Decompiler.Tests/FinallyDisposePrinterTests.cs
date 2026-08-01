@@ -32,12 +32,8 @@ public class FinallyDisposePrinterTests
         var function = IrImporter.Import(source, typeof(FinallyDisposeNestedSamples).FullName!,
             nameof(FinallyDisposeNestedSamples.DisposeWithNestedLocalFunction));
         Assert.NotNull(function);
-        var body = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method)).Output!;
-        // Asserted after raising, which is the state the rendered output describes: the
-        // nested local function is raised into a declaration here, so nothing degrades.
-        // Before raising the body still holds a Call to the synthesized <...>g__ method,
-        // which is honestly Partial — that is the #3631 contract.
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        var body = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method)).Output!;
 
         Assert.Contains("is null", body);
         Assert.DoesNotContain("!S_", body);

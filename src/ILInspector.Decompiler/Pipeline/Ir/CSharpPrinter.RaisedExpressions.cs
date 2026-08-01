@@ -483,6 +483,6 @@ public sealed partial class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        return $".{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+        return $".{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
     }
 }

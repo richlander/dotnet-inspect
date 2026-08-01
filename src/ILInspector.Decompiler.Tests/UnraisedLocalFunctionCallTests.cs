@@ -17,12 +17,16 @@ namespace ILInspector.Decompiler.Tests;
 /// with no diagnostic and no fidelity downgrade at any verbosity.
 /// </para>
 /// <para>
-/// The split these tests pin is structural rather than heuristic: every call site of a
-/// <em>raised</em> local function is rewritten to a <see cref="LocalFunctionInvocation"/>,
-/// so a surviving <see cref="Call"/> carrying a <c>&gt;g__</c> name is by construction
-/// one the pass declined. Hence the two halves — the spelling must show the
-/// compiler-generated identity, and the fidelity must degrade — and the raised control
-/// must keep both its source spelling and <see cref="DecompilationFidelity.Full"/>.
+/// The discriminator is the pass's own stamp, not the shape of the name. Before
+/// <see cref="LocalFunctionRaisingPass"/> runs, a local function that WILL be raised
+/// carries an identical <c>&gt;g__</c> name, so judging by the name alone degrades
+/// methods whose final output is perfectly valid — the real-world corpus sensor
+/// measured exactly that. Instead the pass, the only component that knows, stamps
+/// <see cref="MethodRef.LocalFunctionRaiseDeclined"/> on every call it considered and
+/// left undeclared; the printer and fidelity both read that stamp. Hence the two
+/// halves — the spelling must show the compiler-generated identity, and the fidelity
+/// must degrade — the raised control must keep both its source spelling and
+/// <see cref="DecompilationFidelity.Full"/>, and the no-seam case must be left alone.
 /// </para>
 /// </remarks>
 [Trait("Area", "Pass")]
@@ -84,6 +88,34 @@ public class UnraisedLocalFunctionCallTests
         Assert.Contains("static int F(", output);
         Assert.Contains("return F(", output);
         Assert.DoesNotContain("_g__F_", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    /// <summary>
+    /// The gate for the boundary that keeps the stamp meaningful: without the
+    /// cross-method seam <see cref="LocalFunctionRaisingPass"/> is a documented no-op,
+    /// so it never considers a call and must stamp nothing. Were it to stamp here, it
+    /// would report "declined" for calls it never looked at — which is what the
+    /// real-world corpus sensor (it runs the pass with <see cref="PassContext.None"/>)
+    /// detected as a fidelity regression across methods whose product output is valid.
+    /// </summary>
+    [Fact]
+    public void WithoutTheCrossMethodSeam_NoCallIsStampedAndFidelityIsUnchanged()
+    {
+        var type = typeof(UnraisedLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(UnraisedLocalFunctionSamples.CallsUnraisedTry));
+        Assert.NotNull(function);
+
+        // The default corpus-sensor configuration: passes run, no import seam.
+        IrPasses.Run(function!);
+
+        var calls = function!.Descendants.OfType<Call>()
+            .Where(call => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(call.Callee.Name))
+            .ToList();
+        Assert.NotEmpty(calls);
+        Assert.All(calls, call => Assert.False(call.Callee.LocalFunctionRaiseDeclined));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 }

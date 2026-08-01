@@ -37,6 +37,21 @@ public sealed record MethodRef(
     ImmutableArray<TypeRef> ParameterTypes,
     bool HasThis)
 {
+    /// <summary>
+    /// Set by <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> on a
+    /// call to a compiler-synthesized local function that the pass ran over and did NOT
+    /// raise. The pass is the only component that knows: the mangled name alone cannot
+    /// answer it, because before the pass runs every local-function call site still
+    /// carries that name, and after it runs the raised ones are
+    /// <see cref="LocalFunctionInvocation"/> nodes instead. Consumers that must not
+    /// present a source spelling with no matching declaration — the printer via
+    /// <see cref="CSharpNaming.SourceMethodName(MethodRef)"/> and fidelity via
+    /// <see cref="ILInspector.Decompiler.Pipeline.CSharpSpellability"/> — read this
+    /// rather than re-deriving it from display text (#3631). Never set on IR that has
+    /// not been through the pass, where the question is genuinely unanswerable.
+    /// </summary>
+    public bool LocalFunctionRaiseDeclined { get; init; }
+
     /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
@@ -2028,8 +2043,16 @@ public sealed class Call : IrExpression
             AddChild(argument);
     }
 
-    public MethodRef Callee { get; }
+    public MethodRef Callee { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <summary>
+    /// Stamps <see cref="MethodRef.LocalFunctionRaiseDeclined"/> on this call's callee.
+    /// Only <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> may
+    /// call this, once it has run and left the call unraised.
+    /// </summary>
+    internal void MarkLocalFunctionRaiseDeclined()
+        => Callee = Callee with { LocalFunctionRaiseDeclined = true };
 
     /// <summary>The constrained. prefix type for constrained callvirt; null otherwise.</summary>
     public TypeRef? ConstrainedTo { get; init; }

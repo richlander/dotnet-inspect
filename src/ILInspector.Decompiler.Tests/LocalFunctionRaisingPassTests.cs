@@ -286,7 +286,12 @@ public class LocalFunctionRaisingPassTests
 
         Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
         Assert.Empty(function.Descendants.OfType<LocalFunctionInvocation>());
-        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee == first);
+        // The call still targets `first` and is now stamped as declined; comparing the
+        // callee with the stamp cleared proves the stamp is the ONLY thing that changed.
+        var survivor = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee with { LocalFunctionRaiseDeclined = false } == first);
+        Assert.True(survivor.Callee.LocalFunctionRaiseDeclined);
         function.CheckInvariant();
     }
 
