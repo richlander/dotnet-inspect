@@ -26,16 +26,20 @@ several different sub-expressions, that produces a caret that points at
 everything and therefore at nothing, above a stack of details with no way to
 tell which detail belongs to which expression.
 
-`System.Tuple<…>.Equals` is the worst real case in the corpus — 16 facts, one
-330-column caret:
-
-The line is 330 columns wide, so it is elided here at the `…`:
+`System.Tuple<…>.Equals` is the worst real case in the corpus. Under
+`--focus alloc` its comparison line carries 16 facts under a single caret 370
+columns wide, above 106 wrapped detail rows, and attributes none of them. The
+code line is 374 columns, so it is elided here at the `…`:
 
 ```csharp
-return comparer.Equals(m_Item1, V_0.m_Item1) && comparer.Equals(m_Item2, V_0.m_Item2) && … (330 cols)
-//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (330 carets)
-//   alloc.box(T1; …)   ×16, unattributed
+    return comparer.Equals(m_Item1, objTuple.m_Item1) && comparer.Equals(m_Item2, … (374 cols)
+//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ (370 carets)
+//   alloc.box(T1; alloc=boxed T1; path=branch; path-confidence=behind-branch; …  ×16, unattributed
 ```
+
+Under the model specified below the same line renders 8 numbered carets on a
+single row, with 8 of the 16 facts attributed to the expression each is about
+and the other 8 marked `-`.
 
 The facts are right. The anchoring is right. Only the render throws the
 information away.
@@ -60,8 +64,8 @@ depicts a layout that was never built. This one is
 [Reproducing these figures](#reproducing-these-figures).
 
 ```csharp
-    if (!V_0.IsMemberRef && !V_0.IsMethodDef && !V_0.IsTypeSpec && !V_0.IsSignature && !V_0.IsFieldDef)
-//     1.^^^^^^^^^^^^^^^   2.^^^^^^^^^^^^^^^   3.^^^^^^^^^^^^^^   4.^^^^^^^^^^^^^^^   5.^^^^^^^^^^^^^^
+    if (!tk.IsMemberRef && !tk.IsMethodDef && !tk.IsTypeSpec && !tk.IsSignature && !tk.IsFieldDef)
+//     1.^^^^^^^^^^^^^^   2.^^^^^^^^^^^^^^   3.^^^^^^^^^^^^^   4.^^^^^^^^^^^^^^   5.^^^^^^^^^^^^^
 //  1. cost.callee(callee get_IsMemberRef: reflection)
 //  2. cost.callee(callee get_IsMethodDef: reflection)
 //  3. cost.callee(callee get_IsTypeSpec: reflection)
@@ -73,7 +77,8 @@ depicts a layout that was never built. This one is
 
 1. **Group facts by extent.** The unit is the extent, not the fact. Facts about
    the same characters share one caret and one number, their texts listed
-   together under it. `Tuple.Equals` renders 8 carets for its 16 facts.
+   together under it. Under `--focus alloc`, `Tuple.Equals` renders 8 carets
+   for its 16 facts.
 2. **Order by start column, widest first at a tie.** Extents sharing a start
    column are always a nesting, so they cannot share a row; widest-first makes
    each row narrower than the one above, and matches the order the printer
@@ -105,7 +110,7 @@ depicts a layout that was never built. This one is
    when any label on a line would begin left of the gutter, that line does not
    stack at all: it falls back to the widening render this document replaces.
    This is a guard rather than a path with traffic — it fires on **0 of the
-   3,385 lines that stack** in the corpus below — but it is reachable, and a
+   2,842 lines that stack** in the corpus below — but it is reachable, and a
    line is never rendered with a label that lies about its column.
 
 Rule 4's two-column threshold is a *spill* threshold, not a render floor: a
@@ -143,39 +148,43 @@ worse than no caret, because it is actively misleading.
 
 Every caret lies within the code line and a row cannot extend past its last
 caret, so **a stacked caret row never adds width the code line did not already
-have.** Measured on all 3,385 lines this model changes: 0 have a stacked caret
-row wider than their code line, against 137 (4.05%) under the widening render
-it replaces.
+have.** Measured on all 2,842 lines this model changes: 0 have a stacked caret
+row wider than their code line, against 20 (0.70%) under the widening render it
+replaces.
 
 Widths below are **final rendered columns**, measured after the same projection
 `ApiOutputFormatter` applies — code lines receive `BodyIndentWidth`, hoisted
 caret lines do not — and the caret block is real rendered output, detail rows
-included. Whole rendered block on those 3,385 lines:
+included. Whole rendered block on those 2,842 lines:
 
 | terminal | widen (today) | stacked |
 | --- | ---: | ---: |
-| 80 cols | 27.8% | 28.0% |
-| 100 cols | 53.3% | 53.3% |
-| 120 cols | 69.5% | 69.5% |
-| 160 cols | 86.5% | 86.5% |
+| 80 cols | 23.3% | 23.4% |
+| 100 cols | 48.3% | 48.3% |
+| 120 cols | 65.9% | 65.9% |
+| 160 cols | 84.9% | 84.9% |
 
 Terminal fit is unchanged, because on these dense lines the block width is set
-by the wrapped detail rows, which both models share. What changes is the block:
-91.0% narrower, 0.4% the same, 8.6% wider. So stacking buys attribution at no
-cost in fit — it does not improve fit, and this document should not claim it
-does.
+by the wrapped detail rows, which both models share. Nor does the block itself
+shrink: it is the same width on 91.8% of these lines, narrower on 1.1%, and
+wider on 7.2% — the numbered labels cost a few columns where the details were
+already the widest thing in the block.
+
+**Stacking buys attribution, and nothing else.** It does not improve fit, it
+does not narrow the block, and this document should not claim either.
 
 The constraint still binds on the *alternatives*, which is why it is stated
-here: side-alignment overflows the code line on 97.28% of caret-bearing lines
-by a mean of 81 columns, and fits 25.4% of them at 80 columns against 76.5% for
-the bare code.
+here: side-alignment overflows the code line on 96.61% of the 29,933 lines
+carrying an extent, by a mean of 77 columns, and fits 28.1% of them at 80
+columns against 75.7% for the bare code.
 
 ### Mixed lines
 
 A **mixed** line carries facts of both kinds: some with an extent, some
-without. There are 615 of them in the corpus, and 499 have exactly one
-surviving extent, so this is not a corner. (The overlay render is a different
-population: 609 and 498.)
+without. Summed over the five focus families there are 355 of them, and 254
+have exactly one surviving extent, so this is not a corner. They are not spread
+evenly: 298 fall under `--focus alloc`, 47 under `safety`, 10 under `cost`, and
+none at all under `unsafe` or `lifetime`.
 
 Today they widen. The reasoning was sound while a caret was the only signal
 available: narrowing to the one surviving extent would underline an expression
@@ -184,29 +193,32 @@ ambiguity that argument rests on — an extent-less fact is now visibly marked
 `-` rather than silently sharing an underline — so the surviving extent is
 drawn.
 
-The dominant shape, and the reason this matters, is `stackalloc` — here in
-`Interop.CallStringMethod` under `--focus lifetime`, first as it renders today:
+A throw helper in `System.MemoryExtensions` is the shape this matters for.
+Under `--focus alloc` it renders today as:
 
 ```csharp
-    Span<char> V_0 = stackalloc char[256];
-//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//   unsafe.stackalloc(byte*)
-//   lifetime.stack-bound(Span<char>)
+    throw new ArgumentNullException((lowInclusive) is null ? "lowInclusive" : "highInclusive");
+//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//   alloc.box(T; alloc=boxed T; path=straight-line)
+//   alloc.new(ArgumentNullException; alloc=System.ArgumentNullException; path=error-path;
+//   escape=throw-path; multiplicity=conditional)
 ```
 
-Both facts are about `stackalloc char[256]`, but only `lifetime.stack-bound`
-carries an extent; `AnnotationAnchor` does not place `unsafe.stackalloc`. So the
-`-` is a statement about *this pipeline's* knowledge, not about the fact — it
-says no characters were identified for it, which is weaker than and different
-from a claim that it covers the whole statement. Widening, meanwhile,
-underlines `Span<char> V_0 =` as well, which neither fact claims. Under
-rule 7:
+The `alloc.new` is about `new ArgumentNullException(…)` and carries an extent.
+The `alloc.box` is about the boxing of `lowInclusive` for the `is null` test,
+and `AnnotationAnchor` does not place it. Widening underlines the `throw`
+keyword as well, which neither fact claims, and gives the reader no way to tell
+that only one of the two facts was ever located. The `-` is a statement about
+*this pipeline's* knowledge, not about the fact: it says no characters were
+identified, which is weaker than and different from a claim that the fact
+covers the whole statement. Under rule 7:
 
 ```csharp
-    Span<char> V_0 = stackalloc char[256];
-//                 1.^^^^^^^^^^^^^^^^^^^^
-//  1. lifetime.stack-bound(Span<char>)
-//  -  unsafe.stackalloc(byte*)
+    throw new ArgumentNullException((lowInclusive) is null ? "lowInclusive" : "highInclusive");
+//      1.^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//  1. alloc.new(ArgumentNullException; alloc=System.ArgumentNullException; path=error-path;
+//     escape=throw-path; multiplicity=conditional)
+//  -  alloc.box(T; alloc=boxed T; path=straight-line)
 ```
 
 The `-` is doing real work here: it says the second fact has no characters to
@@ -215,12 +227,11 @@ point at, which is a different claim from "it is about the whole statement".
 Stacking needs at least one placeable fact. A line where *no* fact has an
 extent still has nothing to point at, so it widens exactly as before.
 
-- Lines whose facts all agree on one extent, and lines carrying a single fact,
-  keep exactly today's geometry, including the inline-detail shortcut. That is
-  25,628 lines: **88.3%** of the 29,013 lines carrying at least one extent, or
-  **81.0%** of all 31,640 caret-bearing lines. (It is *not* 90.1% — that is the
-  single-distinct-extent share, 26,127 of 29,013, and 499 of those are mixed
-  lines whose geometry does change. See [Measurements](#measurements).)
+- Lines whose focused facts all agree on one extent, and lines carrying a
+  single focused fact, keep exactly today's geometry, including the
+  inline-detail shortcut. That is **27,091 lines, 90.5%** of those carrying an
+  extent; see [Measurements](#measurements) for how that is counted and why the
+  focus family has to be named before the number means anything.
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
   where some other fact does have one: it is marked `-` instead of widening the
@@ -231,39 +242,57 @@ extent still has nothing to point at, so it widens exactly as before.
 ## Measurements
 
 CoreLib `11.0.0-preview.7.26366.102`, measured on the **annotated-source**
-render (`importMethodBody: ImportMethodBody`) — the one `--focus` produces.
+render — the one `--focus` produces.
+
+Two things decide what these figures mean, and both were got wrong in an
+earlier draft of this document:
+
+- **The focus filter comes first.** `--focus` promotes only the facts of the
+  requested family to carets; everything else stays a side comment and never
+  reaches `AnnotationCaret`. Counting every collected fact describes a render
+  no invocation produces, and inflates every figure here. Each line below is
+  counted **after** the filter, once per family.
+- **A user asks for one family at a time,** so there is no single corpus-wide
+  population. The totals are sums over the five families, and a line carrying
+  both an `alloc` and a `safety` fact is counted once under each — because that
+  is two different renders, and it is the render that is being measured.
+
 Extents are measured in printed characters, so a figure that does not name its
 render is not a claim about anything.
 
-| | |
-| --- | ---: |
-| caret-bearing lines | 31,640 |
-| …carrying at least one extent | 29,013 |
-| …with a single distinct extent | 26,127 (90.1%) |
-| …with two or more distinct extents | 2,886 (9.9%) |
-| worst line | 8 distinct extents |
+| focus | caret lines | …with an extent | single extent | multi-extent | mixed | stacks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `alloc` | 14,789 | 12,744 | 12,367 | 377 | 298 | 594 |
+| `safety` | 13,908 | 13,480 | 11,452 | 2,028 | 47 | 2,057 |
+| `cost` | 2,516 | 2,444 | 2,277 | 167 | 10 | 175 |
+| `lifetime` | 928 | 800 | 800 | 0 | 0 | 0 |
+| `unsafe` | 723 | 465 | 449 | 16 | 0 | 16 |
+| **total** | **32,864** | **29,933** | **27,345** | **2,588** | **355** | **2,842** |
 
-Of the 26,127 single-extent lines, all but 499 carry no extent-less fact and so
-keep today's geometry exactly — 25,628 lines, the 88.3% quoted above. The 499 are the mixed lines of rule 7, which gain a
-drawn caret and a `-` row where they previously widened:
+A line stacks when its focused facts disagree about the extent, or when some
+carry one and some do not: 2,588 multi-extent lines plus the 254 mixed lines
+with a single surviving extent gives **2,842**. Everything else — **27,091
+lines, 90.5%** of the 29,933 carrying an extent, or **82.4%** of all 32,864
+caret lines — keeps exactly today's geometry, including the inline-detail
+shortcut.
 
-| | |
-| --- | ---: |
-| mixed lines (facts both with and without an extent) | 615 |
-| …with exactly one surviving extent | 499 |
-| …with two or more | 116 |
+`--focus lifetime` never stacks: no line in CoreLib carries two lifetime facts
+that disagree about the extent. The gesture is worth having anyway, but this
+model is invisible under it, and a claim measured over all facts at once would
+have hidden that.
 
-Applying the specification above to those 2,886 multi-extent lines:
+Applying the specification to the 2,842 lines that stack:
 
 | rows | lines | |
 | --- | ---: | ---: |
-| 1 | 2,557 | 88.6% |
-| 2 | 326 | 11.3% |
-| 3 | 2 | 0.1% |
+| 1 | 2,543 | 89.5% |
+| 2 | 297 | 10.5% |
+| 3 | 1 | 0.0% |
 | 4 | 1 | 0.0% |
 
-3,949 of 6,986 trails (56.5%) render at true width, and 527 lines (18.3%) have
-no clipped trail at all. Clipping concentrates exactly where extents nest.
+3,884 of 6,566 trails (59.2%) render at true width. Clipping concentrates
+exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
+2,842.
 
 ### Reproducing these figures
 
@@ -274,17 +303,28 @@ Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
 
 ```bash
-dotnet-inspect member "System.Reflection.RuntimeModule" ResolveSignature \
-    --all --focus cost -S "Annotated Source"
-dotnet-inspect member "System.Globalization.HebrewCalendar" CheckHebrewYearValue \
-    --all --focus alloc -S "Annotated Source"
-dotnet-inspect member "System.Numerics.Vector" IsSubnormal \
-    --all --focus safety -S "Annotated Source"
-dotnet-inspect member "Interop" CallStringMethod \
-    --all --focus lifetime -S "Annotated Source"
+dotnet-inspect member RuntimeModule ResolveSignature \
+    --all --platform System.Private.CoreLib --focus cost -S "Annotated Source"
+dotnet-inspect member HebrewCalendar CheckHebrewYearValue \
+    --all --platform System.Private.CoreLib --focus alloc -S "Annotated Source"
+dotnet-inspect member Vector IsSubnormal \
+    --all --platform System.Private.CoreLib --focus safety -S "Annotated Source"
+dotnet-inspect member MemoryExtensions ThrowNullLowHighInclusive \
+    --all --platform System.Private.CoreLib --focus alloc -S "Annotated Source"
+dotnet-inspect member "System.Tuple<T1,T2,T3,T4,T5,T6,T7,TRest>" Equals:1 \
+    --all --platform System.Private.CoreLib --focus alloc -S "Annotated Source"
 ```
 
-`--all` is required: all but one of these members are non-public.
+Both flags matter. `--all` is required because all but one of these members are
+non-public. `--platform System.Private.CoreLib` is required because without it
+`RuntimeModule` does not resolve at all and `Interop`-style names resolve to a
+different assembly — and because the platform scope loads the PDB, so locals
+print as `tk` and `buffer` rather than `V_0`. A render taken without it will
+disagree with every snippet here.
+
+The two blocks labelled as today's render are the **widening** renderer, which
+is the behaviour this document replaces; they were taken at `f26fa8e0a`, the
+commit before the implementation.
 
 Columns in a snippet are **final rendered columns**, which is not the geometry
 the research render produces. Three coordinate systems exist and mixing them is
@@ -331,8 +371,9 @@ in this document the following is a mockup, not a render:
 ```
 
 Rejected as *the* style on measurement, not taste: aligning after the widest
-caret pushes text a mean **81 columns** past the end of the code line and
-overflows it on **97.28%** of caret lines, leaving 25.4% intact at 80 columns.
+caret pushes text a mean **77 columns** past the end of the code line and
+overflows it on **96.61%** of the lines carrying an extent, leaving 28.1%
+intact at 80 columns against 75.7% for the bare code.
 Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
 on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
 filed as #3610. It wraps three lines in four, and the wrap destroys the very
