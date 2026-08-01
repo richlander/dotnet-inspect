@@ -236,7 +236,10 @@ public static class AnnotationCaret
     /// collected fact describes a render no invocation produces — 27,091 of
     /// 32,864 caret-bearing lines (82.43%) narrow to one agreed extent, 8.65%
     /// carry facts that disagree, and 8.92% have no fact with a printed node to
-    /// point at. Agreement is entirely a single-fact phenomenon here: 29,550 of
+    /// point at. Only the middle group changes geometry: the narrowing lines and
+    /// the no-extent lines both render as they do today, so 30,022 of the 32,864
+    /// (91.35%) are untouched. The 82.43% is the narrowing share, not the
+    /// unchanged share, and must not be quoted as the latter. Agreement is entirely a single-fact phenomenon here: 29,550 of
     /// those lines hold one fact and 91.7% of them narrow, while none of
     /// the 2,282 two-fact, 714 three-fact or 318 four-or-more-fact lines
     /// narrows. Two facts of one family on one line never share an extent in
@@ -383,7 +386,8 @@ public static class AnnotationCaret
     /// a structural immunity: the last trail on a row has no successor, so its
     /// clip limit is <c>int.MaxValue</c> and it renders at true width by
     /// construction. Those 2,842 lines occupy 3,144 rows, so 3,144 of the 3,884
-    /// could not have been clipped. Of the 3,422 trails that were actually
+    /// could not have been clipped, and they are 3,144 of the 3,884 counted as
+    /// rendering at true width. Of the 3,422 trails that were actually
     /// exposed to a successor, 740 (21.6%) survived at true width. Five of those
     /// are immune too, their extents being no longer than <c>MinTrail</c>, which
     /// row admission already reserves; among the 3,417 trails that could
