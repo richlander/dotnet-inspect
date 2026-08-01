@@ -3420,17 +3420,29 @@ public partial class CommandExecutionTests
         // fix, reintroduced one layer down, and no assertion about correct projections could see
         // it. The bar is parity with the per-kind sections beside it, which is what this compares:
         // whatever the listing view says about an unmatched projection, the fact table says too.
-        var (kindExit, kindOut, kindErr) = await RunAppAsync(
+        //
+        // Each flag is exercised ALONE. Supplying --fields and --columns together is the one
+        // combination where the two sides still diverge: the fact table reports the field Note
+        // and exits 0 where the per-kind section reports the column Error and exits 1, because
+        // markout skips the column-match check once a field filter has emptied the row set. That
+        // is markout-side projection behavior on a two-column fact table rather than routing, and
+        // everywhere else it is masked by the pre-render validation the listing view lacks
+        // (#3651). Pinning it here as expected would freeze a defect, so it is left unpinned and
+        // recorded on the issue instead.
+        var (kindExit, _, kindErr) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv", flag, "Nonexistent", "--tips", "q");
-        var (factExit, factOut, factErr) = await RunAppAsync(
+        var (factExit, _, factErr) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", flag, "Nonexistent", "--tips", "q");
 
         Assert.Equal(kindExit, factExit);
         Assert.Equal(kindErr.Trim(), factErr.Trim());
 
-        // Non-vacuity: an unmatched projection must say something. Silence on both sides would
-        // satisfy the equality above while leaving the original bug in place.
-        Assert.NotEmpty((kindErr + kindOut).Trim());
+        // Non-vacuity: the reference side must actually diagnose the bad projection BY NAME.
+        // Asserting only that the combined output is non-empty would pass on the class rows the
+        // reference side prints on stdout regardless -- 54 lines of them -- so both diagnostics
+        // could vanish and this test would still be green. That is the same empty-set-reads-as-
+        // success shape the test exists to catch, so the assertion has to name what it wants.
+        Assert.Contains("Nonexistent", kindErr, StringComparison.Ordinal);
     }
 
     [Fact]
