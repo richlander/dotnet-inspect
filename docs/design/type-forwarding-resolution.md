@@ -337,6 +337,15 @@ The catalog interns exactly one `ResolvedAssemblyCandidate` object per
 descriptor object, but caches and correspondence still key on the internal id,
 not object equality.
 
+Within one catalog, `ResolvedAssemblyReference` object identity is the
+acquisition registration handle. The catalog uses reference identity, never
+record/value equality, to map that stable descriptor instance to one candidate
+id. An acquisition owner creates one descriptor object per candidate and reuses
+that object in policy selections and public assembly-start requests. Returning
+`candidate.Assembly` therefore recovers the existing candidate. A newly
+constructed descriptor remains a distinct conservative candidate even when all
+of its visible fields match; descriptor identity is not physical-file identity.
+
 The ids are inspection currency, not persisted identities or sort keys.
 Candidate identity is internal; consumers receive the descriptor but cannot
 reconstruct a candidate key from it. Both ids use globally unique values, but
@@ -587,6 +596,17 @@ from an ambiguous scope or an unreadable candidate. It evolves rather than
 gaining a parallel resolver:
 
 ```csharp
+public enum AssemblyBindingFailureKind
+{
+    IdentityPolicyRequired,
+    CandidateUnavailable,
+    UnsupportedScope,
+    InvalidPolicyResult
+}
+
+public sealed record AssemblyBindingFailure(
+    AssemblyBindingFailureKind Kind);
+
 public abstract class AssemblyBindingSelection
 {
     private protected AssemblyBindingSelection() { }
@@ -719,6 +739,12 @@ catalog and produces the internal candidate-bearing
 `AssemblyBindingOutcome`. External policy assemblies never receive
 `InternalsVisibleTo` and cannot mint candidate ids, definition keys, or join
 tokens.
+
+`AssemblyBindingFailure` is a public policy diagnostic because external policy
+owners must construct `CannotSelect` and `Invalid` selections.
+`IdentityPolicyRequired` is the explicit local version-skew outcome; the other
+kinds distinguish unavailable acquisition, unsupported scope, and an invalid
+policy response without using free-form text as identity.
 
 This is a new public policy contract plus a Metadata-internal adapter, not a
 same-name return-type change to `IAssemblyReferenceResolver`. The nullable
@@ -1071,6 +1097,7 @@ generation and answers.
 
 The acquisition catalog caches:
 
+- candidate ids by `ResolvedAssemblyReference` reference identity;
 - opened sessions by `AssemblyCandidateId`;
 - binding outcomes by
   `(AssemblyCatalogGenerationId, AssemblyReferenceIdentity,
@@ -1835,6 +1862,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   consumers cannot construct correspondence verdict arms.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
   selection through factories but cannot construct catalog candidates.
+- An external fake policy can construct every `AssemblyBindingFailureKind`.
+- Interning the same descriptor object twice, including
+  `candidate.Assembly`, yields one candidate id, one opened session, and `Same`
+  correspondence; a new value-equal descriptor object remains distinct.
 - External consumers can create assembly-descriptor and assembly-reference
   requests and can forward an existing `TypeResolutionStart` to another type.
 - External consumers can inspect but cannot forge decoder-produced
