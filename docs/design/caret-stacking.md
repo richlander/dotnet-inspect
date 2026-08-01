@@ -81,8 +81,13 @@ depicts a layout that was never built. This one is
    for its 16 facts.
 2. **Order by start column, widest first at a tie.** Extents sharing a start
    column are always a nesting, so they cannot share a row; widest-first puts
-   the outer one on the upper row, which matches the order the printer records
-   nesting in. This orders *same-start* extents only, and it is not what causes
+   the outer one on the upper row, so reading down the rows moves inward. That
+   is a presentation choice, and it is the *reverse* of the order the printer
+   records nesting in — `RecordExpressionRanges` reverses its parent-first walk
+   precisely so a node is recorded after every one of its descendants, the
+   descendants-before-ancestors contract the anchor depends on. Nothing here
+   inherits that order.
+   This orders *same-start* extents only, and it is not what causes
    clipping — a trail is only ever cut short by the next label **on its own
    row** (rule 5), and a nested extent that lands on a different row is not on
    its parent's row to cut anything. Nor does it order row widths overall: a
@@ -108,7 +113,8 @@ depicts a layout that was never built. This one is
    fact keeps its place in the list below the carets, marked `-` instead of a
    number. A line may carry both kinds at once — a **mixed** line — and
    stacking still engages: the placeable facts get numbered carets, the rest
-   are listed under `-`.
+   are listed under `-`. This holds only when the line actually stacks; if
+   rule 8 rejects the layout the line widens and *no* fact on it is marked.
 8. **The gutter wins.** A label is drawn immediately before the characters it
    points at, so a caret near the start of a line can push its label left into
    the comment gutter. Moving the label would make it point somewhere else, so
@@ -165,9 +171,14 @@ The corpus agrees — 0 of the 2,842 lines carry a stacked caret row wider than
 their code line — but that count is a consistency check on the derivation above,
 not evidence for it, because no corpus could produce a counter-example. The
 comparison figure is the one that carries information: the widening render this
-replaces overhangs on **20 lines (0.70%)**, because it shifts the caret's start
-column rightward while preserving the full extent length, which is exactly the
-freedom stacking gives up.
+replaces overhangs on **20 lines (0.70%)**. Its underline is not any fact's
+extent — on a line whose facts disagree there is no agreed extent, so it falls
+back to `new CaretExtent(statementColumn, trimmed.Length)`, the whole trimmed
+statement — and it is positioned at
+`pad = Math.Max(1, caretColumn - commentColumn - 2)`, whose floor of 1 pushes
+the underline rightward when the statement starts near the gutter. Nothing then
+bounds or clips it against the line. That absence of any bound, not the
+underline's length, is what stacking gives up.
 
 Widths below are **final rendered columns**, measured after the same projection
 `ApiOutputFormatter` applies — code lines receive `BodyIndentWidth`, hoisted
@@ -255,8 +266,10 @@ extent still has nothing to point at, so it widens exactly as before.
   focus family has to be named before the number means anything.
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
-  where some other fact does have one: it is marked `-` instead of widening the
-  caret. Lines where no fact has an extent widen exactly as today.
+  where some other fact does have one, and only when that line stacks: it is
+  marked `-` instead of widening the
+  caret. Lines where no fact has an extent widen exactly as today, as do lines
+  rule 8 rejects.
 - Detail text stays left-aligned and wrapped to `Budget`.
 - `AnnotationAnchor` is untouched. This is a change to `AnnotationCaret` alone.
 
@@ -359,8 +372,17 @@ Applying the specification to the 2,842 lines that stack:
 | 3 | 1 | 0.0% |
 | 4 | 1 | 0.0% |
 
-3,884 of 6,566 trails (59.2%) render at true width. The other 2,682 are cut
-short by the next label on their own row, which is the only thing that clips a
+3,884 of 6,566 trails (59.2%) render at true width, but that headline rate is
+padded by a structural immunity and should not be read as a packing success
+rate. The last trail on a row has no successor, so its clip limit is
+`int.MaxValue` and it renders at true width by construction. Those 2,842 lines
+occupy **3,144 rows**, so 3,144 of the 6,566 trails could not have been clipped —
+and measurement confirms all 3,144 render at true width. Of the **3,422** trails
+actually exposed to a successor, only **740 (21.6%)** survived at true width;
+**2,682 (78.4%)** were cut short. The exposed rate is the informative one.
+
+A trail is cut
+short by the next label on its own row, which is the only thing that clips a
 trail. That successor is nested inside the trail it clips on **1,867 (69.6%)**
 of them and wholly disjoint from it on **815 (30.4%)**, so clipping is
 concentrated at nestings but is not confined to them. The rule 8 gutter fallback
@@ -369,7 +391,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `1d39ad054`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `6f8adac49`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
