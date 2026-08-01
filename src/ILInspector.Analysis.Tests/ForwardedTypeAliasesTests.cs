@@ -4499,4 +4499,79 @@ public class ForwardedTypeAliasesTests
             CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
             CallerScopeTypeFilter.Classify(aCaller.GetMetadataReader(), target, aliases));
     }
+
+    /// <summary>
+    /// Canonicalization is a MATCHING rule, not a ROUTING rule, and the arrival test broke that in
+    /// the one place the round-23 fix did not reach. A chain hop spelled <c>mscorlib</c>
+    /// canonicalizes into the same bucket as a target defined in <c>System.Private.CoreLib</c>, and
+    /// the walk treated reaching it as arrival — even though that hop's own forwarder table says
+    /// the type goes ON to a different definer, which is proof the type is not in the bucket. Every
+    /// spelling routed through such a facade was credited with reaching the target, FABRICATING a
+    /// caller row (round 28, GPT-5.6 Sol). A destination that forwards this type is now walked
+    /// through rather than stopped at, so the answer comes from where the type actually goes.
+    ///
+    /// <para>One fixture, both destinations. When <c>mscorlib</c> really does forward to the target
+    /// the alias must still be granted, so the refusal in the other case cannot pass merely because
+    /// the chain failed to resolve at all. That positive case is also the only gate on the canonical
+    /// arm of the arrival test at all: deleting the arm outright left the whole suite green before
+    /// this test existed.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ACoreLibrarySpellingForwardingTheTypeOnwardDoesNotEndTheChain(bool routesToTheTarget)
+    {
+        byte[] targetKey = [.. Enumerable.Repeat((byte)0x71, 16)];
+        byte[] coreSpellingKey = [.. Enumerable.Repeat((byte)0x72, 16)];
+        byte[] otherKey = [.. Enumerable.Repeat((byte)0x73, 16)];
+        string directory = NewTempDirectory();
+        try
+        {
+            // Both definers exist in either case, so the census is identical across the two rows and
+            // the only thing that varies is where the core-library spelling sends the type.
+            WriteDefiner(
+                directory, "System.Private.CoreLib", "Contoso", "Widget", "System.Private.CoreLib",
+                targetKey, new Version(1, 0, 0, 0));
+            WriteDefiner(
+                directory, "Contoso.OtherDefiner", "Contoso", "Widget", "Contoso.OtherDefiner",
+                otherKey, new Version(1, 0, 0, 0));
+
+            string destination = routesToTheTarget ? "System.Private.CoreLib" : "Contoso.OtherDefiner";
+            byte[] destinationKey = routesToTheTarget ? targetKey : otherKey;
+            WriteForwarder(
+                directory, "mscorlib", destination, "Contoso", "Widget",
+                publicKey: coreSpellingKey, fileName: "mscorlib",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(destinationKey));
+            WriteForwarder(
+                directory, "Contoso.A", "mscorlib", "Contoso", "Widget",
+                publicKey: null, fileName: "Contoso.A",
+                version: new Version(1, 0, 0, 0), targetPublicKeyToken: TokenOf(coreSpellingKey));
+
+            var target = TypeRef.Definition("System.Private.CoreLib", "Contoso", "Widget");
+            var aliases = ForwardedTypeAliases.ForTarget(
+                target,
+                Path.Combine(directory, "System.Private.CoreLib.dll"),
+                Directory.GetFiles(directory, "*.dll"),
+                seedSpellings: null);
+
+            using var caller = BuildCallerNaming("Contoso.A", "Contoso", "Widget");
+            Assert.Equal(
+                routesToTheTarget
+                    ? CallerScopeTypeFilter.TypeReferenceState.Names
+                    : CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+                CallerScopeTypeFilter.Classify(caller.GetMetadataReader(), target, aliases));
+
+            var callee = new MemberRef(
+                TypeRef.Definition("Contoso.A", "Contoso", "Widget"),
+                "Call", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+            Assert.Equal(
+                routesToTheTarget,
+                MemberPattern.Method(target, "Call")
+                    .MatchesCrossAssembly(callee, aliases.RestrictedTo(caller.GetMetadataReader())));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

@@ -1081,6 +1081,14 @@ public sealed class ForwardedTypeAliases
                 : edge.Identity.Version;
         }
 
+        // Every spelling the census saw carry a forwarder row for this type, captured BEFORE any
+        // pruning. A row for the type is proof the type is not defined under that spelling, and
+        // that fact does not depend on whether the route it names turns out to be verifiable or to
+        // reach anywhere — which is precisely why it cannot be read back off the pruned hop map.
+        // See Arrives, which uses it to stop canonicalization terminating a walk.
+        var forwardingSpellings = new HashSet<string>(
+            targetsByRaw.Keys, StringComparer.OrdinalIgnoreCase);
+
         // A spelling under which the type is both forwarded and defined answers for itself and for
         // the target at once, and nothing distinguishes which one a caller bound to. Marked
         // unusable rather than removed, so — like every other refusal here — it withdraws the
@@ -1304,7 +1312,7 @@ public sealed class ForwardedTypeAliases
                 Version? reaches = null;
                 foreach ((string destination, Version carried) in targetsByRaw[spelling])
                 {
-                    if (!ReachesTarget([destination], openDeclaringType.Assembly, reachable))
+                    if (!ReachesTarget([destination], openDeclaringType.Assembly, reachable, forwardingSpellings))
                         continue;
 
                     if (reaches is null || carried > reaches)
@@ -1357,7 +1365,7 @@ public sealed class ForwardedTypeAliases
 
             // A spelling that already equals the target is not an alias; identity answers it.
             if (canonical == openDeclaringType.Assembly
-                || !ReachesTarget(seeds.Keys, openDeclaringType.Assembly, forwardsTo))
+                || !ReachesTarget(seeds.Keys, openDeclaringType.Assembly, forwardsTo, forwardingSpellings))
             {
                 continue;
             }
@@ -1422,18 +1430,24 @@ public sealed class ForwardedTypeAliases
     /// credited a spelling with a canonical sibling's target; so did merging the hops themselves.
     /// Destinations are therefore held as spelled, and canonicalized only for the comparison
     /// against <paramref name="targetAssembly"/>, which is already canonical.</para>
+    ///
+    /// <para><paramref name="forwardingSpellings"/> is every spelling the raw census saw carry a
+    /// forwarder row for this type, pruning included. It is what stops canonicalization from
+    /// ending the walk at a facade that demonstrably sends the type elsewhere; see
+    /// <c>Arrives</c>.</para>
     /// </summary>
     static bool ReachesTarget(
         IReadOnlyCollection<string> seeds,
         string targetAssembly,
-        Dictionary<string, HashSet<string>> forwardsTo)
+        Dictionary<string, HashSet<string>> forwardsTo,
+        IReadOnlySet<string> forwardingSpellings)
     {
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pending = new Queue<string>();
 
         foreach (string seed in seeds)
         {
-            if (Arrives(seed, targetAssembly))
+            if (Arrives(seed, targetAssembly, forwardingSpellings))
                 return true;
 
             if (visited.Add(seed))
@@ -1454,7 +1468,7 @@ public sealed class ForwardedTypeAliases
                     // a forwarder into a core-library facade name still arrives at a target whose
                     // own identity canonicalized the same way — while ROUTING stays per spelling,
                     // so the arrival is not shared with a differently-spelled sibling.
-                    if (Arrives(next, targetAssembly))
+                    if (Arrives(next, targetAssembly, forwardingSpellings))
                         return true;
 
                     if (visited.Add(next))
@@ -1468,10 +1482,33 @@ public sealed class ForwardedTypeAliases
         // Compared case-insensitively like every other assembly-name comparison here, including
         // this walk's own visited set — an ordinal comparison silently dropped a caller whose
         // forwarder spelled the definer's name in another case (executed in review of 7572838c).
-        static bool Arrives(string destination, string targetAssembly)
+        //
+        // The CANONICAL arm additionally refuses to terminate at a spelling that carries a
+        // forwarder row for this type. Canonicalization is a MATCHING rule, not a ROUTING rule,
+        // and letting it end the walk broke that: `mscorlib` canonicalizes into the bucket of a
+        // target defined in `System.Private.CoreLib`, so a chain reaching `mscorlib` was credited
+        // with arriving — even though `mscorlib`'s own ExportedType row says the type goes ON to a
+        // different definer, which is proof the type is not in the bucket. Every spelling routed
+        // through such a facade was then vouched for, FABRICATING a caller row (round 28,
+        // GPT-5.6 Sol). A forwarding destination is walked through rather than stopped at, so the
+        // answer comes from where the type actually goes.
+        //
+        // The falsifying fact is the EXISTENCE of the row, so it is taken from the raw census and
+        // not from <paramref name="forwardsTo"/>: an unverifiable or unreachable route is pruned
+        // out of the hop map, and reading the absence of a route as "the type is defined here" is
+        // the fabrication itself. `mscorlib` in the fixture is pruned exactly that way.
+        //
+        // The EXACT arm is deliberately not gated: it is identity rather than canonical
+        // approximation, and a spelling that literally is the target is the case the target's own
+        // self-exemption above already owns.
+        static bool Arrives(
+            string destination,
+            string targetAssembly,
+            IReadOnlySet<string> forwardingSpellings)
             => string.Equals(destination, targetAssembly, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(
-                    TypeRef.CanonicalAssembly(destination), targetAssembly, StringComparison.OrdinalIgnoreCase);
+                || (!forwardingSpellings.Contains(destination)
+                    && string.Equals(
+                        TypeRef.CanonicalAssembly(destination), targetAssembly, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
