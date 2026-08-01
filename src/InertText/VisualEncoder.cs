@@ -113,7 +113,7 @@ public static class VisualEncoder
         value = null;
         StringBuilder builder = new(encoded.Length);
 
-                for (int i = 0; i < encoded.Length; i++)
+        for (int i = 0; i < encoded.Length; i++)
         {
             if (encoded[i] != '\\')
             {
@@ -223,8 +223,10 @@ public static class VisualEncoder
         // An *unpaired* surrogate decoded from a \uXXXX arm is deliberately accepted. Cs is one
         // of the encoded categories, so Encode emits exactly this form for an unpaired surrogate,
         // and rejecting it here would make the encoder non-invertible on the one input class that
-        // cannot be represented any other way. Two escapes forming a pair are rejected in that
-        // arm, which is what keeps accepting the lone case injective.
+        // cannot be represented any other way. Two escapes forming a pair are accepted as well and
+        // decode to the astral scalar, which is the only text that spelling can denote; injectivity
+        // survives because Encode never *emits* that form -- a paired scalar always comes back as a
+        // single \U escape -- so the two-escape spelling is an input form only.
         value = builder.ToString();
         return true;
     }
