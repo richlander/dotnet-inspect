@@ -461,8 +461,18 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
-    /// Infers who built the assembly based on symbol availability and SourceLink.
+    /// Infers who built the assembly from symbol availability.
     /// </summary>
+    /// <remarks>
+    /// Deliberately does <em>not</em> consult SourceLink provenance. Establishing that an
+    /// assembly's source is served from <c>dotnet/*</c> says where the source came from, not who
+    /// produced the binary, and both the map and the <c>Company</c> attribute are supplied by the
+    /// artifact under inspection. <c>raw.githubusercontent.com</c> serves any commit reachable in
+    /// a repository, including the head of an outside contributor's unmerged pull request against
+    /// <c>dotnet/runtime</c>, so a correctly established <c>dotnet</c> origin is consistent with an
+    /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
+    /// publisher; a self-declared source URL is not.
+    /// </remarks>
     public static string? InferBuilder(LibraryInspection inspection)
     {
         var company = inspection.AssemblyInfo?.Company;
@@ -476,15 +486,6 @@ internal static class LibraryMetadataService
         if (inspection.SymbolServer == "msdl.microsoft.com" && inspection.HasSourceLink)
         {
             return "Microsoft";
-        }
-
-        if (inspection.HasSourceLink && inspection.SourceLinkJson != null)
-        {
-            if (inspection.SourceLinkJson.Contains("github.com/dotnet/", StringComparison.OrdinalIgnoreCase) ||
-                inspection.SourceLinkJson.Contains("raw.githubusercontent.com/dotnet/", StringComparison.OrdinalIgnoreCase))
-            {
-                return "Microsoft";
-            }
         }
 
         if (inspection.SourceLinkUnavailableReason == "no symbols")
