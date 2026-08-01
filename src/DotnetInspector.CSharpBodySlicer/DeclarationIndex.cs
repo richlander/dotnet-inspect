@@ -136,9 +136,10 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// last <c>#endif</c>. Those figures are an ungated point-in-time measurement, not a property: no
 /// test re-measures them, and they will drift as that corpus moves. The loss is conservative
 /// rather than wrong — a row the scan cannot vouch for reports unknown instead of reporting one
-/// branch's answer as the declaration's — because every place that writes a row's span consults
-/// the depth flag. That is enforced per site rather than centrally, so it is gated at the site
-/// where it was once absent:
+/// branch's answer as the declaration's. That holds by a discipline at each site rather than by a
+/// central check: a site that fixes a row's span either consults the depth flag or sets
+/// <c>SpanKnown</c> false outright, the unclosed-row sweep being the only one of the latter kind.
+/// Being per-site, it is gated at the site where it was once absent:
 /// <c>DeclarationIndexTests.AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c>
 /// covers the one path that extends a span already measured and marked
 /// known, which is the only path that can report a wrong span rather than lose a row. The loss
