@@ -3,8 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+  # The base-branch filter also decides whether a *stacked* PR gets CI at all.
+  # A PR retargeted from `main` onto a long-lived feature branch silently stops
+  # matching `[main]`, so it reports no checks rather than failing ones -- and
+  # once `ci-required` is a required check, "no checks reported" is
+  # indistinguishable at a glance from "not run yet". `feature/**` keeps the
+  # lower half of a stack covered while its base is still in review.
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/**']
 
 env:
   DOTNET_NOLOGO: true
@@ -414,6 +420,12 @@ jobs:
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
         run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+
+      # InertText sits below every other project, so a regression here reaches every assembly
+      # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
+      # round-trip — so they run unconditionally rather than behind a path filter.
+      - name: Run InertText tests
+        run: dotnet run --project src/InertText.Tests -c Release
 
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,

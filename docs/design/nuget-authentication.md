@@ -118,10 +118,23 @@ and neither works: a `ClearTextPassword` with no `Username` (both halves are req
 though Azure DevOps ignores the username), and userinfo in the source URL
 (`https://user:pass@host/...`, which is never turned into a header).
 
-Every one of these is dropped without a diagnostic. Because an unauthenticated feed reports as
-*package not found* rather than as an authentication failure (issue #3417, bug 1), each is
-indistinguishable from a typo in the package name. That is what makes the silence expensive, and
-it is why the diagnosis is worth fixing independently of which mechanisms are supported.
+Every one of these is dropped without a diagnostic, so a source configured through an
+unsupported mechanism is read as though no credential were supplied at all.
+
+What that then looks like has changed. A source that answers 401 or 403 is now reported as
+unreadable rather than as a missing package, naming the source, the status, and the phase:
+
+```console
+$ dotnet-inspect package Markout --source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json
+Error: Package 'markout' could not be resolved because a source requires credentials.
+  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json — HTTP 401 Unauthorized while reading the service index
+The package may exist; the source was not readable. Supply credentials for this source and retry.
+```
+
+A genuine 404 still reports as *not found*, because that is the one status that means the
+package is actually absent. The remaining gap is narrower than it was: the credential is still
+dropped silently, but the resulting failure is no longer indistinguishable from a typo in the
+package name.
 
 ## Credential providers
 
@@ -227,11 +240,131 @@ themselves, and if invalid, should call the credential provider again with -IsRe
 Credentials from a plugin are **not** written to any configuration file. They live in memory for
 the process lifetime and are re-acquired on the next run.
 
-Bug 1 (issue #3417) — an authentication failure reported as *package not found* — is not a
+Bug 1 (issue #3417) — an authentication failure reported as *package not found* — was never a
 prerequisite for any of this, because the handler never needs the status code to reach a caller.
-It remains worth fixing so that a feed which refuses every available credential says so. NuGet's
-wording is a good target: `NU1301: Unable to load the service index for source ... 401
-(Unauthorized)`.
+It has since been fixed: a feed that refuses every available credential now says so, naming the
+source, status, and phase. The mechanism is described under [Reporting an unreadable
+source](#reporting-an-unreadable-source).
+
+## Reporting an unreadable source
+
+Azure DevOps answers **401** rather than 404 for a feed the caller cannot see, so an
+unauthenticated private feed and a mistyped package name arrive at the same place: nothing
+resolved. Reporting both as *package not found* was issue #3417 bug 1, and it is the failure
+users hit most often once credentials are configured, because an expired credential is the
+normal end state of every PAT.
+
+The status is known inside
+[`HttpRetryHelper`](../../src/DotnetInspector.Packages/HttpRetryHelper.cs), but the signatures
+between there and the caller return `string?` and `List<string>?`, so it cannot be returned
+without changing every one of them. Instead
+[`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
+ambient-scope shape already used by `NetworkTelemetry`: a scope is opened around each package
+acquisition, nested async work records into the same collector, and the "nothing resolved" path
+consults it before choosing a message.
+
+The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
+the whole traversal. Each hop resolves a different package id, so a shared collector would let
+a refusal recorded while fetching the wrapper explain the redirect target going missing — and
+the recorded URL carries the wrapper's id in its flat-container path, so the message would name
+a source and a package that had nothing to do with the failure.
+
+Two further rules keep the message honest:
+
+- **404 is never recorded.** It is the one status that genuinely means the package is absent,
+  so a real miss still reports *not found*. A recorder that captured every non-success status
+  would destroy that message, which is why the test suite pins the 404 case as a control.
+- **A recorded failure is advisory, not fatal.** The collector is only consulted when the
+  overall lookup produced nothing, so if one source 401s and another answers, the successful
+  result stands. That is this codebase's answer to the third open design question in #3417.
+
+The phase (`reading the service index`, `listing versions`) is taken from the ambient
+`NetworkTrafficKind`, which the network telemetry scope already tracks, so no call site had to
+be taught to describe itself.
+
+### The URL is redacted before it is stored
+
+This message prints a source URL, and some feeds put a credential in one. The URL is passed
+through `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector
+rather than on the way out to the console — `FeedFailureCollector.Failures` is public, so an
+unredacted URL sitting in it would already be an exposure.
+
+```console
+  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json?access_token=REDACTED — HTTP 401 Unauthorized while reading the service index
+```
+
+Query names are matched on fragments (`token`, `key`, `secret`, `password`, `credential`,
+`auth`, `sig`) rather than against exact names, because the same credential travels as
+`access_token`, `accessToken`, `apiKey` or `x-api-key` depending on the feed. MyGet also issues
+service index URLs shaped like `https://host/F/<feed>/auth/<token>/api/v3/index.json`, so the
+segment following an `auth` segment is redacted as well.
+
+Nothing else in the path is. On Azure DevOps the organization, project and feed name are all
+path segments, so collapsing the path would leave a message that cannot say *which* source
+refused — its one job.
+
+## Rejecting credentials embedded in a source URL
+
+NuGet does not support `https://<user>:<password>@host/...`, so a source URL carrying userinfo
+is rejected rather than attempted. The check lives on `PackageSource`'s constructor, not at the
+option parser, because a source arrives by four routes — `--source`, `--add-source`, an explicit
+`--nugetconfig`, and a `nuget.config` discovered by walking up from the working directory — and
+a validator attached to the two command-line ones silently misses the other two. Construction is
+the single point every source passes through whatever route it took.
+
+`SourceResolver` exposes both halves, so a caller chooses whether a bad source is an exception:
+
+```csharp
+if (!SourceResolver.IsSupportedSource(url, out InertString? problem)) { /* report it */ }
+UnsupportedSourceException.ThrowIfUnsupported(url);   // the ArgumentNullException.ThrowIfNull shape
+```
+
+The message names the source but never quotes the credential — it prints the URL with userinfo
+removed, so the operator can still tell *which* source was rejected.
+
+### Untrusted URL text is made inert before it is printed
+
+A source URL is untrusted input, and a message that quotes one hands attacker-controlled text to
+a terminal. `Uri` percent-encodes C0 controls, so an ANSI escape cannot survive a round trip
+through it — but it passes `Cf` straight through, and `Cf` is where Trojan Source (CVE-2021-42574)
+lives. A right-to-left override in a feed name reorders the rest of the line.
+
+Every URL that reaches a message or a log is therefore spelled by `InertString` first:
+
+```csharp
+InertString.Format(TextPolicy.Field, $"Source URL '{withoutCredentials}' embeds ...")
+```
+
+The mechanism — the policy/speller split, the audit boundary around the decoder, and how
+composition preserves the guarantee — is described in
+[the InertText design note](inert-text.md). Only what is specific to this path is recorded here.
+
+**Which policy, and why this one.** `TextPolicy.Field` is deny-shaped: it refuses `Cc`, `Cf`,
+`Cs`, `Zl` and `Zp`. That is what the message path needs today, and it is deliberately the weaker
+choice. A URL host is a constrained grammar, and the central typosquatting vector is a homoglyph —
+Cyrillic `а` and Latin `a` are the same glyph, both category `Ll`, and neither is a hazard. No
+category rule catches that and none should; only an allow list does. Tightening the source URL to
+an allow-shaped policy is tracked with the identifier work.
+
+**What the retyping caught here.** Redaction returns `InertString` rather than `string`, so the
+distinction between a redacted URL and a raw one is visible to the compiler:
+
+```csharp
+internal static InertString RedactSensitiveUrlText(string value)   // was string
+public readonly record struct FeedFailure(InertString Url, ...)    // was string Url
+public InertString? DescribeFailure(string packageName)            // was string?
+```
+
+That change found a live defect rather than merely documenting an intent.
+`FeedFailureCollector.DescribeFailure` built its message with ordinary interpolation, which passed
+the *package name* through untouched — and a package name arrives from a command line or a
+dependency graph. Retyping the return value turned that into a build error at both call sites
+instead of a review finding.
+
+**What is still transactional.** The `Action<string>? log` delegate threaded through the package
+layer, where roughly a dozen sites interpolate a raw URL. Retyping it would make the compiler
+enumerate them the same way, and is tracked separately: it touches 27 files and does not belong in
+a fix for feed failure reporting.
 
 ## Service index discovery
 

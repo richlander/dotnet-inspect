@@ -4,6 +4,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
+using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 
@@ -104,15 +105,23 @@ public static class PackageExtractor
 
         while (true)
         {
-            var outcome = await DownloadAndExtractPackageAsync(
-                client,
-                currentPackageSource,
-                log,
-                tempDirPrefix,
-                sourceOptions,
-                currentVersion,
-                currentForceLatest,
-                currentIncludePrerelease).ConfigureAwait(false);
+            // Scoped per hop, not per acquisition: each hop resolves a different package id,
+            // and a source failure recorded while resolving one package must not be offered
+            // as the explanation for the next one going missing.
+            PackageExtractionOutcome outcome;
+            using (FeedFailureTelemetry.Scope())
+            {
+                outcome = await DownloadAndExtractPackageAsync(
+                    client,
+                    currentPackageSource,
+                    log,
+                    tempDirPrefix,
+                    sourceOptions,
+                    currentVersion,
+                    currentForceLatest,
+                    currentIncludePrerelease).ConfigureAwait(false);
+            }
+
             if (!outcome.IsSuccess)
                 return outcome;
 
@@ -225,7 +234,10 @@ public static class PackageExtractor
                 if (HttpClientFactory.IsOffline)
                     return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
 
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                return PackageExtractionOutcome.Error(
+                    (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                        ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                        .ToString());
             }
         }
 
@@ -340,7 +352,9 @@ public static class PackageExtractor
                 if (knownVersions == null || knownVersions.Count == 0)
                 {
                     return PackageExtractionOutcome.Error(
-                        $"Package '{packageName}' not found.");
+                        (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                            ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                            .ToString());
                 }
 
                 return PackageExtractionOutcome.Error(

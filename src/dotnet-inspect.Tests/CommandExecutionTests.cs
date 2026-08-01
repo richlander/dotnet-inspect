@@ -6096,15 +6096,43 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
 
         var lines = output.ReplaceLineEndings("\n").Split('\n');
+        int narrowed = 0;
+        int examined = 0;
         foreach (int i in Enumerable.Range(0, lines.Length)
             .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal)))
         {
             string statement = lines[i - 1];
             Assert.StartsWith("//", lines[i], StringComparison.Ordinal);
-            Assert.Equal(
-                statement.Length - statement.AsSpan().TrimStart().Length,
-                lines[i].IndexOf('^'));
+
+            int caretStart = lines[i].IndexOf('^');
+            int caretLength = lines[i].AsSpan(caretStart).IndexOfAnyExcept('^');
+            caretLength = caretLength < 0 ? lines[i].Length - caretStart : caretLength;
+            examined++;
+
+            // The underline is contained in the statement it points at. This is
+            // the whole placement contract: an expression-narrowed caret and a
+            // statement-wide fallback both satisfy it, and a caret drawn left of
+            // the code or running off its end does not.
+            int statementStart = statement.Length - statement.AsSpan().TrimStart().Length;
+            int statementEnd = statement.AsSpan().TrimEnd().Length;
+            Assert.InRange(caretStart, statementStart, statementEnd);
+            Assert.InRange(caretStart + caretLength, caretStart + 1, statementEnd);
+
+            // ...and it lands on printed characters, not on the whitespace
+            // between them. Trimming the extent is what makes this hold.
+            Assert.False(char.IsWhiteSpace(statement[caretStart]));
+            Assert.False(char.IsWhiteSpace(statement[caretStart + caretLength - 1]));
+
+            if (caretLength < statementEnd - statementStart)
+                narrowed++;
         }
+
+        // Non-vacuity. Every assertion above is also satisfied by a caret that
+        // spans the whole statement, which is what this view rendered before
+        // extents existed, so the gate has to insist that narrowing actually
+        // happened on every one of these cases.
+        Assert.True(examined > 0, "no caret lines were examined");
+        Assert.Equal(examined, narrowed);
     }
 
     [Fact]
@@ -6141,6 +6169,8 @@ public partial class CommandExecutionTests
             caretIndexes.Select(i => lines[i].IndexOf('^')).Distinct().Count() >= 2,
             "the two carets must sit at different columns");
 
+        var underlined = new List<string>();
+
         foreach (int i in caretIndexes)
         {
             string line = lines[i];
@@ -6149,16 +6179,82 @@ public partial class CommandExecutionTests
             // comments, and it sits on the member declaration column.
             Assert.StartsWith("//", line, StringComparison.Ordinal);
 
-            // Carets point at the statement on the preceding line, exactly.
+            // The caret names the expression the fact is about, not the
+            // statement containing it. Pinning the underlined text rather than a
+            // width is what makes this a placement gate: `new()` and
+            // `new object()` are the allocations the alloc.new facts report, and
+            // both sit mid-statement, so an off-by-anything reads as other text.
             string statement = lines[i - 1];
-            Assert.Equal(
-                statement.Length - statement.AsSpan().TrimStart().Length,
-                line.IndexOf('^'));
-            Assert.Equal(statement.Trim().Length, line.Count(c => c == '^'));
+            int caretStart = line.IndexOf('^');
+            int caretLength = line.AsSpan(caretStart).IndexOfAnyExcept('^');
+            caretLength = caretLength < 0 ? line.Length - caretStart : caretLength;
+            Assert.InRange(caretStart + caretLength, 0, statement.Length);
+            underlined.Add(statement.Substring(caretStart, caretLength));
         }
+
+        // Pump allocates a List<object> at the body's base column and an object
+        // inside the loop; each is strictly inside its statement.
+        Assert.Equal(["new object()", "new()"], underlined.Order().ToArray());
 
         // The hoist marker is an internal layout signal; it must never survive
         // into rendered output, where it would print as a control character.
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_FocusStacksACaretPerExtentWhenFactsOnALineDisagree()
+    {
+        // The density case, reproduced from System.Tuple`8.Equals: four facts
+        // land on one line at distinct offsets, so no single expression is true
+        // of all of them. This used to render one statement-wide underline with
+        // four unattributable details beneath it. Each extent now gets its own
+        // numbered caret, so a reader can tell which box is which.
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        var caretIndexes = Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains('^', StringComparison.Ordinal))
+            .ToList();
+
+        // Still one caret row: all four extents are disjoint and short enough to
+        // pack onto a single line. That is the 89.5% case among the 2,842 lines
+        // of System.Private.CoreLib that stack, as the annotated-source view
+        // prints it, summed over the five focus families and counted after the
+        // focus filter that --focus applies.
+        int i = Assert.Single(caretIndexes);
+        string caretRow = lines[i];
+        string statement = lines[i - 1];
+
+        // Every caret points at the boxed argument it is about. This is the
+        // assertion the old statement-wide underline could not make.
+        var underlined = new List<string>();
+        for (int c = 0; c < caretRow.Length; c++)
+        {
+            if (caretRow[c] != '^' || (c > 0 && caretRow[c - 1] == '^'))
+                continue;
+            int width = caretRow.AsSpan(c).IndexOfAnyExcept('^');
+            width = width < 0 ? caretRow.Length - c : width;
+            underlined.Add(statement.Substring(c, width));
+        }
+
+        Assert.Equal(["a1", "a2", "a3", "a4"], underlined.ToArray());
+
+        // The statement-wide underline is precisely what must no longer appear.
+        int statementStart = statement.Length - statement.AsSpan().TrimStart().Length;
+        Assert.NotEqual(statementStart, caretRow.IndexOf('^'));
+        Assert.NotEqual(statement.Trim().Length, caretRow.Count(c => c == '^'));
+
+        // Each caret carries a number, and each number has its own detail rows,
+        // so all four boxes stay distinguishable rather than merged away.
+        foreach (var (number, parameter) in ((int, string)[])[(1, "T1"), (2, "T2"), (3, "T3"), (4, "T4")])
+        {
+            Assert.Contains($"{number}.^", caretRow, StringComparison.Ordinal);
+            Assert.Contains(lines, l => l.Contains($"{number}. alloc.box({parameter};", StringComparison.Ordinal));
+        }
+
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
     }
 
@@ -14004,6 +14100,15 @@ public sealed class CommandCaretGestureFixture
     }
 
     public string Make() => new object().ToString() ?? "";
+
+    // Four boxes on one line, at four distinct IL offsets: the shape that makes
+    // a line's facts disagree about what to underline. System.Tuple`8.Equals is
+    // the extreme of it in the wild, with 16 facts on one line.
+    public static bool DenseBoxes<T1, T2, T3, T4>(
+        EqualityComparer<object> comparer, T1 a1, T2 a2, T3 a3, T4 a4,
+        object b1, object b2, object b3, object b4)
+        => comparer.Equals(a1, b1) && comparer.Equals(a2, b2)
+            && comparer.Equals(a3, b3) && comparer.Equals(a4, b4);
 }
 
 public sealed class CommandInitializerOnlyFixture

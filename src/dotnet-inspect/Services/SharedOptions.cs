@@ -159,6 +159,20 @@ public class SharedOptions
             if (token is not null && NuGetSourceResolver.DescribeConfigProblem(token) is string problem)
                 result.AddError(problem);
         });
+
+        // Credentials in the URL authenticate against no feed, so left alone they surface as a
+        // bare 401 that looks like the credential was wrong rather than never sent.
+        Source.Validators.Add(ValidateSourceUrls);
+        AddSource.Validators.Add(ValidateSourceUrls);
+    }
+
+    private static void ValidateSourceUrls(System.CommandLine.Parsing.OptionResult result)
+    {
+        foreach (var token in result.Tokens)
+        {
+            if (!NuGetFetch.SourceResolver.IsSupportedSource(token.Value, out InertText.InertString? problem))
+                result.AddError(problem.Value.ToString());
+        }
     }
 
     /// <summary>
