@@ -2862,7 +2862,7 @@ public sealed partial class CSharpPrinter
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
         string rest = Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-        return $"{receiver}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+        return $"{receiver}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
     }
 
     string ForLoopIncrementText(IrNode node)
