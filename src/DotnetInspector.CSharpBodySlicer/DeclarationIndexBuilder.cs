@@ -151,8 +151,7 @@ internal static class DeclarationIndexBuilder
                 // onto the enclosing static class, so the index makes it transparent and lets them
                 // land there too. Giving it a row of its own would put every extension member
                 // inside a parent that has no metadata counterpart.
-                if (pending.Count >= 2 && pending[0].Kind == ScanTokenKind.Word
-                    && Text(pending[0]) == "extension" && Text(pending[1]) == "(")
+                if (DeclaresAnExtensionBlock(pending, Text))
                 {
                     scopes.Add(EnclosingIndex());
                     EndDeclaration(tok);
@@ -540,13 +539,30 @@ internal static class DeclarationIndexBuilder
     /// and only when the token after it is a name and the token after <em>that</em> ends the
     /// declarator — a comma, an <c>=</c>, or the end.
     /// <para>
-    /// Neither test suffices alone. Angle depth is tracked only <em>before</em> the segment's
-    /// <c>=</c>: in the declarator a <c>&lt;</c> is always a generic bracket, so counting is exact,
-    /// while in an initializer it may be a relational operator that never closes, and counting
-    /// there would swallow every later comma. So the initializer is left to the lookahead. But the
-    /// lookahead alone admits <c>Action&lt;string, int, float&gt; A</c>, where the comma after
-    /// <c>string</c> is followed by a name and another comma — exactly a declarator list's shape.
-    /// Two type arguments happen to survive it; three do not.
+    /// Neither test suffices alone, and the two halves of a declarator need different treatment.
+    /// </para>
+    /// <para>
+    /// <em>Before</em> the segment's <c>=</c> a <c>&lt;</c> is always a generic bracket, so angle
+    /// depth is simply counted. The lookahead alone is not enough there: it admits
+    /// <c>Action&lt;string, int, float&gt; A</c>, where the comma after <c>string</c> is followed
+    /// by a name and another comma — exactly a declarator list's shape. Two type arguments happen
+    /// to survive the lookahead; three do not.
+    /// </para>
+    /// <para>
+    /// <em>After</em> the <c>=</c> counting is unsound, because a relational <c>&lt;</c> never
+    /// closes and would swallow every later comma. Instead a <c>&lt;</c> that follows a name is
+    /// matched speculatively by <see cref="TypeArgumentListEnd"/>, and the matched region is
+    /// skipped. What separates the two readings is that the region must be type-shaped all the way
+    /// to its <c>&gt;</c>: <c>new Action&lt;int, int, int&gt;()</c> is, and is skipped, while
+    /// <c>a &lt; b, y = c &gt; d</c> contains an <c>=</c>, which no type argument list does, so it
+    /// is left alone and its comma still separates declarators.
+    /// </para>
+    /// <para>
+    /// A stricter reading — also requiring that the closing <c>&gt;</c> not be followed by an
+    /// identifier — was tried and removed: for the extra condition to change any outcome the
+    /// region would have to contain a comma the lookahead accepts, which needs the shape
+    /// <c>&lt;a, b, c&gt; name</c>, and the compiler rejects that as a syntax error. It was
+    /// unreachable, and unreachable code that looks load-bearing is worse than none.
     /// </para>
     /// </remarks>
     private static List<string> DeclaratorNames(List<ScanToken> pending, Func<ScanToken, string> text)
@@ -575,6 +591,16 @@ internal static class DeclarationIndexBuilder
                         angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
                         if (angle < 0) angle = 0;
                     }
+                    else if (sawEquals && depth == 0 && c == "<"
+                        && i > 0 && pending[i - 1].Kind == ScanTokenKind.Word)
+                    {
+                        int close = TypeArgumentListEnd(pending, i, text);
+                        if (close >= 0)
+                        {
+                            i = close;
+                            continue;
+                        }
+                    }
 
                     if (c == "," && depth == 0 && angle == 0 && IsDeclaratorBoundary(pending, i, text))
                         end = true;
@@ -595,6 +621,43 @@ internal static class DeclarationIndexBuilder
         if (names.Count == 0)
             names.Add("");
         return names;
+    }
+
+    /// <summary>
+    /// The index of the <c>&gt;</c> closing a type argument list that starts at
+    /// <paramref name="start"/>, or <c>-1</c> if the tokens from there are not shaped like one.
+    /// Only tokens that can appear inside a type argument list are accepted, which is what makes a
+    /// relational <c>&lt;</c> distinguishable: <c>x = a &lt; b, y = c &gt; d</c> contains an
+    /// <c>=</c>, and no type argument list does.
+    /// </summary>
+    private static int TypeArgumentListEnd(List<ScanToken> pending, int start, Func<ScanToken, string> text)
+    {
+        int angle = 0;
+        for (int i = start; i < pending.Count; i++)
+        {
+            var t = pending[i];
+            if (t.Kind == ScanTokenKind.Word)
+                continue;
+            if (t.Kind != ScanTokenKind.Punctuator)
+                return -1;
+
+            var c = text(t);
+            if (c.Length > 0 && c.All(ch => ch is '<' or '>'))
+            {
+                angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+                if (angle <= 0)
+                    return angle == 0 ? i : -1;
+                continue;
+            }
+
+            // Tuple elements, arrays, pointers, nullability, and qualified names are all type
+            // syntax. Anything else -- an operator, a literal, a brace -- is not.
+            if (c is "," or "." or "?" or "[" or "]" or "*" or "(" or ")" or "::")
+                continue;
+            return -1;
+        }
+
+        return -1;
     }
 
     private static bool IsDeclaratorBoundary(List<ScanToken> pending, int comma, Func<ScanToken, string> text)
@@ -703,13 +766,21 @@ internal static class DeclarationIndexBuilder
         if (at < 0)
             return "operator";
 
+        // "checked" always follows the "operator" keyword, in both the symbolic and the conversion
+        // form. It is kept in the name because it names a different member: "operator checked +"
+        // emits op_CheckedAddition and can be declared alongside op_Addition in the same type.
+        // Dropping it would make two distinct declarations share a name for no gain.
+        bool isChecked = at + 1 < header.Count && IsKeyword(header, at + 1, "checked", text);
+        var prefix = isChecked ? "operator checked " : "operator ";
+
         if (at > 0 && header[at - 1].Kind == ScanTokenKind.Word && text(header[at - 1]) is "implicit" or "explicit")
-            return "operator " + text(header[at - 1]);
+            return prefix + text(header[at - 1]);
 
         // Everything between "operator" and the parameter list is the operator's spelling: one
-        // token for "+", two for ">>", and a type name for a checked conversion's target.
-        var symbol = string.Concat(header.Skip(at + 1).Take(parenIndex - at - 1).Select(text));
-        return symbol.Length > 0 ? "operator " + symbol : "operator";
+        // token for "+", two for ">>".
+        int from = isChecked ? at + 2 : at + 1;
+        var symbol = string.Concat(header.Skip(from).Take(parenIndex - from).Select(text));
+        return symbol.Length > 0 ? prefix + symbol : "operator";
     }
 
     /// <summary>
@@ -717,6 +788,42 @@ internal static class DeclarationIndexBuilder
     /// <c>delegate*&lt;int, int&gt;</c> — as a return or parameter type, and the <c>*</c> is what
     /// tells them apart.
     /// </summary>
+    /// <summary>
+    /// Whether the header declares a C# 14 <c>extension</c> block. The block may be generic, and
+    /// its type parameter list sits between the keyword and the receiver: <c>extension&lt;T&gt;(
+    /// IEnumerable&lt;T&gt; source)</c>. Testing only for a following <c>(</c> misses that form,
+    /// and the cost is not one bad row -- the block is then indexed as a method, and every member
+    /// inside it is rejected for sitting in a method rather than a type, so the extension members
+    /// disappear from the index entirely.
+    /// <para>
+    /// The keyword is always the header's first token. An accessibility modifier is CS0106 and an
+    /// attribute is CS7014, both measured against the compiler, so there is nothing for it to
+    /// follow.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresAnExtensionBlock(List<ScanToken> pending, Func<ScanToken, string> text)
+    {
+        if (pending.Count < 2 || !IsKeyword(pending, 0, "extension", text))
+            return false;
+        if (text(pending[1]) == "(")
+            return true;
+        if (text(pending[1]) != "<")
+            return false;
+
+        int angle = 0;
+        for (int i = 1; i < pending.Count; i++)
+        {
+            if (pending[i].Kind != ScanTokenKind.Punctuator)
+                continue;
+            var c = text(pending[i]);
+            angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+            if (angle == 0)
+                return i + 1 < pending.Count && text(pending[i + 1]) == "(";
+        }
+
+        return false;
+    }
+
     private static bool DeclaresADelegate(List<ScanToken> header, Func<ScanToken, string> text)
     {
         for (int i = 0; i < header.Count; i++)

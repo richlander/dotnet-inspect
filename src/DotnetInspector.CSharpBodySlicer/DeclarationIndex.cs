@@ -67,8 +67,12 @@ public enum DeclarationKind
 /// <param name="Kind">What was declared.</param>
 /// <param name="Name">
 /// The declared name as spelled in source, without type parameters or parameter list. An operator
-/// is named <c>operator +</c>; a conversion is named <c>operator implicit</c> or
-/// <c>operator explicit</c>; an indexer is named <c>this</c>. Empty when the name could not be
+/// is named <c>operator +</c>, or <c>operator checked +</c> when declared <c>checked</c>, because
+/// that is a distinct member (<c>op_CheckedAddition</c>, not <c>op_Addition</c>); a conversion is
+/// named <c>operator implicit</c> or <c>operator explicit</c>, without its target type, so two
+/// conversions from the same type share a name; an indexer is named <c>this</c>. A name is
+/// therefore not an identity — <see cref="DeclarationIndex.FindByName"/> returns every match, and
+/// choosing among them is the caller's problem. Empty when the name could not be
 /// recovered.
 /// </param>
 /// <param name="TriviaStartLine">

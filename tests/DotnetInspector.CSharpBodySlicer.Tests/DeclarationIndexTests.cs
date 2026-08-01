@@ -363,6 +363,97 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// An extension block is a scope, not a declaration, in both its plain and its generic form.
+    /// Getting this wrong does not cost one bad row: the block is indexed as a method, and every
+    /// member inside it is then rejected for sitting in a method rather than a type, so the
+    /// extension members vanish from the index entirely.
+    /// </summary>
+    [Fact]
+    public void AGenericExtensionBlock_IsTransparentJustLikeAPlainOne()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            public static class C
+            {
+                extension(string receiver)
+                {
+                    public int Plain => 1;
+                }
+
+                extension<T>(System.Collections.Generic.IEnumerable<T> source)
+                {
+                    public System.Collections.Generic.IEnumerable<T> Page(int n) => source;
+                    public bool IsEmpty => true;
+                }
+            }
+            """);
+
+        Assert.Empty(index.Declarations.Where(d => d.Name == "extension"));
+        Assert.Equal(
+            ["Plain", "Page", "IsEmpty"],
+            index.Declarations.Where(d => d.Kind is DeclarationKind.Method or DeclarationKind.Property)
+                .Select(d => d.Name));
+
+        // Every extension member's parent is the enclosing class, not a row for the block.
+        var owner = index.Declarations.Single(d => d.Kind == DeclarationKind.Class);
+        Assert.All(
+            index.Declarations.Where(d => d.Kind is DeclarationKind.Method or DeclarationKind.Property),
+            d => Assert.Equal(owner, index.ParentOf(d)));
+    }
+
+    /// <summary>
+    /// A checked operator carries <c>checked</c> in its name, because it is a distinct metadata
+    /// member: <c>operator checked +</c> emits <c>op_CheckedAddition</c> and may be declared
+    /// alongside <c>op_Addition</c> in the same type. The oracle derives the same name
+    /// independently, from Roslyn's <c>CheckedKeyword</c>.
+    /// </summary>
+    [Fact]
+    public void ACheckedOperator_IsNamedForItsSymbolAlone()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            public class D
+            {
+                public static D operator +(D x, D y) => x;
+                public static D operator checked +(D x, D y) => x;
+                public static explicit operator int(D d) => 0;
+                public static explicit operator checked int(D d) => 0;
+            }
+            """);
+
+        Assert.Equal(
+            ["operator +", "operator checked +", "operator explicit", "operator checked explicit"],
+            index.Declarations.Where(d => d.Kind == DeclarationKind.Method).Select(d => d.Name));
+    }
+
+    /// <summary>
+    /// A generic type argument list in an <em>initializer</em> also carries commas, and the angle
+    /// counter cannot run there because a relational <c>&lt;</c> never closes. The speculative
+    /// match must skip the real type argument list without swallowing a relational comparison —
+    /// the last two fields here are the negative case, and losing them would be as wrong as
+    /// inventing a row from the first.
+    /// </summary>
+    [Fact]
+    public void CommasInsideAGenericInitializer_AreNotDeclaratorBoundaries()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            using System;
+            public class C
+            {
+                public Action A = new Action<int, int, int>(null), B = null;
+                public object F = Foo<int, string>.Bar, G = null;
+                public bool X = 1 < 2, Y = 3 > 2;
+                public bool P = A2 < B2, Q = C2 > D2;
+            }
+            """);
+
+        Assert.Equal(
+            ["A", "B", "F", "G", "X", "Y", "P", "Q"],
+            index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
+    }
+
+    /// <summary>
     /// A local function is a declaration Roslyn recognizes and the index deliberately does not: it
     /// is not a member, and reporting one would let a body-line lookup return something that has no
     /// metadata counterpart. Nothing here recognizes a local function — the enclosing scope of a
@@ -481,6 +572,16 @@ public class DeclarationIndexTests
         return result;
     }
 
+    /// <summary>
+    /// A checked operator is a distinct metadata member — <c>op_CheckedAddition</c>, not
+    /// <c>op_Addition</c> — and both may be declared in one type, so the name has to carry
+    /// <c>checked</c> or the two declarations become indistinguishable.
+    /// </summary>
+    private static string OperatorName(SyntaxToken checkedKeyword, SyntaxToken spelling) =>
+        checkedKeyword.IsKind(SyntaxKind.CheckedKeyword)
+            ? "operator checked " + spelling.ValueText
+            : "operator " + spelling.ValueText;
+
     private static void Walk(SyntaxNode node, List<Declaration> into)
     {
         foreach (var child in node.ChildNodes())
@@ -528,11 +629,11 @@ public class DeclarationIndexTests
                     continue;
 
                 case OperatorDeclarationSyntax op:
-                    into.Add(Make(op, DeclarationKind.Method, "operator " + op.OperatorToken.ValueText));
+                    into.Add(Make(op, DeclarationKind.Method, OperatorName(op.CheckedKeyword, op.OperatorToken)));
                     continue;
 
                 case ConversionOperatorDeclarationSyntax co:
-                    into.Add(Make(co, DeclarationKind.Method, "operator " + co.ImplicitOrExplicitKeyword.ValueText));
+                    into.Add(Make(co, DeclarationKind.Method, OperatorName(co.CheckedKeyword, co.ImplicitOrExplicitKeyword)));
                     continue;
 
                 case IndexerDeclarationSyntax ix:
