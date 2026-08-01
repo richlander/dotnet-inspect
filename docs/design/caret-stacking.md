@@ -594,9 +594,10 @@ extent under the five focus families.
   **57,940** characters, one extent covers all of it, and 4 + 57,940 + 2 is
   57,946. The line length is the figure that survives a change of convention.
 
-At a one-column gap every number above moves by under a point (97.20%, 25.3%,
-33.0%, 11.8%, 87.2%, 57,945) and the rejection is unaffected. The obvious
-first candidate for a wide style.
+At a one-column gap every percentage above moves by under one percentage point
+(97.20%, 25.3%, 33.0%, 11.8%, 87.2%) and the maximum column moves by one, to
+57,945; the counts behind them shift, but the rejection is unaffected. The
+obvious first candidate for a wide style.
 
 ### Constant-width caret trails
 
