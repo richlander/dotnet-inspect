@@ -166,26 +166,31 @@ only `Target.Location`; `AssemblyInspectionSession.Open` takes the resulting **r
 method-body session takes `Target.Selector` + the **facets**. One object crosses the CLI→service
 boundary; each service downstream receives just its own slice, not the whole request.
 
-### 2. `ResolvedAssemblyReference` — the resolution output (reuse what #2051 built)
+### 2. `ResolvedAssemblyReference` — the resolution output
 
 The resolver's answer: how to open the assembly *plus* everything it learned while finding it.
-This is the currency that replaces the bare `string`. **This type already exists** — #2051
-introduced `ResolvedAssemblyReference` in `ILInspector.Metadata` and the decompiler already
-resolves through it:
+This is the currency that replaces the bare `string`. #2051 introduced
+`ResolvedAssemblyReference` in `ILInspector.Metadata`, and the decompiler already resolves
+through it. The structured forwarding design evolves it in its second delivery slice from the
+original value-equal record to a registration-backed, non-equatable descriptor:
 
 ```csharp
-// ILInspector.Metadata/AssemblyReferenceIdentity.cs
-public sealed record ResolvedAssemblyReference(
-    AssemblyReferenceIdentity Identity,   // simple name, version, culture, public-key token
-    string? Path,
-    Func<Stream> OpenRead,                // both a path AND an opener — streams compose too
-    string? Provenance = null);
+var registration = new AssemblyAcquisitionRegistration(
+    selectedIdentity,
+    path,
+    () => File.OpenRead(path),
+    provenance);
+var reference = new ResolvedAssemblyReference(registration);
 ```
 
-So the inspection path **adopts this existing descriptor**, not a parallel one. It already
-answers "path vs stream vs opener" (it carries both). The one change: widen `string? Provenance`
-into a structured value — package@version, tfm, rid, platform-or-not, resolver source — so
-inspection reads provenance back instead of re-deriving it.
+The acquisition owner retains one registration per selected candidate; the descriptor exposes
+the selected image's identity, path, opener, provenance, and opaque registration handle, but the
+handle's payload remains internal. The incoming `AssemblyRef` identity remains request evidence,
+not descriptor identity. See
+[Type forwarding resolution](type-forwarding-resolution.md#assembly-candidate) for the
+authoritative identity, ownership, and migration contract. Provenance still widens from
+`string?` into a structured value — package@version, tfm, rid, platform-or-not, resolver source
+— so inspection reads provenance back instead of re-deriving it.
 
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
@@ -386,12 +391,14 @@ Three rules keep the surface flat:
 1. **Inspection-time services take the session/owner — one signature.** A scanner or the
    method-body session consumes the already-open owner; it does not accept a path *or* a
    reference, because by then the assembly is open.
-2. **Value-boundary services take the `ResolvedAssemblyReference` — and a path lifts into one.**
+2. **Value-boundary services take the `ResolvedAssemblyReference` — and an acquisition owner
+   lifts a path into one.**
    Where a service genuinely accepts an assembly by value (the resolution boundary, or a
-   standalone call), it takes the reference. A path-only caller wraps it in a line —
-   `new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path))`, exactly what the
-   #2051 `AssemblyLocator` adapter already does — so there is **one** input type, and "I only
-   have a path" is a trivial lift, not a second overload per service.
+   standalone call), it takes the reference. A path-only caller asks the local acquisition owner
+   to register the selected image and return `new ResolvedAssemblyReference(registration)`, so
+   there is **one** input type, not a second overload per service. The owner reads the selected
+   image identity and retains the registration; consumers do not synthesize request-shaped
+   descriptors.
 3. **Never take `(path, ResolvedAssemblyReference? reference = null)`.** That optional/nullable
    both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
    callers to pass a path and re-open. Prefer one required, typed input.
