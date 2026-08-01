@@ -244,7 +244,12 @@ public static class AnnotationCaret
     /// the 2,282 two-fact, 714 three-fact or 318 four-or-more-fact lines
     /// narrows. Two facts of one family on one line never share an extent in
     /// this corpus, so for them the disagreement return below does all the work.
-    /// The 82.43% headline is therefore padded: 29,550 of its lines carry a
+    /// That 91.7% is itself padded: 2,459 of the 29,550 single-fact lines hold a
+    /// fact with no extent, which cannot narrow. Conditioned on the 27,091 that
+    /// could, every one does -- 100%, and necessarily so, because one fact with
+    /// an extent is one extent and agrees with itself. The 91.7% measures how
+    /// often a single fact has an extent, not how often agreement holds.
+    /// The 82.43% headline is padded the other way: 29,550 of its lines carry a
     /// single fact and cannot disagree at all. Conditioned on the 3,314 lines
     /// that could, agreement is 0.
     /// That is what this measures, not a mechanism — what is compared is
@@ -416,9 +421,13 @@ public static class AnnotationCaret
     /// 2,842 lines (0.70%) pads the denominator with the 2,822 whose detail never
     /// goes inline and which therefore cannot overhang at all: inline detail
     /// appears on exactly 20 of these lines and all 20 overhang, so the rate is
-    /// 20/20. That is structural rather than lucky -- widening underlines the
-    /// whole trimmed statement, so the caret ends where the code line ends, and
-    /// anything appended after it is past the end. Stacking never appends detail
+    /// 20/20. The reason it comes out whole is that on the hoisted render these
+    /// figures are taken from, widening underlines the whole trimmed statement,
+    /// so the caret ends where the code line ends and any appended text lands
+    /// past it. That is not a universal guarantee, and should not be stated as
+    /// one: a fact whose formatted text is empty appends nothing, and an
+    /// un-hoisted render can clamp <c>pad</c> to its floor of 1 and push the
+    /// caret past the code with no detail appended at all. Stacking never appends detail
     /// to a caret row, so it is 0. The contrast is about where detail is placed,
     /// not about bounding the underline.
     /// </remarks>
