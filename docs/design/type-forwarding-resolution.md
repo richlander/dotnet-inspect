@@ -183,8 +183,15 @@ public sealed class MetadataTypeDefinitionName :
         ImmutableArray<string> segments)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
-        if (segments.IsDefault)
-            throw new ArgumentException("Segments must be initialized.", nameof(segments));
+        if (segments.IsDefaultOrEmpty)
+            throw new ArgumentException("Segments must not be empty.", nameof(segments));
+        foreach (string segment in segments)
+        {
+            if (string.IsNullOrEmpty(segment))
+                throw new ArgumentException(
+                    "Segments must not contain empty names.",
+                    nameof(segments));
+        }
 
         Namespace = @namespace;
         Segments = segments;
@@ -200,6 +207,16 @@ public sealed class MetadataTypeDefinitionName :
 
     public override bool Equals(object? obj) =>
         obj is MetadataTypeDefinitionName other && Equals(other);
+
+    public static bool operator ==(
+        MetadataTypeDefinitionName? left,
+        MetadataTypeDefinitionName? right) =>
+        ReferenceEquals(left, right) || left?.Equals(right) is true;
+
+    public static bool operator !=(
+        MetadataTypeDefinitionName? left,
+        MetadataTypeDefinitionName? right) =>
+        !(left == right);
 
     public override int GetHashCode()
     {
@@ -469,11 +486,25 @@ public readonly record struct MetadataTypeDefinitionAddress(
     Guid ModuleVersionId,
     TypeDefinitionToken Definition);
 
-public sealed record ResolvedTypeDefinition(
-    ResolvedTypeDefinitionKey Key,
-    MetadataTypeDefinitionAddress Address,
-    ResolvedAssemblyCandidate Assembly,
-    MetadataTypeDefinitionName Type);
+public sealed class ResolvedTypeDefinition
+{
+    internal ResolvedTypeDefinition(
+        ResolvedTypeDefinitionKey key,
+        MetadataTypeDefinitionAddress address,
+        ResolvedAssemblyCandidate assembly,
+        MetadataTypeDefinitionName type)
+    {
+        Key = key;
+        Address = address;
+        Assembly = assembly;
+        Type = type;
+    }
+
+    public ResolvedTypeDefinitionKey Key { get; }
+    public MetadataTypeDefinitionAddress Address { get; }
+    public ResolvedAssemblyCandidate Assembly { get; }
+    public MetadataTypeDefinitionName Type { get; }
+}
 
 public sealed record TypeForwardingHop(
     ResolvedAssemblyCandidate SourceAssembly,
@@ -565,6 +596,10 @@ record. Candidate and token are internal to the catalog implementation. Product
 consumers can retain the key and pass it back to catalog APIs, but cannot hash,
 order, or field-compare its internal candidate/token tuple to reconstruct
 correspondence.
+
+`ResolvedTypeDefinition` is also a non-equatable result container. Equality of
+that object or of a `TypeResolutionOutcome.Resolved` wrapper is not definition
+correspondence; only the catalog comparison API answers that question.
 
 The inspection and its graph cache keep the catalog generation alive and use
 one key space for the target and all candidates. A key is never serialized or
@@ -1277,7 +1312,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - `MetadataTypeDefinitionName` cannot be constructed from a rejected
   relationship chain.
 - Independently constructed equal `MetadataTypeDefinitionName` values compare
-  equal, hash equally, and hit one declaration/resolution cache entry.
+  equal through both `Equals` and `==`, hash equally, and hit one
+  declaration/resolution cache entry; `!=` returns false.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
   remain separate fields.
 
@@ -1386,6 +1422,11 @@ factories consume `ResolvedTypeDefinitionKey`,
 `MetadataTypeDefinitionAddress`, `TypeDefinitionToken`,
 `ResolvedAssemblyReference`, or descriptor provenance. Visibility cannot own
 that part because durable addresses are public by design.
+
+`DefinitionCorrespondenceUsageTests` rejects product uses of equality or
+hashing over `ResolvedTypeDefinitionKey`, `ResolvedTypeDefinition`, or
+`TypeResolutionOutcome.Resolved`; the catalog comparison and join-token APIs
+are the only semantic correspondence surfaces.
 
 A second narrow source gate may forbid `Path.Combine` over
 `AssemblyReferenceIdentity.Name` in product code, but it is defense in depth,
