@@ -798,9 +798,15 @@ public class DeclarationIndexTests
     /// <c>Field</c> and <c>Bodiless</c>.
     /// </para>
     /// <para>
-    /// This is conservative rather than wrong. It is also expensive: on dotnet/runtime's libraries a
-    /// conditional appears in 8.3% of files but costs 12.1% of declarations, because the loss runs
-    /// to end of file. <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>
+    /// The loss is conservative rather than wrong: every mutation of a row's span checks the
+    /// depth flag, so a span the scan cannot vouch for reports unknown instead of reporting one
+    /// branch's answer as the declaration's. That property is gated by
+    /// <see cref="AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd"/>, which covers
+    /// the one path that mutates an already-measured span. It is also expensive: on
+    /// dotnet/runtime's libraries at revision <c>e614b717a9d</c> a conditional appears in 8.3% of
+    /// files but costs 12.1% of declarations, because the loss runs to end of file. Those figures
+    /// are a point-in-time measurement, not a gated property.
+    /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>
     /// tracks recovering the depth across a conditional whose every branch is brace-balanced. When
     /// that lands this test should fail, and its assertions become the new behavior's.
     /// </para>
@@ -854,6 +860,55 @@ public class DeclarationIndexTests
 
         Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
         Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+    }
+
+    /// <summary>
+    /// A property's initializer is terminated after its accessor block has already closed, so that
+    /// terminator <i>extends</i> a span that was measured and marked known a moment earlier. It is
+    /// the only path that mutates an already-measured span, and so the only one that can turn a
+    /// known span into a wrong one rather than into a lost one.
+    /// <para>
+    /// A conditional between the accessor block and the initializer puts each candidate terminator
+    /// in a different branch, so the end this reads is one branch's end. Before this was gated the
+    /// row below reported a span ending at line 5 and claimed it was known, which is the answer for
+    /// a <c>FEATURE</c> build and off by two lines for every other build. That falsified this
+    /// suite's standing claim that an unresolvable conditional costs rows rather than corrupting
+    /// them, so it is asserted here rather than left to the sibling test's <c>Assert.All</c>: the
+    /// row is present and known-looking, which is exactly what a sweep over rows cannot catch.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; }
+            #if FEATURE
+                = 1;
+            #else
+                = 2;
+            #endif
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.False(p.SpanKnown, "a span whose end is one branch's must not report as known");
+        Assert.Null(index.FindByBodyLine(3));
+
+        // Without the conditional the same shape resolves, so the directive is the whole cause and
+        // the trailing-initializer path still extends the span it belongs to.
+        var plain = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; }
+                = 1;
+            }
+            """);
+
+        var q = Assert.Single(plain.Declarations, s => s.Name == "P");
+        Assert.True(q.SpanKnown);
+        Assert.Equal(4, q.EndLine);
     }
 
     /// <summary>

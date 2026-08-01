@@ -353,6 +353,12 @@ internal static class DeclarationIndexBuilder
                     && pending[0].Kind == ScanTokenKind.Punctuator && Text(pending[0]) == "=")
                 {
                     rows[lastClosed].EndLine = tok.Line + 1;
+
+                    // This extends a span that was already measured and marked known when its
+                    // accessor block closed, so it needs the same correction that close took: a
+                    // conditional between the block and the initializer puts the ";" in a branch,
+                    // and the end this reads is one branch's, not the declaration's.
+                    if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
                     ResetHeader();
                     lastClosed = -1;
                     continue;

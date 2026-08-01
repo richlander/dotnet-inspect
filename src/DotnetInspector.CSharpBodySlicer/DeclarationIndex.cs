@@ -134,8 +134,15 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// no branch could affect. Measured over dotnet/runtime's libraries at commit <c>e614b717a9d</c>,
 /// that costs 12.1% of declarations, of which 36,135 begin — leading trivia included — after the
 /// last <c>#endif</c>. Those figures are an ungated point-in-time measurement, not a property: no
-/// test re-measures them, and they will drift as that corpus moves. This is conservative rather
-/// than wrong, and it is a known limitation tracked by
+/// test re-measures them, and they will drift as that corpus moves. The loss is conservative
+/// rather than wrong — a row the scan cannot vouch for reports unknown instead of reporting one
+/// branch's answer as the declaration's — because every place that writes a row's span consults
+/// the depth flag. That is enforced per site rather than centrally, so it is gated at the site
+/// where it was once absent:
+/// <c>DeclarationIndexTests.AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c>
+/// covers the one path that extends a span already measured and marked
+/// known, which is the only path that can report a wrong span rather than lose a row. The loss
+/// itself is a known limitation tracked by
 /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>, not a property
 /// this type intends to keep. That every later row reports false is pinned by
 /// <c>DeclarationIndexTests.AConditionalDirective_LosesEveryLaterRowToEndOfFile</c>.
