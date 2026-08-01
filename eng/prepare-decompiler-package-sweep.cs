@@ -806,7 +806,20 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 // recorded removal is an operator convenience and is not itself gated.
 static void ReconcilePool(string directory, HashSet<string> recorded, List<string> removed)
 {
-    foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+    // Materialized before anything is deleted, because this loop deletes what it is
+    // walking. Whether an entry removed before the enumeration reached it is still
+    // returned is unspecified -- POSIX permits readdir to skip it -- and a skipped entry
+    // here is an unrecorded file left in the pool, unreported, over an exit code of 0.
+    // That is the state this whole step exists to prevent, arrived at silently. The
+    // enumeration this replaced materialized for its own reasons; it is spelled out here
+    // so the property is not re-lost by someone making the walk lazy again.
+    //
+    // Unverified rather than gated: on ext4 the skip does not happen, measured over 5000
+    // entries, so a case asserting it would pass on this filesystem whichever way the
+    // code was written and would be evidence of nothing.
+    FileSystemInfo[] entries = [.. new DirectoryInfo(directory).EnumerateFileSystemInfos()];
+
+    foreach (FileSystemInfo entry in entries)
     {
         // Non-null for a symlink alone, so a real directory is descended into and a hard
         // link -- indistinguishable from the file it is, and whose removal frees only
