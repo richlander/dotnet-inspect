@@ -47,7 +47,7 @@ The complete map is:
 | `MetadataTypeDefinitionName` | Metadata | Reader-independent lookup value | Exact `TypeDef` / `ExportedType` name lookup, including nested metadata segments and arity | Assembly selection, signature shape, CLI selection, display, universal identity |
 | `ResolvableTypeReference` | Analysis → Metadata seam | Decoder-produced provenance plus lookup name | Preserving whether a reference came from an assembly, the current assembly, intrinsic core library, or a module | Resolution without the source candidate, structural `TypeRef` equality |
 | `TypeResolutionRequest` | Metadata | One resolution operation | Typed start candidate/binding target plus exact lookup name | Replacing a decoded reference's provenance or serving as a reusable identity |
-| `ResolvedAssemblyCandidate` | Metadata catalog | One catalog | The acquired assembly candidate that owns rows and sessions | Durable identity outside the catalog |
+| `ResolvedAssemblyCandidate` | Metadata catalog | One catalog | The catalog-local descriptor for an acquired assembly; its candidate id addresses catalog-owned inventory and session state | Owning sessions itself, or durable identity outside the catalog |
 | `ResolvedTypeDefinition` | Metadata resolution | One frozen catalog generation | A successful resolution result and its evidence-bearing parts | Equality through object or record comparison, persistence as a whole |
 | `ResolvedTypeDefinitionKey` | Metadata catalog | One frozen catalog generation | Input to the catalog's exact `DefinitionCorrespondence` operation | Hashing, sorting, cross-catalog comparison, durable storage |
 | `MetadataTypeDefinitionAddress` | Metadata | Durable MVID plus validated TypeDef token | Re-locating one definition after reopening the same module | Proof that two artifacts correspond |
@@ -57,7 +57,7 @@ The complete map is:
 | `TypeNode` | Metadata API extraction | Metadata extraction operation | Rich signature facts and the inputs to display/canonical projections | Cross-layer public currency or definition correspondence |
 | `ApiType`, `ApiMember`, `ApiParameter` | Metadata/API output | Materialized and JSON-capable | API inventory, presentation fields, persisted API identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | Metadata resolver / CLI input | One selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
-| `MemberAnchor` plus `ModuleIdentity` | Metadata API identity | Durable API identity in one physical module scope | Exact selected API member, persisted selector/digest workflows | Method-body evidence identity without translation |
+| `MemberAnchor` plus module scope | Metadata API identity / round-trip design | Durable API identity interpreted beside module name and MVID | Exact selected API member, persisted selector/digest workflows | Method-body evidence identity without translation |
 | `MethodIdentity`, `MemberRef` | Analysis | Body and call-site evidence | Physical method/body and decoded call-site identity | API selector spelling or cross-version API identity |
 | `ResearchMemberIdentity` / `ResearchSubjectKey` | Research | Cross-producer body composition | Joining Analysis and Decompiler evidence for one body subject | Metadata-row lookup or API selection |
 
@@ -73,6 +73,9 @@ The table separates four axes that are often collapsed:
 
 Member currency has the same separation: selector in, anchor out, module scope
 beside the anchor, and producer-native body identity retained for body evidence.
+The owning round-trip design calls that scope `ModuleIdentity`; current product
+code has `MemberAnchor` and the tools-specific `RoundTripModuleIdentity`, not a
+shared product type named `ModuleIdentity`.
 
 ### Conversion ownership
 
