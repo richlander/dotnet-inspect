@@ -252,22 +252,32 @@ So the decoder lives in its own namespace:
 Text enters through `InertString`'s constructor and leaves through `ToString`
 already spelled, so the currency namespace is sufficient for every ordinary use.
 
-**The audit is one search, and the string is `InertText.Encoder`.** Not
-`using InertText.Encoder` — a using directive is only one of the two ways to
-reach a namespace, and the other one leaves the import block untouched:
+**The audit is one search, and the string is `InertText.Encoder`.** Reaching the
+decoder means naming its namespace, and that act *is* the opt-in. Decoding is a
+legitimate operation with legitimate callers, so the design does not try to
+prevent it — only to make it impossible to do quietly.
+
+A namespace can be named in two places, and both are equally legitimate:
 
 ```csharp
-using InertText;                    // the only directive in the file
+using InertText.Encoder;            // named in the import block
+VisualEncoder.TryDecode(inert.ToString(), out string? original);
+```
 
+```csharp
+// no using directive of any kind in this file
 InertText.Encoder.VisualEncoder.TryDecode(inert.ToString(), out string? original);
 ```
 
-That compiles and recovers the original. A reviewer who greps for the directive
-sees a clean import list and concludes the file cannot decode, which is the
-opposite of the truth. Grepping the bare namespace catches both forms, because a
-fully-qualified call has to spell the namespace too.
+Neither is evasion. The second names the namespace at the call site rather than
+at the top of the file, in plain sight on the line that uses it. What matters is
+that the *audit* covers both, which is why the search is for the bare namespace
+and not for `using InertText.Encoder`: a fully-qualified call declares itself on
+its own line and needs no directive at all, so a reviewer grepping only the
+import block would read that file as clean and conclude it cannot decode.
 
-There is a third way, and it spells the namespace in a different file:
+There is a third way, and unlike those two it does not name the namespace in the
+file that decodes at all:
 
 ```csharp
 // one file, or a <Using Include="InertText.Encoder" /> item in the .csproj

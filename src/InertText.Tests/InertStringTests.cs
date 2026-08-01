@@ -526,11 +526,11 @@ public class InertStringTests
     /// looks like it has not got it.
     ///
     /// The search string is <c>InertText.Encoder</c>, not <c>using InertText.Encoder</c>. A
-    /// using directive is one of two ways to reach a namespace, and the other leaves the import
-    /// block untouched — <c>InertText.Encoder.VisualEncoder.TryDecode(...)</c> compiles in a file
-    /// whose only directive is <c>using InertText</c>. Searching for the directive would show a
-    /// clean import list for a file that decodes. The bare namespace catches both, because a
-    /// fully-qualified call has to spell it too.
+    /// using directive is one of two ways to name a namespace, and the other needs no directive
+    /// at all — <c>InertText.Encoder.VisualEncoder.TryDecode(...)</c> compiles in a file with an
+    /// empty import block. Searching for the directive would show a clean import list for a file
+    /// that decodes. The bare namespace catches both, because a fully-qualified call has to
+    /// spell it too.
     /// </remarks>
     [Fact]
     public void NoPublicMemberOfTheCurrencyNamespaceReturnsText()
