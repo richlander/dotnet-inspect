@@ -175,13 +175,47 @@ nullable strings is not an implementation detail.
 ### Type definition name
 
 ```csharp
-public sealed record MetadataTypeDefinitionName(
-    string Namespace,
-    ImmutableArray<string> Segments);
+public sealed class MetadataTypeDefinitionName :
+    IEquatable<MetadataTypeDefinitionName>
+{
+    public MetadataTypeDefinitionName(
+        string @namespace,
+        ImmutableArray<string> segments)
+    {
+        ArgumentNullException.ThrowIfNull(@namespace);
+        if (segments.IsDefault)
+            throw new ArgumentException("Segments must be initialized.", nameof(segments));
+
+        Namespace = @namespace;
+        Segments = segments;
+    }
+
+    public string Namespace { get; }
+    public ImmutableArray<string> Segments { get; }
+
+    public bool Equals(MetadataTypeDefinitionName? other) =>
+        other is not null
+        && StringComparer.Ordinal.Equals(Namespace, other.Namespace)
+        && Segments.AsSpan().SequenceEqual(other.Segments.AsSpan());
+
+    public override bool Equals(object? obj) =>
+        obj is MetadataTypeDefinitionName other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Namespace, StringComparer.Ordinal);
+        foreach (string segment in Segments)
+            hash.Add(segment, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
+}
 ```
 
 `Segments` is root-to-leaf and retains metadata names, including generic arity.
 For `Namespace.Outer<T>.Inner`, it contains ``Outer`1`` and `Inner`.
+Equality is ordinal and structural over the segment sequence; it does not use
+`ImmutableArray<T>`'s backing-array identity.
 
 This type does not introduce "the canonical type spelling." Consumers still own
 their display, XML documentation, API identity, and body identity projections.
@@ -236,6 +270,11 @@ The id does not mean:
 When an acquisition layer cannot prove that two inputs are one candidate, it
 keeps them distinct. Splitting can cause a conservative miss; merging distinct
 assemblies can fabricate a resolution.
+
+The catalog interns exactly one `ResolvedAssemblyCandidate` object per
+`AssemblyCandidateId`. Reference equality therefore denotes the same interned
+descriptor object, but caches and correspondence still key on the internal id,
+not object equality.
 
 The ids are inspection currency, not persisted identities or sort keys.
 Candidate identity is internal; consumers receive the descriptor but cannot
@@ -594,10 +633,11 @@ against that frozen candidate set, so duplicate correspondence classes are
 complete and token arms cannot change beneath a cache.
 
 A later progressive lens may discover additional candidates. The catalog then
-starts a new generation and invalidates every resolution plan, join token, and
-`ScopeGraph` lease from the previous generation. It never mutates or reclassifies
-an issued token. Callers-first and graph-first execution may pay for one rebuild,
-but converge on the same frozen generation and answers.
+starts a new generation and invalidates every `TypeResolutionContext`,
+resolution plan, join token, and `ScopeGraph` lease from the previous
+generation. It never mutates or reclassifies an issued token. Callers-first and
+graph-first execution may pay for one rebuild, but converge on the same frozen
+generation and answers.
 
 The acquisition catalog caches:
 
@@ -606,10 +646,19 @@ The acquisition catalog caches:
   `(AssemblyCatalogGenerationId, AssemblyReferenceIdentity,
   AssemblyResolutionScope)`;
 
-Each resolution context composes that catalog and caches:
+Each resolution context is bound to one frozen generation, composes that
+catalog, and caches:
 
-- declaration probes by `(AssemblyCandidateId, MetadataTypeDefinitionName)`;
-- completed resolutions by `TypeResolutionRequest`.
+- declaration probes by
+  `(AssemblyCatalogGenerationId, AssemblyCandidateId,
+  MetadataTypeDefinitionName)`;
+- completed resolutions by
+  `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`.
+
+`TypeResolutionCacheKey` is an internal projection, not the public request
+record's synthesized equality. Its start arm contains either the internal
+candidate id plus scope or the complete assembly reference identity plus scope,
+followed by the structurally equatable `MetadataTypeDefinitionName`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
@@ -1227,6 +1276,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   table, and row bounds all validate against the target reader.
 - `MetadataTypeDefinitionName` cannot be constructed from a rejected
   relationship chain.
+- Independently constructed equal `MetadataTypeDefinitionName` values compare
+  equal, hash equally, and hit one declaration/resolution cache entry.
 - Type name, assembly identity, assembly candidate, provenance, and hop evidence
   remain separate fields.
 
@@ -1287,7 +1338,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Rendering `Call Graph` before `Callers` and in the opposite order produces
   the same direct caller set.
 - Discovering an additional candidate advances the catalog generation,
-  invalidates old graph tokens, and rebuilds instead of reclassifying a token.
+  invalidates old contexts and graph tokens, and rebuilds instead of
+  reclassifying a token.
+- A completed non-success cached in one generation is not replayed after
+  candidate discovery advances the generation.
 - Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
   candidates preserve the current caller-tree builder choice.
 - A cross-catalog definition comparison is a typed mismatch, not `false`.
