@@ -386,22 +386,30 @@ rests on is gone. The budget is enforced on the *encoded* length for the same
 reason it is in the escaper this replaces: encoding expands, so bounding the
 input bounds the wrong number.
 
-Two members divide a value, and they differ in what they do with a bad cut:
+Two members divide a value, and both are best-effort:
 
-| Member | Bad cut | For |
-| ------ | ------- | --- |
-| `Truncate(int maxLength)` | moved down to the nearest whole spelling | a budget |
-| `this[Range]` | refused, with `ArgumentException` | a cut the caller already chose |
+| Member | Takes |
+| ------ | ----- |
+| `Truncate(int maxLength)` | the longest prefix within the budget |
+| `Truncate(Range)` | the largest whole window inside the range |
 
-Moving the cut is right for a budget, where the number is a limit rather than a
-claim, and refusing is right for a range, where the caller has named a span and
-quietly returning a different one is the worse answer. `Truncate` therefore
-reports no truncation flag: `result.Length < Length` already answers it, and a
-flag that restates a comparison is a second thing to keep true.
+Both bounds move **inward** — the start forward to the next whole spelling, the
+end back to the previous one — so the result is always a subset of what was
+asked for. That asymmetry is the whole of the safety argument: returning less
+than a caller asked for is something it can detect from `Length`, while
+returning more is not. A window holding no whole spelling is therefore empty
+rather than widened to the spelling enclosing it.
 
-Neither member moves a **start**. Moving an end down returns less than was
-asked for, which a caller can detect; moving a start down returns *more*, which
-is the one direction it cannot check.
+Every range is answerable, including a reversed one and one that runs off
+either end. Neither member reports truncation separately, because
+`result.Length` against the width that was asked for already says whether
+anything moved.
+
+There is deliberately **no exact counterpart** that refuses an unusable window.
+An indexer would wear the syntax of ordinary slicing while throwing on bounds
+that look perfectly reasonable — six of the twelve positions in an
+eleven-character value divide a spelling — so the shape invites exactly the call
+it refuses. It would also buy nothing over the length comparison above.
 
 A surrogate pair counts as one thing however it is spelled — raw, as `\U`, or as
 the two `\uXXXX` escapes that composition produces when the halves are encoded in
