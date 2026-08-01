@@ -54,7 +54,22 @@ public static class ApiOutputFormatter
             Properties = api.PublicPropertyCount,
             Source = api.Source,
             Version = api.Version,
-            Tfm = api.Tfm
+            Tfm = api.Tfm,
+
+            // Deliberately the same values the inline identity line above carries, not a second
+            // spelling of them: this section is a promotion of that line into a selectable fixed
+            // section, so a reader who selects it and a reader who reads the line must not see two
+            // different answers to the same question.
+            ApiInfo = new ApiInfoSection
+            {
+                Assembly = api.Library,
+                Types = api.PublicTypeCount,
+                Methods = api.PublicMethodCount,
+                Properties = api.PublicPropertyCount,
+                Version = api.Version,
+                Tfm = api.Tfm,
+                Source = api.Source
+            }
         };
 
         if (api.InspectionFailures.Count > 0
@@ -226,6 +241,24 @@ public static class ApiOutputFormatter
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
             || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
+
+    /// <summary>
+    /// True when the type-listing tabular view must project the fixed fact table rather than type
+    /// rows.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="BuildSurfaceTableView"/> filters by mapping selected section names to type
+    /// <em>kinds</em>. A selection it cannot map to a kind -- which is every selection that is not
+    /// a per-kind table, including <see cref="SectionNames.ApiInfo"/> -- leaves that filter empty,
+    /// and an empty filter means "no filter", so it emits every type. That is a success-shaped
+    /// answer to a different question than the one <c>-S</c> asked, and it disagrees with both the
+    /// markdown rendering and <c>--count</c> of the same invocation. Routing this one selection to
+    /// the document serializer, exactly as the single-type path does for a single selected section,
+    /// keeps the three in agreement.
+    /// </remarks>
+    internal static bool ShouldRenderSurfaceFactTableView(ApiOptions options)
+        => options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.ApiInfo);
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
