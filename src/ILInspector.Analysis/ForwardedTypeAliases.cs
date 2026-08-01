@@ -754,7 +754,7 @@ public sealed class ForwardedTypeAliases
         // surface. `ACaseVariantSiblingDoesNotInheritTheTargetsSelfExemption`,
         // `ACaseVariantSiblingIsNotTheTargetWhenTheTargetIsOutOfScope` and
         // `ACaseVariantDirectoryDoesNotMakeASiblingTheTarget` are kept as standing guards so the
-        // fabrications cannot return. #3628 tracks revisiting this if #3480 makes the drop live.
+        // fabrications cannot return. #3650 tracks revisiting this if #3480 makes the drop live.
         string? targetPath = null;
 
         if (targetAssemblyPath is not null)
