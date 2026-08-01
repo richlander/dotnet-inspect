@@ -288,9 +288,14 @@ public static class AnnotationCaret
     /// </para>
     /// <para>
     /// Extents sharing a start column are always a nesting, so they can never
-    /// share a row. Widest first makes each row narrower than the one above it,
-    /// so reading down the rows is zooming in, and it matches the order the
-    /// printer records nesting in.
+    /// share a row. Widest first puts the outer extent first, so the inner
+    /// caret is clipped into its parent's trail rather than overwriting it,
+    /// and it matches the order the printer records nesting in. That orders
+    /// <i>same-start</i> extents only. It does not make each row narrower than
+    /// the one above: a later disjoint extent can be packed onto a lower row
+    /// and reach further right than anything above it, which happens on 50 of
+    /// the 2,842 lines that stack in System.Private.CoreLib, as the
+    /// annotated-source view prints it, summed over the five focus families.
     /// </para>
     /// </remarks>
     static List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>? Stack(
