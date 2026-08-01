@@ -175,18 +175,18 @@ through it. The structured forwarding design evolves it in its second delivery s
 original value-equal record to a registration-backed, non-equatable descriptor:
 
 ```csharp
-var registration = new AssemblyAcquisitionRegistration(
+var reference = ResolvedAssemblyReference.Create(
     selectedIdentity,
     path,
     () => File.OpenRead(path),
     provenance);
-var reference = new ResolvedAssemblyReference(registration);
 ```
 
-The acquisition owner retains one registration per selected candidate; the descriptor exposes
-the selected image's identity, path, opener, provenance, and opaque registration handle, but the
-handle's payload remains internal. The incoming `AssemblyRef` identity remains request evidence,
-not descriptor identity. See
+The acquisition owner retains the returned canonical descriptor and opaque registration per
+selected candidate. The handle contains no payload and cannot recreate the descriptor; the
+descriptor exposes the selected image's identity, path, opener, structured provenance, and
+registration. The incoming `AssemblyRef` identity remains request evidence, not descriptor
+identity. See
 [Type forwarding resolution](type-forwarding-resolution.md#assembly-candidate) for the
 authoritative identity, ownership, and migration contract. Provenance still widens from
 `string?` into a structured value — package@version, tfm, rid, platform-or-not, resolver source
@@ -395,10 +395,9 @@ Three rules keep the surface flat:
    lifts a path into one.**
    Where a service genuinely accepts an assembly by value (the resolution boundary, or a
    standalone call), it takes the reference. A path-only caller asks the local acquisition owner
-   to register the selected image and return `new ResolvedAssemblyReference(registration)`, so
-   there is **one** input type, not a second overload per service. The owner reads the selected
-   image identity and retains the registration; consumers do not synthesize request-shaped
-   descriptors.
+   to register the selected image through `ResolvedAssemblyReference.Create`, so there is **one**
+   input type, not a second overload per service. The owner reads the selected image identity and
+   retains the canonical descriptor; consumers do not synthesize request-shaped descriptors.
 3. **Never take `(path, ResolvedAssemblyReference? reference = null)`.** That optional/nullable
    both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
    callers to pass a path and re-open. Prefer one required, typed input.

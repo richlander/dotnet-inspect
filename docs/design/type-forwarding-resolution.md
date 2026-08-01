@@ -318,52 +318,107 @@ provenance, and an `AssemblyAcquisitionRegistration`:
 ```csharp
 public sealed class AssemblyAcquisitionRegistration
 {
-    public AssemblyAcquisitionRegistration(
-        AssemblyReferenceIdentity selectedIdentity,
+    internal AssemblyAcquisitionRegistration() { }
+}
+
+public abstract record AssemblyResolutionProvenance
+{
+    private protected AssemblyResolutionProvenance() { }
+
+    public static AssemblyResolutionProvenance Package(
+        string packageId,
+        string packageVersion,
+        string? tfm,
+        string? rid) =>
+        new PackageAsset(packageId, packageVersion, tfm, rid);
+
+    public static AssemblyResolutionProvenance Platform(
+        string framework,
+        string? frameworkVersion,
+        string resolverSource) =>
+        new PlatformAsset(framework, frameworkVersion, resolverSource);
+
+    public static AssemblyResolutionProvenance Project(
+        string project,
+        string? tfm,
+        string? rid) =>
+        new ProjectAsset(project, tfm, rid);
+
+    public static AssemblyResolutionProvenance Local(string resolverSource) =>
+        new LocalAsset(resolverSource);
+
+    public sealed record PackageAsset(
+        string PackageId,
+        string PackageVersion,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance;
+
+    public sealed record PlatformAsset(
+        string Framework,
+        string? FrameworkVersion,
+        string ResolverSource) : AssemblyResolutionProvenance;
+
+    public sealed record ProjectAsset(
+        string Project,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance;
+
+    public sealed record LocalAsset(
+        string ResolverSource) : AssemblyResolutionProvenance;
+}
+
+public sealed class ResolvedAssemblyReference
+{
+    private ResolvedAssemblyReference(
+        AssemblyAcquisitionRegistration registration,
+        AssemblyReferenceIdentity identity,
         string? path,
         Func<Stream> openRead,
-        string? provenance)
+        AssemblyResolutionProvenance provenance)
     {
-        SelectedIdentity = selectedIdentity;
+        Registration = registration;
+        Identity = identity;
         Path = path;
         OpenRead = openRead;
         Provenance = provenance;
     }
 
-    internal AssemblyReferenceIdentity SelectedIdentity { get; }
-    internal string? Path { get; }
-    internal Func<Stream> OpenRead { get; }
-    internal string? Provenance { get; }
-}
-
-public sealed class ResolvedAssemblyReference
-{
-    public ResolvedAssemblyReference(
-        AssemblyAcquisitionRegistration registration) =>
-        Registration = registration;
+    public static ResolvedAssemblyReference Create(
+        AssemblyReferenceIdentity selectedIdentity,
+        string? path,
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance) =>
+        new(
+            new AssemblyAcquisitionRegistration(),
+            selectedIdentity,
+            path,
+            openRead,
+            provenance);
 
     public AssemblyAcquisitionRegistration Registration { get; }
-    public AssemblyReferenceIdentity Identity =>
-        Registration.SelectedIdentity;
-    public string? Path => Registration.Path;
-    public Func<Stream> OpenRead => Registration.OpenRead;
-    public string? Provenance => Registration.Provenance;
+    public AssemblyReferenceIdentity Identity { get; }
+    public string? Path { get; }
+    public Func<Stream> OpenRead { get; }
+    public AssemblyResolutionProvenance Provenance { get; }
 }
 ```
 
 The registration is a public opaque reference-identity handle because an
 external acquisition owner must mint, retain, and receive it as a requesting
-origin at the policy boundary. Its payload remains internal; consumers can
-compare the handle only by reference and cannot extract path, identity, opener,
-or provenance from it. It is not a definition key or a claim that visible
-descriptor fields identify a physical file. It owns the canonical
-selected-candidate descriptor so two wrappers carrying one registration cannot
-disagree about identity, path, opener, or provenance. `SelectedIdentity` is the
-selected image's `AssemblyDef` identity, never the incoming `AssemblyRef`
-identity that requested it. The request remains in the binding outcome and
-forwarding hop. An adapter over today's resolver must therefore normalize the
-legacy request-shaped descriptor from its selected inventory entry before
-registration.
+origin at the policy boundary. The handle contains no payload, its constructor
+is internal, and the descriptor constructor is private. An external owner mints
+the pair only through `ResolvedAssemblyReference.Create`, retains that one
+canonical descriptor per selected entry, and reuses it in policy selections.
+Given only an origin registration, another policy cannot reconstruct the
+descriptor or extract path, identity, opener, or provenance. The handle is not
+a definition key or a claim that visible descriptor fields identify a physical
+file.
+
+`ResolvedAssemblyReference.Identity` is the selected image's `AssemblyDef`
+identity, never the incoming `AssemblyRef` identity that requested it. The
+request remains in the binding outcome and forwarding hop. An adapter over
+today's resolver must therefore normalize the legacy request-shaped descriptor
+from its selected inventory entry before creating the canonical pair.
 
 The owner creates one handle per selected candidate and reuses it in every
 descriptor and request that it knows denotes that candidate. The inspection
@@ -395,13 +450,12 @@ descriptor object, but caches and correspondence still key on the internal id,
 not object equality.
 
 Within one catalog, `AssemblyAcquisitionRegistration` reference identity is the
-registration key. Descriptor object identity, descriptor fields, path, MVID,
-and opener-delegate equality never intern candidates. Returning
-`candidate.Assembly`, or another descriptor carrying the same registration,
-therefore recovers the existing candidate. A descriptor with a fresh
-registration remains a distinct conservative candidate even when all visible
-fields match. Conflicting wrappers are unrepresentable because the canonical
-payload belongs to the registration.
+registration key. Descriptor fields, path, MVID, and opener-delegate equality
+never intern candidates. Returning `candidate.Assembly` therefore recovers the
+existing candidate. Calling `Create` again produces a fresh registration and a
+distinct conservative candidate even when all visible fields match.
+Conflicting public wrappers are unrepresentable because each factory call makes
+one canonical pair.
 
 `InspectionAcquisitionPlan` owns one package, platform, project, and local
 adapter per inspection. Today's per-path `AssemblyDependencyResolver` instances
@@ -433,8 +487,10 @@ cross-catalog comparison into an ordinary "different definition" answer.
 
 Package coordinates, selected TFM, platform framework, and local path remain
 provenance, not fields in `AssemblyReferenceIdentity`. Structuring that
-provenance is owned by the assembly-inspection query model and is not duplicated
-here.
+provenance is owned by the assembly-inspection query model; the shared
+`AssemblyResolutionProvenance` declaration above is included here only to make
+the evolved descriptor contract complete and must remain identical to that
+owner's shape.
 
 ### Resolution start
 
@@ -739,6 +795,11 @@ public enum AssemblyBindingFailureKind
 public sealed record AssemblyBindingFailure(
     AssemblyBindingFailureKind Kind);
 
+public sealed class AssemblyBindingPolicyVersion
+{
+    public AssemblyBindingPolicyVersion() { }
+}
+
 public sealed class AssemblyBindingRequest
 {
     public AssemblyBindingRequest(
@@ -819,6 +880,7 @@ public abstract class AssemblyBindingSelection
 
 public interface IAssemblyBindingPolicy
 {
+    AssemblyBindingPolicyVersion Version { get; }
     AssemblyBindingSelection Select(AssemblyBindingRequest request);
 }
 
@@ -864,6 +926,14 @@ public abstract class AssemblyBindingOutcome
 
         public AssemblyBindingFailure Failure { get; }
     }
+
+    public sealed class ExpansionRequired : AssemblyBindingOutcome
+    {
+        internal ExpansionRequired(AssemblyBindingRequest request) =>
+            Request = request;
+
+        public AssemblyBindingRequest Request { get; }
+    }
 }
 
 internal interface IAssemblyBindingResolver
@@ -896,6 +966,23 @@ generation-scoped and is the only origin projection permitted in binding and
 resolution cache keys. `AssemblyBindingCacheKey` is the structural tuple of
 that domain key, complete reference identity, and scope; the containing cache
 supplies the generation.
+
+`AssemblyBindingOutcome.ExpansionRequired` is produced only by a frozen cache
+lookup for an absent binding-only root. External policies cannot return it.
+Type resolution maps it to
+`Rejected(PlanExpansionRequired(Binding(request)))`; adjacency orchestration
+adds the binding root and advances the generation before rendering.
+
+`AssemblyBindingPolicyVersion` is an opaque reference token for one stable
+policy snapshot. A policy returns the same instance while its inventories and
+selection behavior are unchanged and replaces it before a later call could
+produce a different answer. `InspectionAcquisitionPlanVersion` is the internal
+composite of the package, platform, project, and local policy-version
+references. Binding cache entries record their owning policy and version.
+Across discovery epochs, an unchanged policy version carries its frozen
+binding outcomes forward without invoking policy; a changed version refreshes
+only that owner's binding roots and invalidates recipes whose dependency
+snapshots differ. Policy selection must be deterministic within one version.
 
 Package, platform, project, and local acquisition owners implement the public
 `IAssemblyBindingPolicy` and return context-free descriptors through public
@@ -1405,7 +1492,9 @@ first supplies a manifest with two root kinds:
   references, and named signature types in graph edges being indexed;
 - binding-only `AssemblyBindingRequest` roots for every snapshotted
   `AssemblyRef` used to build caller-scope reverse adjacency, each carrying its
-  requesting candidate origin.
+  requesting candidate origin; selected candidates contribute only the
+  additional `AssemblyRef` targets used by their valid `ExportedType`
+  forwarders.
 
 The builder executes those roots provisionally, including every per-hop
 scope-tightening transition. Each encountered
@@ -1459,18 +1548,20 @@ It stores:
 and typed failure payload; it never compares public outcome objects or
 descriptors. Freeze stores recipes by
 `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)` and materializes the
-public outcome and definition keys for that generation. A later epoch refreshes
-each recorded binding dependency and reuses the recipe only when every snapshot
-is structurally unchanged; otherwise it reruns that recipe. Invalidating an old
-context therefore does not discard the catalog-owned recipe store.
+public outcome and definition keys for that generation. A later epoch carries
+each dependency forward without a policy call while its owning policy version
+is unchanged. When that version changes, the builder refreshes the dependency
+and reuses the recipe only if the new snapshot is structurally equal; otherwise
+it reruns that recipe. Invalidating an old context therefore does not discard
+the catalog-owned recipe store.
 
 A request outside the frozen manifest returns the typed
 `PlanExpansionRequired` rejection to the inspection coordinator. The
 coordinator unions that request into the builder and advances the generation
 before rendering; it never treats the rejection as missing. A binding outcome
-inside the manifest can reference only candidates frozen with it. A volatile
-policy that changes its answer is observed only when a later discovery epoch
-refreshes that pair, never halfway through execution.
+inside the manifest can reference only candidates frozen with it. Policy
+changes require a new version and are observed only by the next discovery
+epoch, never halfway through execution.
 
 The internal `CatalogDiscoveryOutcome` is closed: `Ready` carries the frozen
 generation, while `Rejected` carries
@@ -1481,9 +1572,10 @@ than retrying or rendering an authoritative empty result.
 A later progressive lens first reopens the builder with the union of previous
 manifest and the new lens's requests. Graph planning first decodes the selected
 edge set, contributes all named signature requests, snapshots each scope
-candidate's assembly references, and contributes all adjacency binding roots.
-It then freezes, issues join tokens, and builds the graph. It never discovers a
-new binding while tokens are being issued. If fixed-point discovery adds a
+candidate's assembly references, contributes those adjacency binding roots, and
+expands forwarding-only adjacency for candidates selected by those roots. It
+then freezes, issues join tokens, and builds the graph. It never discovers a new
+binding while tokens are being issued. If fixed-point discovery adds a
 candidate, the catalog
 freezes a new generation and invalidates every
 `TypeResolutionContext`, resolution plan, join token, and `ScopeGraph` lease
@@ -1509,6 +1601,10 @@ The acquisition catalog caches:
 - frozen resolution recipes by
   `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`, with their binding
   dependency snapshots;
+
+A new discovery epoch seeds its provisional binding map from the preceding
+frozen map for every unchanged policy version. The epoch component isolates new
+writes and cancellation; it does not force another policy call.
 
 Each resolution context is bound to one frozen generation, composes that
 catalog, and caches:
@@ -1560,7 +1656,8 @@ For one builder request:
    populate the provisional binding outcome. Binding `Selected` continues;
    `Missing` returns `UnboundReference`; `Unavailable` returns `Unavailable`;
    `Ambiguous` returns `Ambiguous`; and binding `Rejected` returns
-   `Rejected(InvalidBindingPolicy)`.
+   `Rejected(InvalidBindingPolicy)`. Frozen-only `ExpansionRequired` maps to
+   `Rejected(PlanExpansionRequired(Binding(request)))`.
 3. Open the selected assembly through the context.
 4. Probe the exact structured type name.
 5. On `Defined`, materialize the definition key and finish.
@@ -1754,23 +1851,34 @@ under the inspection catalog:
 3. Bind assembly references to catalog candidates and build reverse adjacency.
    Every pair is contributed as a binding-only discovery root and frozen before
    reverse closure begins.
-4. Root graph reachability at the candidate owning the target definition and
+4. Expand assembly-level forwarding adjacency. For every candidate selected by
+   an adjacency edge or resolution root, read its `ExportedType` inventory and
+   collect only the `AssemblyRef` targets that terminate valid forwarder
+   declarations. Add those binding-only roots and edges, then repeat for newly
+   selected forwarder candidates to the discovery budget. This adds
+   `caller -> facade -> implementation` even when the caller's matching
+   `TypeRef` names some unrelated type.
+5. Root graph reachability at the candidate owning the target definition and
    every descriptor selection carrying that candidate's acquisition
    registration.
-5. Compute the transitive graph set as reverse-reference closure from the
+6. Compute the transitive graph set as reverse-reference closure from the
    target-assembly roots, direct facade seeds, and indeterminate seeds.
 
 An unread reference set or an unavailable, ambiguous, or rejected adjacency
-binding cannot prove a negative. Its carrier remains an indeterminate graph
-candidate and widens closure under its own candidate identity, matching the
-current rule that unknown reachability must not truncate everything above it.
+binding cannot prove a negative. Its incoming scope carriers remain
+indeterminate graph seeds and widen closure under their identities; an
+unreadable selected facade never relies on its unavailable `AssemblyDef`
+identity to retain callers above it. This matches the current rule that unknown
+reachability must not truncate everything above it.
 
 This replaces `CallerScopeFilter`'s assembly-spelling proof with a proof against
 definition correspondence. A facade need not be in the caller scope: resolving
 the matching reference may acquire and traverse it through binding policy. The
 work remains query-directed because it resolves only the target structured name
-through references actually present in scope candidates; it does not seed from
-or sweep every framework facade.
+through references actually present in scope candidates. Forwarding adjacency
+opens only candidates reached from those roots and reads only their
+`ExportedType` target references; it does not bind every dependency of those
+candidates or seed from every framework facade.
 
 Rooting at the target assembly is independent of the target type name. It keeps
 a scope candidate that references another type in the target assembly, and
@@ -2175,6 +2283,9 @@ Resolution is query-directed:
 - caller reachability binds each snapshotted scope-candidate `AssemblyRef` once
   in its requesting domain to build reverse adjacency, without opening every
   referenced image;
+- for candidates selected by those edges, reachability opens only the images
+  needed to read forwarding inventories and binds only their
+  `ExportedType`-target references;
 - graph signature correspondence resolves only named type occurrences in edges
   being indexed and caches each resolvable origin once.
 
@@ -2191,7 +2302,9 @@ forwarded `XmlReader` caller is:
 - each unique matching reference and signature origin is resolved at most once;
 - adjacency policy calls equal the distinct
   `(requesting candidate, reference identity, scope)` rows in the scope
-  snapshot, and no adjacency request is first discovered after freeze.
+  snapshot plus forwarding-adjacency rows over the whole inspection while
+  policy versions remain unchanged, and no adjacency request is first
+  discovered after freeze.
 
 Wall-clock measurements may accompany implementation evidence but do not
 replace these structural counts.
@@ -2305,12 +2418,11 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
   selection through factories but cannot construct catalog candidates.
 - An external fake policy can construct every `AssemblyBindingFailureKind`.
-- Two descriptor objects carrying the same
-  `AssemblyAcquisitionRegistration`, including `candidate.Assembly`, yield one
+- Reusing the canonical descriptor, including `candidate.Assembly`, yields one
   candidate id, one opened session, and `Same` correspondence.
-- A second descriptor with identical visible values and the identical
-  `Func<Stream>` instance but a fresh registration remains a distinct
-  candidate.
+- A second `ResolvedAssemblyReference.Create` call with identical visible
+  values and the identical `Func<Stream>` instance receives a fresh
+  registration and remains a distinct candidate.
 - Package, platform, project, and local migration adapters each return one
   stable registration when their owner selects the same candidate through
   different compatible reference requests.
@@ -2322,8 +2434,15 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - A user path found in the platform inventory and a forwarder binding to that
   entry share the platform registration; an unowned copied path remains local.
 - An external policy receives only the requesting registration, can use
-  reference identity to select its owner inventory, and cannot reach the
-  requesting descriptor or registration payload through the origin.
+  reference identity to select its owner inventory, and cannot construct a
+  descriptor from that handle or reach the requesting payload through the
+  origin.
+- External acquisition owners can construct every structured provenance arm;
+  no consumer parses a provenance string.
+- Unchanged `AssemblyBindingPolicyVersion` instances carry binding and
+  adjacency outcomes across progressive epochs without another policy call;
+  replacing one version refreshes only that owner's roots and dependent
+  recipes.
 - Two requesting-assembly origins with the same reference identity and scope
   occupy different binding-cache entries and may select different candidates;
   repeated requests from one origin reuse its outcome.
@@ -2369,6 +2488,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
   causes the once-only probe or resolution count gate to fail.
 - A request outside the frozen manifest returns `PlanExpansionRequired`, and
   presentation occurs only after the coordinator advances the generation.
+- An absent frozen binding-only root returns
+  `AssemblyBindingOutcome.ExpansionRequired`; type resolution maps that arm to
+  `PlanExpansionRequired(Binding(request))`.
 
 ### Consumer gates
 
@@ -2411,6 +2533,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Every scope-candidate `AssemblyRef` needed for reverse adjacency is present
   as a binding-only root before freeze; deleting those roots fails the
   depth-two reverse-closure fixture and the adjacency call-count pin.
+- A scope candidate references a facade only for a non-target type, the facade
+  is outside the scope and forwards to the target assembly, and a caller above
+  that candidate remains reachable through
+  `caller -> facade -> implementation`; the candidate is not a direct seed.
+- An unreadable selected facade retains its incoming scope carrier as an
+  indeterminate seed, so callers above the carrier are not truncated.
 - A depth-two graph caller that reaches the selected member through another
   method in the target assembly is retained even though it never names the
   target type.
