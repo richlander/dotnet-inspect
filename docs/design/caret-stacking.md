@@ -192,10 +192,13 @@ to the caret row when it fits the inline budget, and that appended text carries
 the row past the end of the code line. Quoting this as **20 of 2,842 lines
 (0.70%)** pads the denominator with the 2,822 whose detail never goes inline and
 which therefore cannot overhang at all. Inline detail appears on exactly **20**
-of these lines, and **all 20** overhang — the rate is **20/20**, and it is
-structural rather than lucky: widening underlines the whole trimmed statement,
-so the caret ends where the code line ends and anything appended after it is
-past the end. Stacking never appends detail to a caret row, so it is 0. The contrast is about where detail is
+of these lines, and **all 20** overhang — the rate is **20/20**. It comes out
+whole because on the hoisted render these figures are taken from, widening
+underlines the whole trimmed statement, so the caret ends where the code line
+ends and any appended text lands past it. That is not a universal guarantee and
+is not claimed as one: a fact whose formatted text is empty appends nothing, and
+an un-hoisted render can clamp `pad` to its floor of 1 and push the caret past
+the code with no detail appended at all. Stacking never appends detail to a caret row, so it is 0. The contrast is about where detail is
 placed, not about bounding the underline — and the earlier claim that the
 widening underline "shifts rightward while preserving the full extent length"
 described a mechanism that does not occur.
@@ -442,7 +445,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `102c73f8f`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `9d4b6a12a`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
