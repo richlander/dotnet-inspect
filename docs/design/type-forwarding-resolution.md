@@ -1937,14 +1937,16 @@ under the inspection catalog:
    selected forwarder candidates to the discovery budget. This adds
    `caller -> facade -> implementation` even when the caller's matching
    `TypeRef` names some unrelated type.
-5. Root graph reachability at the candidate owning the target definition and
-   every descriptor selection carrying that candidate's acquisition
-   registration.
+5. Root graph reachability at every candidate in the target definition's
+   generation-stable correspondence class: the exact owning candidate plus all
+   candidates carrying the catalog's class-scoped
+   `IndeterminateDuplicateArtifact` evidence.
 6. Compute the transitive graph set as reverse-reference closure from the
    target-assembly roots, direct facade seeds, and indeterminate seeds.
 
-An unread reference set or an unavailable, ambiguous, or rejected adjacency
-binding cannot prove a negative. Its incoming scope carriers remain
+An unread reference set or a missing/unbound, unavailable, ambiguous, or
+rejected adjacency binding cannot prove a negative. Its incoming scope carriers
+remain
 indeterminate graph seeds and widen closure under their identities; an
 unreadable selected facade never relies on its unavailable `AssemblyDef`
 identity to retain callers above it. This matches the current rule that unknown
@@ -1961,9 +1963,12 @@ candidates or seed from every framework facade.
 
 Rooting at the target assembly is independent of the target type name. It keeps
 a scope candidate that references another type in the target assembly, and
-therefore keeps callers above that intermediate method. The direct facade seeds
-add the case the assembly graph cannot express: a matching type reference whose
-facade is outside the caller scope but resolves to the target definition.
+therefore keeps callers above that intermediate method. The correspondence-class
+root includes independently registered duplicate copies, so an unrelated-type
+edge into a duplicate cannot truncate callers merely because it was not a
+direct type seed. The direct facade seeds add the case the assembly graph cannot
+express: a matching type reference whose facade is outside the caller scope but
+resolves to the target definition.
 
 The plan exposes two projections from one catalog and one metadata snapshot:
 
@@ -2577,6 +2582,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - A missing initial, forwarded, or core-library binding returns
   `UnboundBinding` with the exact target and scope, not `NotFound` or
   `CandidateUnavailable`.
+- A descriptor whose verified selected-entry identity disagrees with the
+  opened image's `AssemblyDef` returns
+  `CandidateOpenFailed(InvalidImage)` before contributing a declaration, hop,
+  or adjacency edge.
 - Ambiguous target assembly.
 - Malformed metadata.
 - A `File`-row-terminated `ExportedType` chain produces
@@ -2649,6 +2658,9 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Every scope-candidate `AssemblyRef` needed for reverse adjacency is present
   as a binding-only root before freeze; deleting those roots fails the
   depth-two reverse-closure fixture and the adjacency call-count pin.
+- A scope candidate whose only possible route is an adjacency binding reported
+  `Missing` remains an indeterminate seed, and reverse closure retains callers
+  above it.
 - A scope candidate references a facade only for a non-target type, the facade
   is outside the scope and forwards to the target assembly, and a caller above
   that candidate remains reachable through
@@ -2658,6 +2670,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   fixture supplies verified inventory identity and a failing opener; an
   unidentifiable local file instead fails before selection as
   `CandidateUnavailable`.
+- A scope candidate that references only an unrelated type in a separately
+  registered duplicate of the target assembly remains reachable because every
+  candidate in the target's duplicate-artifact correspondence class is a graph
+  root.
 - A depth-two graph caller that reaches the selected member through another
   method in the target assembly is retained even though it never names the
   target type.
