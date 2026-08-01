@@ -271,6 +271,98 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// A generic type argument list carries commas of its own, and they are not declarator
+    /// boundaries. Two arguments happen to survive a lookahead-only rule; three do not, because
+    /// the first comma is then followed by a name and another comma — the exact shape a declarator
+    /// list has.
+    /// </summary>
+    [Fact]
+    public void CommasInsideATypeArgumentList_AreNotDeclaratorBoundaries()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            public class C
+            {
+                public System.Action<string, int, float> A;
+                public System.Func<int, int, int, int, string> B, B2;
+                public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> D;
+            }
+            """);
+
+        Assert.Equal(
+            ["A", "B", "B2", "D"],
+            index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
+    }
+
+    /// <summary>
+    /// A verbatim identifier is a name that merely spells a keyword. Reading it as the keyword
+    /// turns a field into a type declaration and a parameter into a delegate.
+    /// </summary>
+    [Fact]
+    public void AnIdentifierThatSpellsAKeyword_IsNotThatKeyword()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            public class C
+            {
+                public int @class;
+                public int @where => 1;
+                public void M(int @delegate) { }
+                public void N2(int @this) { }
+                public int @event;
+            }
+            """);
+
+        Assert.Equal(["class", "event"], index.Declarations.Where(d => d.Kind == DeclarationKind.Field).Select(d => d.Name));
+        Assert.Equal(["where"], index.Declarations.Where(d => d.Kind == DeclarationKind.Property).Select(d => d.Name));
+        Assert.Equal(["M", "N2"], index.Declarations.Where(d => d.Kind == DeclarationKind.Method).Select(d => d.Name));
+        Assert.Empty(index.Declarations.Where(d => d.Kind is DeclarationKind.Delegate or DeclarationKind.Event));
+        Assert.Single(index.Declarations.Where(d => d.IsType));
+    }
+
+    /// <summary>
+    /// Two declarations can be spelled identically — a partial method's defining and implementing
+    /// halves share a name and differ only in span. The differential compares multisets, so a row
+    /// emitted twice or dropped once is a failure; this is the fixture that has cardinality to
+    /// lose.
+    /// </summary>
+    [Fact]
+    public void TwoDeclarationsSpelledAlike_AreBothReported()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            public partial class C
+            {
+                public partial void M();
+                public partial void M() { }
+            }
+            """);
+
+        var found = index.FindByName(DeclarationKind.Method, "M");
+        Assert.Equal(2, found.Length);
+        Assert.False(found[0].HasBody);
+        Assert.True(found[1].HasBody);
+    }
+
+    /// <summary>
+    /// The oracle's decline rule, gated directly. The corpus currently contains no file with a
+    /// conditional directive, so nothing else exercises either arm: a rule that declined every
+    /// file, or none, would look identical from the corpus. It declines on a real directive and
+    /// only on a real directive — <c>#if</c> spelled in a comment, a string, or a
+    /// <c>#region</c>/<c>#pragma</c>/<c>#nullable</c> directive is not conditional compilation.
+    /// </summary>
+    [Fact]
+    public void TheOracleDeclines_OnAConditionalDirectiveAndOnlyOnOne()
+    {
+        Assert.Null(RoslynDeclarations(["#if NET", "class A { }", "#endif"]));
+        Assert.Null(RoslynDeclarations(["#if NET", "class A { }", "#else", "class B { }", "#endif"]));
+
+        Assert.NotNull(RoslynDeclarations(["// mentions #if and #else", "class A { }"]));
+        Assert.NotNull(RoslynDeclarations(["class A { const string S = \"#if\"; }"]));
+        Assert.NotNull(RoslynDeclarations(["#nullable enable", "#region R", "#pragma warning disable", "class A { }", "#endregion"]));
+    }
+
+    /// <summary>
     /// A local function is a declaration Roslyn recognizes and the index deliberately does not: it
     /// is not a member, and reporting one would let a body-line lookup return something that has no
     /// metadata counterpart. Nothing here recognizes a local function — the enclosing scope of a
@@ -326,18 +418,29 @@ public class DeclarationIndexTests
     private static string Format(DeclarationSpan s) =>
         $"{s.Kind} {s.Name} {s.SignatureStartLine}-{s.EndLine}";
 
+    /// <summary>
+    /// A multiset difference, not a set difference. Cardinality is the point: a builder that emits
+    /// the same declaration twice, or drops one of two identically-spelled rows, is exactly the
+    /// regression this gate exists to catch, and a set comparison reports both as agreement.
+    /// </summary>
     private static string Diff(List<string> expected, List<string> actual)
     {
-        var missing = expected.Except(actual, StringComparer.Ordinal).ToList();
-        var extra = actual.Except(expected, StringComparer.Ordinal).ToList();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var e in expected)
+            counts[e] = counts.GetValueOrDefault(e) + 1;
+        foreach (var a in actual)
+            counts[a] = counts.GetValueOrDefault(a) - 1;
+
+        var missing = counts.Where(kv => kv.Value > 0).ToList();
+        var extra = counts.Where(kv => kv.Value < 0).ToList();
         if (missing.Count == 0 && extra.Count == 0)
             return "";
 
         var sb = new StringBuilder();
-        foreach (var m in missing.Take(6))
-            sb.Append("  Roslyn only: ").AppendLine(m);
-        foreach (var e in extra.Take(6))
-            sb.Append("  index only:  ").AppendLine(e);
+        foreach (var m in missing.OrderBy(kv => kv.Key, StringComparer.Ordinal).Take(6))
+            sb.Append("  Roslyn only: ").Append(m.Key).AppendLine(m.Value > 1 ? $" (x{m.Value})" : "");
+        foreach (var e in extra.OrderBy(kv => kv.Key, StringComparer.Ordinal).Take(6))
+            sb.Append("  index only:  ").Append(e.Key).AppendLine(e.Value < -1 ? $" (x{-e.Value})" : "");
         return sb.ToString();
     }
 
@@ -354,19 +457,27 @@ public class DeclarationIndexTests
     /// </summary>
     private static List<Declaration>? RoslynDeclarations(string[] lines)
     {
-        var text = string.Join("\n", lines);
-        if (text.Contains("#if", StringComparison.Ordinal)
-            || text.Contains("#else", StringComparison.Ordinal)
-            || text.Contains("#elif", StringComparison.Ordinal))
-            return null;
-
         var tree = CSharpSyntaxTree.ParseText(
-            text, new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse));
+            string.Join("\n", lines),
+            new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse));
         if (tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error))
             return null;
 
+        var root = tree.GetRoot();
+
+        // Ask Roslyn which files actually carry a conditional directive rather than searching the
+        // text for one. "#if" appears inside comments and string literals — ScanTokenTests.cs spells
+        // it nine times and has no directive at all — and a substring test declines those files,
+        // shrinking the corpus for no reason and doing it invisibly. Only conditional directives
+        // matter here; #region, #pragma, and #nullable do not change which text is present.
+        if (root.ContainsDirectives && root.DescendantTrivia(descendIntoTrivia: true).Any(t =>
+                t.IsKind(SyntaxKind.IfDirectiveTrivia)
+                || t.IsKind(SyntaxKind.ElifDirectiveTrivia)
+                || t.IsKind(SyntaxKind.ElseDirectiveTrivia)))
+            return null;
+
         var result = new List<Declaration>();
-        Walk(tree.GetRoot(), result);
+        Walk(root, result);
         return result;
     }
 

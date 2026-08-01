@@ -355,6 +355,22 @@ internal static class DeclarationIndexBuilder
     /// not cut at one.
     /// </param>
 
+    /// <summary>
+    /// Whether the token at <paramref name="i"/> is the C# keyword <paramref name="keyword"/> and
+    /// not an identifier that merely spells it. <c>@class</c>, <c>@delegate</c>, <c>@where</c>, and
+    /// <c>@this</c> are ordinary names, and the scanner reports the <c>@</c> as its own token, so a
+    /// keyword test that reads only the word treats a field named <c>@class</c> as a type
+    /// declaration.
+    /// </summary>
+    private static bool IsKeyword(
+        IReadOnlyList<ScanToken> header, int i, string keyword, Func<ScanToken, string> text) =>
+        header[i].Kind == ScanTokenKind.Word
+        && text(header[i]) == keyword
+        && !IsVerbatim(header, i, text);
+
+    private static bool IsVerbatim(IReadOnlyList<ScanToken> header, int i, Func<ScanToken, string> text) =>
+        i > 0 && header[i - 1].Kind == ScanTokenKind.Punctuator && text(header[i - 1]) == "@";
+
     private readonly record struct TruncatedHeader(List<ScanToken> Header, int ArrowLine, bool CutAtEquals);
 
     private static TruncatedHeader Truncate(List<ScanToken> pending, Func<ScanToken, string> text)
@@ -375,14 +391,13 @@ internal static class DeclarationIndexBuilder
                 // header. Without this cut the initializer looks like the parameter list and the
                 // constructor is named "this" or "base".
                 else if (c == ":" && depth == 0 && i + 1 < pending.Count
-                    && pending[i + 1].Kind == ScanTokenKind.Word
-                    && text(pending[i + 1]) is "this" or "base")
+                    && (IsKeyword(pending, i + 1, "this", text) || IsKeyword(pending, i + 1, "base", text)))
                 {
                     cut = i;
                     break;
                 }
             }
-            else if (t.Kind == ScanTokenKind.Word && depth == 0 && text(t) == "where")
+            else if (depth == 0 && IsKeyword(pending, i, "where", text))
             {
                 cut = i;
                 break;
@@ -441,16 +456,24 @@ internal static class DeclarationIndexBuilder
         if (header.Count == 0)
             return (null, "");
 
-        var words = header.Where(t => t.Kind == ScanTokenKind.Word).Select(text).ToList();
-        if (words.Count == 0)
+        // Word positions within the header, so a keyword test can see whether an "@" precedes the
+        // word. "@class" is a name, not a type declaration.
+        var at = new List<int>();
+        for (int i = 0; i < header.Count; i++)
+            if (header[i].Kind == ScanTokenKind.Word)
+                at.Add(i);
+        if (at.Count == 0)
             return (null, "");
 
-        if (words[0] == "using")
+        var words = at.Select(i => text(header[i])).ToList();
+        bool Keyword(int w, string kw) => IsKeyword(header, at[w], kw, text);
+
+        if (Keyword(0, "using"))
             return (null, "");
-        if (words[0] == "extern" && words.Count > 1 && words[1] == "alias")
+        if (Keyword(0, "extern") && words.Count > 1 && Keyword(1, "alias"))
             return (null, "");
 
-        if (words[0] == "namespace")
+        if (Keyword(0, "namespace"))
             return (DeclarationKind.Namespace, string.Join(".", words.Skip(1)));
 
         // An enum member is a bare name, possibly with an explicit value already truncated away.
@@ -459,11 +482,12 @@ internal static class DeclarationIndexBuilder
 
         for (int i = 0; i < words.Count; i++)
         {
-            if (!TypeKeywords.Contains(words[i]))
+            if (!TypeKeywords.Contains(words[i]) || IsVerbatim(header, at[i], text))
                 continue;
             // "record class C" and "record struct C" name the kind in two words.
             int nameAt = i + 1;
-            if (words[i] == "record" && nameAt < words.Count && words[nameAt] is "class" or "struct")
+            if (words[i] == "record" && nameAt < words.Count
+                && (Keyword(nameAt, "class") || Keyword(nameAt, "struct")))
                 nameAt++;
             var kind = words[i] switch
             {
@@ -482,7 +506,7 @@ internal static class DeclarationIndexBuilder
             var name = NameBefore(header, paren, text);
             if (DeclaresADelegate(header, text))
                 return (DeclarationKind.Delegate, name);
-            if (words.Contains("operator"))
+            if (Enumerable.Range(0, words.Count).Any(w => Keyword(w, "operator")))
                 return (DeclarationKind.Method, OperatorName(header, paren, text));
             if (name.StartsWith('~'))
                 return (DeclarationKind.Destructor, name);
@@ -492,11 +516,11 @@ internal static class DeclarationIndexBuilder
         }
 
         // An indexer has a bracketed parameter list rather than a parenthesized one.
-        int thisAt = header.FindIndex(t => t.Kind == ScanTokenKind.Word && text(t) == "this");
+        int thisAt = at.FirstOrDefault(i => IsKeyword(header, i, "this", text), -1);
         if (thisAt >= 0 && thisAt + 1 < header.Count && text(header[thisAt + 1]) == "[")
             return (DeclarationKind.Property, "this");
 
-        if (words.Contains("event"))
+        if (Enumerable.Range(0, words.Count).Any(w => Keyword(w, "event")))
             return (DeclarationKind.Event, DeclaratorNames(pending, text)[0]);
 
         // With no parameter list, a body means a property. An expression body counts: "int P => 1;"
@@ -512,17 +536,26 @@ internal static class DeclarationIndexBuilder
     /// declarator, so <c>public int A, B, C;</c> yields three. Always at least one entry.
     /// </summary>
     /// <remarks>
-    /// A comma at parenthesis and bracket depth zero is a declarator boundary only when the token
-    /// after it is a name and the token after <em>that</em> ends the declarator — a comma, an
-    /// <c>=</c>, or the end. That lookahead is what separates <c>int A, B</c> from the commas
-    /// inside <c>Dictionary&lt;string, int&gt; map</c>, without tracking angle brackets, whose
-    /// depth is not lexically decidable in the presence of a relational <c>&lt;</c>.
+    /// A comma is a declarator boundary only at parenthesis, bracket, brace, and angle depth zero,
+    /// and only when the token after it is a name and the token after <em>that</em> ends the
+    /// declarator — a comma, an <c>=</c>, or the end.
+    /// <para>
+    /// Neither test suffices alone. Angle depth is tracked only <em>before</em> the segment's
+    /// <c>=</c>: in the declarator a <c>&lt;</c> is always a generic bracket, so counting is exact,
+    /// while in an initializer it may be a relational operator that never closes, and counting
+    /// there would swallow every later comma. So the initializer is left to the lookahead. But the
+    /// lookahead alone admits <c>Action&lt;string, int, float&gt; A</c>, where the comma after
+    /// <c>string</c> is followed by a name and another comma — exactly a declarator list's shape.
+    /// Two type arguments happen to survive it; three do not.
+    /// </para>
     /// </remarks>
     private static List<string> DeclaratorNames(List<ScanToken> pending, Func<ScanToken, string> text)
     {
         var names = new List<string>();
         int start = 0;
         int depth = 0;
+        int angle = 0;
+        bool sawEquals = false;
 
         for (int i = 0; i <= pending.Count; i++)
         {
@@ -535,7 +568,16 @@ internal static class DeclarationIndexBuilder
                     var c = text(t);
                     if (c is "(" or "[" or "{") depth++;
                     else if (c is ")" or "]" or "}") depth--;
-                    else if (c == "," && depth == 0 && IsDeclaratorBoundary(pending, i, text)) end = true;
+                    else if (c == "=" && depth == 0) sawEquals = true;
+                    else if (!sawEquals && depth == 0)
+                    {
+                        // ">>" closing two nested type argument lists arrives as one token.
+                        angle += c.Count(ch => ch == '<') - c.Count(ch => ch == '>');
+                        if (angle < 0) angle = 0;
+                    }
+
+                    if (c == "," && depth == 0 && angle == 0 && IsDeclaratorBoundary(pending, i, text))
+                        end = true;
                 }
             }
 
@@ -546,6 +588,8 @@ internal static class DeclarationIndexBuilder
             if (name.Length > 0)
                 names.Add(name);
             start = i + 1;
+            angle = 0;
+            sawEquals = false;
         }
 
         if (names.Count == 0)
@@ -677,7 +721,7 @@ internal static class DeclarationIndexBuilder
     {
         for (int i = 0; i < header.Count; i++)
         {
-            if (header[i].Kind != ScanTokenKind.Word || text(header[i]) != "delegate")
+            if (!IsKeyword(header, i, "delegate", text))
                 continue;
             if (i + 1 >= header.Count || text(header[i + 1]) != "*")
                 return true;
