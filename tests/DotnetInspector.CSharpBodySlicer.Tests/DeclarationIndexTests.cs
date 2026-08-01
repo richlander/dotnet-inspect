@@ -866,8 +866,13 @@ public class DeclarationIndexTests
     /// <c>union</c> declares a type — Roslyn reports a struct — so a file using one must not lose
     /// the type and every member inside it. It is a contextual keyword, which is the trap:
     /// <c>int union;</c> is a field whose NAME is the keyword, and reading it as a type emits a
-    /// nameless type and loses the field. <c>record</c> carries the same hazard and had it before
-    /// <c>union</c> was recognized at all. Roslyn is the oracle.
+    /// nameless type and loses the field -- and a word after the keyword is NOT enough to tell them
+    /// apart, because <c>int record, union;</c> and <c>M(int record, int x)</c> both have one. What
+    /// separates them is that everything a type spells before its keyword is a modifier. When the
+    /// hallucinated type adopted a method's <c>{</c> as its body it swallowed the statements inside
+    /// it as fields, so the close positives here are every modifier a type may carry.
+    /// <c>record</c> had the same hazard before <c>union</c> was recognized at all. Roslyn is the
+    /// oracle.
     /// </summary>
     [Fact]
     public void AUnionIsAType_ButAFieldNamedUnionIsNot()
@@ -877,6 +882,18 @@ public class DeclarationIndexTests
             "public union PetUnion(Cat, Dog);",
             "public union Result\n{\n    int Ok;\n}",
             "class C\n{\n    int union;\n    int record;\n    void M() { int union = 1; }\n}",
+
+            // A word after the keyword is not enough: these all have one, and none is a type.
+            "class C2\n{\n    public int record, union;\n    public int M(int record, int name) { return 0; }\n}",
+            "class C3\n{\n    public C3(int record, int x) { }\n}",
+            "class C4\n{\n    public int M(int union, int x) => union;\n}",
+
+            // The close positives: every modifier a type may spell before its keyword.
+            "public sealed partial record class Foo { }",
+            "public readonly ref struct Bar { }",
+            "file static class Baz { }",
+            "public record struct Vec(double X);",
+            "class Outer { protected internal new class Inner { } }",
         ];
 
         foreach (var fixture in fixtures)

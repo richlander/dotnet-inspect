@@ -36,6 +36,16 @@ internal static class DeclarationIndexBuilder
     private static readonly HashSet<string> TypeKeywords =
         ["class", "struct", "interface", "record", "enum", "union"];
 
+    // Everything a type declaration may spell BEFORE its keyword, and nothing else. "record" is
+    // absent deliberately: "record class C" names the kind in two words, but the scan reaches
+    // "record" first and consumes the "class" itself, so no header ever tests "class" with a
+    // "record" before it. Adding it back is a dead entry that reads as a rule.
+    private static readonly HashSet<string> TypeModifiers =
+        [
+            "public", "private", "protected", "internal", "file", "static", "abstract", "sealed",
+            "partial", "readonly", "ref", "unsafe", "new",
+        ];
+
     public static ImmutableArray<DeclarationSpan> Build(IReadOnlyList<string> lines)
     {
         var tokens = BodySlicer.ScanTokens(lines);
@@ -229,7 +239,9 @@ internal static class DeclarationIndexBuilder
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
                 attributeWords = 0;
-                unitTarget = false;
+                // unitTarget needs no reset: the first word of every list assigns it, and it is
+                // read only after that assignment. An explicit one here would be a dead store that
+                // reads as a load-bearing rule.
                 unitAttribute = false;
                 continue;
             }
@@ -646,10 +658,21 @@ internal static class DeclarationIndexBuilder
                 && (Keyword(nameAt, "class") || Keyword(nameAt, "struct")))
                 nameAt++;
 
-            // A type declaration always names the type. "record" and "union" are contextual
-            // keywords, so "int record;" and "int union;" are fields whose NAME is the keyword,
-            // and reading them as types emits a nameless type and loses the field. Requiring the
-            // name to follow is what tells the two apart; the field then falls through below.
+            // Everything a type declaration spells before its keyword is a modifier. That is the
+            // discriminator, and it is needed because "record" and "union" are contextual
+            // keywords: "int record, union;" and "M(int record, int x)" are not type declarations,
+            // and reading either as one hallucinates a type, loses the real members, and -- when
+            // the fabricated type adopts a method's "{" as its body -- swallows the statements
+            // inside it as fields.
+            if (!Enumerable.Range(0, i).All(w =>
+                    TypeModifiers.Contains(words[w]) && !IsVerbatim(header, at[w], text)))
+                continue;
+
+            // A bounds guard for the indexing below, not a second discriminator: a modifier-only
+            // header such as "public record" does not compile, and no input tried reaches Classify
+            // with one, because a header is only classified at a "{" or ";". UNVERIFIED and
+            // ungated -- kept because deleting it would leave words[nameAt] unguarded, which is a
+            // worse failure than an unreachable branch.
             if (nameAt >= words.Count)
                 continue;
 
