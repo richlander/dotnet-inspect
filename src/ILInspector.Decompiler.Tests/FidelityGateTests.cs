@@ -157,7 +157,6 @@ public class FidelityGateTests
         // Compile-back fidelity contract V1 reclassifies these previously
         // opcode-exact rows because a value, symbolic target, or branch target
         // differs after recompilation.
-        "BreakWithSideEffect",
         "CapturingLambda",
         "CapturingLocalBodyLambda",
         // #2945: outer-body reads of a hoisted capture field are substituted back
@@ -171,7 +170,6 @@ public class FidelityGateTests
         "ClosureCapture",
         "DayNumber",
         "InvokeLocalCapture",
-        "JustBreak",
         // MakeConsumerWithTwoLeadingArgs (#3272): ExpressionInliningPass removes only
         // one of the two single-use spill temps around the trailing object
         // initializer, leaving an extra stloc/ldloc pair on compile-back. #3290 added
@@ -183,26 +181,7 @@ public class FidelityGateTests
         // itself stays Valid + Correct and is pinned by
         // ObjectInitializerPassTests. Tracked as #3490.
         "MakeConsumerWithTwoLeadingArgs",
-        // The iterator raises added by #2884 recover the source bodies and retain
-        // the same outer factory opcodes, but recompiling the reconstructed large
-        // fixture type assigns different synthesized state-machine ordinals
-        // (d__600/601 -> d__575/576). Those constructor and field targets remain
-        // observable symbolic identities under contract V1.
-        "SwitchYield",
-        "WhileTrueYieldBreak",
         "TwoCaptureLambda",
-        "ValidNestedIf",
-        "YieldCollectionExpressionSpread",
-        "YieldEach",
-        "YieldEnumerator",
-        "YieldGrid",
-        "YieldIf",
-        "YieldPairs",
-        "YieldRange",
-        "YieldSquares",
-        "YieldStrings",
-        "YieldThree",
-        "YieldTwo",
     };
 
     /// <summary>
@@ -296,6 +275,35 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3491: retired by the compiler-generated member correspondence. Every row
+        // here differed only in a Roslyn state-machine ordinal — recompiling the
+        // reconstructed fixture type renumbers `d__N`, and the constructor and field
+        // targets carrying that name stayed observable symbolic identities. The
+        // correspondence folds the ordinal where the ordinal-free key is one-to-one on
+        // both sides, so these now recompile opcode-exact and are pinned rather than
+        // docketed. The per-side rewrite #3505 landed does not reach them: it declines
+        // `d__` by design, because the ordinal is that name's only discriminator and a
+        // per-side rewrite has no way to establish correspondence.
+        //
+        // Measured, not assumed — DocketRowsStayCheckedDiffs reported each of these as
+        // "now recompiles Exact" against the merge of this branch with main, and the
+        // gate fails if any of them stops being exact.
+        "BreakWithSideEffect",
+        "JustBreak",
+        "SwitchYield",
+        "ValidNestedIf",
+        "WhileTrueYieldBreak",
+        "YieldCollectionExpressionSpread",
+        "YieldEach",
+        "YieldEnumerator",
+        "YieldGrid",
+        "YieldIf",
+        "YieldPairs",
+        "YieldRange",
+        "YieldSquares",
+        "YieldStrings",
+        "YieldThree",
+        "YieldTwo",
         // #3161: a `switch` with TWO loop-bearing sections — an Array-like arm
         // (length guard + a `foreach`) and an Object-like arm (count guard + a
         // `while` with an in-loop early return) — plus scalar arms and a default,
