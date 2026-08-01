@@ -578,6 +578,48 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// A block comment yields one scanner token per line it covers, so the token's own line is not
+    /// where the comment began. Trivia attribution used the token's line, which put the second line
+    /// of <c>int A; /* x</c> after the previous declaration's terminator and made it the *next*
+    /// declaration's trivia start — a slice from there would begin inside the comment, past its
+    /// <c>/*</c>, and produce source that does not compile.
+    /// <para>
+    /// Which token opens a comment cannot be read off the text: a continuation line may itself
+    /// start with <c>//</c> or <c>/*</c>, and both shapes are below. Roslyn is the oracle here
+    /// rather than a hand-written line number, because the whole question is what counts as
+    /// leading trivia and that is Roslyn's answer to give. Every fixture compiles.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABlockCommentSpanningATerminatorLine_TrailsTheDeclarationItStartedOn()
+    {
+        string[] fixtures =
+        [
+            "class C\n{\n    int A; /* trailing\n    comment */\n    int B;\n}",
+            "class C\n{\n    int A;\n    /* leading\n    comment */\n    int B;\n}",
+            "class C\n{\n    int A; // trailing\n    // leading\n    int B;\n}",
+            "class C\n{\n    int A; /* one\n// still inside\n*/\n    int B;\n}",
+            "class C\n{\n    int A; /* x\n/* y */\n    int B;\n}",
+            "class C\n{\n    int A; /* a */ /* b\n c */\n    int B;\n}",
+            "class C\n{\n    int A;\n    /*/ still open\n    */ int B;\n}",
+            "class C\n{\n    int A; /* trailing\n    comment */\n    // leading B\n    int B;\n}",
+            "class C\n{\n    int A; /*/\n    still inside */\n    int B;\n}",
+        ];
+
+        foreach (var fixture in fixtures)
+        {
+            var lines = fixture.Split('\n');
+            var expected = RoslynDeclarations(lines);
+            Assert.NotNull(expected);
+
+            var actual = DeclarationIndex.Build(lines).Declarations;
+            Assert.Equal(
+                expected.Select(d => $"{d.Kind} {d.Name} trivia={d.TriviaStartLine} sig={d.SignatureStartLine}"),
+                actual.Select(d => $"{d.Kind} {d.Name} trivia={d.TriviaStartLine} sig={d.SignatureStartLine}"));
+        }
+    }
+
+    /// <summary>
     /// The corpus contains no <c>delegate</c> type and no destructor, so both classifications are
     /// gated here or not at all: with these fixtures absent, <c>DeclaresADelegate</c> and the
     /// <c>~</c> branch of <c>Classify</c> can each be deleted outright with the suite still green.

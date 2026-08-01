@@ -50,6 +50,8 @@ internal static class DeclarationIndexBuilder
         int attributeDepth = 0;
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
+        bool inBlockComment = false;
+        int commentOpenLine = 0;
 
         string Text(ScanToken t) => t.TextIn(lines[t.Line]).ToString();
         Row? Enclosing() => scopes.Count > 0 && scopes[^1] >= 0 ? rows[scopes[^1]] : null;
@@ -101,12 +103,37 @@ internal static class DeclarationIndexBuilder
 
             if (tok.Kind == ScanTokenKind.Comment)
             {
+                // A block comment yields one token per line it covers, so the token's own line is
+                // not where its comment began. What decides trivia is where the comment OPENED:
+                // "int A; /* x\n y */" opens on A's terminator line and trails A, and its second
+                // line must not become the next declaration's trivia start -- a slice taken from
+                // there would begin inside the comment, after its "/*".
+                //
+                // Which token opens a comment cannot be read off the text: a continuation line may
+                // itself start with "//" or "/*", both measured by dumping tokens. It follows from
+                // the carried state instead, which is reconstructed here.
+                var comment = Text(tok);
+                bool opens = !inBlockComment;
+                if (opens)
+                {
+                    commentOpenLine = tok.Line + 1;
+                    // A line comment opens no block. A block comment closes on its opening line
+                    // only if a "*/" follows the "/*" rather than overlapping it: "/*/" is not a
+                    // comment, it is an unterminated one.
+                    inBlockComment = comment.StartsWith("/*", StringComparison.Ordinal)
+                        && !(comment.Length >= 4 && comment.EndsWith("*/", StringComparison.Ordinal));
+                }
+                else if (comment.EndsWith("*/", StringComparison.Ordinal))
+                {
+                    inBlockComment = false;
+                }
+
                 // Trivia only counts while a header has not started. A comment sitting inside a
                 // signature is not the declaration's leading documentation, and one sitting on the
                 // line that ended the previous declaration trails that declaration rather than
                 // opening this one.
-                if (pending.Count == 0 && !inAttribute && triviaStart < 0 && tok.Line + 1 > lastTerminatorLine)
-                    triviaStart = tok.Line + 1;
+                if (pending.Count == 0 && !inAttribute && triviaStart < 0 && commentOpenLine > lastTerminatorLine)
+                    triviaStart = commentOpenLine;
                 continue;
             }
 
