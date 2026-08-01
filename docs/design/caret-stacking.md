@@ -276,10 +276,27 @@ equal here. On an assembly that produced them, `semantics` would be a strict
 superset of `safety` and would need measuring separately.
 
 Any other argument is a narrower id prefix, such as `alloc.box`, and selects a
-strict subset of one family. Stacking cannot increase under a subset: dropping
-facts can only remove distinct extents and remove extent-less facts, and a line
-stacks only when it has two of the former or one of each. So the figures below
-are an upper bound on what any `--focus` argument produces.
+strict subset of one family. Dropping facts can only remove distinct extents and
+remove extent-less facts, and a line qualifies to stack only when it has two of
+the former or one of each — so the *qualifying* set shrinks under a subset.
+
+That is not by itself enough to make the **stacks** column an upper bound,
+because rule 8 is not monotone. `RenderStacked` returns `null` for the whole
+line the moment any one label would start left of the gutter, so a broad focus
+can fall back to widening on account of a single early fact while a narrower
+focus, having dropped that fact, stacks the two later extents successfully.
+Rule 8 fires on **0 of the 2,842** lines that stack under any of the five
+families here, so no such line exists in this corpus and the 2,842 does bound
+every narrower argument over CoreLib — but that is a measurement, not a
+consequence of subsetting, and it would have to be re-measured on another
+assembly.
+
+The bound is also specific to the **stacks** column. The other columns are not
+monotone in the same direction: dropping one of two disagreeing extents turns a
+multi-extent line into a single-extent line, so `single extent` can *rise* under
+a narrower focus even as `multi-extent` and `stacks` fall. Read the table as
+what the five documented arguments produce, and the 2,842 as the corpus-measured
+ceiling on the rest.
 
 Extents are measured in printed characters, so a figure that does not name its
 render is not a claim about anything.
@@ -321,7 +338,7 @@ exactly where extents nest. The rule 8 gutter fallback fires on **0** of the
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `8c17dcb35`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `372c15593`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
