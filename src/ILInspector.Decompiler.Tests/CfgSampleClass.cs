@@ -6656,3 +6656,40 @@ public static class LocalFunctionInGenericMethodSamples
         return Core(value);
     }
 }
+
+// A local function with its OWN generic parameter, inside a generic method, called
+// only with the host's type argument. Every call-site type argument is then a method
+// generic parameter, so judging genericity from the CALL SITE raised it and declared
+// `static int Own(U u)` with `U` bound to nothing — CS0246/CS1503 at Full. The body,
+// not the call site, is what knows: `U` is declared by the local function and the
+// host has no such name, so it cannot be written down.
+public static class OwnGenericInGenericMethodSamples
+{
+    public static int CalledWithHostTypeArgument<T>(T value)
+    {
+        static int Own<U>(U u) => 2;
+        return Own<T>(value);
+    }
+}
+
+// A non-generic local function inside a GENERIC method, referenced by address and as a
+// method group rather than called. The reference inherits the host's type arguments in
+// metadata, so spelling them (`&Core<T>`) against the raised, non-generic declaration
+// `static T Core(T v)` is CS0308. A raised local function takes no type arguments; a
+// local function that declares its own is declined instead, so nothing is lost.
+public static class RaisedLocalFunctionReferenceSamples
+{
+    public static unsafe T ByAddress<T>(T value)
+    {
+        static T Core(T v) => v;
+        delegate*<T, T> pointer = &Core;
+        return pointer(Core(value));
+    }
+
+    public static T ByMethodGroup<T>(T value)
+    {
+        static T Core(T v) => v;
+        Func<T, T> group = Core;
+        return group(Core(value));
+    }
+}

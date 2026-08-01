@@ -133,21 +133,6 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             if (method.HasThis)
                 continue;  // instance receiver — out of this slice
 
-            // LocalFunctionStatement has no type-parameter list, so a local function
-            // with its OWN generic parameters would be declared `static int Tag()` with
-            // `<int>`/`<string>` dropped from every call site — uncompilable C#
-            // (CS0411/CS0246) reported as Full, #3631's failure mode exactly.
-            //
-            // But TypeArguments is not the same question as "is this generic": a local
-            // function inside a generic METHOD inherits that method's type parameters,
-            // so an ordinary non-generic local function carries them too. Those are
-            // already lexically in scope at the declaration site, so raising it is
-            // correct and is what shipped before. Only a type argument that is NOT one
-            // of the enclosing method's parameters means the local function has generic
-            // parameters of its own that the declaration cannot express.
-            if (method.TypeArguments.Any(t => t.Kind != TypeRefKind.MethodGenericParameter))
-                continue;
-
             var environment = ResolveEnvironment(method, calls, function);
             // A display-class parameter we could not resolve to a clean, single-use
             // environment (shared, or read another way) is out of this slice.
@@ -161,6 +146,29 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 var body = importScope.Import();
                 if (body is null)
                     continue;
+
+                // LocalFunctionStatement has no type-parameter list, so a type parameter
+                // the raised body declares itself cannot be written down: the declaration
+                // comes out as `static int Both(U u)` with `U` bound to nothing (CS0246)
+                // and the call sites lose their type arguments (CS0411) — #3631's failure
+                // mode exactly, reported as Full.
+                //
+                // The question is about the BODY, not the call site. A local function in a
+                // generic METHOD inherits that method's type parameters, so its call sites
+                // carry type arguments and its body names them, while nothing is generic in
+                // the source sense; those names are already lexically in scope at the
+                // declaration site and must still raise (real framework code depends on it
+                // — VectorMath.HypotSingle's CoreImpl). What cannot be expressed is a name
+                // the body declares that the HOST does not have. Unknown names with a
+                // non-zero count decline too: it is the honest answer, not a guess.
+                var hostGenericNames = function.Signature.GenericParameterNames;
+                if (body.Signature.GenericParameterCount > 0
+                    && (body.Signature.GenericParameterNames.IsEmpty
+                        || body.Signature.GenericParameterNames.Any(
+                            name => !hostGenericNames.Contains(name, StringComparer.Ordinal))))
+                {
+                    continue;
+                }
                 // Mutual or nested local-function calls are still out of this slice.
                 // A self-call is recoverable: rewrite it to the same local-function
                 // invocation used by the host call sites after the nested pipeline

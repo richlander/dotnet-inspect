@@ -246,12 +246,19 @@ public class UnraisedLocalFunctionCallTests
         // (`op_Increment`/`op_Decrement`), and never bindable as `Deconstruct`, which C#
         // resolves only against members and extension methods. None can be `<M>g__F|0_0`.
         //
-        // The last five reach here through `ImmutableArray<MethodRef>` evidence
-        // collections (`ConsumedMemberRefs`/`ConsumedMethods`) rather than a callee
-        // property. Those hold the members the pattern consumed — `GetEnumerator`,
-        // `MoveNext`, `Current`, `Dispose`, property setters, `<Clone>$` — as typed
-        // evidence routed to ReturnToSender (see ConsumedMemberEvidence). They are
-        // never spelled as a callee in output, and none can be a local function.
+        // Five reach here through `ImmutableArray<MethodRef>` evidence collections
+        // (`ConsumedMemberRefs`/`ConsumedMethods`) rather than a callee property. Those
+        // hold the members the pattern consumed — `GetEnumerator`, `MoveNext`, `Current`,
+        // `Dispose`, property setters, `<Clone>$` — as typed evidence routed to
+        // ReturnToSender (see ConsumedMemberEvidence). They are never spelled as a callee
+        // in output, and none can be a local function.
+        //
+        // The last two reach here only through a CARRIER record, which is why widening
+        // the walk to follow carriers was needed to see them at all: `ChainedAssignment`
+        // through `ImmutableArray<ChainedAssignmentTarget>`, whose `Accessor` is a
+        // property setter, and `PatternSwitchExpressionArm` through `PropertySubpattern`,
+        // whose `Accessor` is a property getter (`PropertyName` slices `get_` off it).
+        // Both are accessors, so both fall under the accessor rule above.
         string[] unreachable =
         [
             nameof(NewObject),
@@ -268,6 +275,8 @@ public class UnraisedLocalFunctionCallTests
             nameof(ObjectInitializerExpression),
             nameof(WithExpression),
             nameof(InitializerBlock),
+            nameof(ChainedAssignment),
+            nameof(PatternSwitchExpressionArm),
         ];
 
         var actual = typeof(Call).Assembly.GetTypes()
@@ -287,19 +296,47 @@ public class UnraisedLocalFunctionCallTests
     }
 
     const BindingFlags Members =
-        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
     /// <summary>
     /// Whether a member's type can carry a <see cref="MethodRef"/> at all — directly, or
-    /// nested inside an array or generic such as <c>ImmutableArray&lt;MethodRef?&gt;</c>.
-    /// Matching the type exactly missed every collection-typed member, which is how three
-    /// initializer nodes escaped the gate entirely and let it pass while incomplete.
+    /// nested inside an array, a generic such as <c>ImmutableArray&lt;MethodRef?&gt;</c>, or a
+    /// carrier record reached through either (<c>ImmutableArray&lt;ChainedAssignmentTarget&gt;</c>,
+    /// whose <c>Accessor</c> is a <see cref="MethodRef"/>). Matching the type exactly missed
+    /// every collection-typed member, which is how five nodes escaped the gate entirely and
+    /// let it pass while incomplete; stopping at generic arguments missed the carriers.
     /// </summary>
-    static bool MentionsMethodRef(Type type)
-        => type == typeof(MethodRef)
-            || (Nullable.GetUnderlyingType(type) is { } underlying && MentionsMethodRef(underlying))
-            || (type.IsArray && MentionsMethodRef(type.GetElementType()!))
-            || (type.IsGenericType && type.GetGenericArguments().Any(MentionsMethodRef));
+    static bool MentionsMethodRef(Type type, HashSet<Type>? visited = null)
+    {
+        if (type == typeof(MethodRef))
+            return true;
+        if (Nullable.GetUnderlyingType(type) is { } underlying)
+            return MentionsMethodRef(underlying, visited);
+
+        visited ??= [];
+        if (!visited.Add(type))
+            return false;
+
+        if (type.IsArray)
+            return MentionsMethodRef(type.GetElementType()!, visited);
+        if (type.IsGenericType && type.GetGenericArguments().Any(a => MentionsMethodRef(a, visited)))
+            return true;
+
+        // Only follow types this assembly owns: a carrier is a small IR-side record, and
+        // walking framework types would recurse the whole BCL. Child NODES are excluded
+        // because every node is enumerated in its own right — following them would make
+        // every node in the tree "mention" a MethodRef through its children.
+        if (type.IsPrimitive
+            || type == typeof(string)
+            || type.Assembly != typeof(MethodRef).Assembly
+            || typeof(IrNode).IsAssignableFrom(type))
+        {
+            return false;
+        }
+
+        return type.GetProperties(Members).Any(p => MentionsMethodRef(p.PropertyType, visited))
+            || type.GetFields(Members).Any(f => MentionsMethodRef(f.FieldType, visited));
+    }
 
     /// <summary>
     /// The close negative for the method-group gate, and the reason the stamp is a
@@ -414,6 +451,84 @@ public class UnraisedLocalFunctionCallTests
         Assert.Contains("static T Core(T v)", output);
         Assert.DoesNotContain("_g__Core_", output);
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// A local function with its OWN type parameter cannot be raised even when every
+    /// call-site type argument is a method generic parameter, which is what judging
+    /// genericity from the call site got wrong: `Own&lt;U&gt;(U u)` called as `Own&lt;T&gt;(value)`
+    /// inside `M&lt;T&gt;` was declared `static int Own(U u)` with `U` bound to nothing —
+    /// CS0246 and CS1503, at Full. The body declares the name; the host does not have it.
+    /// </summary>
+    [Fact]
+    public void LocalFunctionWithItsOwnTypeParameter_IsDeclinedEvenInsideAGenericMethod()
+    {
+        var type = typeof(OwnGenericInGenericMethodSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            type.FullName!,
+            nameof(OwnGenericInGenericMethodSamples.CalledWithHostTypeArgument));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain("int Own(", output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// A raised local function is spelled with no type arguments. Inside a generic method
+    /// its references inherit the host's type arguments in metadata, and
+    /// <c>AddressOfMethodText</c> appended them — emitting <c>&amp;Core&lt;T&gt;</c> against the
+    /// raised, non-generic declaration <c>static T Core(T v)</c>, which is CS0308, at Full.
+    /// Dropping them is sound because a local function that declares its OWN type
+    /// parameters is declined, so every inherited argument is already implicit.
+    /// </summary>
+    [Fact]
+    public void AddressOfRaisedLocalFunction_CarriesNoTypeArguments()
+    {
+        var type = typeof(RaisedLocalFunctionReferenceSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(RaisedLocalFunctionReferenceSamples.ByAddress));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.Contains("&Core", output);
+        Assert.DoesNotContain("&Core<", output);
+        Assert.Contains("static T Core(T v)", output);
+        Assert.DoesNotContain("_g__Core_", output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// The method-group sibling of <see cref="AddressOfRaisedLocalFunction_CarriesNoTypeArguments"/>.
+    /// <c>MethodGroupText</c> never appended type arguments, so this pins the property it
+    /// already had rather than a fix — the two spellings must not diverge.
+    /// </summary>
+    [Fact]
+    public void MethodGroupOfRaisedLocalFunction_CarriesNoTypeArguments()
+    {
+        var type = typeof(RaisedLocalFunctionReferenceSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(RaisedLocalFunctionReferenceSamples.ByMethodGroup));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain("Core<", output);
+        Assert.DoesNotContain("_g__Core_", output);
+        Assert.Contains("static T Core(T v)", output);
     }
 
     static int CountOccurrences(string haystack, string needle)

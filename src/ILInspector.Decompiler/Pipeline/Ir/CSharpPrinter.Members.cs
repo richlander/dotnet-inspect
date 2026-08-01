@@ -672,9 +672,13 @@ public sealed partial class CSharpPrinter
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
         string name = $"{CSharpNaming.SourceMethodName(method)}{typeArguments}";
-        // As in MethodGroupText: a raised local function is never type-qualified.
+        // As in MethodGroupText: a raised local function is never type-qualified. It is
+        // also never spelled with type arguments. A local function that declares its own
+        // type parameters is always declined (LocalFunctionRaisingPass), so every type
+        // argument on a raised one belongs to the ENCLOSING method and is already implicit
+        // at the declaration site — `&Core<T>` against `static T Core(T v)` is CS0308.
         if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
-            return $"&{name}";
+            return $"&{CSharpNaming.SourceMethodName(method)}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeQualifierText(method.DeclaringType)}.{name}"
             : $"&{name}";
