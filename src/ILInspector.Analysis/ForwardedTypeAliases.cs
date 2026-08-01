@@ -735,16 +735,18 @@ public sealed class ForwardedTypeAliases
         // by identity — a second file claiming the target's name, token and culture at a DIFFERENT
         // version is exactly the shape being caught, so only the path separates them.
         //
-        // The comparison is Ordinal, and deliberately does not fold case. Two spellings of one
-        // path differing only in case do fail to match on a case-INSENSITIVE volume, which loses
-        // the exemption and drops an alias. That residual is knowingly accepted, because every
-        // mechanism tried for closing it cost more than it bought:
+        // The comparison is Ordinal, and deliberately does not fold case or resolve links. Two
+        // spellings of one path fail to match — differing only in case on a case-INSENSITIVE
+        // volume, or reaching one file through a hard link, junction, `subst` drive, UNC path or
+        // 8.3 short name on any volume — which loses the exemption and drops an alias. That
+        // residual is knowingly accepted, because every mechanism tried for closing it cost more
+        // than it bought:
         //
         //   * The drop is not reachable today. A target that declares the type top-level never
-        //     reaches the silence rule at all (`DeclaresType` short-circuits it), so the residual
-        //     needs a target SILENT about its own type — today only a nested one (#3480), for
-        //     which no alias exists to lose. Raised in round 24 by MAI-Code and fixed then;
-        //     reverted here.
+        //     reaches the silence rule at all (`DeclaresType` short-circuits it, gated by
+        //     `ADeclaringFileAtAnotherPathDoesNotRefuteTheTarget`), so the residual needs a target
+        //     SILENT about its own type — today only a nested one (#3480), for which no alias
+        //     exists to lose. Raised in round 24 by MAI-Code and fixed then; reverted here.
         //   * Closing it fabricated twice. Resolving the supplied path against the census handed
         //     the exemption to a case-variant sibling whenever the real target was out of scope
         //     (round 25), and asking one directory listing while comparing whole paths handed it
@@ -944,6 +946,13 @@ public sealed class ForwardedTypeAliases
                 // nested target type probes as silent (#3480) and would refute every alias in the
                 // scope. It costs nothing an attacker wants, because the attack IS a second file
                 // claiming the target's identity.
+                //
+                // `!probe.DeclaresType` is what keeps the #3650 path-aliasing residual harmless:
+                // a target reached by a second spelling of its path (hard link, junction, `subst`,
+                // UNC, 8.3, case variant, or a plain copy) fails the Ordinal comparison below, and
+                // only survives because a file that DECLARES the type never reaches this rule.
+                // That claim is gated by `ADeclaringFileAtAnotherPathDoesNotRefuteTheTarget`,
+                // which is the sole test that fails if this clause is deleted.
                 if (!probe.DeclaresType
                     && probe.Edges.Count == 0
                     && !string.Equals(path, targetPath, StringComparison.Ordinal)

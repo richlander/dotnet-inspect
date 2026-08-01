@@ -3400,6 +3400,73 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// A file that DECLARES the type does not refute the target merely because its path differs
+    /// from the target's. This gates the <c>!probe.DeclaresType</c> short-circuit, which is the
+    /// clause the accepted <see href="https://github.com/richlander/dotnet-inspect/issues/3650">
+    /// path-aliasing residual</see> rests on: the self-exemption is compared <c>Ordinal</c> and
+    /// does not fold case or resolve links, so a target reached by a second spelling of its path
+    /// loses the exemption. That is only harmless because a declaring target never reaches the
+    /// silence rule at all.
+    ///
+    /// <para>Without this test that reasoning is a comment with no gate. Deleting
+    /// <c>!probe.DeclaresType</c> leaves all 683 other tests passing while silently dropping the
+    /// alias for every target reachable by a hard link, junction, <c>subst</c> drive, UNC path,
+    /// 8.3 short name, or simply a second copy — a real DROP that nothing else notices.</para>
+    ///
+    /// <para>A second declaring copy is the portable stand-in for a hard link: what the code sees
+    /// is only a census entry that declares the type at a path other than the target's, so this
+    /// needs no link support, no elevation and no case-sensitive volume, and therefore runs
+    /// everywhere including CI.</para>
+    /// </summary>
+    [Fact]
+    public void ADeclaringFileAtAnotherPathDoesNotRefuteTheTarget()
+    {
+        string directory = NewTempDirectory();
+        try
+        {
+            var target = TypeRef.Definition("Contoso.Target", "Contoso", "Widget");
+            string targetPath = Path.Combine(directory, "Contoso.Target.dll");
+            string otherPath = Path.Combine(directory, "Contoso.Target.Copy.dll");
+
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            // Same identity, same declaration, different path. A hard link would present exactly
+            // this to the census; a copy reaches it without needing the filesystem to cooperate.
+            WriteDefiner(
+                directory, "Contoso.Target", "Contoso", "Widget", "Contoso.Target.Copy",
+                publicKey: null, version: new Version(1, 0, 0, 0));
+
+            WriteForwarderToVersion(
+                directory, "Contoso.Facade", "Contoso.Target", "Contoso", "Widget",
+                fileName: "Contoso.Facade",
+                version: new Version(1, 0, 0, 0),
+                targetVersion: new Version(1, 0, 0, 0));
+
+            string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
+
+            // Both spellings in scope: the copy declares the type, so it is not silent and has
+            // nothing to refute with.
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, [facadePath, targetPath, otherPath], seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+
+            // Only the other spelling in scope. The target's own path is absent, so the
+            // self-exemption cannot fire and the short-circuit is carrying the result alone.
+            Assert.True(
+                ForwardedTypeAliases
+                    .ForTarget(target, targetPath, [facadePath, otherPath], seedSpellings: null)
+                    .IncludesRawSpelling("Contoso.Facade"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A genuinely different file does NOT inherit the target's self-exemption just because its
     /// path differs only by case. This is the other half of the round-24 casing fix and the reason
     /// it resolves the target against the census instead of folding case: on a case-sensitive
