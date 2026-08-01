@@ -786,9 +786,16 @@ public class DeclarationIndexTests
     /// <para>
     /// A conditional directive sets the lexer's untracked flag and nothing ever clears it, so the
     /// place is lost for the rest of the file rather than for the region the directive guards. Here
-    /// the conditional is brace-balanced and <c>Always</c> is declared after the <c>#endif</c>, so
-    /// no branch can affect it — and it still reports an unknown span and cannot be found by body
-    /// line. Identical code without the directive resolves.
+    /// the conditional is brace-balanced and everything from <c>Always</c> on is declared after the
+    /// <c>#endif</c>, so no branch can affect it — and it still reports an unknown span and cannot
+    /// be found by body line. Identical code without the directive resolves.
+    /// </para>
+    /// <para>
+    /// Rows are asserted through both emit paths. A bodiless row — a field, an interface method —
+    /// takes a separate <c>SpanKnown</c> assignment in <c>EmitBodiless</c> from the one a
+    /// body-bearing row takes, and a fixture of methods with bodies leaves that assignment ungated:
+    /// hard-coding it to <see langword="true"/> passed the entire suite before this test named
+    /// <c>Field</c> and <c>Bodiless</c>.
     /// </para>
     /// <para>
     /// This is conservative rather than wrong. It is also expensive: on dotnet/runtime's libraries a
@@ -813,19 +820,35 @@ public class DeclarationIndexTests
                 void Debug() { }
             #endif
                 void Always() { }
+                int Field;
+            }
+            interface I
+            {
+                void Bodiless();
             }
             """);
 
-        // Every row, including the one no branch can reach.
+        // Named rather than counted: a row that vanished would otherwise pass an Assert.All, and
+        // Field and Bodiless are the two that reach EmitBodiless.
+        foreach (var name in new[] { "C", "Debug", "Always", "Field", "I", "Bodiless" })
+        {
+            var row = Assert.Single(index.Declarations, s => s.Name == name);
+            Assert.False(row.SpanKnown, $"'{name}' should report an unknown span");
+        }
+
         Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
-        Assert.Contains(index.Declarations, s => s.Name == "Always");
         Assert.Null(index.FindByBodyLine(6));
 
-        // The same class without the directive resolves, so the directive is the whole cause.
+        // The same declarations without the directive resolve, so the directive is the whole cause.
         var plain = DeclarationIndex.Build("""
             class C
             {
                 void Always() { }
+                int Field;
+            }
+            interface I
+            {
+                void Bodiless();
             }
             """);
 

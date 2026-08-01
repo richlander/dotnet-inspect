@@ -131,11 +131,13 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// <para>
 /// A conditional directive loses the place for the <em>rest of the file</em>, not just for the
 /// region it guards: every later row reports false, including rows after the <c>#endif</c> and rows
-/// no branch could affect. On dotnet/runtime's libraries that costs 12.1% of declarations, of which
-/// 36,411 lie entirely after the last <c>#endif</c>. This is conservative rather than wrong, and it
-/// is a known limitation tracked by
+/// no branch could affect. Measured over dotnet/runtime's libraries at commit <c>e614b717a9d</c>,
+/// that costs 12.1% of declarations, of which 36,135 begin — leading trivia included — after the
+/// last <c>#endif</c>. Those figures are an ungated point-in-time measurement, not a property: no
+/// test re-measures them, and they will drift as that corpus moves. This is conservative rather
+/// than wrong, and it is a known limitation tracked by
 /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>, not a property
-/// this type intends to keep. It is pinned by
+/// this type intends to keep. That every later row reports false is pinned by
 /// <c>DeclarationIndexTests.AConditionalDirective_LosesEveryLaterRowToEndOfFile</c>.
 /// </para>
 /// </param>
