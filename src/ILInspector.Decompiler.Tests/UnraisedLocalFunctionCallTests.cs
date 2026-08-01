@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -782,14 +783,27 @@ public class UnraisedLocalFunctionCallTests
         Assert.DoesNotContain("static SearchValues<string> PickAhoCorasickImplementation(", output);
         Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
 
-        // The four instantiations the raise would have collapsed are all still distinguishable.
-        foreach (string instantiation in new[]
-        {
-            "CaseSensitive", "CaseInsensitiveUnicode", "CaseInsensitiveAsciiLetters", "CaseInsensitiveAscii",
-        })
-        {
-            Assert.Contains(instantiation, output);
-        }
+        // The four instantiations the raise would have collapsed are all still
+        // distinguishable. Set equality on the extracted type arguments, not four
+        // Assert.Contains: "CaseInsensitiveAscii" is a SUBSTRING of
+        // "CaseInsensitiveAsciiLetters", so substring checks still pass when only three
+        // distinct instantiations survive. Round-10 review found that by deleting the
+        // CaseInsensitiveAscii call from the output and watching the old assertions pass.
+        // The ordinal is matched, not pinned: it is _4_0 on CoreLib 10.0.10 and _3_0 on
+        // 11.0-preview.
+        var instantiations = Regex
+            .Matches(output, @"_g__PickAhoCorasickImplementation_\d+_\d+<([^>]+)>")
+            .Select(match => match.Groups[1].Value)
+            .ToHashSet();
+        Assert.Equal(
+            new HashSet<string>
+            {
+                "StringSearchValuesHelper.CaseSensitive",
+                "StringSearchValuesHelper.CaseInsensitiveUnicode",
+                "StringSearchValuesHelper.CaseInsensitiveAsciiLetters",
+                "StringSearchValuesHelper.CaseInsensitiveAscii",
+            },
+            instantiations);
     }
 
     static string PrintShadowSample(string methodName, out DecompilationFidelity fidelity)
