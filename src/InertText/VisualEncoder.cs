@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
-namespace InertText.Encoder;
+namespace InertText.Encoding;
 
 /// <summary>
 /// The transform that makes text inert, and the decoder that recovers what it was given.
@@ -13,7 +13,7 @@ namespace InertText.Encoder;
 /// <see cref="InertString"/> can be carried, composed and printed without ever naming this
 /// type: text enters through its constructor, which calls in here, and leaves through
 /// <c>ToString</c> already spelled. So a file that imports <c>InertText</c> and not
-/// <c>InertText.Encoder</c> has no way to recover the original text of any value it handles,
+/// <c>InertText.Encoding</c> has no way to recover the original text of any value it handles,
 /// and that is visible in its using block rather than by tracing calls.
 ///
 /// The separation is an audit boundary, not a capability barrier. Nothing stops a file from

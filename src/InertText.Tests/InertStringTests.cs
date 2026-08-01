@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 
-using InertText.Encoder;
+using InertText.Encoding;
 
 namespace InertText.Tests;
 
@@ -512,9 +512,9 @@ public class InertStringTests
     /// This is what the namespace split buys, and it is worth stating as a property rather than
     /// as a layout convention, because layout is what drifts. The decoder is the one operation
     /// that turns an inert value back into the hostile original, so it lives in
-    /// <c>InertText.Encoder</c> and nothing in the currency namespace may offer a way to reach
+    /// <c>InertText.Encoding</c> and nothing in the currency namespace may offer a way to reach
     /// it. A reviewer can then read a file's using block instead of tracing its call graph: no
-    /// <c>using InertText.Encoder</c> means no path back to the original, for every value that
+    /// <c>using InertText.Encoding</c> means no path back to the original, for every value that
     /// file touches.
     ///
     /// Enumerated rather than spot-checked, and accounted one by one, because the failure this
@@ -525,9 +525,9 @@ public class InertStringTests
     /// this test does not stop it. What it does stop is the capability arriving somewhere that
     /// looks like it has not got it.
     ///
-    /// The search string is <c>InertText.Encoder</c>, not <c>using InertText.Encoder</c>. A
+    /// The search string is <c>InertText.Encoding</c>, not <c>using InertText.Encoding</c>. A
     /// using directive is one of two ways to name a namespace, and the other needs no directive
-    /// at all — <c>InertText.Encoder.VisualEncoder.TryDecode(...)</c> compiles in a file with an
+    /// at all — <c>InertText.Encoding.VisualEncoder.TryDecode(...)</c> compiles in a file with an
     /// empty import block. Searching for the directive would show a clean import list for a file
     /// that decodes. The bare namespace catches both, because a fully-qualified call has to
     /// spell it too.
@@ -601,7 +601,7 @@ public class InertStringTests
         MethodInfo? decode = typeof(VisualEncoder).GetMethod(nameof(VisualEncoder.TryDecode));
 
         Assert.NotNull(decode);
-        Assert.Equal("InertText.Encoder", typeof(VisualEncoder).Namespace);
+        Assert.Equal("InertText.Encoding", typeof(VisualEncoder).Namespace);
 
         InertString inert = new(TextPolicy.Field, "\u202Ecmd");
         Assert.True(VisualEncoder.TryDecode(inert.ToString(), out string? original));
@@ -617,7 +617,7 @@ public class InertStringTests
     /// search is only worth running if its answer is small. That is a property of the
     /// <em>producing</em> side, not the decoding side. If the only way to make an
     /// <see cref="InertString"/> were to call the encoder, then every file that produces inert
-    /// text would name <c>InertText.Encoder</c>, the decoder would sit one member access away in
+    /// text would name <c>InertText.Encoding</c>, the decoder would sit one member access away in
     /// all of them, and the search would return the whole producer set. The signal would survive
     /// in form and be worthless in practice.
     ///
@@ -627,7 +627,7 @@ public class InertStringTests
     /// <c>VisualEncoder.Encode</c> — it is what keeps the false-positive rate at zero.
     ///
     /// The claim is about <em>production</em> code, and deliberately so. This test file names
-    /// <c>InertText.Encoder</c> itself, as do the encoder's own tests: invertibility is a
+    /// <c>InertText.Encoding</c> itself, as do the encoder's own tests: invertibility is a
     /// contract, so something has to decode in order to check it. A test that can decode is the
     /// system working, not a leak — the search that matters is over the files that ship. Read
     /// the counts above as production-only.
@@ -644,7 +644,7 @@ public class InertStringTests
     [Fact]
     public void InertTextCanBeProducedWithoutNamingTheCapabilityNamespace()
     {
-        const string Capability = "InertText.Encoder";
+        const string Capability = "InertText.Encoding";
 
         // Every public way to obtain an InertString: constructors, and static members that
         // hand one back. Enumerated so a creation path added later is covered without an edit.
@@ -950,18 +950,18 @@ public class InertStringTests
     }
 
     /// <summary>
-    /// No project imports <c>InertText.Encoder</c> for every file at once, so naming the
+    /// No project imports <c>InertText.Encoding</c> for every file at once, so naming the
     /// capability namespace stays a per-file act and the audit search keeps file granularity.
     /// </summary>
     /// <remarks>
     /// The audit sold by <c>docs/design/inert-text.md</c> is a search for the bare string
-    /// <c>InertText.Encoder</c>, on the reasoning that both ways to reach a namespace spell it:
+    /// <c>InertText.Encoding</c>, on the reasoning that both ways to reach a namespace spell it:
     /// a using directive, and a fully-qualified call. There is a third way, and it spells the
     /// namespace somewhere else entirely:
     ///
     /// <code>
-    /// // one file, or a &lt;Using Include="InertText.Encoder" /&gt; item in the .csproj
-    /// global using InertText.Encoder;
+    /// // one file, or a &lt;Using Include="InertText.Encoding" /&gt; item in the .csproj
+    /// global using InertText.Encoding;
     /// </code>
     ///
     /// Every other file in that project can then call <c>VisualEncoder.TryDecode</c> with no
@@ -979,7 +979,7 @@ public class InertStringTests
     [Fact]
     public void NoProjectImportsTheCapabilityNamespaceForEveryFileAtOnce()
     {
-        const string Capability = "InertText.Encoder";
+        const string Capability = "InertText.Encoding";
 
         DirectoryInfo? root = new(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
@@ -1045,7 +1045,7 @@ public class InertStringTests
     /// </summary>
     /// <remarks>
     /// The capability is deliberately public and deliberately opt-in: a caller who needs to
-    /// decode names <c>InertText.Encoder</c> and that act is what the audit searches for. What
+    /// decode names <c>InertText.Encoding</c> and that act is what the audit searches for. What
     /// must not happen is the currency type handing the capability over without that opt-in.
     ///
     /// A signature cannot: a separate test walks the public surface and fails any member that
@@ -1058,7 +1058,7 @@ public class InertStringTests
     /// it were part of the contract.
     ///
     /// Naming the <em>namespace</em> stays allowed, and the type-level remarks do it: saying
-    /// the decoder lives in <c>InertText.Encoder</c> and that nothing here reaches it is the
+    /// the decoder lives in <c>InertText.Encoding</c> and that nothing here reaches it is the
     /// opt-in disclaimer rather than a shortcut to it. The line is drawn at the type name,
     /// which is the thing a caller would have to write in order to use it.
     /// </remarks>
@@ -1095,7 +1095,7 @@ public class InertStringTests
             string[] lines = File.ReadAllLines(file);
 
             // The capability's own file documents itself; the rule is about the currency side.
-            if (lines.Any(l => l.StartsWith("namespace InertText.Encoder", StringComparison.Ordinal)))
+            if (lines.Any(l => l.StartsWith("namespace InertText.Encoding", StringComparison.Ordinal)))
             {
                 continue;
             }

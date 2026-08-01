@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using InertText.Encoder;
+using InertText.Encoding;
 
 namespace InertText;
 
@@ -20,8 +20,8 @@ namespace InertText;
 ///
 /// The second half of that is what this type does <em>not</em> offer. Holding one of these
 /// gives no way back to the text it was built from: the decoder lives in
-/// <c>InertText.Encoder</c>, in its own namespace, and nothing here reaches it. So a file that
-/// imports <c>InertText</c> and not <c>InertText.Encoder</c> cannot recover the original of any
+/// <c>InertText.Encoding</c>, in its own namespace, and nothing here reaches it. So a file that
+/// imports <c>InertText</c> and not <c>InertText.Encoding</c> cannot recover the original of any
 /// value it handles, and that fact is legible in its using block rather than by tracing calls.
 /// A reflection test enumerates the public surface of this namespace and accounts for every
 /// member that returns text, so the property is enforced rather than merely intended.
