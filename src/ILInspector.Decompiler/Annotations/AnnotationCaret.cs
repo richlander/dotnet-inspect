@@ -411,10 +411,16 @@ public static class AnnotationCaret
     /// measured over the same 2,842 lines, both are 0, because the widening
     /// underline covers the trimmed statement, which ends within the line. What
     /// differs is the rendered <em>row</em>. Widening appends the first detail
-    /// string to the caret row when it fits the inline budget, and on 20 lines
-    /// (0.70%) that appended text carries the row past the end of the code line.
-    /// Stacking never appends detail to a caret row, so it is 0. The contrast is
-    /// about where detail is placed, not about bounding the underline.
+    /// string to the caret row when it fits the inline budget, and that appended
+    /// text carries the row past the end of the code line. Quoting this as 20 of
+    /// 2,842 lines (0.70%) pads the denominator with the 2,822 whose detail never
+    /// goes inline and which therefore cannot overhang at all: inline detail
+    /// appears on exactly 20 of these lines and all 20 overhang, so the rate is
+    /// 20/20. That is structural rather than lucky -- widening underlines the
+    /// whole trimmed statement, so the caret ends where the code line ends, and
+    /// anything appended after it is past the end. Stacking never appends detail
+    /// to a caret row, so it is 0. The contrast is about where detail is placed,
+    /// not about bounding the underline.
     /// </remarks>
     static IReadOnlyList<string>? RenderStacked(
         List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)> groups,
