@@ -6202,12 +6202,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AnnotatedSource_FocusWidensToTheStatementWhenFactsOnALineDisagree()
+    public async Task Member_AnnotatedSource_FocusStacksACaretPerExtentWhenFactsOnALineDisagree()
     {
-        // The density case, reproduced from System.Tuple`8.Equals: several facts
+        // The density case, reproduced from System.Tuple`8.Equals: four facts
         // land on one line at distinct offsets, so no single expression is true
-        // of all of them. The line is underlined once, statement-wide, and every
-        // fact gets its own detail row beneath.
+        // of all of them. This used to render one statement-wide underline with
+        // four unattributable details beneath it. Each extent now gets its own
+        // numbered caret, so a reader can tell which box is which.
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
@@ -6215,28 +6216,44 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n');
         var caretIndexes = Enumerable.Range(0, lines.Length)
-            .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal))
+            .Where(i => lines[i].Contains('^', StringComparison.Ordinal))
             .ToList();
 
-        // One underline for the line, not one per fact. Stacking a row per
-        // distinct extent was tried and rejected; see AnnotationCaret.Agreed.
+        // Still one caret row: all four extents are disjoint and short enough to
+        // pack onto a single line. That is the 89.5% case among the 2,842 lines
+        // of System.Private.CoreLib that stack, as the annotated-source view
+        // prints it, summed over the five focus families and counted after the
+        // focus filter that --focus applies.
         int i = Assert.Single(caretIndexes);
-
+        string caretRow = lines[i];
         string statement = lines[i - 1];
+
+        // Every caret points at the boxed argument it is about. This is the
+        // assertion the old statement-wide underline could not make.
+        var underlined = new List<string>();
+        for (int c = 0; c < caretRow.Length; c++)
+        {
+            if (caretRow[c] != '^' || (c > 0 && caretRow[c - 1] == '^'))
+                continue;
+            int width = caretRow.AsSpan(c).IndexOfAnyExcept('^');
+            width = width < 0 ? caretRow.Length - c : width;
+            underlined.Add(statement.Substring(c, width));
+        }
+
+        Assert.Equal(["a1", "a2", "a3", "a4"], underlined.ToArray());
+
+        // The statement-wide underline is precisely what must no longer appear.
         int statementStart = statement.Length - statement.AsSpan().TrimStart().Length;
-        int caretStart = lines[i].IndexOf('^');
-        int caretLength = lines[i].AsSpan(caretStart).IndexOfAnyExcept('^');
-        caretLength = caretLength < 0 ? lines[i].Length - caretStart : caretLength;
+        Assert.NotEqual(statementStart, caretRow.IndexOf('^'));
+        Assert.NotEqual(statement.Trim().Length, caretRow.Count(c => c == '^'));
 
-        // The statement is the smallest span that is true of all four facts, so
-        // widening to it is the correct answer here rather than a failure.
-        Assert.Equal(statementStart, caretStart);
-        Assert.Equal(statement.Trim().Length, caretLength);
-
-        // Each fact keeps its own detail rows under the shared underline: four
-        // boxes, four reports, none of them merged away.
-        foreach (string parameter in (string[])["T1", "T2", "T3", "T4"])
-            Assert.Contains($"alloc.box({parameter};", output, StringComparison.Ordinal);
+        // Each caret carries a number, and each number has its own detail rows,
+        // so all four boxes stay distinguishable rather than merged away.
+        foreach (var (number, parameter) in ((int, string)[])[(1, "T1"), (2, "T2"), (3, "T3"), (4, "T4")])
+        {
+            Assert.Contains($"{number}.^", caretRow, StringComparison.Ordinal);
+            Assert.Contains(lines, l => l.Contains($"{number}. alloc.box({parameter};", StringComparison.Ordinal));
+        }
 
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
     }
