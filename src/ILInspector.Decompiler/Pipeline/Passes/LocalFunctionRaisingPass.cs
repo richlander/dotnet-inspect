@@ -108,6 +108,51 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     internal static (TypeRef Type, string Name) Identity(MethodRef method)
         => (method.DeclaringType, method.Name);
 
+    /// <summary>
+    /// Whether a raised body's type parameters are exactly the host's, so that a
+    /// declaration with no type-parameter list and call sites with no type arguments
+    /// mean what the original meant.
+    /// </summary>
+    /// <remarks>
+    /// Sound only when the substitution at every call site is the identity: argument
+    /// <c>i</c> must be a method generic parameter carrying the same name the body
+    /// declares at position <c>i</c>. A call site lies inside the host, so its method
+    /// generic parameters ARE the host's — matching positionally against them therefore
+    /// establishes host membership too, and a separate membership test was measured to
+    /// gate nothing. A body whose parameter count is non-zero but whose names metadata
+    /// does not supply, or supplies empty, is declined rather than guessed at; that arm
+    /// is defensive and no fixture reaches it.
+    /// </remarks>
+    static bool TypeParametersAreTheHostsOwn(MethodSignature body, List<Call> calls)
+    {
+        if (body.GenericParameterCount == 0)
+            return true;
+        if (body.GenericParameterNames.Length != body.GenericParameterCount)
+            return false;
+
+        var names = body.GenericParameterNames;
+        if (names.Any(string.IsNullOrEmpty))
+            return false;
+
+        foreach (var call in calls)
+        {
+            var arguments = call.Callee.TypeArguments;
+            if (arguments.Length != names.Length)
+                return false;
+            for (int i = 0; i < arguments.Length; i++)
+            {
+                if (arguments[i] is not
+                    { Kind: TypeRefKind.MethodGenericParameter, GenericParameterName: var argumentName }
+                    || !string.Equals(argumentName, names[i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
     static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
     {
@@ -153,22 +198,25 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // and the call sites lose their type arguments (CS0411) — #3631's failure
                 // mode exactly, reported as Full.
                 //
-                // The question is about the BODY, not the call site. A local function in a
-                // generic METHOD inherits that method's type parameters, so its call sites
-                // carry type arguments and its body names them, while nothing is generic in
-                // the source sense; those names are already lexically in scope at the
-                // declaration site and must still raise (real framework code depends on it
-                // — VectorMath.HypotSingle's CoreImpl). What cannot be expressed is a name
-                // the body declares that the HOST does not have. Unknown names with a
-                // non-zero count decline too: it is the honest answer, not a guess.
-                var hostGenericNames = function.Signature.GenericParameterNames;
-                if (body.Signature.GenericParameterCount > 0
-                    && (body.Signature.GenericParameterNames.IsEmpty
-                        || body.Signature.GenericParameterNames.Any(
-                            name => !hostGenericNames.Contains(name, StringComparer.Ordinal))))
-                {
+                // Dropping the list is only sound when it changes nothing: when every call
+                // site instantiates the body's type parameters with the HOST's parameters
+                // of the same name, so the substitution is the identity and the body's
+                // spelling already reads correctly at the declaration site. That is the
+                // ordinary case of a non-generic local function inside a generic METHOD,
+                // which inherits that method's type parameters — real framework code
+                // depends on it raising (VectorMath.HypotSingle's CoreImpl).
+                //
+                // Neither half of that test can be dropped. Judging from the call site
+                // alone misses `Own<U>(U u)` called as `Own<T>(value)` inside `M<T>`, whose
+                // arguments are all method generic parameters. Judging from the body's
+                // names alone misses shadowing, which C# permits with only a warning
+                // (CS8387): `Own<T>(T x)` inside `M<T>` declares its OWN `T`, so the name
+                // is a host name while the parameter is not the host's — raising it spelled
+                // `static int Own(T x)` and called it as `Own(1)`/`Own("x")` (CS1503), or
+                // as `Own(u)` for a `U` in `M<T, U>` (CS1503). Matching NAMES POSITIONALLY
+                // against each call site's arguments is what rejects both.
+                if (!TypeParametersAreTheHostsOwn(body.Signature, calls))
                     continue;
-                }
                 // Mutual or nested local-function calls are still out of this slice.
                 // A self-call is recoverable: rewrite it to the same local-function
                 // invocation used by the host call sites after the nested pipeline

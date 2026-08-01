@@ -6693,3 +6693,42 @@ public static class RaisedLocalFunctionReferenceSamples
         return group(Core(value));
     }
 }
+
+// A local function may declare a type parameter whose NAME shadows one of the host's;
+// C# permits it with only a warning (CS8387). The name is then a host name while the
+// parameter is not the host's, so judging genericity from the body's names alone raised
+// these and dropped the type-parameter list, producing CS1503 at Full. The call sites
+// are what disambiguate: the substitution must be the identity.
+#pragma warning disable CS8387
+public static class ShadowedGenericLocalFunctionSamples
+{
+    // Instantiated with two different concrete types, so no single non-generic
+    // declaration can serve both call sites: `Own(1)` and `Own("x")` against
+    // `static int Own(T u)` is CS1503 twice.
+    public static int DifferingInstantiations<T>(T value)
+    {
+        static int Own<T>(T x) => 3;
+        return Own<int>(1) + Own<string>("x");
+    }
+
+    // Instantiated with a method generic parameter that is NOT the one the body's own
+    // parameter shadows, so every call-site argument is a method generic parameter and
+    // the body's name is a host name — yet `Own(u)` against `static int Own(T x)` is
+    // still CS1503. Only matching names POSITIONALLY rejects this.
+    public static int ForeignHostParameter<T, U>(T t, U u)
+    {
+        static int Own<T>(T x) => 5;
+        return Own<U>(u);
+    }
+
+    // The shadowing case that DOES raise, and must keep raising: the only instantiation
+    // is the host parameter the body's own parameter shadows, so dropping the list is
+    // the identity substitution and `static int Own(T x)` means exactly what the
+    // original meant. An arity test would decline this for nothing.
+    public static int IdenticalInstantiation<T>(T value)
+    {
+        static int Own<T>(T x) => 7;
+        return Own<T>(value);
+    }
+}
+#pragma warning restore CS8387

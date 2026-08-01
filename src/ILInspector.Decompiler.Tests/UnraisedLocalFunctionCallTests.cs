@@ -531,6 +531,74 @@ public class UnraisedLocalFunctionCallTests
         Assert.Contains("static T Core(T v)", output);
     }
 
+    /// <summary>
+    /// A local function may SHADOW a host type-parameter name — C# allows it with only a
+    /// warning (CS8387) — so a body-name membership test says "the host has that name"
+    /// while the parameter is not the host's. Dropping the type-parameter list then
+    /// declared <c>static int Own(T x)</c> and called it as <c>Own(1)</c>/<c>Own("x")</c>:
+    /// CS1503 twice, at Full. Verified by compiling the rendered output back with csc.
+    /// </summary>
+    [Fact]
+    public void ShadowingLocalFunctionWithDifferingInstantiations_IsDeclined()
+    {
+        string output = PrintShadowSample(
+            nameof(ShadowedGenericLocalFunctionSamples.DifferingInstantiations), out var fidelity);
+
+        Assert.DoesNotContain("int Own(", output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, fidelity);
+    }
+
+    /// <summary>
+    /// The close negative that only a POSITIONAL name match rejects. Every call-site type
+    /// argument here is a method generic parameter (so a call-site kind test passes) and
+    /// the body's own parameter shadows a host name (so a body-name membership test
+    /// passes) — yet the argument is the host's <c>U</c> while the body spells <c>T</c>,
+    /// so <c>Own(u)</c> against <c>static int Own(T x)</c> is CS1503.
+    /// </summary>
+    [Fact]
+    public void ShadowingLocalFunctionInstantiatedWithAnotherHostParameter_IsDeclined()
+    {
+        string output = PrintShadowSample(
+            nameof(ShadowedGenericLocalFunctionSamples.ForeignHostParameter), out var fidelity);
+
+        Assert.DoesNotContain("int Own(", output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, fidelity);
+    }
+
+    /// <summary>
+    /// The positive that separates this rule from an arity test. The body's own type
+    /// parameter shadows <c>T</c> AND is instantiated only with the host's <c>T</c>, so
+    /// dropping the type-parameter list is the identity substitution and the raised
+    /// spelling means what the original meant — verified by compiling it back. An arity
+    /// comparison would decline it and lose a correct raise.
+    /// </summary>
+    [Fact]
+    public void ShadowingLocalFunctionInstantiatedWithTheShadowedParameter_StillRaises()
+    {
+        string output = PrintShadowSample(
+            nameof(ShadowedGenericLocalFunctionSamples.IdenticalInstantiation), out var fidelity);
+
+        Assert.Contains("static int Own(T x)", output);
+        Assert.Contains("Own(value)", output);
+        Assert.DoesNotContain("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+    }
+
+    static string PrintShadowSample(string methodName, out DecompilationFidelity fidelity)
+    {
+        var type = typeof(ShadowedGenericLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        fidelity = function!.Fidelity;
+        return result.Output!;
+    }
+
     static int CountOccurrences(string haystack, string needle)
     {
         int count = 0;
