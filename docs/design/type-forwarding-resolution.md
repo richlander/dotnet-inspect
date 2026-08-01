@@ -271,6 +271,11 @@ public abstract class MetadataTypeDefinitionNameResult
 }
 ```
 
+`MetadataTypeNameRejection` is limited to validating logical name parts without
+a metadata subject. A reader owner maps that rejection, and relationship
+traversal failures, into the existing `MetadataTypeNameFailure`, including its
+subject token and mechanism; the two results do not represent the same stage.
+
 `Segments` is root-to-leaf and retains metadata names, including generic arity.
 For `Namespace.Outer<T>.Inner`, it contains ``Outer`1`` and `Inner`.
 Equality is ordinal and structural over the segment sequence; it does not use
@@ -319,52 +324,6 @@ provenance, and an `AssemblyAcquisitionRegistration`:
 public sealed class AssemblyAcquisitionRegistration
 {
     internal AssemblyAcquisitionRegistration() { }
-}
-
-public abstract record AssemblyResolutionProvenance
-{
-    private protected AssemblyResolutionProvenance() { }
-
-    public static AssemblyResolutionProvenance Package(
-        string packageId,
-        string packageVersion,
-        string? tfm,
-        string? rid) =>
-        new PackageAsset(packageId, packageVersion, tfm, rid);
-
-    public static AssemblyResolutionProvenance Platform(
-        string framework,
-        string? frameworkVersion,
-        string resolverSource) =>
-        new PlatformAsset(framework, frameworkVersion, resolverSource);
-
-    public static AssemblyResolutionProvenance Project(
-        string project,
-        string? tfm,
-        string? rid) =>
-        new ProjectAsset(project, tfm, rid);
-
-    public static AssemblyResolutionProvenance Local(string resolverSource) =>
-        new LocalAsset(resolverSource);
-
-    public sealed record PackageAsset(
-        string PackageId,
-        string PackageVersion,
-        string? Tfm,
-        string? Rid) : AssemblyResolutionProvenance;
-
-    public sealed record PlatformAsset(
-        string Framework,
-        string? FrameworkVersion,
-        string ResolverSource) : AssemblyResolutionProvenance;
-
-    public sealed record ProjectAsset(
-        string Project,
-        string? Tfm,
-        string? Rid) : AssemblyResolutionProvenance;
-
-    public sealed record LocalAsset(
-        string ResolverSource) : AssemblyResolutionProvenance;
 }
 
 public sealed class ResolvedAssemblyReference
@@ -487,10 +446,9 @@ cross-catalog comparison into an ordinary "different definition" answer.
 
 Package coordinates, selected TFM, platform framework, and local path remain
 provenance, not fields in `AssemblyReferenceIdentity`. Structuring that
-provenance is owned by the assembly-inspection query model; the shared
-`AssemblyResolutionProvenance` declaration above is included here only to make
-the evolved descriptor contract complete and must remain identical to that
-owner's shape.
+provenance is owned by the assembly-inspection query model; its
+`AssemblyResolutionProvenance` hierarchy is the descriptor property's
+authoritative shape.
 
 ### Resolution start
 
@@ -608,18 +566,6 @@ Every request states exactly where resolution begins.
 public readonly record struct TypeDefinitionToken(int Value);
 public readonly record struct ExportedTypeToken(int Value);
 
-public enum MetadataTraversalRejectionKind
-{
-    Cycle,
-    NodeBudget,
-    MalformedMetadata
-}
-
-public sealed record MetadataTraversalRejection(
-    MetadataTraversalRejectionKind Kind,
-    string Detail,
-    int ConsumedNodes);
-
 public sealed class ModuleFileReference
 {
     internal ModuleFileReference(
@@ -732,10 +678,10 @@ public abstract class TypeDeclarationResult
 
     public sealed class Rejected : TypeDeclarationResult
     {
-        internal Rejected(MetadataTraversalRejection rejection) =>
+        internal Rejected(MetadataTypeNameFailure rejection) =>
             Rejection = rejection;
 
-        public MetadataTraversalRejection Rejection { get; }
+        public MetadataTypeNameFailure Rejection { get; }
     }
 }
 ```
@@ -772,10 +718,10 @@ owns them.
 future module resolver without lending a `FileHandle` or claiming that the
 module can currently be opened.
 
-`MetadataTraversalRejection` is the Metadata-owned materialization of
-MetadataPrimitives' reader-bound `RelationshipTraversalRejection`. It preserves
-kind, diagnostic detail, and consumed work but deliberately omits the live
-`EntityHandle`.
+The probe reuses the existing `MetadataTypeNameFailure.From` materialization of
+`RelationshipTraversalRejection`. It preserves mechanism, relationship kind,
+diagnostic detail, consumed work, and the subject metadata token without
+exposing an `EntityHandle` or adding a parallel failure model.
 
 ### Assembly binding
 
@@ -1043,10 +989,10 @@ public abstract class TypeResolutionFailure
     public sealed class DeclarationRejected : TypeResolutionFailure
     {
         internal DeclarationRejected(
-            MetadataTraversalRejection rejection) =>
+            MetadataTypeNameFailure rejection) =>
             Rejection = rejection;
 
-        public MetadataTraversalRejection Rejection { get; }
+        public MetadataTypeNameFailure Rejection { get; }
     }
 
     public sealed class ForwarderCycle : TypeResolutionFailure
@@ -2283,7 +2229,9 @@ Resolution is query-directed:
   forwarder chain;
 - each assembly image is opened once per catalog;
 - each `(assembly, type)` declaration probe runs once;
-- callers sharing a reference reuse the completed resolution;
+- callers in the same source candidate sharing a resolvable reference reuse the
+  completed resolution; different source candidates remain distinct binding
+  domains;
 - caller reachability resolves only target-name references present in the scope
   snapshot;
 - caller reachability binds each snapshotted scope-candidate `AssemblyRef` once
@@ -2293,7 +2241,7 @@ Resolution is query-directed:
   reachability follows only its `ExportedType`-target references and does not
   traverse its ordinary dependency graph;
 - graph signature correspondence resolves only named type occurrences in edges
-  being indexed and caches each resolvable origin once.
+  being indexed and caches each `(source candidate, resolvable origin)` once.
 
 The cross-assembly engine does not require a sweep over every framework assembly
 and does not re-seed the caller-scope closure from every facade. The platform
@@ -2307,7 +2255,8 @@ forwarded `XmlReader` caller is:
 - framework traversal does not expand through ordinary dependencies of those
   candidates;
 - no target file is reopened by the forwarder engine;
-- each unique matching reference and signature origin is resolved at most once;
+- each unique `(source candidate, matching reference or signature origin)` is
+  resolved at most once;
 - adjacency policy calls equal the distinct
   `(requesting candidate, reference identity, scope)` rows in the scope
   snapshot plus forwarding-adjacency rows over the whole inspection while

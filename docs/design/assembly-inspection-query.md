@@ -175,6 +175,52 @@ through it. The structured forwarding design evolves it in its second delivery s
 original value-equal record to a registration-backed, non-equatable descriptor:
 
 ```csharp
+public abstract record AssemblyResolutionProvenance
+{
+    private protected AssemblyResolutionProvenance() { }
+
+    public static AssemblyResolutionProvenance Package(
+        string packageId,
+        string packageVersion,
+        string? tfm,
+        string? rid) =>
+        new PackageAsset(packageId, packageVersion, tfm, rid);
+
+    public static AssemblyResolutionProvenance Platform(
+        string framework,
+        string? frameworkVersion,
+        string resolverSource) =>
+        new PlatformAsset(framework, frameworkVersion, resolverSource);
+
+    public static AssemblyResolutionProvenance Project(
+        string project,
+        string? tfm,
+        string? rid) =>
+        new ProjectAsset(project, tfm, rid);
+
+    public static AssemblyResolutionProvenance Local(string resolverSource) =>
+        new LocalAsset(resolverSource);
+
+    public sealed record PackageAsset(
+        string PackageId,
+        string PackageVersion,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance;
+
+    public sealed record PlatformAsset(
+        string Framework,
+        string? FrameworkVersion,
+        string ResolverSource) : AssemblyResolutionProvenance;
+
+    public sealed record ProjectAsset(
+        string Project,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance;
+
+    public sealed record LocalAsset(
+        string ResolverSource) : AssemblyResolutionProvenance;
+}
+
 var reference = ResolvedAssemblyReference.Create(
     selectedIdentity,
     path,
@@ -552,11 +598,14 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
+The provenance breadth is resolved by `AssemblyResolutionProvenance`: package assets carry
+package/version/tfm/rid, platform assets carry framework/version/source, project assets carry
+project/tfm/rid, and local assets carry resolver source. This is the minimum current consumers
+read back; adding another field or arm requires a named consumer rather than turning provenance
+into a grab bag.
+
 ## Open questions
 
-- **Provenance breadth.** `ResolvedAssemblyReference.Provenance` is a single `string?` today.
-  How much structure does inspection actually need (package@version, tfm, rid, platform flag,
-  resolver source) before it becomes a grab bag? Prefer the minimum consumers read back.
 - **Query granularity.** Is `InspectionQuery.Facets` the right knob, or should the session be
   lazy (scan on first access) so the query only needs the target? Laziness may make the facet
   set redundant.
