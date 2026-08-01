@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Globalization;
 using System.Text;
 
-using InertText.Encoder;
+using InertText.Encoding;
 
 namespace InertText.Tests;
 

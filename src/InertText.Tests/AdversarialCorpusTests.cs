@@ -1,6 +1,6 @@
 using System.Text;
 
-using InertText.Encoder;
+using InertText.Encoding;
 
 namespace InertText.Tests;
 
