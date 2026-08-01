@@ -258,14 +258,16 @@ noise and set 1.1% against 7.2%, which compared two shares of a denominator
 dominated by lines that could do neither.
 
 The constraint still binds on the *alternatives*, which is why it is stated
-here: side-alignment overflows the code line on 96.61% of the 29,933 lines
-carrying an extent, by a mean of 77 columns, and fits 28.1% of them at 80
-columns against 75.7% for the bare code. That 28.1% is padded — a line whose
-bare code already overflows 80 columns cannot fit side-aligned either.
-Conditioned on the 22,662 whose bare code does fit, side-alignment still fits
-only 8,257, or **36.4%**. Unpadding it makes the rejected alternative look
-better than the headline did, which is why it is stated: the rejection rests on
-36.4% against 75.7%, not on the padded figure.
+here: side-alignment overflows the code line on 97.52% of the 29,933 lines
+carrying an extent, by a mean of 81 columns over the 29,191 that overflow, and
+fits 24.7% of them at 80 columns against 75.7% for the bare code. That 24.7% is
+padded — a line whose bare code already overflows 80 columns cannot fit
+side-aligned either. Conditioned on the 22,662 whose bare code does fit,
+side-alignment still fits only **32.1%**. Unpadding it makes the rejected
+alternative look better than the headline did, which is why it is stated: the
+rejection rests on 32.1% against 75.7%, not on the padded figure. See
+[Side-aligned annotations](#side-aligned-annotations) for the measurement
+convention these depend on.
 
 ### Mixed lines
 
@@ -565,25 +567,36 @@ in this document the following is a mockup, not a render:
 //                   ^^^^^^^^^^^^^^^^^^^^  lifetime.stack-bound(Span<char>)
 ```
 
-Rejected as *the* style on measurement, not taste. Every figure here is one
-row per fact with a one-column gap after the widest caret, which is what the
-sketch above shows; a two-column gap moves each of them by a few tenths and
-changes nothing. Aligning after the widest caret pushes text a mean **77
-columns** past the end of the code line and overflows it on **96.61%** of the
-lines carrying an extent, leaving 28.1% intact at 80 columns against 75.7%
-for the bare code — or **36.4%** once the denominator is restricted to the
-22,662 lines whose bare code fits at all. The other 63.6% of those lines wrap,
-and the wrap destroys the very adjacency that motivates the style. Quoting a
-wrap rate over all 29,933 lines instead would read 71.9%, but 7,271 of them
-overflow 80 columns before any annotation is added and wrap whatever style is
-chosen, so that number measures the corpus rather than the style.
-Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
-on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
-filed as #3610. That number is derived, not measured directly: the line is
-**57,940** characters, one extent covers all of it, and 57,942 is where a
-two-column gap would land. At the one-column gap used everywhere else here it
-is 57,941. The gap is a style parameter, so the line length is the figure that
-means anything. The obvious first candidate for a wide style.
+Rejected as *the* style on measurement, not taste. Every figure below shares
+one convention, and it has to be stated because an earlier revision of this
+section did not state it and quietly mixed two: **final rendered columns**,
+one row per fact, text set two columns past the widest caret, which is what
+the sketch above shows. Rendered column of code character *i* is
+`BodyIndentWidth + i`, so the body indent counts on both sides of every
+comparison. The population is the **29,933** lines carrying at least one
+extent under the five focus families.
+
+- Text lands past the end of the code line on **29,191 lines (97.52%)**, and
+  over those 29,191 the mean overhang is **81 columns** — the mean is over the
+  lines that overflow, not over all 29,933.
+- **24.7%** of lines still fit 80 columns, against **75.7%** for the bare code.
+  Restricted to the 22,662 whose bare code fits at all, **32.1%** survive; the
+  other **67.9%** wrap, and the wrap destroys the very adjacency that motivates
+  the style. Over all 29,933 the wrap rate reads 75.3%, but 7,271 of those
+  lines overflow 80 columns before any annotation is added and wrap under any
+  style, so that figure measures the corpus rather than this one.
+- The annotation column passes 100 on **3,655 lines (12.2%)** — or **87.6%** of
+  the **4,172** lines long enough to push it that far at all, which is the rate
+  that means something: when the style can hurt, it almost always does.
+- The maximum annotation column is **57,946**, on
+  `IcuLocaleData.get_NameIndexToNumericData`, the pathological line already
+  filed as #3610. That is derived rather than measured directly: the line is
+  **57,940** characters, one extent covers all of it, and 4 + 57,940 + 2 is
+  57,946. The line length is the figure that survives a change of convention.
+
+At a one-column gap every number above moves by under a point (97.20%, 25.3%,
+33.0%, 11.8%, 87.2%, 57,945) and the rejection is unaffected. The obvious
+first candidate for a wide style.
 
 ### Constant-width caret trails
 
