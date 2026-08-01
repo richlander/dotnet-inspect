@@ -53,9 +53,10 @@ namespace InertText;
 /// constructor, <see cref="Format"/> or <see cref="Join"/>, all of which name a policy, so every
 /// value has been spelled under some policy.
 ///
-/// Every one of those reads <c>(TextPolicy, payload)</c>, including <see cref="IsPermitted"/> and
-/// <see cref="EnsurePermitted"/>. One shape rather than one per member, and the policy set can
-/// grow without the type growing a member per policy.
+/// Every one of those reads <c>(TextPolicy, payload)</c>, including
+/// <see cref="IsPermitted(TextPolicy, string)"/> and <see cref="EnsurePermitted"/>. One shape
+/// rather than one per member, and the policy set can grow without the type growing a member
+/// per policy.
 ///
 /// Note the "some": the type records that a policy was applied, not which one, because a value
 /// is routinely built for one sink and spliced into a message bound for another. That makes
@@ -236,7 +237,7 @@ public readonly struct InertString : IEquatable<InertString>
     /// <summary>Names the spellings this value contains, one line each.</summary>
     public IReadOnlyList<string> DescribeLegend() => VisualEncoder.DescribeLegend(Forms);
 
-        /// <summary>
+    /// <summary>
     /// Reports whether every scalar in <paramref name="value"/> is permitted as it is.
     /// </summary>
     /// <remarks>
@@ -296,7 +297,7 @@ public readonly struct InertString : IEquatable<InertString>
     }
 
     /// <summary>
-    /// Returns this value restated under <paramref name="permits"/>, re-encoding it if it
+    /// Returns this value restated under <paramref name="policy"/>, re-encoding it if it
     /// carries anything that policy refuses.
     /// </summary>
     /// <remarks>

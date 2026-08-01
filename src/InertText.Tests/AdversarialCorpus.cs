@@ -140,7 +140,8 @@ public static class AdversarialCorpus
     /// <remarks>
     /// Cyrillic small a is category Ll, exactly like Latin a, and renders identically. No
     /// category rule catches it and none should — the fix is an allow-shaped policy for sinks
-    /// with a constrained grammar, which is why the predicate is the caller's to choose. A
+    /// with a constrained grammar, which is why the policy set has room to grow a named member
+    /// for such a sink rather than treating the default as universal. A
     /// corpus that contained only things the default policy catches would quietly imply the
     /// default is sufficient.
     /// </remarks>

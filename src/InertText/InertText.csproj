@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- The audit story is carried in doc comments, so a cref that no longer resolves is a
+         defect and not a cosmetic one. With docs off, CS1574/CS1734/CS0419 are never raised
+         and the comments rot silently; a stale paramref and an ambiguous cref both survived
+         that way until review. On, they are build errors. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -581,9 +581,15 @@ public class InertStringTests
         {
             Type bare = type.IsByRef ? type.GetElementType()! : type;
 
+            // char-shaped returns count too. Span<char>/ReadOnlySpan<char>/Memory<char> and
+            // char[] hand back the same text a string would, and a gate whose whole value is
+            // catching a *future* addition should not be blind to the spellings an addition
+            // would plausibly use.
             return bare == typeof(string)
                 || bare == typeof(string[])
-                || (bare.IsGenericType && bare.GetGenericArguments().Contains(typeof(string)));
+                || bare == typeof(char[])
+                || (bare.IsGenericType
+                    && bare.GetGenericArguments().Any(a => a == typeof(string) || a == typeof(char)));
         }
     }
 
@@ -621,10 +627,12 @@ public class InertStringTests
     /// all of them, and the search would return the whole producer set. The signal would survive
     /// in form and be worthless in practice.
     ///
-    /// Measured on the tree that introduced this: four production files produce inert text and
-    /// <em>none</em> names the capability namespace. Routing production through the encoder
-    /// would make that four out of five, so the constructor is not sugar over
-    /// <c>VisualEncoder.Encode</c> — it is what keeps the false-positive rate at zero.
+    /// The measurement that matters is taken on a tree that has producers: every file that
+    /// produces inert text does so without naming the capability namespace, so routing production
+    /// through the encoder would turn each producer into a false positive. That is why the
+    /// constructor is not sugar over <c>VisualEncoder.Encode</c> — it is what keeps the
+    /// false-positive rate at zero. The count itself lives with the change that adds producers,
+    /// since this branch ships the library alone.
     ///
     /// The claim is about <em>production</em> code, and deliberately so. This test file names
     /// <c>InertText.Encoding</c> itself, as do the encoder's own tests: invertibility is a
@@ -837,7 +845,7 @@ public class InertStringTests
         foreach (Type type in typeof(InertString).Assembly.GetExportedTypes()
             .Where(t => t.Namespace == "InertText"))
         {
-            foreach (MethodBase member in typeof(InertString).GetMethods(Declared)
+            foreach (MethodBase member in type.GetMethods(Declared)
                 .Cast<MethodBase>()
                 .Concat(type.GetConstructors(Declared)))
             {
@@ -995,6 +1003,10 @@ public class InertStringTests
             .. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories),
             .. Directory.EnumerateFiles(source, "*.csproj", SearchOption.AllDirectories),
             .. Directory.EnumerateFiles(source, "*.props", SearchOption.AllDirectories),
+            .. Directory.EnumerateFiles(source, "*.targets", SearchOption.AllDirectories),
+            // Repo-root build files are outside src/ but flow into every project under it, so a
+            // <Using Include> there is the widest-reaching version of exactly this hazard.
+            .. Directory.EnumerateFiles(root.FullName, "Directory.Build.*", SearchOption.TopDirectoryOnly),
         ];
 
         // Non-vacuity: a root that resolved to somewhere without sources would pass silently,
@@ -1021,8 +1033,26 @@ public class InertStringTests
                     return false;
                 }
 
-                return trimmed.StartsWith($"global using {Capability};", StringComparison.Ordinal)
-                    || trimmed.Contains($"<Using Include=\"{Capability}\"", StringComparison.Ordinal);
+                if (trimmed.Contains($"<Using Include=\"{Capability}\"", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                // global:: is a legal and equivalent spelling of the same import, so match it too
+                // rather than letting one qualifier walk past the gate.
+                const string Directive = "global using ";
+                if (!trimmed.StartsWith(Directive, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                string imported = trimmed[Directive.Length..].TrimStart();
+                if (imported.StartsWith("global::", StringComparison.Ordinal))
+                {
+                    imported = imported["global::".Length..];
+                }
+
+                return imported.StartsWith($"{Capability};", StringComparison.Ordinal);
             });
 
             if (offends)
