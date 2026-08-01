@@ -12,6 +12,11 @@ which characters a fact is about — is described in
 per-fact extents already exist and are already correct; today's renderer
 discards them.
 
+Every figure in this document comes from the corpus named under
+[Measurements](#measurements): `System.Private.CoreLib`
+`11.0.0-preview.7.26366.102`, rendered by the annotated-source view. Extents
+are measured in printed characters, so the render is part of the figure.
+
 ## The problem
 
 `AnnotationCaret.Agreed` returns an extent only when every fact on the line
@@ -21,7 +26,7 @@ several different sub-expressions, that produces a caret that points at
 everything and therefore at nothing, above a stack of details with no way to
 tell which detail belongs to which expression.
 
-`System.Tuple<…>.Equals` is the worst real case in CoreLib — 16 facts, one
+`System.Tuple<…>.Equals` is the worst real case in the corpus — 16 facts, one
 330-column caret:
 
 ```csharp
@@ -141,8 +146,9 @@ the bare code.
 ### Mixed lines
 
 A **mixed** line carries facts of both kinds: some with an extent, some
-without. There are 615 of them in CoreLib, and 499 have exactly one surviving
-extent, so this is not a corner.
+without. There are 615 of them in the corpus, and 499 have exactly one
+surviving extent, so this is not a corner. (The overlay render is a different
+population: 609 and 498.)
 
 Today they widen. The reasoning was sound while a caret was the only signal
 available: narrowing to the one surviving extent would underline an expression
