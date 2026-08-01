@@ -460,11 +460,22 @@ public abstract record DefinitionCorrespondence
 {
     public sealed record Same : DefinitionCorrespondence;
     public sealed record Different : DefinitionCorrespondence;
+    public sealed record IndeterminateDuplicateArtifact(
+        ResolvedTypeDefinitionKey Left,
+        ResolvedTypeDefinitionKey Right,
+        MetadataTypeDefinitionAddress SharedAddress,
+        AssemblyReferenceIdentity SharedIdentity)
+        : DefinitionCorrespondence;
     public sealed record IncomparableCatalogs(
         AssemblyCatalogId Left,
         AssemblyCatalogId Right) : DefinitionCorrespondence;
 }
 ```
+
+The catalog owns duplicate-artifact detection because it can inspect both
+candidates and their addresses. Consumers never derive that relation from MVID,
+token, identity, or path. `Different` is returned only after the catalog rules
+out the duplicate-artifact condition, so it remains a safe negative.
 
 The inspection and its graph cache keep the catalog alive and use one key space
 for the target and all candidates. A key is never serialized or reused after
@@ -633,6 +644,8 @@ public abstract record TypeReferenceOrigin
 
     public sealed record CurrentAssembly : TypeReferenceOrigin;
 
+    public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin;
+
     public sealed record ModuleReference(
         string ModuleName) : TypeReferenceOrigin;
 }
@@ -653,10 +666,12 @@ therefore remain different resolution inputs even when Analysis shape equality
 canonicalizes their simple names together.
 
 The resolution plan combines `CurrentAssembly` with the candidate that supplied
-the row and starts from that candidate. `ModuleReference` remains typed and maps
-to module acquisition or the explicit unsupported-module outcome; it is never
-invented as an assembly identity. Nil, module, and assembly scopes therefore do
-not collapse into a nullable assembly field.
+the row and starts from that candidate. `IntrinsicCoreLibrary` covers signature
+primitive type codes that have no `TypeRef` row and resolves through the
+candidate's core-library binding policy. `ModuleReference` remains typed and
+maps to module acquisition or the explicit unsupported-module outcome; it is
+never invented as an assembly identity. Intrinsic, nil, module, and assembly
+scopes therefore do not collapse into a nullable assembly field.
 
 ### Caller matching
 
@@ -696,8 +711,11 @@ under the inspection catalog:
    seed. A candidate with indeterminate matching evidence is retained as an
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
-4. Compute the transitive graph set as reverse-reference closure from all
-   direct and indeterminate seeds.
+4. Root graph reachability at the candidate owning the target definition and
+   every catalog candidate that binding policy proves denotes that target
+   assembly.
+5. Compute the transitive graph set as reverse-reference closure from the
+   target-assembly roots, direct facade seeds, and indeterminate seeds.
 
 An unread reference set or an unavailable, ambiguous, or rejected adjacency
 binding cannot prove a negative. Its carrier remains an indeterminate graph
@@ -711,9 +729,15 @@ work remains query-directed because it resolves only the target structured name
 through references actually present in scope candidates; it does not seed from
 or sweep every framework facade.
 
+Rooting at the target assembly is independent of the target type name. It keeps
+a scope candidate that references another type in the target assembly, and
+therefore keeps callers above that intermediate method. The direct facade seeds
+add the case the assembly graph cannot express: a matching type reference whose
+facade is outside the caller scope but resolves to the target definition.
+
 The plan exposes two projections from one catalog and one metadata snapshot:
 
-- direct callers use the seed set and then the structured-name negative below;
+- direct callers use the direct and indeterminate seed set;
 - call graph uses the reverse closure.
 
 The graph projection is therefore never narrower than the direct projection.
@@ -722,7 +746,14 @@ callers were opened first, the graph opens the additional closure candidates.
 The current `_selectedScopePaths`, `_graphScopes`, and graph-first reuse cache
 must migrate together; replacing only `CallerScopeTypeFilter` is not sound.
 
-The cheap direct-caller negative is:
+The plan also retains whether each ruled-out candidate was not definitely
+unopenable. `HasRuledOutCandidateNotDefinitelyUnopenable` replaces
+`_ruledOutScopeIsOpenable` and preserves its current weaker contract for
+`Unknown` and `UnknownReferences`, as well as the null-versus-empty choice that
+selects the caller-tree builder. Scope selection cannot discard or strengthen
+that routing signal as an incidental side effect.
+
+The cheap direct-caller negative is step 1 of the plan:
 
 1. Decode the candidate image's `TypeRef` rows.
 2. Compare the structured namespace and nested-name segments with the target,
@@ -737,9 +768,9 @@ name a call site records. This name-only negative therefore remains sound while
 avoiding forwarder resolution for the majority of a scope. It is wider than
 today's assembly-qualified filter, which is the safe direction.
 
-Only images admitted by that gate resolve the complete
-`ResolvableTypeReference`. One `CallerResolutionPlan` owns those resolutions
-for a candidate image:
+Only matching or indeterminate rows proceed to step 2. One
+`CallerResolutionPlan` owns and reuses the resolutions performed while building
+reachability; final call-site matching does not run a second resolution pass:
 
 ```csharp
 public abstract record TypeCorrespondenceFailure
@@ -748,8 +779,8 @@ public abstract record TypeCorrespondenceFailure
         TypeResolutionOutcome NonSuccess) : TypeCorrespondenceFailure;
 
     public sealed record DuplicateArtifact(
-        ResolvedTypeDefinition Left,
-        ResolvedTypeDefinition Right) : TypeCorrespondenceFailure;
+        DefinitionCorrespondence.IndeterminateDuplicateArtifact Evidence)
+        : TypeCorrespondenceFailure;
 
     public sealed record IncomparableCatalogs(
         AssemblyCatalogId Left,
@@ -788,25 +819,46 @@ permissiveness rule to keep synchronized with the matcher.
 
 ### Call graph
 
-`CallerGraphKey` is split into two concepts:
+`CallerGraphKey` is split into three concepts:
 
 - a total `GraphNodeStorageKey`, scoped by source candidate and metadata
   location, retains every node and edge even when correspondence cannot be
   established;
 - an optional `ResolvedMemberCorrespondenceKey` exists only when the declaring
   type and every identity-bearing named type in the open parameter and return
-  signature have a resolved definition key.
+  signature have a resolved definition key;
+- a `DegradedMemberCorrespondenceKey` substitutes a
+  catalog-owned `UnresolvedBindingKey` plus structured type name only for an
+  unavailable named type. The binding key represents the exact cached
+  `(AssemblyReferenceIdentity, AssemblyResolutionScope)` request, preserving
+  the complete assembly/module/current origin instead of collapsing failures
+  into one bucket.
 
 Named types nested under generic instances, arrays, byrefs, and pointers use the
 same recursive correspondence projection. Replacing only the declaring
 assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
 
-Graph joins use only `ResolvedMemberCorrespondenceKey`. An unresolved,
-unavailable, ambiguous, rejected, or cross-catalog type use remains attached to
-its storage node and produces incomplete-graph evidence; it never enters a
-shared unresolved bucket and never becomes an ordinary "no edge." This makes
-the graph storage total without fabricating correspondence.
+Exact graph joins use `ResolvedMemberCorrespondenceKey`. When both sides have
+the same degraded key under one catalog and binding scope, the graph retains an
+`IndeterminateCorrespondence` edge and emits incomplete-graph evidence; it does
+not report exact definition correspondence. `NotFound`, ambiguous, rejected, or
+cross-catalog uses do not degraded-join. Every non-success remains attached to
+its storage node, never enters a shared unresolved bucket, and never becomes an
+ordinary "no edge."
+
+This preserves today's useful join when a local scope omits platform
+dependencies while making its confidence explicit. Different complete
+reference identities, names, origins, or scopes remain different, and a known
+resolution never joins through the degraded projection.
+
+For `CurrentAssembly` and `ModuleReference`, the degraded component also carries
+the source candidate (and module name where present); those origins cannot join
+across candidate images. `IntrinsicCoreLibrary` carries the candidate's binding
+scope. An unavailable `AssemblyReference` may join across source candidates
+only when the catalog returns the same `UnresolvedBindingKey`; distinct source
+binding domains therefore remain distinct. The total storage keys remain
+separate even when an indeterminate correspondence edge joins them.
 
 This is a separate migration slice because it changes graph-key construction
 and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
@@ -833,6 +885,18 @@ Source and API consumers receive `ResolvedAssemblyReference` or
   classification that consumes typed declaration inventory. Classification is
   not cross-assembly resolution, but Services may not interpret raw forwarder
   rows after the architecture gate lands.
+
+The current consumers migrate with those contracts:
+
+- both `SourceResolver` platform probes consume `Resolved`, `Missing`,
+  `Ambiguous`, and `Rejected` explicitly; only `Resolved` supplies a descriptor,
+  `Missing` continues ordinary not-found handling, and the other arms surface
+  source-resolution diagnostics rather than choosing a string;
+- `ApiServices` and `LibraryMetadataService` carry typed facade classification
+  and its Finding instead of reducing rejection to nullable `bool`;
+- `RouterCommandDefinition` routes a proven facade to `type` and a proven
+  implementation to `library`; an indeterminate or rejected classification
+  does not auto-reroute and reports the routing diagnostic.
 
 The forwarder-related path sinks in #3460 disappear by construction. General
 artifact-derived path components elsewhere still need `HardenedPath`; that is a
@@ -950,7 +1014,8 @@ changing their successful results.
 ### Slice 4: source and API consumers
 
 - Migrate `PdbContext`, `SourceLinkService`, `SourceEnricher`,
-  `SourceFileCollector`, and `ApiServices`.
+  `SourceFileCollector`, `ApiServices`, `SourceResolver`,
+  `LibraryMetadataService`, and `RouterCommandDefinition`.
 - Migrate `PlatformResolver.FindLibraryContainingType` to the typed platform
   catalog and `IsFacadeOnlyAssembly` to Metadata-owned classification.
 - Delete forwarder-target sibling-path construction.
@@ -963,7 +1028,8 @@ an inspected assembly name into a path.
 - Retain typed `TypeReferenceOrigin` during Analysis decoding.
 - Build `CallerScopeReachabilityPlan` and `CallerResolutionPlan`.
 - Replace `_selectedScopePaths`, direct/graph scope reuse, type prefiltering,
-  and `MatchesCrossAssembly` as one coherent gate migration.
+  `_ruledOutScopeIsOpenable`, caller-tree builder routing, and
+  `MatchesCrossAssembly` as one coherent gate migration.
 - Port #3476's real framework fixture and close negative controls.
 - Do not port `ForwardedTypeAliases`.
 
@@ -1030,16 +1096,25 @@ Claim: direct callers and transitive call graphs share one definition identity.
   snapshotted.
 - Resolution caches distinguish origins that structural `TypeRef` equality
   canonicalizes together.
-- Nil, module, and assembly reference origins remain distinct.
+- Intrinsic, nil, module, and assembly reference origins remain distinct.
 - The target candidate's own `TypeDef` is retained without a `TypeRef`.
 - A duplicate candidate that the catalog cannot unify is indeterminate rather
   than same or different by spelling.
 - A facade outside the caller scope seeds a direct caller through typed
   resolution, and reverse closure retains callers above it.
+- A depth-two graph caller that reaches the selected member through another
+  method in the target assembly is retained even though it never names the
+  target type.
 - Rendering `Call Graph` before `Callers` and in the opposite order produces
   the same direct caller set.
+- Definitely unopenable, unknown, unknown-reference, and known-but-ruled-out
+  candidates preserve the current caller-tree builder choice.
 - A cross-catalog definition comparison is a typed mismatch, not `false`.
-- Unresolved graph edges remain visible and cannot join through a shared key.
+- A scope without platform acquisition retains current full-identity graph
+  joins as explicitly indeterminate edges; unavailable types with different
+  complete origins do not join.
+- Ambiguous, rejected, and cross-catalog graph types remain visible and cannot
+  join through a shared key.
 - Forwarded declaring, parameter, and return types use resolved correspondence.
 - `Callers` and `Call Graph` agree after the graph migration.
 - Forwarded source acquisition opens the resolver-selected descriptor.
