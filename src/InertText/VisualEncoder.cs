@@ -356,4 +356,124 @@ public static class VisualEncoder
 
         return true;
     }
+
+    // Walks encoder output one token at a time, where a token is whatever the boundary members
+    // on InertString must not cut through: one escape, one raw scalar, or one raw character.
+    //
+    // Deliberately here rather than on the currency type, beside AppendSpelling, because the
+    // widths below are that method's output read backwards. A new spelling that lands there and
+    // not here would make every boundary past it wrong, and the two are only obviously coupled
+    // when they are adjacent. Internal, so it adds nothing to the capability surface: it reports
+    // where the text can be divided, never what any of it decodes to.
+    private static int NextToken(string encoded, int index, out VisualForm form)
+    {
+        char c = encoded[index];
+
+        if (c != '\\')
+        {
+            form = VisualForm.None;
+
+            // Encode never emits a raw unpaired surrogate -- it spells one as \uXXXX -- so a
+            // high surrogate here is always the first half of a scalar and is never divisible.
+            return char.IsHighSurrogate(c)
+                && index + 1 < encoded.Length
+                && char.IsLowSurrogate(encoded[index + 1])
+                    ? 2
+                    : 1;
+        }
+
+        int remaining = encoded.Length - index;
+
+        // Widths are clamped rather than trusted. Encode cannot emit a truncated escape, but the
+        // internal constructor asserts the invariant instead of establishing it, so a walk that
+        // read past the end here would turn a malformed value into an IndexOutOfRangeException
+        // at a boundary check rather than at the point it was built.
+        switch (remaining > 1 ? encoded[index + 1] : '\0')
+        {
+            case '\\':
+                form = VisualForm.Backslash;
+                return Math.Min(2, remaining);
+            case '^':
+                form = remaining > 2 && encoded[index + 2] == '?'
+                    ? VisualForm.CaretDelete
+                    : VisualForm.Caret;
+                return Math.Min(3, remaining);
+            case 'u':
+                form = VisualForm.BmpHex;
+
+                // Composition encodes each fragment on its own, so a surrogate pair split across
+                // two of them arrives as two \uXXXX escapes that together spell one astral
+                // scalar. Cutting between them would leave a lone surrogate in the text this
+                // decodes to, which is the atomicity the escaper this replaces guaranteed.
+                return IsEscapedSurrogatePair(encoded, index) ? 12 : Math.Min(6, remaining);
+            case 'U':
+                form = VisualForm.AstralHex;
+                return Math.Min(10, remaining);
+            default:
+                form = VisualForm.None;
+                return 1;
+        }
+    }
+
+    private static bool IsEscapedSurrogatePair(string encoded, int index)
+        => index + 12 <= encoded.Length
+            && encoded[index + 6] == '\\'
+            && encoded[index + 7] == 'u'
+            && TryReadHex(encoded, index + 2, 4, out uint high)
+            && TryReadHex(encoded, index + 8, 4, out uint low)
+            && char.IsHighSurrogate((char)high)
+            && char.IsLowSurrogate((char)low);
+
+    /// <summary>
+    /// The largest index at or below <paramref name="limit"/> that does not divide a token,
+    /// reporting the spellings the text up to it contains.
+    /// </summary>
+    internal static int BoundaryAtOrBefore(string encoded, int limit, out VisualForm forms)
+    {
+        forms = VisualForm.None;
+        int i = 0;
+
+        while (i < encoded.Length)
+        {
+            int width = NextToken(encoded, i, out VisualForm form);
+
+            if (i + width > limit)
+            {
+                break;
+            }
+
+            forms |= form;
+            i += width;
+        }
+
+        return i;
+    }
+
+    /// <summary>
+    /// Reports whether <paramref name="start"/> and <paramref name="end"/> both fall between
+    /// tokens, naming the spellings the text between them contains.
+    /// </summary>
+    internal static bool TryFormsWithin(string encoded, int start, int end, out VisualForm forms)
+    {
+        forms = VisualForm.None;
+        int i = 0;
+
+        while (i < start)
+        {
+            i += NextToken(encoded, i, out _);
+        }
+
+        if (i != start)
+        {
+            return false;
+        }
+
+        while (i < end)
+        {
+            i += NextToken(encoded, i, out VisualForm form);
+            forms |= form;
+        }
+
+        return i == end;
+    }
 }

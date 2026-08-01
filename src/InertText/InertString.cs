@@ -147,6 +147,31 @@ public readonly struct InertString : IEquatable<InertString>
     /// <summary>Whether this value carries no text.</summary>
     public bool IsEmpty => Text.Length == 0;
 
+    /// <summary>The number of characters in the encoded text.</summary>
+    /// <remarks>
+    /// The encoded length, not the length of the text this was built from, because that is the
+    /// number a sink has a budget in: encoding expands, so a scalar that arrived as one
+    /// character can leave as ten, and a caller bounding what it emits has to measure what it
+    /// will emit. The original's length is not recoverable from here by design.
+    /// </remarks>
+    public int Length => Text.Length;
+
+    /// <summary>
+    /// The position of the first spelling this value emitted, or <c>-1</c> when it emitted none.
+    /// </summary>
+    /// <remarks>
+    /// Reports where treated text begins, so a caller can show a prefix it knows to be unchanged
+    /// — a survey listing where in a name the first hazard sits, for instance — without asking
+    /// what was there before. Every spelling is introduced by a backslash and a raw backslash is
+    /// always rewritten, so this is the first character of an escape and never text that merely
+    /// resembles one.
+    ///
+    /// Answers the same question as <see cref="WasEncoded"/> and locates it;
+    /// <c>IndexOfFirstEncoded() &gt;= 0</c> and <see cref="WasEncoded"/> agree. Like that member
+    /// it reports what was done to this value, never what it satisfies.
+    /// </remarks>
+    public int IndexOfFirstEncoded() => Text.IndexOf('\\');
+
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     /// <remarks>
     /// Reports what was <em>done</em> to this value, never what it <em>satisfies</em>. It is not
@@ -164,6 +189,83 @@ public readonly struct InertString : IEquatable<InertString>
 
     /// <summary>The encoded text.</summary>
     public override string ToString() => Text;
+
+    /// <summary>
+    /// Shortens this value to at most <paramref name="maxLength"/> characters, cutting only
+    /// where a cut cannot divide a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The budget-bounded form, for a sink that has to place treated text in a column or a
+    /// record field. The budget is on the encoded length, because that is what the sink emits.
+    ///
+    /// Cutting at the requested position is not an option worth offering. A spelling is several
+    /// characters wide, so an arbitrary cut can leave <c>\u2</c> behind, which is no longer
+    /// something this library can read back: <see cref="EnsurePermitted"/> treats text it cannot
+    /// decode as raw and re-encodes it, turning that into <c>\\u2</c> — the same text an entirely
+    /// different input encodes to. So the cut is moved down to the nearest position that keeps
+    /// every spelling whole, and a surrogate pair counts as one thing however it is spelled.
+    ///
+    /// A negative budget is read as zero rather than refused, and a budget at or above
+    /// <see cref="Length"/> returns this value unchanged, so a caller can hand a configured
+    /// limit straight in. Truncation is not reported separately because
+    /// <c>result.Length &lt; Length</c> already answers it, and a flag that restates a
+    /// comparison is a second thing to keep true.
+    ///
+    /// <see cref="Forms"/> is recomputed from what is kept, so a legend drawn from the result
+    /// cannot name a spelling that was dropped with the tail.
+    /// </remarks>
+    /// <param name="maxLength">The largest encoded length the caller can accept.</param>
+    public InertString Truncate(int maxLength)
+    {
+        string text = Text;
+
+        if (maxLength >= text.Length)
+        {
+            return this;
+        }
+
+        int boundary = VisualEncoder.BoundaryAtOrBefore(text, Math.Max(0, maxLength), out VisualForm forms);
+        return new InertString(text[..boundary], forms);
+    }
+
+    /// <summary>Takes the part of this value that <paramref name="range"/> names.</summary>
+    /// <remarks>
+    /// The exact form, for a caller that already knows where it wants to cut — and the reason
+    /// <see cref="Truncate"/> does not need a variant per budget shape. Where that member moves
+    /// an unusable cut, this one refuses it: a range given deliberately is a claim about the
+    /// text, and silently returning a different span than the one named would be the worse
+    /// answer. Neither bound is moved, in particular not the start, because moving a start down
+    /// would hand back more text than was asked for.
+    ///
+    /// Slicing yields a new value and leaves this one untouched, as it must — this is a
+    /// <see langword="readonly"/> <see langword="struct"/> over an immutable
+    /// <see cref="string"/>, so nothing here can be aliased.
+    /// </remarks>
+    /// <param name="range">The part to take, in encoded characters.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="range"/> falls outside the encoded text.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Either bound divides a spelling, so the result could not be read back.
+    /// </exception>
+    public InertString this[Range range]
+    {
+        get
+        {
+            string text = Text;
+            (int offset, int length) = range.GetOffsetAndLength(text.Length);
+
+            if (!VisualEncoder.TryFormsWithin(text, offset, offset + length, out VisualForm forms))
+            {
+                throw new ArgumentException(
+                    "The range divides an encoded spelling, so the result could not be decoded. "
+                        + $"Use {nameof(Truncate)} to cut at the nearest whole spelling instead.",
+                    nameof(range));
+            }
+
+            return new InertString(text.Substring(offset, length), forms);
+        }
+    }
 
     /// <summary>
     /// Builds a value from an interpolated string, encoding every part of it.
