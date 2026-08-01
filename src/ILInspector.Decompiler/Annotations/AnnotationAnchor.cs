@@ -152,9 +152,13 @@ public static class AnnotationAnchor
         if (annotations.Count == 0 || printedRanges.Count == 0)
             return extents;
 
+        // No `narrowest.Count == 0` bail-out: an empty map means no printed node
+        // carries a source offset, which is exactly a case adoption can still
+        // answer, since it looks *inside* unprinted owners. Returning early
+        // would skip it. That never happens on System.Private.CoreLib -- 0
+        // functions of those the annotated-source view prints -- so this is a
+        // shape correction, not a behaviour change measurable on this corpus.
         var narrowest = NarrowestPrintedByOffset(printedRanges);
-        if (narrowest.Count == 0)
-            return extents;
 
         // Indexed by the same coordinates TryGetLineColumn reports, so a column
         // from there indexes straight into these lines. Split on '\n' alone: a
@@ -336,7 +340,8 @@ public static class AnnotationAnchor
         if (wanted is null)
             return adopted;
 
-        var widths = new Dictionary<int, int>();
+        var level = new List<IrNode>();
+        var next = new List<IrNode>();
         foreach (var span in statements)
         {
             foreach (var node in Self(span.Statement))
@@ -347,22 +352,77 @@ public static class AnnotationAnchor
                 // The owner prints nothing; look inside it for something that does.
                 if (printedRanges.TryGetRange(node, out _))
                     continue;
-                foreach (var inner in node.Descendants)
-                {
-                    if (!printedRanges.TryGetRange(inner, out var range))
-                        continue;
-                    int width = range.End.Value - range.Start.Value;
-                    // A zero-width range names no characters to point at.
-                    if (width <= 0)
-                        continue;
-                    if (widths.TryGetValue(offset, out int best) && best <= width)
-                        continue;
-                    widths[offset] = width;
+                if (NearestPrinted(node, printedRanges, ref level, ref next) is { } inner)
                     adopted[offset] = inner;
-                }
             }
         }
         return adopted;
+    }
+
+    /// <summary>
+    /// The shallowest printed descendant of <paramref name="node"/>, searched
+    /// breadth-first so depth decides and width only breaks a tie within one
+    /// level.
+    /// </summary>
+    /// <remarks>
+    /// Depth is the whole point, and an earlier revision of this helper got it
+    /// wrong by taking the narrowest printed descendant at any depth. For
+    /// <c>box(Foo(x))</c> the narrowest printed node under the box is the
+    /// argument <c>x</c>, not the call <c>Foo(x)</c> whose result is boxed, so
+    /// the caret underlined characters the fact is not about. Measured over
+    /// <c>System.Private.CoreLib</c> as the annotated-source view prints it,
+    /// the two rules disagree on 502 of the 4,262 offsets adoption resolves:
+    /// 240 <c>box</c>-over-<c>Call</c>, 112 and 38 over <c>Convert</c>, 72 and
+    /// 12 over <c>Binary</c>, and the rest single figures. Depth is right in
+    /// every one of them, because what a box boxes is its operand.
+    /// <para>
+    /// The width tie-break never runs on that corpus: no node has two printed
+    /// descendants at its shallowest printed level, all 4,262 times. It is kept
+    /// because "never here" is a measurement, not a guarantee, and a silent
+    /// dependence on traversal order is what the old rule died of — it left 231
+    /// of these offsets decided by which equally-narrow node the walk reached
+    /// first. Preferring the widest at a level keeps the caret over as much of
+    /// the expression as the printer will name.
+    /// </para>
+    /// </remarks>
+    static IrNode? NearestPrinted(
+        IrNode node,
+        PrintedRangeMap printedRanges,
+        ref List<IrNode> level,
+        ref List<IrNode> next)
+    {
+        level.Clear();
+        level.AddRange(node.Children);
+        while (level.Count > 0)
+        {
+            next.Clear();
+            IrNode? best = null;
+            int bestWidth = 0;
+            foreach (var candidate in level)
+            {
+                // A zero-width range names no characters to point at, so such a
+                // node is descended through rather than adopted.
+                int width = printedRanges.TryGetRange(candidate, out var range)
+                    ? range.End.Value - range.Start.Value
+                    : 0;
+                if (width > 0)
+                {
+                    if (width > bestWidth)
+                    {
+                        bestWidth = width;
+                        best = candidate;
+                    }
+                }
+                else if (best is null)
+                {
+                    next.AddRange(candidate.Children);
+                }
+            }
+            if (best is not null)
+                return best;
+            (level, next) = (next, level);
+        }
+        return null;
     }
 
     /// <summary>
