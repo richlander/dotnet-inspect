@@ -106,7 +106,7 @@ public static class InspectionCommandDefinitions
                 type = positional[positionalIndex++];
             if (positionalIndex < positional.Length)
             {
-                Console.Error.WriteLine("Error: too many positional arguments.");
+                CommandError.Write("too many positional arguments.");
                 return 1;
             }
 
@@ -120,8 +120,8 @@ public static class InspectionCommandDefinitions
             string? explicitFinding = parseResult.GetValue(findingOption);
             if (aliases.Count > 1 || (aliases.Count == 1 && explicitFinding is not null))
             {
-                Console.Error.WriteLine(
-                    "Error: specify only one of --finding, --members, --type-presence, or --attributes.");
+                CommandError.Write(
+                    "specify only one of --finding, --members, --type-presence, or --attributes.");
                 return 1;
             }
 
@@ -146,6 +146,7 @@ public static class InspectionCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
@@ -249,7 +250,7 @@ public static class InspectionCommandDefinitions
             switch (result)
             {
                 case DiffOptionsParser.VersionNumberError error:
-                    Console.Error.WriteLine($"Error: '{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
+                    CommandError.Write($"'{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
 
                 case DiffOptionsParser.Success success:
@@ -301,6 +302,7 @@ public static class InspectionCommandDefinitions
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
         var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
+        var heapOption = new Option<string?>("--heap") { Description = "Metadata heap coordinate for the coordinate-scoped heap section (e.g., #Strings:0x1a4)" };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
@@ -317,9 +319,14 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(ilOffsetsOption);
+        assemblyCommand.Options.Add(heapOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
+        // trace should advertise the flag. A flag every command accepts and only one honours is
+        // worse than an unrecognized argument, which at least fails loudly.
+        assemblyCommand.Options.Add(opts.Trace);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
         opts.AddPrintOptionTo(assemblyCommand);
@@ -383,11 +390,12 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
-            bool hasExplicitSelect = select is { Length: > 0 };
+            var selectDefault = opts.ParseSelectDefault(parseResult);
+            bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
-                Console.Error.WriteLine(triageShapeError);
+                CommandError.Write(triageShapeError);
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
@@ -428,6 +436,7 @@ public static class InspectionCommandDefinitions
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
+                HeapParameter = parseResult.GetValue(heapOption),
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
@@ -440,10 +449,12 @@ public static class InspectionCommandDefinitions
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
+                Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
+                SelectDefault = selectDefault,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),

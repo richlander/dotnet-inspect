@@ -3,6 +3,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Text;
 
 namespace ILInspector.Research;
 
@@ -384,6 +385,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
@@ -412,7 +419,7 @@ public static partial class ResearchViews
         {
             if (line.Kind == SourceLineKind.Il)
             {
-                sb.AppendLine($"{csIndent}    // {line.Text}");
+                sb.AppendLf($"{csIndent}    // {line.Text}");
                 continue;
             }
 
@@ -421,9 +428,9 @@ public static partial class ResearchViews
             string text = line.Text;
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
-            sb.AppendLine(text);
+            sb.AppendLf(text);
             foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true))
-                sb.AppendLine(caretLine);
+                sb.AppendLf(caretLine);
         }
         return sb.ToString().TrimEnd();
     }
@@ -507,6 +514,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
@@ -556,7 +569,7 @@ public static partial class ResearchViews
                 : line.Text);
             lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true));
         }
-        return string.Join(Environment.NewLine, lines);
+        return string.Join("\n", lines);
     }
 
     // Partition one line's facts by reporting gesture. Order within each bucket is

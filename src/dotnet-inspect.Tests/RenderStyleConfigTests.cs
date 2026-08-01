@@ -356,46 +356,29 @@ public class RenderStyleConfigTests
     {
         var sink = new RenderConfigWarningSink(
             ["line 1: unknown key 'foo' (ignored)", "line 2: malformed entry 'bar'"]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-
-        var lines = writer.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.TrimEnd('\r'))
-            .ToArray();
+        // The "Warning: " prefix is CommandError's, not the sink's, so the
+        // seam hands back bare messages (issue #3319).
         Assert.Equal(
             [
-                $"Warning: {RenderStyleConfig.FileName}: line 1: unknown key 'foo' (ignored)",
-                $"Warning: {RenderStyleConfig.FileName}: line 2: malformed entry 'bar'",
+                $"{RenderStyleConfig.FileName}: line 1: unknown key 'foo' (ignored)",
+                $"{RenderStyleConfig.FileName}: line 2: malformed entry 'bar'",
             ],
-            lines);
+            sink.TakePending());
     }
 
     [Fact]
     public void WarningSink_EmitOnce_IsLatched_SecondCallIsNoOp()
     {
         var sink = new RenderConfigWarningSink(["line 1: unknown key 'foo' (ignored)"]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-        sink.EmitOnce(writer);
-
-        var count = writer.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Length;
-        Assert.Equal(1, count);
+        Assert.Single(sink.TakePending());
+        Assert.Empty(sink.TakePending());
     }
 
     [Fact]
     public void WarningSink_EmitOnce_WithNoWarnings_WritesNothing()
     {
         var sink = new RenderConfigWarningSink([]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-
-        Assert.Equal(string.Empty, writer.ToString());
+        Assert.Empty(sink.TakePending());
     }
 
     [Fact]
@@ -411,9 +394,7 @@ public class RenderStyleConfigTests
         var dirty = Resolve("bogus_key = true");
         Assert.NotEmpty(dirty.Warnings);
         var sink = new RenderConfigWarningSink(dirty.Warnings);
-        var writer = new StringWriter();
-        sink.EmitOnce(writer);
-        Assert.Contains("bogus_key", writer.ToString());
+        Assert.Contains(sink.TakePending(), m => m.Contains("bogus_key", StringComparison.Ordinal));
     }
 
     private static RenderStyleResolution Resolve(string configText)

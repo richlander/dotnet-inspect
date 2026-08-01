@@ -7,6 +7,12 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RollForward>LatestMajor</RollForward>
+
+    <!-- mdi is a separate entry point with its own diagnostics; it cannot reach
+         dotnet-inspect's CommandError, so the stderr-ownership rule (#3319) does
+         not apply here. That it reads untrusted metadata and writes it to its own
+         stderr is the declared residual #3444. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
 
   <!-- Native AOT size optimizations (only apply when publishing with AOT) -->

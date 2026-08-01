@@ -26,6 +26,7 @@
     <Project Path="src/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
+    <Project Path="src/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
@@ -60,6 +61,8 @@
     <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
+    <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
+    <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />

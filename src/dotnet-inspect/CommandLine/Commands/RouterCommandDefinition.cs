@@ -44,18 +44,18 @@ public static class RouterCommandDefinition
 
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
             {
-                Console.Error.WriteLine($"Error: Unknown command '{tokens[0]}'.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
-                Console.Error.WriteLine($"  {suggestion}");
+                CommandError.Write($"Unknown command '{tokens[0]}'.");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
+                CommandError.WriteLine($"  {suggestion}");
                 return 1;
             }
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
             {
-                Console.Error.WriteLine($"Note: interpreting bare token '{tokens[0]}' as a package or platform target.");
-                Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
-                Console.Error.WriteLine();
+                CommandError.WriteNote($"interpreting bare token '{tokens[0]}' as a package or platform target.");
+                CommandError.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
+                CommandError.WriteBlankLine();
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
@@ -66,7 +66,7 @@ public static class RouterCommandDefinition
 
             if (rewritten.Length == tokens.Length && rewritten.SequenceEqual(tokens))
             {
-                Console.Error.WriteLine($"Error: Could not route '{tokens[0]}'.");
+                CommandError.Write($"Could not route '{tokens[0]}'.");
                 return 1;
             }
 
@@ -156,7 +156,8 @@ public static class RouterCommandDefinition
 
             var hasVersionQuery = ContainsOption(tokens, "--version")
                 || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions");
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
@@ -239,7 +240,7 @@ public static class RouterCommandDefinition
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;
-                Console.Error.WriteLine($"Note: Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
+                CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
                 return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
             }
 

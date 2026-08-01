@@ -95,7 +95,9 @@ entry gate invalidates every later result, so run it first and report it.
    default in every host except the shipped CLI (`IrInvariants`, #3267) — and
    pass tests assert it explicitly; a thrown invariant is an entry-gate failure,
    not a fidelity question. New pass tests should call `CheckInvariant()` on the
-   result.
+   result. [IR invariant checks: hosts, levels, and
+   fixtures](#ir-invariant-checks-hosts-levels-and-fixtures) below is the full
+   contract.
 
 4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
 
@@ -131,6 +133,54 @@ Notes:
   round-trip checks `[Trait("Speed", "Slow")]`.
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
+
+### IR invariant checks: hosts, levels, and fixtures
+
+`AGENTS.md` requires that a correctness check not hide behind
+`[Conditional("DEBUG")]`, because the suite runs Release for fixture fidelity
+and such a call is stripped from the Release test assembly. The IR invariant
+check is the worked example of the alternative: `IrNode.CheckInvariant` is
+reached through a runtime flag (`IrInvariants.Enabled`, env var
+`DOTNET_INSPECT_IR_INVARIANTS`) that is **on by default**, so any host that runs
+the pipeline — test suite, harness, sweep, benchmark — validates after every
+pass in the same build users run.
+
+The shipped CLI is the one sanctioned opt-out
+(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+the tool pays nothing on the decompile hot path. Declining validation has
+exactly one form — `Enabled`'s setter is private, so the compiler rejects any
+other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
+a new host cannot quietly decline. An explicit `DOTNET_INSPECT_IR_INVARIANTS`
+value (trimmed, case-insensitive) outranks the opt-out in both directions.
+
+The check is **leveled**, but both levels are armed together, so the leveling
+names what is checked rather than offering a way to check less:
+
+- **Structural** invariants (parent/child back-pointer consistency, tree shape)
+  hold on *any* well-formed `IrNode` graph, including the deliberately minimal
+  `IrFunction`s that hand-built pass-unit fixtures construct
+  (`IrInvariants.Enabled`).
+- **Semantic** invariants (e.g. local-slot indices within the enclosing
+  function/lambda's `Locals`) require a function that declares the slots it
+  references. These were opt-in until #3302 on the stated grounds that arming
+  them suite-wide would false-positive on ~120 minimal fixtures; measured, the
+  number was five. Those five now declare their locals, and the level is on by
+  default (`IrInvariants.CheckSemantics`), as a computed projection of `Enabled`
+  so the two cannot drift apart and the shipped tool's opt-out lowers both.
+  `CheckInvariant(includeSemantics: true)` still threads the level explicitly
+  for hermetic per-test coverage.
+
+A hand-built fixture that trips the semantic level is referencing locals it does
+not declare; give the `IrFunction` its local table rather than lowering the
+level. Do not derive the local table from the body — that makes every fixture
+pass by construction and retires the invariant while appearing to keep it.
+
+Per-pass validation fires inside `IrPasses.Run`/`PipelineRunner`, so a test that
+calls `pass.Run(...)` directly never reaches it. Roughly a dozen test files
+still build an `IrFunction` with an empty local table and reference slots in it.
+They are unaffected today, but **converting one to `IrPasses.Run` will fail
+it** — correctly, because the fixture is malformed. Declare the locals; do not
+route around the check.
 
 ### Area trait: targeting a functional slice
 
@@ -205,6 +255,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
+| `pre-merge` | three `-class` filters | the docket + byte-neutrality gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -215,6 +266,188 @@ presets compose with any additional xUnit arguments (e.g.
 `--gate fast -class …`), and omitting `--gate` leaves invocation behavior
 unchanged. The preset table lives in the test executable's entry point; keep it
 in sync with the areas above when an area is added or renamed.
+
+`pre-merge` is the one preset that names classes rather than a trait, because
+the set it selects is a *cost* decision rather than a functional slice — see
+below.
+
+### Pre-merge gate and the known-red pin
+
+The docket and byte-neutrality gates carry doc comments asserting they fail CI,
+but they are all `Speed=Slow` and every pre-merge lane ran `-trait-
+"Speed=Slow"`. They therefore ran only in `release.yml` and the weekly Deep
+Inspect lane — where they were exceeding the job timeout, and a *cancelled* job
+does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
+notification was ever sent. Detection latency was unbounded, not weekly
+(#3432), and five regressions (#3489–#3493) accumulated unseen.
+
+The `decompiler-gates` CI job closes that hole. It is path-gated on the
+decompiler and its substrate, runs as its own job so it never serializes with
+the hot `test` lane, and runs `--gate pre-merge`:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  --gate pre-merge -noColor -list methods/json > /tmp/expected.json
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+  --gate pre-merge -xml /tmp/gates.xml
+dotnet run eng/check-decompiler-gate.cs -- \
+  /tmp/gates.xml \
+  eng/decompiler-gate-known-red.txt \
+  eng/decompiler-gate-expected-classes.txt \
+  /tmp/expected.json
+```
+
+The gate was turned on **red**. That was not made conditional on the open
+failures being fixed first: a gate's job is to make *new* breakage attributable,
+and waiting for green is what let the current backlog accumulate. Open failures
+are pinned in `eng/decompiler-gate-known-red.txt`, one fully qualified test name
+per line, each preceded by its issue and the date it was pinned.
+
+As of #3528 the list is **empty** and the gate runs green — #3489 through #3493
+are fixed and their pins retired. That is the intended end state of a pin, not a
+reason to remove the mechanism: the next regression gets pinned with an issue and
+a date, and the checker keeps failing the job while an unpinned test is red.
+
+That list is a record of *open, filed* failures, not an escape hatch. Do not add
+an entry to make your own change go green, and do not skip a gate test to green
+it — the checker treats a test that neither passed nor failed as a coverage hole
+and fails the job. A new failure means either a regression to fix or a diff to
+docket in the owning gate with a rationale. Adding a pin requires an issue and a
+date, and the checker fails the job when a pinned test starts passing, so retire
+pins as fixes land.
+
+`eng/check-decompiler-gate.cs` decides the job's pass/fail from the run report,
+and treats drift in **both** directions as an error:
+
+| Condition | Meaning |
+| --- | --- |
+| a failure that is not pinned | new breakage — the gate did its job |
+| a pinned test that passed | the fix landed; retire the pin |
+| a pinned test that never ran | dead pin — the test was renamed or deleted |
+| a gate test that neither passed nor failed | coverage silently disappeared |
+| an expected class with nothing executed | the preset stopped selecting it |
+| a discovered test with no row in the report | the report is incomplete |
+| a row for a test discovery never listed | report and listing describe different runs |
+| one test with more than one result row | the method expanded into several cases |
+| a `<test>` with no usable name | the report is malformed |
+| the report contradicts its own declared totals | truncated or rewritten |
+| the report declares skipped, not-run, or errored tests | coverage did not run |
+| no report, or a report with zero tests | a crashed or empty run is not a pass |
+| no discovery listing, or one listing zero tests | there is no reference to judge completeness against |
+
+Only `Pass` counts as passing. A skipped gate test is neither passing nor
+failing, and treating it as either is how a gate becomes vacuous: an unpinned
+skip would report an exact match, and a pinned skip would look like a landed
+fix, prompting removal of the pin that was the last thing naming the test.
+Skipping is not an approved way to green this job.
+
+`eng/decompiler-gate-expected-classes.txt` records the classes `--gate pre-merge`
+must select. It proves the *preset* has not quietly shrunk: a class renamed,
+deleted, or dropped from the preset yields a report whose failing set still
+matches the pin list exactly, and the inventory is what rejects it.
+
+That inventory is only worth its accuracy, so it is not maintained by hand
+against the preset. `GateExpectedClassesTests` asserts set equality between the
+file and the `pre-merge` preset's `-class` arguments, in both directions, so a
+class added to the preset without being added to the file fails and so does a
+stale entry. That test is itself in the `pre-merge` preset, so it runs in the
+gate job and is covered by the same completeness check as the correctness
+gates. Running it as a *separate* CI step was worse than useless: a `-class`
+filter naming a renamed or deleted class discovers nothing and exits 0, so the
+step would have gone green while enforcing nothing.
+
+Completeness is a separate property, and it needs a reference the report cannot
+forge. The report's own summary counters are not one — they are written by the
+same run, so a report containing four of fifteen tests and honestly declaring
+`total="4"` is entirely self-consistent. The checker therefore compares the
+results against a **discovery listing** produced by `-list methods/json` over
+the same preset, which enumerates what should run without running it. Every
+discovered test must appear in the results, and every result must correspond to
+a discovered test. Identity for every decision — pins, class coverage, and
+completeness alike — comes from the report's `type` and `method` attributes.
+The display name is a presentation string: it carries theory arguments, honors
+`-methodDisplayOptions`, and can disagree with the structured attributes
+outright, so a row whose name claims to be a pinned test cannot pass a new
+failure off as a known one.
+
+That comparison is **method-granular**, and deliberately so: no `-list` mode
+enumerates individual cases. A method that expands to five cases is listed
+once, so a run that lost four of them would still satisfy the check. Method
+granularity is sufficient only while every gate test is exactly one case, and
+that is enforced rather than assumed —
+`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
+every test in a gate class to carry exactly `FactAttribute`.
+
+It is an **allow list**, not a deny list, because rejecting only `[Theory]`
+would miss `[CulturedFact]` — which derives from `FactAttribute`, not
+`TheoryAttribute`, and still yields one case per culture — and would miss any
+future multi-case attribute. It is anchored on `IFactAttribute` rather than on
+`FactAttribute`, because that is the abstraction xUnit itself keys on
+(`ExtensibilityPointFactory.GetMethodFactAttributes` returns
+`IReadOnlyCollection<IFactAttribute>`): an attribute can implement that
+interface directly, skip `FactAttribute` entirely, and supply a discoverer that
+emits several cases. It scans the same method surface xUnit discovers,
+including inherited and non-public methods and interface declarations, because
+a theory inherited from a base class runs exactly like a declared one, and
+because a `[Fact]` on a *default interface method* runs on the implementing
+class. Multiplicity is counted per method signature, not judged per attribute:
+a plain `[Fact]` on an interface method declaration and a plain `[Fact]` on its
+implementation produce two cases from two perfectly ordinary `FactAttribute`s,
+so only their number is wrong. Resolving each preset class by name in the same
+test also catches an arm naming a renamed or deleted class, which would
+otherwise select zero tests and exit 0.
+
+That guard is prevention, and it has been wrong three times, so it is not the
+only line of defence. The checker independently fails any report in which one
+`(type, method)` produced more than one row. That check is purely
+observational: it needs to know nothing about xUnit's attribute model, and it
+catches every multi-case shape above — plus any future one — by counting what
+the run actually produced. The two are complementary. The guard fails fast, in
+the fast lane, before a multi-case test can ever reach the gate; the row check
+is the backstop for the case where the guard's reflection is wrong again.
+
+The declared totals are still cross-checked, including `passed` and `failed`
+against the actual rows, but only as an internal-consistency check on a
+possibly-corrupt report. They are not evidence of completeness and are not
+relied on as such.
+
+The stale-pin check is what keeps the pin list a ratchet rather than a growing
+exemption set: a pin that outlives its failure silently un-gates the test it
+names. Pass `--partial` to suppress the dead-pin, expected-class, and
+completeness checks when deliberately running a subset locally. CI runs the full
+preset and never passes it.
+
+The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
+build files including `global.json` and `nuget.config`, minus `*.md`. A fidelity
+result is a whole-pipeline observation, so its real input set is the test
+project's transitive closure, which an enumerated project list cannot track
+without rotting. Under-triggering silently disables the gate on exactly the
+changes it exists to catch; over-triggering costs a parallel job that never
+blocks the hot lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl`
+under those trees can be a corpus or baseline fixture.
+
+A job-level timeout would cancel the job, and a cancelled job runs no further
+steps and satisfies no `failure()` condition — the same silent-cancellation
+failure mode this gate exists to fix. The gate step therefore carries its own
+`timeout-minutes` well under the job's, so a hang becomes a failed step that
+the job survives, letting the checker run and fail loudly on the missing or
+truncated report.
+
+> [!NOTE]
+> This job is intended to reach the merge gate through the aggregate
+> `ci-required` job in `ci.yml`, the single context the `main` ruleset is meant
+> to require. It cannot
+> be required directly: it is path-gated, and a required check that does not run
+> on a given PR is reported as "Expected" forever and blocks the merge
+> permanently. `ci-required` passes a `skipped` dependency and fails a
+> `cancelled` one, so this gate skipping on a docs-only PR is fine while this
+> gate hitting its timeout is not (#3523).
+
+`pre-merge` deliberately selects three classes rather than the whole `Fidelity`
+area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
+principle — `ClusterCaptureTests` and `PrinterPrecedenceTests` alone are ~21
+minutes for *two* tests and want the #3495 type-filter treatment before they can
+be gated. Widen the preset as classes get cheap enough.
 
 ## Vocabulary
 
@@ -357,7 +590,11 @@ Report compile-back evidence in two layers:
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
    relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
-   add the method to `PinnedExact` in the same PR.
+   add the method to `PinnedExact` in the same PR. `DocketRowsStayCheckedDiffs`
+   (both rails) enforces this: a `KnownDiffs` row that recompiles `Exact` fails the
+   gate and names the row to promote. Before #3584 the rule was documented but
+   unenforced, and 46 of 143 rows had silently gone stale — a stale row gates
+   nothing, because the diff it allows no longer happens.
 2. **Changed-method / corpus layer** — for risky or broad changes, identify the
    methods the PR actually changed and run `--fidelity-method-delta` over that
    population when available. Treat `Exact` as checked green and `OpcodeDiff` /

@@ -57,7 +57,7 @@ public static class ComparisonRenderer
     public static string Render(HarnessComparison comparison, string format)
     {
         ArgumentNullException.ThrowIfNull(comparison);
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == "markdown")
         {
             MarkoutSerializer.Serialize(

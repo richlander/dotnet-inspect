@@ -330,7 +330,15 @@ public static class MetadataProjectionRenderer
     static List<string[]> ImageFactRows(MetadataImageOverview overview)
     {
         var rows = new List<string[]>();
-        Add("Metadata version", overview.MetadataVersion);
+
+        // A truncated stamp must carry the ellipsis for the same reason a
+        // truncated handle display does: a prefix must never be mistaken for the
+        // whole value.
+        Add(
+            "Metadata version",
+            overview.MetadataVersionTruncated
+                ? overview.MetadataVersion + Ellipsis
+                : overview.MetadataVersion);
         Add("Metadata kind", overview.Kind.ToString());
         Add("Has assembly manifest", overview.IsAssembly ? "yes" : "no");
         Add("Metadata offset", overview.MetadataOffset.ToString());
@@ -546,34 +554,181 @@ public static class MetadataProjectionRenderer
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(output);
 
+        if (format == MetadataTableFormat.Markdown)
+        {
+            var markdown = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+            markdown.WriteHeading(2, $"{MetadataHeapCoordinate.StreamName(heap)} heap at {address}");
+            markdown.WriteTable(HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address)]);
+            markdown.Flush();
+            return;
+        }
+
+        RenderHeapValue(value, heap, address, output, columns: null, format);
+    }
+
+    static readonly string[] HeapValueHeaders = ["Heap", "Address", "Length", "Truncated", "Value"];
+    static readonly string[] HeapValueHeaderNames = ["heap", "address", "length", "truncated", "value"];
+
+    /// <summary>
+    /// The column names <see cref="RenderHeapValue"/> emits. Exposed so a caller that must declare
+    /// this shape — the CLI registers its sections' columns for discovery and <c>--columns</c>
+    /// validation — reads them from the renderer instead of restating them and drifting.
+    /// </summary>
+    public static IReadOnlyList<string> HeapValueColumns => HeapValueHeaders;
+
+    static string[] HeapValueRow(MetadataValue value, HeapKind heap, int address)
+    {
         var heapReference = value as MetadataValue.HeapReference;
-        string[] row =
+        return
         [
-            heap.ToString(),
+            MetadataHeapCoordinate.StreamName(heap),
             address.ToString(),
             heapReference is null ? string.Empty : heapReference.Length.ToString(),
             heapReference is { Truncated: true } ? "yes" : "no",
             FormatCell(value),
         ];
+    }
 
-        string[] headers = ["Heap", "Address", "Length", "Truncated", "Value"];
-        string[] headerNames = ["heap", "address", "length", "truncated", "value"];
+    /// <summary>
+    /// Renders a single heap value as a heading-free one-row table.
+    ///
+    /// This is the shape the CLI's coordinate-scoped heap section needs: that section owns its
+    /// heading, because the section orderer, the section filter, and <c>--count</c> all key off
+    /// the heading text, whereas
+    /// <see cref="Render(MetadataValue, HeapKind, int, TextWriter, MetadataTableFormat)"/> writes
+    /// its own heading for a standalone report. Both build the same row from the same cell
+    /// renderer, so the two cannot disagree about a value.
+    ///
+    /// <paramref name="columns"/> narrows the rendered columns; null, empty, or a selection that
+    /// names none of them leaves the table whole rather than rendering a blank row.
+    /// </summary>
+    public static void RenderHeapValue(
+        MetadataValue value,
+        HeapKind heap,
+        int address,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(output);
 
-        if (format == MetadataTableFormat.Markdown)
+        WriteNarrowedTable(
+            output, format, HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address)], columns);
+    }
+
+    static readonly string[] HeapEntryHeaders = ["Address", "Length", "Refs", "Truncated", "Value"];
+    static readonly string[] HeapEntryHeaderNames = ["address", "length", "refs", "truncated", "value"];
+
+    /// <summary>The column names <see cref="RenderHeapEntries"/> emits.</summary>
+    public static IReadOnlyList<string> HeapEntryColumns => HeapEntryHeaders;
+
+    /// <summary>
+    /// Renders a heap's listable entries as a heading-free table, one row per entry, in address
+    /// order.
+    ///
+    /// The table is only half the answer — what the listing *covers* is the other half, and it is
+    /// not rendered here. A caller must also render <see cref="Caveats(MetadataHeapEntrySet)"/>,
+    /// exactly as the table sections do, or a referenced-values listing reads as a complete heap.
+    /// </summary>
+    public static void RenderHeapEntries(
+        MetadataHeapEntrySet entries,
+        TextWriter output,
+        IReadOnlyCollection<string>? columns = null,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(output);
+
+        var rows = new List<string[]>(entries.Entries.Length);
+        foreach (var entry in entries.Entries)
         {
-            var markdown = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
-            markdown.WriteHeading(2, $"{heap} heap at {address}");
-            markdown.WriteTable(headers, headerNames, [row]);
-            markdown.Flush();
-            return;
+            var heapReference = entry.Value as MetadataValue.HeapReference;
+            rows.Add([
+                entry.Offset.ToString(),
+                heapReference is null ? string.Empty : heapReference.Length.ToString(),
+                entry.ReferenceCount.ToString(),
+                heapReference is { Truncated: true } ? "yes" : "no",
+                FormatCell(entry.Value),
+            ]);
         }
 
-        var options = new MarkoutWriterOptions
+        WriteNarrowedTable(output, format, HeapEntryHeaders, HeapEntryHeaderNames, rows, columns);
+    }
+
+    /// <summary>
+    /// What <paramref name="entries"/> does not show. Every bound the set carries becomes a
+    /// sentence, so a listing is never presented as more than it is.
+    /// </summary>
+    public static IEnumerable<string> Caveats(MetadataHeapEntrySet entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        string name = MetadataHeapCoordinate.StreamName(entries.Heap);
+
+        switch (entries.Coverage)
         {
-            TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
-        };
-        var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
-        writer.WriteTable(headers, headerNames, [row]);
+            case MetadataHeapCoverage.Complete:
+                yield return $"The {name} heap holds fixed-size records, so every entry in its {entries.SizeInBytes} bytes is listed. Refs counts the projected table cells pointing at each one; zero means the entry is stored but unreferenced.";
+                break;
+
+            case MetadataHeapCoverage.ReferencedOnly:
+                yield return $"Listed entries are the distinct {name} values that projected table rows point at, not a walk of the heap: ECMA-335 stores it as length-prefixed items with no index and System.Reflection.Metadata exposes no walker, so entries no row references are not listed. The heap is {entries.SizeInBytes} bytes; any address in it stays readable with --heap \"{name}:<address>\".";
+                break;
+
+            case MetadataHeapCoverage.NotEnumerable:
+                yield return $"No entry of the {name} heap can be listed: no metadata table column points into it — its references are ldstr operands inside method bodies, which this projection does not read — and it cannot be walked. Its {entries.SizeInBytes} bytes are not empty; read a known address with --heap \"{name}:<address>\".";
+                break;
+        }
+
+        if (entries.EntriesTruncated)
+            yield return $"The entry budget stopped this listing short, so it is a prefix of the {name} entries rather than all of them.";
+
+        if (entries.RowsTruncated)
+            yield return "At least one table projected fewer than all of its rows, so a reference from an unscanned row was not counted and an entry only such rows point at is missing.";
+    }
+
+    /// <summary>
+    /// Writes one table, optionally narrowed to <paramref name="columns"/>, in the requested
+    /// format.
+    ///
+    /// A selection naming none of the table's columns leaves the table whole. That is deliberate
+    /// and matches <see cref="RenderImageFacts"/>: with several sections selected, a
+    /// <c>--columns</c> name usually belongs to a sibling section, and narrowing to nothing would
+    /// misreport a populated section as a set of blank rows.
+    /// </summary>
+    static void WriteNarrowedTable(
+        TextWriter output,
+        MetadataTableFormat format,
+        string[] headers,
+        string[] headerNames,
+        IReadOnlyList<string[]> rows,
+        IReadOnlyCollection<string>? columns)
+    {
+        if (columns is { Count: > 0 })
+        {
+            var wanted = new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase);
+            var keep = Enumerable.Range(0, headers.Length).Where(i => wanted.Contains(headers[i])).ToArray();
+
+            if (keep.Length > 0)
+            {
+                headers = [.. keep.Select(i => headers[i])];
+                headerNames = [.. keep.Select(i => headerNames[i])];
+                rows = [.. rows.Select(row => keep.Select(i => row[i]).ToArray())];
+            }
+        }
+
+        var writer = format == MetadataTableFormat.Markdown
+            ? new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions())
+            : new MarkoutWriter(
+                output,
+                new TableFormatter(showHeader: true),
+                new MarkoutWriterOptions
+                {
+                    TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+                });
+
+        writer.WriteTable(headers, headerNames, [.. rows]);
         writer.Flush();
     }
 

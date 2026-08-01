@@ -50,7 +50,8 @@ public class ApiCommand
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
-            Select = options.Select, Columns = options.Columns, Fields = options.Fields,
+            Select = options.Select, SelectDefault = options.SelectDefault,
+            Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RequestAllTaste = options.RequestAllTaste,
@@ -110,7 +111,8 @@ public class ApiCommand
             options.Select,
             knownSections,
             singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap());
+            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return (null!, 1);
         if (selectResult.Sections != null)
@@ -122,7 +124,7 @@ public class ApiCommand
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
-            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            CommandError.Write("specify only one of --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -135,25 +137,25 @@ public class ApiCommand
                 return (null!, 1);
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return (null!, 1);
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return (null!, 1);
             }
         }
 
         if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
             return (null!, 1);
         }
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
             return (null!, 1);
         }
 
@@ -162,13 +164,13 @@ public class ApiCommand
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
         if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -247,7 +249,7 @@ public class ApiCommand
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -293,7 +295,7 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
             return;
 
@@ -307,9 +309,9 @@ public class ApiCommand
         var suffix = filtersActive ? " after filters" : "";
 
         if (empty.Count == 1)
-            Console.Error.WriteLine($"Note: section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+            CommandError.WriteNote($"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
         else
-            Console.Error.WriteLine($"Note: {empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+            CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
@@ -338,9 +340,19 @@ public class ApiCommand
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
             Kind = type.Kind,
+            // Every identity fact carries over: this copy exists to narrow Members, and anything
+            // else it drops silently changes what sections and discovery see. Omitting the two
+            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
+            // every readonly/ref struct, because discovery builds its manifest from this copy.
+            Accessibility = type.Accessibility,
+            Attributes = type.Attributes,
+            EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            SourceAssemblyPath = type.SourceAssemblyPath,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
@@ -510,8 +522,8 @@ public class ApiCommand
                 || options.Tabular
                 || options.Verbosity < Verbosity.Normal))
         {
-            Console.Error.WriteLine(
-                $"Warning: API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
+            CommandError.WriteWarning(
+                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
                 + "use normal verbosity or JSON for failure details.");
         }
 
@@ -666,7 +678,7 @@ public class ApiCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
         }
     }
@@ -692,8 +704,8 @@ public class ApiCommand
         var hint = suggestPayloadProjection
             ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
             : " Use --tsv, --jsonl, or --table to project columns.";
-        Console.Error.WriteLine(
-            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+        CommandError.Write(
+            "--fields/--columns select table columns and cannot be combined with --json, "
             + "which renders the whole document." + hint);
         return 1;
     }
@@ -704,8 +716,8 @@ public class ApiCommand
             : options.Value ? "--value"
             : options.Urls ? "--urls"
             : "--paths";
-        Console.Error.WriteLine(
-            $"Error: {flag} is not supported when listing types; the listing exposes no printable "
+        CommandError.Write(
+            $"{flag} is not supported when listing types; the listing exposes no printable "
             + "payload. Inspect a single type (for example `type <Name>`) to project a member payload.");
         return 1;
     }
@@ -933,7 +945,7 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var sw = new StringWriter();
+            var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -948,10 +960,12 @@ public class ApiCommand
         {
             if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(error);
+                CommandError.Write(error);
                 return 1;
             }
-            sink.WriteLine(raw.TrimEnd());
+            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
+            // it with LF too so --bare stays byte-stable for machine consumers.
+            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
             return 0;
         }
 
@@ -994,7 +1008,7 @@ public class ApiCommand
             }
             else
             {
-                var sw = new StringWriter();
+                var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -1006,15 +1020,15 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
                 }
-                sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         return 0;
     }
 
@@ -1051,7 +1065,7 @@ public class ApiCommand
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
-            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
 
@@ -1080,7 +1094,7 @@ public class ApiCommand
         if (rows.Count == 0
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations))
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
@@ -1193,13 +1207,13 @@ public class ApiCommand
         error = "";
         if (rows.Count == 0)
         {
-            error = "Error: selected section has no rows.";
+            error = "selected section has no rows.";
             return null;
         }
 
         if (selector is null && rows.Count != 1)
         {
-            error = $"Error: selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
+            error = $"selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
             return null;
         }
 
@@ -1208,14 +1222,14 @@ public class ApiCommand
         var position = RowNumbering.IndexOf(rowNumbers, targetRow);
         if (position < 0)
         {
-            error = $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
+            error = $"row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
             return null;
         }
 
         var selected = rows[position];
         if (string.IsNullOrWhiteSpace(selected.Url))
         {
-            error = $"Error: row {targetRow} has no printable document.";
+            error = $"row {targetRow} has no printable document.";
             return null;
         }
 
@@ -1230,7 +1244,7 @@ public class ApiCommand
         var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
         if (selection is not { } selectedRow)
         {
-            Console.Error.WriteLine(selectionError);
+            CommandError.Write(selectionError);
             return 1;
         }
 
@@ -1239,7 +1253,7 @@ public class ApiCommand
         var content = await fetcher.FetchSourceAsync(rawUrl);
         if (content == null)
         {
-            Console.Error.WriteLine($"Error: failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
+            CommandError.Write($"failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
             return 1;
         }
 
@@ -1269,7 +1283,7 @@ public class ApiCommand
 
         if (options.IncludeSections is not { Count: 1 } included)
         {
-            error = "Error: --bare requires exactly one -S section.";
+            error = "--bare requires exactly one -S section.";
             return false;
         }
 
@@ -1292,7 +1306,7 @@ public class ApiCommand
             return true;
 
         if (error.Length == 0)
-            error = "Error: --bare requires a single selected payload with content.";
+            error = "--bare requires a single selected payload with content.";
         return false;
     }
 
@@ -1307,7 +1321,7 @@ public class ApiCommand
         if (values.Count > 0)
             return string.Join('\n', values);
 
-        error = $"Error: --bare found no URL in section '{section}'.";
+        error = $"--bare found no URL in section '{section}'.";
         return "";
     }
 
@@ -1338,12 +1352,36 @@ public class ApiCommand
     /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedColumns"/> renders the
     /// type at the active options and keeps only columns that appear, dropping columns the
     /// active options never surface and columns with no data
-    /// (e.g. Obsolete when no member is obsolete).</item>
+    /// (e.g. Obsolete when no member is obsolete). Sections in
+    /// <see cref="TypeFieldLayoutSections"/> are matched on rendered field rows instead, because
+    /// their table columns are literally "Field" and "Value".</item>
     /// </list>
     /// This keeps effective discovery consistent with what the user can actually query and see.
     /// </summary>
+    /// <summary>
+    /// Type-view sections rendered as a <c>Field</c>/<c>Value</c> fact table rather than one
+    /// column per schema item. Effective discovery must match these on rendered field rows, not
+    /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
+    /// </summary>
+    private static readonly HashSet<string> TypeFieldLayoutSections =
+        new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+
+    /// <summary>
+    /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be
+    /// carried in from the command that resolved it. Effective discovery needs it because
+    /// <c>Type Info</c> reports these as identity facts; without it the render manifest cannot
+    /// observe them and <c>-D</c> under-reports fields that <c>-S</c> visibly renders.
+    /// </summary>
+    internal sealed record TypeAcquisitionContext(
+        string? FoundIn,
+        string? PackageName,
+        string? PackageVersion,
+        string? ApiSource,
+        string? SelectedTfm);
+
     internal static int ExecuteEffectiveDiscovery(
-        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options)
+        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
+        TypeAcquisitionContext? acquisition = null)
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
@@ -1356,7 +1394,7 @@ public class ApiCommand
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
-        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections);
+        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
@@ -1376,7 +1414,8 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
-        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(queryEffective, fullSchema, renderManifest);
+        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
+            queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
@@ -1391,7 +1430,7 @@ public class ApiCommand
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
         var documents = BuildTypeRenderDocuments(type, options, discoverySections);
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         for (int i = 0; i < documents.Count; i++)
         {
             if (i > 0)
@@ -1413,10 +1452,11 @@ public class ApiCommand
     internal static RenderedSectionManifest BuildTypeRenderManifest(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections = null)
+        IReadOnlyCollection<string>? discoverySections = null,
+        TypeAcquisitionContext? acquisition = null)
     {
         var formatter = new RenderManifestFormatter(GetTypeDocumentSchema(options));
-        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
+        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections, acquisition))
         {
             formatter.BeginDocument(document.WriterOptions);
             var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
@@ -1430,23 +1470,25 @@ public class ApiCommand
     private static IReadOnlyList<TypeRenderDocument> BuildTypeRenderDocuments(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections)
+        IReadOnlyCollection<string>? discoverySections,
+        TypeAcquisitionContext? acquisition = null)
     {
         if (discoverySections is not { Count: > 0 })
-            return [BuildTypeRenderDocument(type, options)];
+            return [BuildTypeRenderDocument(type, options, acquisition)];
 
         return
         [
-            BuildTypeRenderDocument(type, options with { Discover = null }),
+            BuildTypeRenderDocument(type, options with { Discover = null }, acquisition),
             BuildTypeRenderDocument(type, options with
             {
                 Discover = null,
                 IncludeSections = new HashSet<string>(discoverySections, StringComparer.OrdinalIgnoreCase),
-            })
+            }, acquisition)
         ];
     }
 
-    private static TypeRenderDocument BuildTypeRenderDocument(ApiType type, ApiOptions options)
+    private static TypeRenderDocument BuildTypeRenderDocument(
+        ApiType type, ApiOptions options, TypeAcquisitionContext? acquisition = null)
     {
         var renderOptions = options with
         {
@@ -1471,7 +1513,9 @@ public class ApiCommand
             }
         }
 
-        var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
+        var view = ApiOutputFormatter.BuildTypeView(
+            type, acquisition?.FoundIn, acquisition?.PackageName, acquisition?.PackageVersion,
+            acquisition?.ApiSource, acquisition?.SelectedTfm, renderOptions);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;

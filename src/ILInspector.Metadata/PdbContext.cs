@@ -203,6 +203,34 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
+    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
+    /// facet surface reads the same bytes this context read instead of reopening
+    /// <see cref="AssemblyPath"/>. Internal because the reader is metadata-internal; borrowers go
+    /// through the session.
+    /// </summary>
+    /// <summary>
+    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
+    /// facet surface reads the same bytes this context read instead of reopening
+    /// <see cref="AssemblyPath"/>. Internal because the reader is metadata-internal; borrowers go
+    /// through the session. Throws rather than lending an already-released reader.
+    /// </summary>
+    internal PEReader BorrowedPEReader
+    {
+        get
+        {
+            EnsureAlive();
+            return _peReader;
+        }
+    }
+
+    /// <summary>
+    /// This context's liveness check, lent to a borrowing session so the borrow fails loudly
+    /// instead of reading through a released handle. See
+    /// <see cref="AssemblyInspectionSession.Borrow"/>.
+    /// </summary>
+    internal void EnsureAliveForBorrower() => EnsureAlive();
+
+    /// <summary>
     /// Opens a PE file with its complete image prefetched so downstream body
     /// producers can safely share the reader during parallel analysis.
     /// </summary>
@@ -975,10 +1003,20 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Extracts the repository URL from SourceLink information.
+    /// Establishes where this PDB's source is actually fetched from, over the documents the PDB
+    /// declares. Returns a result that says why when no single origin describes them all.
+    /// </summary>
+    public SourceLinkFetch.SourceLinkProvenanceResult Provenance()
+        => _resolver is null || _pdbReader is null
+            ? new SourceLinkFetch.SourceLinkProvenanceResult(null, "the PDB carries no SourceLink map")
+            : _resolver.Provenance(_pdbReader);
+
+    /// <summary>
+    /// Extracts the repository URL from SourceLink information, or null when no single origin
+    /// describes every document the assembly resolves.
     /// </summary>
     public string? ExtractRepositoryUrl()
-        => _resolver?.ExtractRepositoryUrl();
+        => Provenance().Origin?.RepositoryUrl;
 
     /// <summary>
     /// Resolves source file and line number from a method token and IL offset.

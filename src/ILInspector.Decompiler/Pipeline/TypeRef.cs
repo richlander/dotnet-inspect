@@ -493,7 +493,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
-            GenericParameterName.Length > 0 ? CSharpNaming.EscapeIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
+            GenericParameterName.Length > 0 ? CSharpNaming.ContainedIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
         TypeRefKind.FunctionPointer => RenderFunctionPointer(scope),
         _ => $"<unsupported: {UnsupportedReason}>",
     };

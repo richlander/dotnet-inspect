@@ -1,3 +1,5 @@
+using ILInspector.CSharp;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -9,7 +11,17 @@ public static class OperatorNames
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.
     /// </summary>
+    /// <remarks>
+    /// The name is untrusted metadata and every caller of this method renders the
+    /// result — into a Markdown table cell, a tree node, or a heading — so the
+    /// result is contained here rather than at each call site. Containment is a
+    /// no-op for any name a compiler can emit, which is what keeps output
+    /// byte-identical (issue #3319).
+    /// </remarks>
     public static string FormatDisplayName(string name)
+        => CSharpIdentifierCore.ContainComposedName(FormatDisplayNameCore(name));
+
+    static string FormatDisplayNameCore(string name)
     {
         if (!name.StartsWith("op_", StringComparison.Ordinal))
             return name;

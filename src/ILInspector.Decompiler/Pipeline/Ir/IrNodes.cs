@@ -89,6 +89,27 @@ public sealed record MethodRef(
     public int SafeTrailingElidableCount { get; init; }
 
     /// <summary>
+    /// The callee is a constructor with no observable effect beyond allocating the
+    /// fresh instance: its body is exactly <c>ldarg.0; call instance void
+    /// System.Object::.ctor(); ret</c> (a direct-<c>Object</c> parameterless ctor
+    /// that touches nothing — no field writes, no other calls, no static access, no
+    /// branches, no exception regions) AND its declaring type declares no static
+    /// constructor, so <c>newobj</c> triggers no type-initializer side effect. Set
+    /// only for a same-assembly <see cref="System.Reflection.Metadata.MethodDefinitionHandle"/>
+    /// constructor whose body proves the shape (see
+    /// <see cref="ConstructorConfinementFacts"/>); a cross-assembly, unresolvable,
+    /// or non-trivial ctor stays <see langword="false"/>.
+    ///
+    /// <para>Consumed by <see cref="Passes.ObjectInitializerPass"/> to admit hoisting
+    /// the enclosing call's <c>this</c>-field receiver read across the <c>newobj</c>
+    /// when folding an object-initializer argument. The proof is <em>Roslyn-faithful</em>,
+    /// not arbitrary-IL-sound: it assumes a non-null <c>this</c> (a hand-crafted
+    /// <c>call</c> with null <c>this</c> could make the receiver read throw), matching
+    /// the compiler-emitted IL the decompiler targets.</para>
+    /// </summary>
+    public bool ConstructorEffectFree { get; init; }
+
+    /// <summary>
     /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
     /// rules a member declared <c>unsafe</c>/<c>extern</c> is stamped with
     /// <c>RequiresUnsafeAttribute</c>, and every call site needs an unsafe
@@ -307,6 +328,14 @@ public sealed class IrFunction : IrNode
         while (names.Length < index)
             names = names.Add(null);
         LocalNames = names.Add(name);
+        if (!LocalDeclaredInNestedScope.IsDefaultOrEmpty)
+        {
+            // A slot a pass invents has no PDB scope, so it is not nested.
+            var nested = LocalDeclaredInNestedScope;
+            while (nested.Length < index)
+                nested = nested.Add(false);
+            LocalDeclaredInNestedScope = nested.Add(false);
+        }
         return index;
     }
 
@@ -331,6 +360,10 @@ public sealed class IrFunction : IrNode
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        // The new numbering no longer names the same locals, so any scope evidence
+        // gathered for the old slots would be misattributed. Drop it: the printer then
+        // degrades to the byte-stable method-scope shape rather than guessing.
+        LocalDeclaredInNestedScope = [];
         _eliminatedLocalSlots = eliminatedSlots switch
         {
             null => ImmutableHashSet<int>.Empty,
@@ -385,23 +418,28 @@ public sealed class IrFunction : IrNode
     /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
     /// </summary>
     static bool LocalSlotReferencedInScope(IrNode node, int index)
+        => LocalSlotReferencesInScope(node, index).Any();
+
+    /// <summary>
+    /// Every node in <paramref name="node"/>'s subtree that binds or reads local slot
+    /// <paramref name="index"/>, under the same scope rules as
+    /// <see cref="LocalSlotReferencedInScope"/> — which delegates here, so the two
+    /// cannot drift. Yielding the nodes rather than a bool lets a caller ask *where*
+    /// the references are, which is what deciding a declaration's placement needs.
+    /// </summary>
+    internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
         if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
-            return false;
+            yield break;
         if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
-            return false;
+            yield break;
         if (NodeBindsLocalSlot(node, index))
-            return true;
+            yield return node;
         foreach (var child in node.Children)
         {
-            if (child is Lambda lambda && CSharpPrinter.NeedsNestedLambdaScope(lambda))
-                continue;
-            if (child is LocalFunctionStatement localFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(localFunction))
-                continue;
-            if (LocalSlotReferencedInScope(child, index))
-                return true;
+            foreach (var reference in LocalSlotReferencesInScope(child, index))
+                yield return reference;
         }
-        return false;
     }
 
     /// <summary>
@@ -450,6 +488,25 @@ public sealed class IrFunction : IrNode
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>
+    /// Per entry in <see cref="Locals"/>, whether the portable PDB scoped the local to
+    /// something narrower than the whole method body — that is, whether the source
+    /// declared it inside a nested block. Empty when no PDB was available, which is
+    /// why placement never depends on a guess: with no evidence the printer keeps the
+    /// byte-stable hoisted shape. Length-aligned with <see cref="Locals"/> when
+    /// non-empty.
+    /// </summary>
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; set; } = [];
+
+    /// <summary>
+    /// Whether the source declared local <paramref name="index"/> inside a nested
+    /// block. False when no PDB evidence exists for the slot, so callers degrade to
+    /// the method-scope shape rather than inferring placement.
+    /// </summary>
+    public bool IsLocalDeclaredInNestedScope(int index)
+        => index >= 0 && index < LocalDeclaredInNestedScope.Length && LocalDeclaredInNestedScope[index];
+
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 

@@ -26,6 +26,7 @@ public static class PackageOptionsParser
         Option<string?> LibraryOption,
         Option<bool> AllLibrariesOption,
         Option<int?> VersionsOption,
+        Option<int?> VersionsWithFeedOption,
         Option<bool> PrereleaseOption,
         Option<bool> IncludeUnlistedOption,
         Option<bool> ContentOption,
@@ -81,7 +82,10 @@ public static class PackageOptionsParser
         bool bareVersion = explicitVersion == null && parseResult.GetResult(args.VersionOption) is { Implicit: false };
 
         var versionsValue = parseResult.GetValue(args.VersionsOption);
-        bool showVersions = bareVersion || showLatestVersion || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
+        bool showVersionsWithFeed = parseResult.GetResult(args.VersionsWithFeedOption) is { Implicit: false };
+        if (showVersionsWithFeed)
+            versionsValue ??= parseResult.GetValue(args.VersionsWithFeedOption);
+        bool showVersions = bareVersion || showLatestVersion || showVersionsWithFeed || parseResult.GetResult(args.VersionsOption) is { Implicit: false };
 
         var verbosity = opts.ParseVerbosity(parseResult);
         bool frontmatterRequested = parseResult.GetValue(args.FrontmatterOption);
@@ -134,6 +138,7 @@ public static class PackageOptionsParser
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
+            ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
             Print = parseResult.GetValue(opts.Print),
@@ -164,6 +169,7 @@ public static class PackageOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
+            SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Schema = opts.ParseSchema(parseResult),
@@ -173,7 +179,7 @@ public static class PackageOptionsParser
         };
 
         // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
-        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } };
+        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } || options.SelectDefault };
 
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)
@@ -183,7 +189,7 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 

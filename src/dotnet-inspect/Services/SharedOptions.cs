@@ -31,6 +31,7 @@ public class SharedOptions
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
+    public Option<bool> Trace { get; } = new("--trace") { Description = "Report which sections were selected, which scanners ran and for how long, and which expensive resources were built, on stderr" };
     public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options
@@ -147,6 +148,16 @@ public class SharedOptions
             var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
             if (token is not null && !RowSelector.TryParse(token, out _))
                 result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
+        });
+
+        // A config the user names explicitly must be usable. Reporting it here gives every
+        // command that takes --nugetconfig the same clean parse-time error, instead of an
+        // unhandled exception from whichever service happens to resolve sources first.
+        NuGetConfig.Validators.Add(result =>
+        {
+            var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
+            if (token is not null && NuGetSourceResolver.DescribeConfigProblem(token) is string problem)
+                result.AddError(problem);
         });
     }
 
@@ -491,12 +502,24 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, @Default for bare -S, or populated array with section/category names.
+    /// Returns null if not specified or if bare (see <see cref="ParseSelectDefault"/>), otherwise
+    /// a populated array with section/category names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
         => IsBareFlag(parseResult, Select)
-            ? [SelectResolver.InfoSelector]
+            ? null
             : ParseCommaSeparatedList(parseResult.GetValue(Select));
+
+    /// <summary>
+    /// Whether <c>-S</c> was given with no value. Bare <c>-S</c> asks for the command's default
+    /// preset, which is a distinct request from naming a section or category — so it travels as
+    /// its own flag rather than as a selector string. Encoding it as the public value
+    /// <c>@Default</c> made the marker indistinguishable from a hand-typed selector, which leaked
+    /// the internal spelling into user-facing "not found" diagnostics and kept <c>@Default</c>
+    /// resolvable on commands that had dropped it. See #3547.
+    /// </summary>
+    public bool ParseSelectDefault(ParseResult parseResult)
+        => IsBareFlag(parseResult, Select);
 
     /// <summary>
     /// Parses discover flag from parse result.
@@ -561,13 +584,13 @@ public class SharedOptions
 
         if (jsonFlag)
         {
-            Console.Error.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
+            CommandError.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
             throw new OperationCanceledException();
         }
 
         if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            CommandError.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

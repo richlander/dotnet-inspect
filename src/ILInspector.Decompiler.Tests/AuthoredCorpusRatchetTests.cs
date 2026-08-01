@@ -20,13 +20,29 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusRatchetTests
 {
+    /// <summary>
+    /// Expands a short readable label into a digest of the shape a real run records:
+    /// 64 lowercase hex characters. The rule under test refuses a malformed identity,
+    /// so the fakes have to be well formed or every fixture would read as unsound —
+    /// and padding keeps the label a prefix, so mismatch messages stay legible.
+    /// </summary>
+    static string? Sha(string? label) => label is null ? null : label.PadRight(64, '0');
+
+    /// <summary>
+    /// A row whose digests are recorded exactly as given, with no padding. Only the
+    /// malformed-identity tests want this: <see cref="Row"/> expands its labels into
+    /// well-formed digests, which would quietly repair the very junk they pin.
+    /// </summary>
+    static HistoryRun RawRow(string? sha = null, string? corpusSha = null)
+        => Row() with { PoolSha256 = sha, CorpusSha256 = corpusSha };
+
     static AuthoredCorpusRatchet.RunKey Key(
         int evaluated = 12000,
         int poolMatched = 26,
         int poolTotal = 26,
         string? sha = "0a7eded85c3e1410",
         string? corpusSha = "c0117050c0117050")
-        => new(evaluated, poolMatched, poolTotal, sha, corpusSha);
+        => new(evaluated, poolMatched, poolTotal, Sha(sha), Sha(corpusSha));
 
     static HistoryRun Row(
         string date = "2026-07-26",
@@ -57,11 +73,11 @@ public class AuthoredCorpusRatchetTests
             Drift: 0,
             InputsComplete: true,
             SweepManifestSha256: null,
-            PoolSha256: sha,
+            PoolSha256: Sha(sha),
             MethodologyVersion: methodology,
             NotFull: 0,
             UnknownOutcome: 0,
-            CorpusSha256: corpusSha);
+            CorpusSha256: Sha(corpusSha));
 
     static AuthoredCorpusRatchet.RunMetrics Metrics(
         int? valid = 6802,
@@ -240,6 +256,193 @@ public class AuthoredCorpusRatchetTests
 
         Assert.True(comparison.Skipped);
         Assert.Empty(comparison.Regressions);
+    }
+
+    /// <summary>
+    /// Absence is refused in the direction a live run actually meets it: the run states
+    /// both digests and the baseline states neither. The opposite direction has its own
+    /// test above; this one exists because the two are separate branches of a symmetric
+    /// rule, and a rule that only holds one way round is the fallthrough that let a
+    /// drifted pool compare clean against an unidentified row.
+    ///
+    /// <para>This assertion was previously carried by the bootstrap test that pinned
+    /// "no tracked row records identity", which was deleted when the store crossed that
+    /// bootstrap (#3353). Only the premise expired; the rule it checked did not, and it
+    /// names <c>(none recorded)</c> because an operator reading a skipped gate has to be
+    /// told which side failed to identify itself.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_IdentifiedRunWillNotBorrowABaselineThatRecordsNoIdentity()
+    {
+        var unidentified = Row(sha: null, corpusSha: null);
+
+        Assert.False(
+            Key().IsComparableTo(
+                AuthoredCorpusRatchet.RunKey.From(unidentified), out string mismatch));
+        Assert.Contains("(none recorded)", mismatch, StringComparison.Ordinal);
+
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(), Metrics(valid: 1, correct: 1, invalid: 9999, productBodyDefect: 9999),
+            [unidentified]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+        Assert.Contains("(none recorded)", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A recorded identity that no run could have produced does not identify anything,
+    /// and must not be treated as though it did.
+    ///
+    /// <para><see cref="AuthoredCorpusRatchet.RunKey.IsComparableTo"/> compares digests
+    /// as opaque ordinal strings, which is right for real digests and wrong for junk:
+    /// <c>""</c> equals <c>""</c>, so a pair of rows recording the empty string read as
+    /// two runs that measured the same pool. That is a fabricated identity wearing the
+    /// shape of a real one, and it is reachable the way every other bad row here was —
+    /// by hand, through the append procedure. A reviewer weakened the rule to admit
+    /// empty-string digests and the whole class stayed green, which is why this
+    /// exists.</para>
+    ///
+    /// <para>Absence stays trustworthy. A row that records no identity is honest about
+    /// what it knows and is refused later, by the symmetric-absence rule, rather than
+    /// here.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("not-a-digest")]
+    [InlineData("0a7eded85c3e1410")]
+    [InlineData("0A7EDED85C3E14100A7EDED85C3E14100A7EDED85C3E14100A7EDED85C3E1410")]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141")]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100")]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141g")]
+    [InlineData(" 0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e1410")]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e1410 ")]
+    [InlineData("\t0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e141")]
+    public void Ratchet_MalformedIdentityIsNotAnIdentity(string malformed)
+    {
+        Assert.False(AuthoredCorpusRatchet.IdentityIsWellFormed(malformed));
+
+        // Both fields carry the rule, and either one condemns the file.
+        Assert.NotNull(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(sha: malformed)]));
+        Assert.NotNull(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(corpusSha: malformed)]));
+
+        // The end-to-end shape: two rows agreeing on a malformed identity must not
+        // compare clean, however large the regression between them.
+        var comparison = AuthoredCorpusRatchet.Compare(
+            new AuthoredCorpusRatchet.RunKey(12000, 26, 26, malformed, malformed),
+            Metrics(valid: 1, correct: 1, invalid: 9999, productBodyDefect: 9999),
+            [RawRow(sha: malformed, corpusSha: malformed)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+    }
+
+    /// <summary>
+    /// A malformed row condemns the whole baseline rather than being walked past.
+    ///
+    /// <para>This is the review finding that the first version of the rule got wrong.
+    /// Treating a malformed identity as an <em>untrustworthy measurement</em> put it on
+    /// the walk's skip path, and skipping the newest row hands the comparison to an
+    /// older, weaker one: a run that regressed against the strict newest threshold
+    /// reported <c>RATCHET OK</c> with exit 0 by being measured against a lax older
+    /// threshold instead. Refusing one row must never be a way to select a different
+    /// baseline — that is the same fallthrough an unidentified baseline once
+    /// offered.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_MalformedNewestRowDoesNotFallThroughToAWeakerOlderRow()
+    {
+        // An older, lax but sound row that a poor run passes against, and a newer row
+        // whose identity is junk. Counts close: 1 + 5226 + 6773 == 12000.
+        var lax = Row(date: "2026-07-28", correct: 1, validDifferent: 5226, invalid: 6773, productBodyDefect: 6773);
+        var strictButMalformed = RawRow(sha: "", corpusSha: "") with { Date = "2026-07-29" };
+
+        var poorRun = Metrics(valid: 5227, correct: 1, invalid: 6773, productBodyDefect: 6773);
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), poorRun, [lax, strictButMalformed]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+        Assert.Contains("malformed", comparison.SkipReason!, StringComparison.Ordinal);
+
+        // Proof the older row really was a usable baseline the walk would have selected:
+        // with the malformed row removed the same run compares clean. That undeserved
+        // pass is what this test makes unreachable.
+        var withoutTheMalformedRow = AuthoredCorpusRatchet.Compare(Key(), poorRun, [lax]);
+
+        Assert.False(withoutTheMalformedRow.Skipped, withoutTheMalformedRow.SkipReason);
+        Assert.Empty(withoutTheMalformedRow.Regressions);
+    }
+
+    /// <summary>
+    /// The file is refused where it is read, so no consumer has to remember to check.
+    /// </summary>
+    [Fact]
+    public void History_MalformedIdentityIsRefusedAtParseTime()
+    {
+        string sound = """
+            {"date":"2026-07-29","commit":"14781e8d","poolMatched":26,"poolTotal":26,"evaluated":2,"validPct":50,"correct":1,"validDifferent":{"total":0,"frontierIlExact":0,"frontierIlDiff":0,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0},"invalid":1,"invalidBreakdown":{"productBodyDefect":1,"harnessShellReconstruction":0,"unclassified":0},"unsupported":0,"drift":0,"poolSha256":null,"corpusSha256":null,"methodologyVersion":2,"notFull":0,"unknownOutcome":0,"inputsComplete":true}
+            """;
+        string malformed = sound.Replace("\"poolSha256\":null", "\"poolSha256\":\"\"", StringComparison.Ordinal);
+
+        // The sound row parses, so the fixture is not rejected for an unrelated reason.
+        Assert.Single(AuthoredCorpusHistoryCard.ParseHistory([sound]));
+
+        var thrown = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory([sound, malformed]));
+
+        Assert.Contains("poolSha256", thrown.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The negative half: a real digest and an honest absence are both accepted, so the
+    /// rule refuses junk rather than refusing identity.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("0a7eded85c3e14100a7eded85c3e14100a7eded85c3e14100a7eded85c3e1410")]
+    [InlineData("c0d2e0de36ad631da14b0e9ef33e2daa4e7608b957d92a08c1ee015a15333b6f")]
+    public void Ratchet_WellFormedOrAbsentIdentityIsTrustworthy(string? sha256)
+    {
+        Assert.True(AuthoredCorpusRatchet.IdentityIsWellFormed(sha256));
+        Assert.Null(AuthoredCorpusRatchet.RefuseMalformedIdentities([RawRow(sha: sha256, corpusSha: sha256)]));
+        Assert.True(AuthoredCorpusRatchet.IsTrustworthy(RawRow(sha: sha256, corpusSha: sha256)));
+    }
+
+    /// <summary>
+    /// Every digest a real run records satisfies the rule the store enforces. This is
+    /// the join between producer and validator: without it the two could drift, and a
+    /// genuine run's own identity could be refused as malformed.
+    /// </summary>
+    [Fact]
+    public void Ratchet_DigestTheHarnessProducesIsWellFormed()
+    {
+        using var pool = new TempPool();
+        string a = pool.Write("a", "A.dll", [1, 1, 1]);
+        string b = pool.Write("b", "B.dll", [2, 2, 2]);
+
+        Assert.True(AuthoredCorpusRatchet.IdentityIsWellFormed(AuthoredCorpusRatchet.PoolDigest([a])));
+        Assert.True(AuthoredCorpusRatchet.IdentityIsWellFormed(AuthoredCorpusRatchet.PoolDigest([a, b])));
+    }
+
+    /// <summary>
+    /// Both rows the store crossed its identity bootstrap with satisfy the rule. The
+    /// rows are the live baseline for the scheduled lane, so a rule that refused them
+    /// would take the gate out of service.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_EveryRecordedIdentityIsWellFormed()
+    {
+        foreach (var run in AuthoredCorpusHistoryCardTests.TrackedHistory())
+        {
+            Assert.True(
+                AuthoredCorpusRatchet.IdentityIsWellFormed(run.PoolSha256),
+                $"{run.Date}: poolSha256 {run.PoolSha256}");
+            Assert.True(
+                AuthoredCorpusRatchet.IdentityIsWellFormed(run.CorpusSha256),
+                $"{run.Date}: corpusSha256 {run.CorpusSha256}");
+        }
     }
 
     /// <summary>
@@ -944,7 +1147,10 @@ public class AuthoredCorpusRatchetTests
     /// against the newest earlier row it is comparable with. Rows before it were
     /// recorded without a ratchet and are data, not a contract, so only the new row is
     /// judged — which is why this passes today even though the store contains an
-    /// earlier step where raw invalid rose.
+    /// earlier step where raw invalid rose. The store crossed the identity bootstrap
+    /// when the first two pinned-pool rows landed together (#3353): before them no row
+    /// recorded <c>poolSha256</c>, so a live run — which always records one — was
+    /// comparable to nothing and this gate skipped.
     ///
     /// <para><see cref="Assert.False(bool)"/> on <c>Skipped</c> is the load-bearing
     /// half. <c>Assert.Empty(Regressions)</c> alone passes for a skip, so this gate was
@@ -975,13 +1181,13 @@ public class AuthoredCorpusRatchetTests
             ? ["valid", "correct", "invalid", "productBodyDefect"]
             : ["valid", "correct", "invalid"];
 
-        // Today the store's baseline predates methodology stamping, so this takes the
-        // second branch and productBodyDefect is not yet ratcheted — a real gap. It
-        // closes on the append after next, not the next one: see
-        // TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet. Nothing can
-        // re-open it once closed, because
-        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces refuses an
-        // unstamped newest row.
+        // That gap is now closed. The store's newest pair is the first two rows
+        // measured over the identified pool, both stamped v2, so this takes the first
+        // branch and productBodyDefect ratchets. Nothing can re-open it: an unstamped
+        // newest row is refused by
+        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces, and a newest row
+        // that dropped its identity would land in the branch above as a skip, which
+        // this test fails on.
         Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
     }
 
@@ -1053,9 +1259,10 @@ public class AuthoredCorpusRatchetTests
     /// The scheduled lane's own flag combination proceeds.
     ///
     /// <para>`deep-inspect.yml` invokes `--benchmark-authored-corpus &lt;corpus&gt;
-    /// --integrity-only`. The regression above refused exactly that, so the lane this PR
-    /// adds could never have run. Naming the caller's combination is what turns "the
-    /// rule is correct" into "the caller works".</para>
+    /// --ratchet-baseline &lt;history&gt;` (it carried `--integrity-only` until the
+    /// trend store crossed the identity bootstrap). The regression above refused exactly
+    /// that combination, so the lane could never have run. Naming the caller's
+    /// combination is what turns "the rule is correct" into "the caller works".</para>
     /// </summary>
     [Fact]
     public void PreemptedGateRefusal_LetsTheScheduledLaneRun()
@@ -1429,56 +1636,6 @@ public class AuthoredCorpusRatchetTests
 
             Assert.Equal(AuthoredCorpusExitContract.FlagDisposition.Refuse, verdict.Disposition);
         }
-    }
-
-    /// <summary>
-    /// No row in the tracked store records run identity, so the next append — which
-    /// will come from a live run, and a live run always records both digests — is
-    /// <em>not</em> comparable to the row it lands on, and
-    /// <see cref="TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline"/> will fail
-    /// with a skip. That is the ratchet working, not breaking: it refuses to certify a
-    /// comparison it cannot make. But an appender deserves to learn it from a test that
-    /// names the remedy rather than from a red merge lane, so this pins the gap.
-    ///
-    /// <para><b>If this test fails, the store has crossed the bootstrap</b> — delete it
-    /// and delete this paragraph. Until then, the first identified append is expected to
-    /// be red, and the appender must land it together with a second identified run over
-    /// the same pool and corpus (the two together form the first ratchetable pair). The
-    /// historical rows cannot be back-filled: their pools and corpora were archived
-    /// out-of-tree and the artifacts are gone.</para>
-    ///
-    /// <para>The obvious cheaper fix — let a baseline that records no identity compare
-    /// against anything — is unsound and was rejected twice. <c>--ratchet-baseline</c>
-    /// reads a caller-supplied file, so that rule would let any baseline opt out of
-    /// identity and then compare clean against a run over a wholly different corpus.
-    /// <see cref="AuthoredCorpusRatchet.RunKey.IsComparableTo"/> therefore compares both
-    /// digests symmetrically, absence included.</para>
-    ///
-    /// <para>Tracked as #3362.</para>
-    /// </summary>
-    [Fact]
-    public void TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet()
-    {
-        var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
-
-        Assert.All(tracked, row =>
-        {
-            Assert.Null(row.PoolSha256);
-            Assert.Null(row.CorpusSha256);
-        });
-
-        // And name the consequence, so this test fails if the bootstrap is crossed by
-        // some route that leaves the rows unidentified but the comparison sound.
-        var live = new AuthoredCorpusRatchet.RunKey(
-            Evaluated: tracked[^1].Evaluated,
-            PoolMatched: tracked[^1].PoolMatched,
-            PoolTotal: tracked[^1].PoolTotal,
-            PoolSha256: new string('a', 64),
-            CorpusSha256: new string('b', 64));
-
-        Assert.False(
-            live.IsComparableTo(AuthoredCorpusRatchet.RunKey.From(tracked[^1]), out string mismatch));
-        Assert.Contains("(none recorded)", mismatch, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -164,25 +164,25 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// Extracts the repository URL from SourceLink document mappings.
+    /// Establishes where this PDB's source is actually fetched from. Provenance is a property of
+    /// the documents an assembly declares, not of the map read in isolation, so the PDB reader is
+    /// required rather than optional.
     /// </summary>
-    public string? ExtractRepositoryUrl()
-        => _slfResolver.ExtractRepositoryUrl();
+    public SLF.SourceLinkProvenanceResult Provenance(MetadataReader pdbReader)
+        => SLF.SourceLinkProvenance.Determine(_slfResolver, EnumerateDocumentNames(pdbReader));
 
     /// <summary>
-    /// Extracts the repository URL from a PDB reader's SourceLink information.
+    /// Extracts the repository URL from a PDB reader's SourceLink information, or null when no
+    /// single origin describes every document the assembly resolves.
     /// </summary>
     public static string? ExtractRepositoryUrl(MetadataReader pdbReader)
-    {
-        var resolver = Create(pdbReader);
-        return resolver?.ExtractRepositoryUrl();
-    }
+        => SLF.SourceLinkProvenance.Determine(pdbReader).Origin?.RepositoryUrl;
 
-    /// <summary>
-    /// Extracts the commit hash from SourceLink URL patterns.
-    /// </summary>
-    public string? ExtractCommitHash()
-        => _slfResolver.ExtractCommitHash();
+    private static IEnumerable<string> EnumerateDocumentNames(MetadataReader pdbReader)
+    {
+        foreach (DocumentHandle handle in pdbReader.Documents)
+            yield return pdbReader.GetString(pdbReader.GetDocument(handle).Name);
+    }
 
     /// <summary>
     /// Finds a TypeDefinitionHandle by type name, preferring a full-name match over a simple-name
@@ -489,9 +489,10 @@ public class SourceLinkResolver
         => _slfResolver.ResolveUrl(filePath);
 
     /// <summary>
-    /// Converts a raw.githubusercontent.com URL to a github.com browse URL.
+    /// Converts a raw.githubusercontent.com URL to a github.com browse URL, or null when the URL
+    /// has no attributable GitHub origin.
     /// </summary>
     private static string? ConvertToGitHubBrowseUrl(string? rawUrl)
-        => SLF.SourceLinkResolver.ConvertToGitHubBrowseUrl(rawUrl);
+        => SLF.SourceLinkProvenance.BrowseUrl(rawUrl);
 
 }

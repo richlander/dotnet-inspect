@@ -217,8 +217,8 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-**Status: implemented**, except the `--heap` coordinate carrier noted below. The
-commands and outputs below are the shipping surface.
+**Status: implemented.** The commands and outputs below are the shipping
+surface.
 
 Each metadata table is **one section**, and the tables together form a section
 category, `@Metadata`, registered the same way `@Performance` is:
@@ -306,17 +306,48 @@ coordinate-scoped section available and discoverable only when present (see the
 coordinate-carrier family in [output-shapes.md](output-shapes.md)):
 
 ```bash
-# bounded heap preview — just a section
+# what this heap holds — just a section
 dotnet-inspect library My.dll -S "Metadata: #Strings"
 
 # one address — a coordinate
 dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 ```
 
-**Status: the heap carrier above is designed, not yet implemented.** The table
-lens, the `Metadata: Image` section, and the shape ladder ship;
-`--heap` and the `Metadata: #Strings` preview sections do not, and are tracked
-separately. Everything else in this section runs today.
+**Status: implemented**
+([#3467](https://github.com/richlander/dotnet-inspect/issues/3467)). Both
+spellings of a heap name are accepted (`#Strings` and `String`), and an address
+is decimal unless it carries an explicit `0x`. Hex is never *inferred*: a bare
+`1a4` is rejected rather than read as `0x1a4`, because guessing would silently
+address a different entry than the one a dump printed.
+
+### Heaps are not tables
+
+A heap listing cannot be what a table listing is, and the difference is a
+property of ECMA-335 rather than of this projection. A table has a row count and
+fixed-width rows, so "row 40 000" is arithmetic. `#Strings` and `#Blob` are
+length-prefixed byte soup with no index, and `System.Reflection.Metadata`
+exposes no walker for them — only random access from an address a table cell
+already holds. So each heap section is listed by the strongest honest means
+available, and `MetadataHeapCoverage` makes *which one* part of the answer
+rather than a footnote:
+
+| Heap | Coverage | What is listed |
+| --- | --- | --- |
+| `#GUID` | `Complete` | Every entry. Records are a fixed 16 bytes, so the count is `size / 16` and each is read by index. |
+| `#Strings`, `#Blob` | `ReferencedOnly` | The distinct values projected table rows point at, address-ordered. An entry no row references is invisible. |
+| `#US` | `NotEnumerable` | Nothing. No table column points into `#US` — its references are `ldstr` operands in method bodies — so there is no reference set to list. |
+
+Every listing renders its coverage as a caveat, so a referenced-values listing
+never reads as a walk of the heap and `#US`'s empty table never reads as an
+empty heap. `#US` keeps its section rather than being hidden: the section is how
+a caller learns the heap exists, how large it is, and that `--heap "#US:<addr>"`
+still reads any address in it.
+
+Reference scanning deliberately ignores a `--tables` filter. An entry is
+referenced by the *image*, not by whichever subset of tables the caller happens
+to be looking at, so honoring the filter would drop entries and undercount
+references while looking complete. A row window is different — it is a stated
+bound — so a short window is honored and reported as `RowsTruncated`.
 
 Deep paging into the middle of a table needs no metadata-specific gesture. It is
 a general row-selection concern, and `--rows` now carries it
@@ -451,6 +482,38 @@ Formats differ only in how a row's table is identified. Markdown introduces each
 table with a `## <Name> (rows)` heading over a pipe table; TSV and JSONL carry a
 leading `Table` column so every row self-identifies, keeping those outputs pure
 machine-readable streams (one `WriteTable` block per table).
+
+Containment is inherited, not reimplemented — but only along paths that
+actually go through the projection. `mdi` performs no escaping of its own:
+metadata names are untrusted input, and `MetadataTableProjector` neutralizes
+every control character before a value leaves the projection, so each projected
+view hands the renderer text that is already safe. That is what makes `mdi` the
+reference example of consuming the projection — a consumer should render
+`MetadataValue` cases and add nothing, rather than defend itself.
+
+The corollary is the failure mode, and it is not hypothetical. Because `mdi`
+contains nothing explicitly, a value that reaches presentation *without* being
+projected inherits nothing, and no call site looks any different. The metadata
+root's version stamp was exactly that: an artifact-derived counted string that
+`MetadataImageInspector` reported straight into the image overview, emitting a
+raw `ESC` in Markdown and TSV from both `mdi --overview` and the CLI's
+`Metadata: Image` section. The fix neutralizes it at the metadata layer, reusing
+the projector's escaper rather than adding a second one — a value that skips the
+projection must still not skip its containment.
+
+That is why the property needs its own gate rather than a comment.
+`MdiContainmentTests` splices a payload spanning all three control ranges the
+projector recognizes — a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1
+control — into a real `#Strings` entry *and* into the version stamp, then renders
+the patched assembly through every view and format. The three views that carry
+artifact text — table, heap, and overview — each assert both that no raw control
+character survives and that the neutralized form of every control is present, so
+they cannot pass by rendering nothing, and the multi-range payload means
+narrowing containment to `ESC` alone fails rather than passes. Coverage is driven
+from `MetadataTableFormat` itself, so a new format is gated on arrival. The
+`--references` view renders only coordinates and counts, so it carries no
+artifact text and is asserted against raw controls alone, as a regression net
+rather than a payload-carrying case; the file says so.
 
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be
@@ -685,8 +748,11 @@ tables never reference the `#US` heap, this is also the only way to browse the
 user strings that IL points at.
 
 What is deliberately *not* here: heap **enumeration**. SRM exposes no public way
-to walk every entry of a heap, so the surface is overview plus random access,
-and says so rather than faking a walk by scanning bytes.
+to walk every entry of a heap, so `mdi`'s surface is overview plus random access,
+and says so rather than faking a walk by scanning bytes. The `library` heap
+sections go one step further without crossing that line — they list what the
+projection can *prove* is in a heap, and name their coverage (see
+[Heaps are not tables](#heaps-are-not-tables)).
 
 Both facets hang off `AssemblyInspectionSession` (`MetadataImage()`,
 `MetadataHeapValue(...)`), render through `MetadataProjectionRenderer`, and are
@@ -873,6 +939,51 @@ caching state and lifetime questions to the projector. If `mdi`'s default path
 becomes a memory complaint, this table says to start with `Scalar`/`Flags`
 interning and the `Nil` singleton, and the probe says how to prove it moved.
 
+## Implemented: hex table selection
+
+`-S "Metadata: 0x02"` and `-S "Metadata: TypeDef"` are the same selector. The
+motivation is mechanical: this tool's own output prints hex tokens, so a reader
+following a `0x02000015` reference already has the table index in hand and
+should not have to translate `0x02` to `TypeDef` before asking for the table.
+
+The alias rewrites the **input selector**; it does not register a second
+section. That is the whole design, and it is what makes the two spellings *one*
+section rather than two that happen to render alike. A hex alias registered in
+the catalog would print its own heading, sort independently in the section
+order, count separately under `--count`, and appear as a second entry under
+`-D`. Rewriting at the boundary means everything downstream — the orderer, the
+heading, `--count`, the document schema, the effective-section cache key — only
+ever sees the canonical name, so those failure modes are not merely untested but
+unreachable.
+
+`MetadataSectionNames.TryGetTable` therefore stays canonical-only. Teaching it
+hex as well would put alias resolution in two places, and would make
+`IsMetadataSection` claim a name that selection resolution — which matches
+against the canonical catalog — would still reject.
+
+Three rules follow from treating the hex form as an address rather than a name:
+
+- **Hex carries its `0x`.** A bare `02` is a table *name* position, and
+  inferring a radix would let one spelling mean two things. This matches the
+  `--heap` address rule.
+- **Only projected tables resolve.** The alias table is derived from
+  `MetadataTableProjector.ProjectedTables`, the same array the canonical names
+  come from, so a table the projection does not cover cannot become selectable
+  by its index. The rejection names the projected tables in both spellings,
+  because a caller who pasted an index is thinking in hex.
+- **A metadata token is not a table.** `0x02000015` addresses a *row*; its high
+  byte is the table. Width is checked **textually** — a table index is one byte,
+  hence one or two hex digits — because a numeric range check alone accepts an
+  eight-digit token whose value happens to fit, so `0x00000001` (a Module row
+  token) would resolve as table `0x01`, TypeRef.
+
+A bad index fails the run even beside a selector that does match — a deliberate
+divergence from the unknown-*name* rule, which tolerates a miss when something
+else matched. That tolerance exists for names that may exist in one inspected
+assembly and not another; a hex index outside the projection is not that, since
+no image can ever supply it. Tolerating it would silently drop a selector the
+caller definitely got wrong.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
@@ -917,8 +1028,14 @@ Resolved:
   dedicated command. Metadata tables introduce no new currency, so section
   selection already addresses them. This also avoids a collision: `--table` is
   already taken as a presentation modifier ("render as a pretty table").
-- **Heap surfacing flags.** Bounded per-heap previews are ordinary sections
+- **Heap surfacing flags.** Per-heap listings are ordinary sections
   (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
   a carrier: `--heap "#Strings:0x1a4"`.
+- **What a heap listing contains.** Not a byte scan, and not nothing. Each heap
+  is listed by the strongest honest means it admits — complete for `#GUID`,
+  referenced-values-only for `#Strings` and `#Blob`, nothing at all for `#US` —
+  and the listing states which, so a partial view is never mistaken for a whole
+  one. See [Heaps are not tables](#heaps-are-not-tables).
 - **Table selection grammar.** Both, since output already prints hex tokens and
-  users will paste them: `TypeDef` and `0x02` address the same table.
+  users will paste them: `TypeDef` and `0x02` address the same table. See
+  [Hex table selection](#implemented-hex-table-selection).

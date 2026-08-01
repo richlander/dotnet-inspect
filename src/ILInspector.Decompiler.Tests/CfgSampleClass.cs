@@ -6225,3 +6225,306 @@ public static class BraceBodyWrappingSamples
             FourthMeasuredProjection = fourth,
         };
 }
+
+// ReturnSinkingPass (#3552): a `return` inside a `using` body is lowered
+// through a return accumulator — csc spills the value to a synthetic local,
+// `leave`s the region, and emits `ldloc; ret` after the generated Dispose. The
+// pass undoes that, and a `using` reaches it as its underlying try/finally
+// because UsingStatementPass deliberately runs later. But when the body is a
+// try/catch whose catch arm rethrows, the pass declined: it demanded a
+// fall-through tail store from every arm, and a rethrowing arm has none. So the
+// temp survived as `V = expr;` inside the block plus a trailing `return V;` —
+// the Azure `TableClient.Create` shape. An arm that cannot fall through never
+// reaches the trailing return, so it contributes no tail. Appended at end of
+// file so these top-level types cannot shift any existing generated-code ordinal.
+public sealed class ReturnSinkScope : System.IDisposable
+{
+    public int Seen;
+    public void Start() => Seen++;
+    public int Compute(int seed) => seed * 2;
+    public void Dispose() => Seen = -1;
+}
+
+public static class ReturnSinkSamples
+{
+    // The plain case: the accumulator's only store is the fall-through tail of
+    // the using body, and the trailing `return V;` follows the using statement.
+    public static int ReturnFromUsingBody(int seed)
+    {
+        using (var scope = new ReturnSinkScope())
+        {
+            scope.Start();
+            return scope.Compute(seed);
+        }
+    }
+
+    // The TableClient.Create shape: a try/catch nested in the using whose catch
+    // arm rethrows. The rethrowing arm cannot fall through, so it reaches no
+    // trailing return and contributes no tail.
+    public static int ReturnFromTryInsideUsing(int seed)
+    {
+        using (var scope = new ReturnSinkScope())
+        {
+            scope.Start();
+            try
+            {
+                return scope.Compute(seed);
+            }
+            catch (System.Exception)
+            {
+                throw;
+            }
+        }
+    }
+}
+
+// #3552 review finding (credit: adversarial reviewer). A catch arm ending in
+// `break` must NOT be folded. CollectBlockTail accepts a `StoreLocal; Break`
+// pair as a foldable tail and Apply detaches the Break, so treating such an arm
+// as falling through rewrites a loop `break` into a method `return` — the arm
+// transfers to the enclosing loop and skips the trailing return entirely. This
+// shape reproduces on main as well; the FallsThrough terminator set is what
+// keeps it correct now that catch arms are classified at all.
+public static class ReturnSinkBreakSamples
+{
+    public static int CatchArmBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                accumulator = 1;
+            }
+            catch
+            {
+                accumulator = 2;
+                break;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+
+    public static int TryBodyBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                if (x == 1)
+                {
+                    accumulator = 1;
+                }
+                else
+                {
+                    accumulator = 2;
+                    break;
+                }
+            }
+            catch
+            {
+                accumulator = 3;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+
+    public static int FinallyProtectedBodyBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            try
+            {
+                if (x == 1)
+                {
+                    accumulator = 1;
+                }
+                else
+                {
+                    accumulator = 2;
+                    break;
+                }
+            }
+            finally
+            {
+                System.Console.WriteLine("cleanup");
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+
+    public static int IfElseArmBreaksOutOfLoop(int x)
+    {
+        int accumulator;
+        while (x > 0)
+        {
+            if (x == 1)
+            {
+                accumulator = 1;
+            }
+            else
+            {
+                accumulator = 2;
+                break;
+            }
+            return accumulator;
+        }
+        System.Console.WriteLine("ended");
+        return -1;
+    }
+}
+
+// #3459: an object initializer used as a CALL ARGUMENT, where the enclosing call's
+// receiver (a non-volatile instance field off `this`) and a `default` struct
+// argument are the compiler's pure spills sitting on the stack beneath the dup
+// chain — the Azure.Data.Tables `TableClient.Create` shape. The importer materializes
+// them as `S = _rest;` and `V = default;` around the member store, which #3336's
+// member-value fold could not cross. The pass now skips those reorder-safe spills,
+// folds the construction into the call-argument position, and inlines each single-use
+// spill back into its operand, restoring the canonical stack-only spelling
+// `_rest.Create(new CallArgTarget { Name = Label }, default(CallArgFlag?), _options)`
+// — which recompiles byte-for-byte to the original IL. Appended at end of file so
+// these top-level types cannot shift any existing generated-code ordinal.
+public sealed class CallArgTarget
+{
+    public string? Name { get; set; }
+}
+
+public enum CallArgFlag { A, B }
+
+public sealed class CallArgRest
+{
+    public int Create(CallArgTarget target, CallArgFlag? flag, object options) => target.Name?.Length ?? 0;
+}
+
+public sealed class CallArgClient
+{
+    readonly CallArgRest _rest = new();
+    readonly object _options = new();
+    volatile CallArgRest _volatileRest = new();
+    public string Label = "n";
+
+    // Foldable: the receiver `_rest` (pure field-off-this) and the `default` struct
+    // argument are reorder-safe spills, so both are inlined into the folded call.
+    public int CreateViaField()
+        => _rest.Create(new CallArgTarget { Name = Label }, default, _options);
+
+    // Close negative for the inlining guard: a VOLATILE field receiver must NOT be
+    // inlined (reordering a volatile access is observable). The initializer still
+    // folds — the receiver ran before the `newobj`, an offset-guarded skip — but the
+    // volatile spill is left in place rather than hoisted into the call receiver.
+    public int CreateViaVolatileField()
+        => _volatileRest.Create(new CallArgTarget { Name = Label }, default, _options);
+}
+
+// Declaration placement (#3591). A local the source declared inside a nested block
+// is emitted as a bare declaration hoisted to the top of the method, because
+// MetadataSource.LocalNames reads the portable PDB's LocalScope table for names only
+// and drops each scope's StartOffset/EndOffset. These two shapes are the discriminator
+// the PDB records and the printer currently ignores: in CreateNarrow the local's scope
+// is the try block, in CreateHoisted it is the whole method, and both print the same
+// way. Modeled on Azure.Data.Tables `TableClient.Create`. Appended at end of file so
+// these top-level types cannot shift any existing generated-code ordinal.
+public sealed class DeclScopeGuard : IDisposable
+{
+    public void Failed(Exception e) { }
+
+    public void Dispose() { }
+}
+
+public sealed class DeclScopeResult
+{
+    public string Value = "v";
+    public int Raw;
+}
+
+public sealed class DeclScopeOps
+{
+    public DeclScopeResult Create(string name, int timeout) => new DeclScopeResult { Value = name, Raw = timeout };
+}
+
+public sealed class DeclScopeClient
+{
+    readonly DeclScopeOps _ops = new();
+
+    // The local is read twice (so it survives as a slot rather than inlining) and is
+    // never referenced outside the try, so the PDB scopes it to the try block alone.
+    public string CreateNarrow(string name, int timeout)
+    {
+        using (DeclScopeGuard scope = new DeclScopeGuard())
+        {
+            try
+            {
+                DeclScopeResult response = _ops.Create(name, timeout);
+                return response.Value + response.Raw;
+            }
+            catch (Exception ex)
+            {
+                new DeclScopeGuard().Failed(ex);
+                throw;
+            }
+        }
+    }
+
+    // Control for the same shape: the catch arm reads the local, so the source
+    // genuinely must declare it above the try and the PDB scopes it to the whole
+    // method. Today's hoisting emitter is accidentally right here, which is why
+    // placement alone cannot be read off the current output.
+    public string CreateHoisted(string name, int timeout)
+    {
+        DeclScopeResult? response = null;
+        try
+        {
+            response = _ops.Create(name, timeout);
+            return response.Value + response.Raw;
+        }
+        catch (Exception ex)
+        {
+            new DeclScopeGuard().Failed(ex);
+            return response is null ? "none" : response.Value;
+        }
+    }
+}
+
+public sealed class DeclScopeLoopClient
+{
+    readonly DeclScopeOps _ops = new();
+
+    // The source declares the local inside the loop body and every use stays there,
+    // so the PDB scope and the IR agree and the declaration sinks to its store.
+    public int SumNarrow(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+        {
+            DeclScopeResult step = _ops.Create("s", i);
+            total += step.Raw + step.Value.Length;
+        }
+        return total;
+    }
+
+    // Close negative for the same PDB evidence. The scope is again nested (the using
+    // block), but the first store sits inside one arm of the if while the read is
+    // after it, so sinking the declaration onto that store would not compile. The IR
+    // guard must decline and leave the hoisted declaration alone.
+    public string CreateBranched(string name, int timeout, bool flag)
+    {
+        using (DeclScopeGuard scope = new DeclScopeGuard())
+        {
+            DeclScopeResult response;
+            if (flag)
+                response = _ops.Create(name, timeout);
+            else
+                response = _ops.Create(name, timeout + 1);
+            return response.Value + response.Raw;
+        }
+    }
+}
