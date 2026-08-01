@@ -586,6 +586,72 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Full, fidelity);
     }
 
+    /// <summary>
+    /// A method group or <c>&amp;F</c> is never rewritten by the raise, so it still spells
+    /// the declaration the raise produced and must get a vote on whether raising is
+    /// sound. Judging on CALL sites alone let a local function called as
+    /// <c>Own&lt;T&gt;(value)</c> and taken as <c>&amp;Own&lt;int&gt;</c> raise to
+    /// <c>static int Own(T x)</c> and then emit <c>delegate*&lt;int, int&gt; f = &amp;Own</c>
+    /// — CS8757, confirmed with csc, at Full.
+    /// </summary>
+    [Fact]
+    public void ReferenceInstantiatedDifferentlyFromTheCalls_DeclinesTheRaise()
+    {
+        var type = typeof(MixedInstantiationReferenceSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(MixedInstantiationReferenceSamples.CallAndAddressOfDisagree));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain("int Own(", output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
+    /// <summary>
+    /// The raised body's own self-references have their type arguments dropped by
+    /// <c>RewriteSelfCalls</c>, but they live in the BODY, not in the host's descendants,
+    /// so gathering references from the host alone missed them entirely: a local function
+    /// called as <c>Own&lt;T&gt;(value, true)</c> that recurses as <c>Own&lt;int&gt;(1, false)</c>
+    /// raised to <c>static int Own(T x, bool again)</c> calling itself as
+    /// <c>Own(1, false)</c> — CS1503, confirmed with csc, at Full.
+    /// </summary>
+    [Fact]
+    public void RecursiveSelfCallInstantiatedDifferently_DeclinesTheRaise()
+        => AssertMixedInstantiationDeclines(
+            nameof(MixedInstantiationReferenceSamples.RecursiveCallDisagrees), "int Own(");
+
+    /// <summary>
+    /// The DelegateCreation form, and the worst of the family: it COMPILES. Raising bound
+    /// <c>new Func&lt;Type&gt;(L)</c> to the host's <c>U</c> instead of the <c>int</c> the
+    /// IL names, so the decompiled method returned a different Type at run time
+    /// (Int32 -> Double in the reviewer's executed reproduction) while reporting Full.
+    /// </summary>
+    [Fact]
+    public void DelegateCreationInstantiatedDifferently_DeclinesTheRaise()
+        => AssertMixedInstantiationDeclines(
+            nameof(MixedInstantiationReferenceSamples.DelegateCreationDisagrees), "Type Own(");
+
+    static void AssertMixedInstantiationDeclines(string methodName, string declarationText)
+    {
+        var type = typeof(MixedInstantiationReferenceSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        Assert.DoesNotContain(declarationText, output);
+        Assert.Contains("_g__Own_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
     static string PrintShadowSample(string methodName, out DecompilationFidelity fidelity)
     {
         var type = typeof(ShadowedGenericLocalFunctionSamples);

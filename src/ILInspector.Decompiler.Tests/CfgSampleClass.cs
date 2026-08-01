@@ -6732,3 +6732,44 @@ public static class ShadowedGenericLocalFunctionSamples
     }
 }
 #pragma warning restore CS8387
+
+// A local function is not only CALLED. A method group or `&F` survives the raise
+// untouched, so it still spells whatever declaration the raise produced — which makes
+// it a vote on whether raising is sound, not a bystander. Here the calls instantiate
+// with the host's `T` while the address-of instantiates with `int`, so no single
+// declaration without a type-parameter list can serve both: raising emitted
+// `delegate*<int, int> f = &Own;` against `static int Own(T x)` (CS8757) at Full.
+#pragma warning disable CS8387
+public static class MixedInstantiationReferenceSamples
+{
+    public static unsafe int CallAndAddressOfDisagree<T>(T value)
+    {
+        static int Own<T>(T x) => 3;
+        delegate*<int, int> pointer = &Own<int>;
+        return Own<T>(value) + pointer(1);
+    }
+
+    // The BODY references itself, and RewriteSelfCalls drops that reference's type
+    // arguments exactly as the host call sites' are dropped — so it gets a vote too.
+    // Self-references do not appear in the host's descendants, so judging on the host
+    // alone raised this to `static int Own(T x, bool again)` calling itself as
+    // `Own(1, false)`: CS1503, at Full.
+    public static int RecursiveCallDisagrees<T>(T value)
+    {
+        static int Own<T>(T x, bool again) => again ? Own<int>(1, false) : 1;
+        return Own<T>(value, true);
+    }
+
+    // The DelegateCreation form of the same disagreement. This one does not even fail to
+    // compile: raising produced `new Func<Type>(L)` bound to the HOST's `U`, so the
+    // decompiled method returned a different Type at run time than the original — a
+    // silent miscompile reported as Full.
+    public static Type DelegateCreationDisagrees<U, V>()
+    {
+        static Type Own<U, V>() => typeof(U);
+        Own<U, V>();
+        Func<Type> viaDelegate = Own<int, string>;
+        return viaDelegate();
+    }
+}
+#pragma warning restore CS8387

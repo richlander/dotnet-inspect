@@ -62,39 +62,63 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         //    spellable — but only unqualified (see LocalFunctionRaiseState.Raised).
         foreach (var node in function.Descendants)
         {
+            if (LocalFunctionReference(node) is not { } method)
+                continue;
+
+            var state = State(method);
             switch (node)
             {
-                case Call call when IsLocalFunctionReference(call.Callee):
-                    call.MarkLocalFunctionRaise(State(call.Callee));
+                case Call call:
+                    call.MarkLocalFunctionRaise(state);
                     break;
-                case DelegateCreation delegateCreation when IsLocalFunctionReference(delegateCreation.Method):
-                    delegateCreation.MarkLocalFunctionRaise(State(delegateCreation.Method));
+                case DelegateCreation delegateCreation:
+                    delegateCreation.MarkLocalFunctionRaise(state);
                     break;
                 // `ldftn` imports as LoadFunctionPointer and only becomes AddressOfMethod
                 // in MethodAddressPass, which runs AFTER this one — so this is the node
                 // actually present here. MethodAddressPass forwards `pointer.Method`
                 // into the new node, carrying the stamp with it. AddressOfMethod is
                 // stamped too so the sweep does not silently depend on that ordering.
-                case LoadFunctionPointer pointer when IsLocalFunctionReference(pointer.Method):
-                    pointer.MarkLocalFunctionRaise(State(pointer.Method));
+                case LoadFunctionPointer pointer:
+                    pointer.MarkLocalFunctionRaise(state);
                     break;
-                case AddressOfMethod addressOf when IsLocalFunctionReference(addressOf.Method):
-                    addressOf.MarkLocalFunctionRaise(State(addressOf.Method));
+                case AddressOfMethod addressOf:
+                    addressOf.MarkLocalFunctionRaise(state);
                     break;
             }
         }
-
-        // Keyed on the name SHAPE rather than the CompilerGenerated fact that gates
-        // raising, because the question here is about this pass's own output: a mangled
-        // reference left undeclared must be spelled honestly even when that metadata
-        // fact was unavailable (hand-written or obfuscated IL).
-        static bool IsLocalFunctionReference(MethodRef method)
-            => GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(method.Name);
 
         LocalFunctionRaiseState State(MethodRef method)
             => raised.Contains(Identity(method))
                 ? LocalFunctionRaiseState.Raised
                 : LocalFunctionRaiseState.Declined;
+    }
+
+    /// <summary>
+    /// The local function a node references, if it references one. Every reference to a
+    /// local function reaches the output through one of these four nodes, which is the
+    /// set <c>EveryMethodRefBearingNodeIsEitherSweptOrJustifiablyUnreachable</c> pins.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the name SHAPE rather than the CompilerGenerated fact that gates raising,
+    /// because the question here is about this pass's own output: a mangled reference left
+    /// undeclared must be spelled honestly even when that metadata fact was unavailable
+    /// (hand-written or obfuscated IL).
+    /// </remarks>
+    static MethodRef? LocalFunctionReference(IrNode node)
+    {
+        var method = node switch
+        {
+            Call call => call.Callee,
+            DelegateCreation delegateCreation => delegateCreation.Method,
+            LoadFunctionPointer pointer => pointer.Method,
+            AddressOfMethod addressOf => addressOf.Method,
+            _ => null,
+        };
+
+        return method is not null && GeneratedCodeIdentity.IsSynthesizedLocalFunctionName(method.Name)
+            ? method
+            : null;
     }
 
     // Keyed on the declaring TypeRef itself, never on its rendered display text.
@@ -114,16 +138,24 @@ public sealed class LocalFunctionRaisingPass : IIrPass
     /// mean what the original meant.
     /// </summary>
     /// <remarks>
-    /// Sound only when the substitution at every call site is the identity: argument
+    /// Sound only when the substitution at EVERY reference is the identity: argument
     /// <c>i</c> must be a method generic parameter carrying the same name the body
-    /// declares at position <c>i</c>. A call site lies inside the host, so its method
+    /// declares at position <c>i</c>. A reference lies inside the host, so its method
     /// generic parameters ARE the host's — matching positionally against them therefore
     /// establishes host membership too, and a separate membership test was measured to
     /// gate nothing. A body whose parameter count is non-zero but whose names metadata
     /// does not supply, or supplies empty, is declined rather than guessed at; that arm
     /// is defensive and no fixture reaches it.
+    /// <para>
+    /// References, not just calls. A method group or <c>&amp;F</c> is not rewritten by
+    /// <see cref="RaiseCalls"/> and so is not in the call group, but it still spells the
+    /// raised declaration's name. Judging on calls alone let a local function that is
+    /// called as <c>Own&lt;T&gt;(value)</c> and taken as <c>&amp;Own&lt;int&gt;</c> raise
+    /// to <c>static int Own(T x)</c> and then emit <c>delegate*&lt;int, int&gt; f = &amp;Own</c>
+    /// — CS8757, at Full.
+    /// </para>
     /// </remarks>
-    static bool TypeParametersAreTheHostsOwn(MethodSignature body, List<Call> calls)
+    static bool TypeParametersAreTheHostsOwn(MethodSignature body, List<MethodRef> references)
     {
         if (body.GenericParameterCount == 0)
             return true;
@@ -134,9 +166,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         if (names.Any(string.IsNullOrEmpty))
             return false;
 
-        foreach (var call in calls)
+        foreach (var reference in references)
         {
-            var arguments = call.Callee.TypeArguments;
+            var arguments = reference.TypeArguments;
             if (arguments.Length != names.Length)
                 return false;
             for (int i = 0; i < arguments.Length; i++)
@@ -153,10 +185,36 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return true;
     }
 
+    /// <summary>
+    /// Every reference the body makes to itself, of any node kind — not just the calls
+    /// <see cref="RewriteSelfCalls"/> rewrites.
+    /// </summary>
+    static List<MethodRef> SelfReferences(IrFunction body, (TypeRef Type, string Name) identity)
+        => body.Descendants
+            .Select(LocalFunctionReference)
+            // .Equals, not ==. TypeRef implements IEquatable but declares no operator ==,
+            // so ValueTuple's == compares the declaring types by REFERENCE and every
+            // comparison here is false — which silently emptied this list. ValueTuple's
+            // Equals goes through EqualityComparer<T>.Default, which is structural, and
+            // is the same route the Identity-keyed dictionary and GroupBy already take.
+            .Where(m => m is not null && Identity(m).Equals(identity))
+            .Select(m => m!)
+            .ToList();
+
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
     static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
     {
         var raised = new HashSet<(TypeRef Type, string Name)>();
+
+        // Every reference, not just the calls. A method group or `&F` is not rewritten
+        // here and so never appears in a call group, but it still spells whatever
+        // declaration this pass produces, so it gets a vote on whether raising is sound.
+        var referencesByIdentity = function.Descendants
+            .Select(LocalFunctionReference)
+            .Where(m => m is not null)
+            .Select(m => m!)
+            .GroupBy(Identity)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var groups = function.Descendants.OfType<Call>()
             .Where(c => c.Parent is not null && GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee))
@@ -215,8 +273,18 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // `static int Own(T x)` and called it as `Own(1)`/`Own("x")` (CS1503), or
                 // as `Own(u)` for a `U` in `M<T, U>` (CS1503). Matching NAMES POSITIONALLY
                 // against each call site's arguments is what rejects both.
-                if (!TypeParametersAreTheHostsOwn(body.Signature, calls))
+                // The body's own self-references vote too. RewriteSelfCalls drops their
+                // type arguments exactly as the host call sites' are dropped, so a
+                // recursive `Own<int>(1, false)` inside `Own<T>(T x)` raised to
+                // `static int Own(T x)` calling itself as `Own(1, false)` — CS1503, at
+                // Full. They are not in the host's descendants, so they must be gathered
+                // from the body.
+                if (!referencesByIdentity.TryGetValue(group.Key, out var references)
+                    || !TypeParametersAreTheHostsOwn(body.Signature, references)
+                    || !TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
+                {
                     continue;
+                }
                 // Mutual or nested local-function calls are still out of this slice.
                 // A self-call is recoverable: rewrite it to the same local-function
                 // invocation used by the host call sites after the nested pipeline
