@@ -782,6 +782,58 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// Pins a known limitation, so that fixing it is visible rather than silent.
+    /// <para>
+    /// A conditional directive sets the lexer's untracked flag and nothing ever clears it, so the
+    /// place is lost for the rest of the file rather than for the region the directive guards. Here
+    /// the conditional is brace-balanced and <c>Always</c> is declared after the <c>#endif</c>, so
+    /// no branch can affect it — and it still reports an unknown span and cannot be found by body
+    /// line. Identical code without the directive resolves.
+    /// </para>
+    /// <para>
+    /// This is conservative rather than wrong. It is also expensive: on dotnet/runtime's libraries a
+    /// conditional appears in 8.3% of files but costs 12.1% of declarations, because the loss runs
+    /// to end of file. <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>
+    /// tracks recovering the depth across a conditional whose every branch is brace-balanced. When
+    /// that lands this test should fail, and its assertions become the new behavior's.
+    /// </para>
+    /// <para>
+    /// The corpus differential cannot cover this: <c>RoslynDeclarations</c> declines every file
+    /// carrying a conditional directive, because Roslyn discards disabled branches while the index,
+    /// being lexical, indexes them.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConditionalDirective_LosesEveryLaterRowToEndOfFile()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if DEBUG
+                void Debug() { }
+            #endif
+                void Always() { }
+            }
+            """);
+
+        // Every row, including the one no branch can reach.
+        Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
+        Assert.Contains(index.Declarations, s => s.Name == "Always");
+        Assert.Null(index.FindByBodyLine(6));
+
+        // The same class without the directive resolves, so the directive is the whole cause.
+        var plain = DeclarationIndex.Build("""
+            class C
+            {
+                void Always() { }
+            }
+            """);
+
+        Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
+        Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+    }
+
+    /// <summary>
     /// The attribute lists applied to a declaration, compared against Roslyn's own
     /// <c>AttributeLists</c> over every file in the corpus. Ranges are compared, not attribute
     /// names: this layer is a lexical scan, and what a consumer needs from it is where the authored

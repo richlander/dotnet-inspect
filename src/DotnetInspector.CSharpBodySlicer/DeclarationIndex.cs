@@ -128,6 +128,16 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// The spans are then a guess and callers must treat the row as "do not know" rather than as fact.
 /// That such a region reports unknown rather than a guess is gated by
 /// <c>DeclarationIndexTests.ASpanTheScanCannotVouchFor_ReportsUnknown</c>.
+/// <para>
+/// A conditional directive loses the place for the <em>rest of the file</em>, not just for the
+/// region it guards: every later row reports false, including rows after the <c>#endif</c> and rows
+/// no branch could affect. On dotnet/runtime's libraries that costs 12.1% of declarations, of which
+/// 36,411 lie entirely after the last <c>#endif</c>. This is conservative rather than wrong, and it
+/// is a known limitation tracked by
+/// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>, not a property
+/// this type intends to keep. It is pinned by
+/// <c>DeclarationIndexTests.AConditionalDirective_LosesEveryLaterRowToEndOfFile</c>.
+/// </para>
 /// </param>
 public sealed record DeclarationSpan(
     DeclarationKind Kind,
@@ -200,7 +210,10 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Where the lexer loses its place — an unterminated literal, or a conditional directive whose
 /// braces may belong to a discarded branch — affected rows carry
-/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span.
+/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span. A conditional
+/// directive affects every row to the end of the file, not only the guarded region; see that
+/// member's remarks and
+/// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>.
 /// </para>
 /// <para>
 /// Whole-file correctness is gated by
