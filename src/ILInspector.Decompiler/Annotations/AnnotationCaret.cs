@@ -246,8 +246,13 @@ public static class AnnotationCaret
     /// this corpus, so for them the disagreement return below does all the work.
     /// That 91.7% is itself padded: 2,459 of the 29,550 single-fact lines hold a
     /// fact with no extent, which cannot narrow. Conditioned on the 27,091 that
-    /// could, every one does -- 100%, and necessarily so, because one fact with
-    /// an extent is one extent and agrees with itself. The 91.7% measures how
+    /// could, every one does -- 100%. That is close to necessary but not quite:
+    /// one fact with an extent is one extent and agrees with itself, so the loop
+    /// above cannot reject it, but the bounds check below still can, and would
+    /// on a negative column, an empty extent, or an extent running past
+    /// <paramref name="lineLength"/> because a consumer re-wrapped the line. In
+    /// this corpus none of those occurs, so the rate is 100% as measured rather
+    /// than 100% by construction. The 91.7% measures how
     /// often a single fact has an extent, not how often agreement holds.
     /// The 82.43% headline is padded the other way: 29,550 of its lines carry a
     /// single fact and cannot disagree at all. Conditioned on the 3,314 lines
@@ -389,7 +394,11 @@ public static class AnnotationCaret
     /// single row, 297 take two, and two take more, neither above four. That
     /// 89.5% is itself padded — 254 of those lines carry a single extent group
     /// and cannot occupy more than one row — so the rate among the 2,588 lines
-    /// with something to pack is 2,289 (88.4%). 3,884
+    /// with something to pack is 2,289 (88.4%). That 2,588 is padded in turn, by
+    /// the same structural fact this remark states below: extents sharing a start
+    /// column can never share a row, so the 136 lines carrying two distinct
+    /// extents at one column cannot take a single row whatever the packer does.
+    /// Among the 2,452 that can, the rate is 2,289 (93.4%). 3,884
     /// of 6,566 trails (59.2%) render at true width, but that rate is padded by
     /// a structural immunity: the last trail on a row has no successor, so its
     /// clip limit is <c>int.MaxValue</c> and it renders at true width by
