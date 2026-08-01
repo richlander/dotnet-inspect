@@ -652,6 +652,40 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
     }
 
+    /// <summary>
+    /// A foreign local-function reference held by a SIBLING body. <c>RaiseCalls</c> gathers
+    /// references from the host and from the referee's own body, never from a sibling's, and
+    /// <c>HasOtherLocalFunctionCall</c> — the gate that declines a body for touching a foreign
+    /// local function — read only <c>Call</c> nodes. So <c>&amp;A&lt;int&gt;</c> inside <c>B</c>
+    /// was invisible twice over: <c>B</c> raised, and its printed body bound <c>&amp;A</c> to the
+    /// raised <c>A</c>, which carries the HOST's type argument instead of the <c>int</c> the IL
+    /// names. The reviewer executed both assemblies: Int32,Double became Double,Double — it
+    /// compiles, at Full. The sibling must decline.
+    /// </summary>
+    [Fact]
+    public void ForeignReferenceFromSiblingBody_DeclinesTheSibling()
+    {
+        var type = typeof(SiblingLocalFunctionReferenceSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!,
+            nameof(SiblingLocalFunctionReferenceSamples.ReferenceFromSiblingBody));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!;
+
+        // The sibling holding the foreign reference is declined, so its body — and the
+        // reference inside it — is never printed at all.
+        Assert.Contains("_g__B_", output);
+        Assert.DoesNotContain("&A", output);
+        // The referee itself is still raised: its only non-identity reference lived in the
+        // body that is now declined.
+        Assert.Contains("static Type A()", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
     static string PrintShadowSample(string methodName, out DecompilationFidelity fidelity)
     {
         var type = typeof(ShadowedGenericLocalFunctionSamples);

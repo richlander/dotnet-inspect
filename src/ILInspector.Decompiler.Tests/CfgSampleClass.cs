@@ -6773,3 +6773,27 @@ public static class MixedInstantiationReferenceSamples
     }
 }
 #pragma warning restore CS8387
+
+// A reference held by a SIBLING local function's body. The referee's raise gate gathers
+// references from the host and from the referee's own body — never from a sibling's — and
+// the gate that declines a body for touching a foreign local function only looked at
+// calls. So `&A<int>` inside `B` was invisible twice over: `B` raised, and its printed
+// body bound `&A` to the raised `A`, which carries the HOST's type argument rather than
+// the `int` the IL names. That compiles and returns the wrong Type at run time.
+#pragma warning disable CS8387
+public static class SiblingLocalFunctionReferenceSamples
+{
+    public static unsafe Type[] ReferenceFromSiblingBody<T>()
+    {
+        return [B(), A<T>()];
+
+        static Type A<T>() => typeof(T);
+
+        static Type B()
+        {
+            delegate*<Type> pointer = &A<int>;
+            return pointer();
+        }
+    }
+}
+#pragma warning restore CS8387

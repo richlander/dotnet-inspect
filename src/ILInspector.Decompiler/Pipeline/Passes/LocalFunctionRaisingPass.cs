@@ -485,10 +485,23 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return true;
     }
 
+    /// <summary>
+    /// Whether the body reaches a DIFFERENT local function. Mutual and nested local
+    /// functions are out of this slice, and a body that touches one is declined.
+    /// </summary>
+    /// <remarks>
+    /// Every reference kind, not just calls. A sibling body holding <c>&amp;A&lt;int&gt;</c>
+    /// was invisible here, so the sibling raised and its printed body bound <c>&amp;A</c> to
+    /// the RAISED <c>A</c> — which carries the host's type arguments, not the <c>int</c>
+    /// the IL names. That compiles and returns the wrong type at run time. A foreign
+    /// reference also never reaches the gate that judges the referee, because
+    /// <see cref="RaiseCalls"/> gathers references from the host and from the referee's
+    /// own body — never from a sibling's.
+    /// </remarks>
     static bool HasOtherLocalFunctionCall(IrFunction body, MethodRef method)
-        => body.Descendants.OfType<Call>()
-            .Any(c => GeneratedCodeIdentity.IsLocalFunctionMethod(c.Callee)
-                && !SameLocalFunctionMethod(c.Callee, method));
+        => body.Descendants
+            .Select(LocalFunctionReference)
+            .Any(m => m is not null && !SameLocalFunctionMethod(m, method));
 
     static void RewriteSelfCalls(IrFunction body, MethodRef method, string name)
     {
