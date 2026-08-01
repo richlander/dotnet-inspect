@@ -231,23 +231,31 @@ the block itself shrink much: it is the same width on 91.8% of these lines,
 narrower on 1.1%, and wider on 7.2% — the numbered labels cost a few columns
 where the details were already the widest thing in the block.
 
-That 1.1% is padded, and by an order of magnitude. A block is never narrower
-than its code line, so a block already *at* the code width cannot shrink at all,
-and **2,612 of the 2,842 are**. Only **230** could shrink; **30** did, which is
-**13.0%**, not 1.1%. The 7.2% that get wider are not padded the same way — any
-block can grow — so the two shares are not comparable as stated, and the
-narrowing is a real effect on the small population where narrowing is even
-possible.
+Those three shares are all padded, and quoting any of them as a rate invites the
+next correction. A block is never narrower than its code line, so a block already
+*at* the code width can only stay or grow. Splitting on that floor says far more
+than the percentages did:
 
-**Stacking buys attribution, and little else.** Fit does not move: unpadded, the
-80-column rate goes from 90.5% to 91.1% on the 730 lines that could fit, and the
-padded 23.3% → 23.4% should not be quoted as the takeaway when the partitioned
-figures sit a paragraph above. Block width moves on a small population and in
-both directions: 13.0% of the blocks that could narrow do, against 7.2% of all
-blocks getting wider. The honest summary is that neither fit nor block width
-changes materially in aggregate, and this document should not claim more — but
-it should not claim the narrowing is rounding noise either, because on the
-lines where narrowing is possible it is not.
+| population | unchanged | narrower | wider |
+| --- | ---: | ---: | ---: |
+| **2,612** pinned at the code width | 2,608 | — | 4 |
+| **230** with headroom above it | 0 | 30 | 200 |
+
+Nothing happens on the pinned 2,612: four blocks grow and the rest are untouched.
+Every one of the 230 with headroom changes, and 200 of them get wider. So the
+aggregate "91.8% unchanged" is almost entirely the pinned population, and the
+real behaviour is confined to the 230. Growth turns out to be floor-limited too
+— 4 of 2,612 — so the earlier claim that "any block can grow", used to argue the
+shares were comparable, was wrong as well.
+
+**Stacking buys attribution, and costs a little width.** Fit does not move:
+unpadded, the 80-column rate goes from 90.5% to 91.1% on the 730 lines that could
+fit. Block width moves only on the 230 lines that have room to move, and it moves
+the wrong way far more often than the right one — 200 wider against 30 narrower.
+Stated as counts within one population that is a clear result, and it is not the
+one the percentages suggested: the earlier text called the narrowing rounding
+noise and set 1.1% against 7.2%, which compared two shares of a denominator
+dominated by lines that could do neither.
 
 The constraint still binds on the *alternatives*, which is why it is stated
 here: side-alignment overflows the code line on 96.61% of the 29,933 lines
@@ -554,7 +562,7 @@ intact at 80 columns against 75.7% for the bare code — or **36.4%** once the
 denominator is restricted to the 22,662 lines whose bare code fits at all.
 Its annotation column exceeds 100 on 10.5% of lines, with a maximum of 57,942
 on `IcuLocaleData.get_NameIndexToNumericData` — the pathological line already
-filed as #3610. It wraps three lines in four, and the wrap destroys the very
+filed as #3610. It wraps 71.9% of lines, and the wrap destroys the very
 adjacency that motivates it. The obvious first candidate for a wide style.
 
 ### Constant-width caret trails
@@ -566,13 +574,16 @@ does not reproduce, so it is withdrawn rather than replaced: a fixed-width
 packer is not implemented here, and two independent reconstructions of what it
 would do disagreed with each other (88.4% and 87.2% on the same corpus).
 
-It can be settled without a figure, though, and against the alternative. Row
-admission reserves `Math.Min(Extent.Length, MinTrail)` columns — capped at
-`MinTrail`, which is 2. **The shipped packer is already width-independent above
-two columns**: a trail's real width never affects whether the next one joins its
-row. A fixed 4-wide trail would reserve *more*, so it packs no better than what
-ships and, where it reserves 4 against a 2-column extent, worse. The claimed
-compactness advantage runs backwards.
+One thing about it can be settled without a figure, because it is a fact about
+the *shipped* packer rather than the unbuilt one. Row admission reserves
+`Math.Min(Extent.Length, MinTrail)` columns — capped at `MinTrail`, which is 2 —
+and nothing else in the admission test reads a length. **The shipped packer is
+already width-independent above two columns**: a trail's real width never affects
+whether the next one joins its row. So there is no packing headroom for a
+fixed-width variant to recover by narrowing trails; a variant that reserved four
+columns would admit strictly less. Whether such a model could win by *grouping*
+differently — merging distinct extents that share a start column, which this
+model keeps separate — is a real question and is not answered here.
 
 Rejected because it **misstates width**. A 4-wide trail under the single
 character `y` in `ArgumentOutOfRangeException(varName, y, …)` claims a
