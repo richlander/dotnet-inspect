@@ -297,9 +297,12 @@ public static class AnnotationCaret
     /// be packed onto a lower row and reach further right than anything above
     /// it, which happens on 50 of the 2,842 lines that stack in
     /// System.Private.CoreLib, as the annotated-source view prints it, summed
-    /// over the five focus families. Of the 2,682 clipped trails, the label
-    /// doing the clipping sits inside the trail it clips on 1,867 (69.6%) and
-    /// is disjoint from it on 815 (30.4%).
+    /// over the five focus families. Of the 2,682 clipped trails, the successor
+    /// extent whose label does the clipping is nested inside the trail it clips
+    /// on 1,867 (69.6%) and disjoint from it on 815 (30.4%). The distinction
+    /// matters: a disjoint successor's label reaches two columns left of the
+    /// extent it belongs to, so it can still overlap and clip the trail before
+    /// it.
     /// </para>
     /// </remarks>
     static List<(AnnotationAnchor.CaretExtent Extent, List<IAnnotation> Facts)>? Stack(
