@@ -269,8 +269,11 @@ extent still has nothing to point at, so it widens exactly as before.
 - Lines whose focused facts all agree on one extent, and lines carrying a
   single focused fact, keep exactly today's geometry, including the
   inline-detail shortcut. That is **27,091 lines, 90.5%** of those carrying an
-  extent; see [Measurements](#measurements) for how that is counted and why the
-  focus family has to be named before the number means anything.
+  extent. Adding the **2,931** lines where no fact has an extent, which also
+  render exactly as they do today, **30,022 of 32,864 caret lines (91.4%) are
+  untouched** and 2,842 (8.6%) change; see [Measurements](#measurements) for how
+  that is counted and why the focus family has to be named before the number
+  means anything.
 - A fact whose expression has no printed node, or prints on a continuation
   line, still gets no extent. What changes is only how it is *shown* on a line
   where some other fact does have one, and only when that line stacks: it is
@@ -360,10 +363,13 @@ render is not a claim about anything.
 
 A line stacks when its focused facts disagree about the extent, or when some
 carry one and some do not: 2,588 multi-extent lines plus the 254 mixed lines
-with a single surviving extent gives **2,842**. Everything else — **27,091
-lines, 90.5%** of the 29,933 carrying an extent, or **82.4%** of all 32,864
-caret lines — keeps exactly today's geometry, including the inline-detail
-shortcut.
+with a single surviving extent gives **2,842**. Everything else — **30,022
+lines, 91.4%** of all 32,864 caret lines — keeps exactly today's geometry,
+including the inline-detail shortcut. Two populations make up that remainder and
+they keep it for different reasons: **27,091** lines narrow to one agreed extent,
+and **2,931** lines have no fact with an extent at all and widen exactly as they
+do today. An earlier revision quoted only the first of those as "everything
+else", which understated the unchanged share by the whole no-extent population.
 
 `--focus lifetime` never stacks: no line in CoreLib carries two lifetime facts
 that disagree about the extent. The gesture is worth having anyway, but this
@@ -388,7 +394,8 @@ padded by a structural immunity and should not be read as a packing success
 rate. The last trail on a row has no successor, so its clip limit is
 `int.MaxValue` and it renders at true width by construction. Those 2,842 lines
 occupy **3,144 rows**, so 3,144 of the 6,566 trails could not have been clipped —
-and measurement confirms all 3,144 render at true width. Of the **3,422** trails
+they are 3,144 of the 3,884 counted as rendering at true width, and measurement
+confirms all 3,144 do. Of the **3,422** trails
 actually exposed to a successor, 740 (21.6%) survived at true width. Five of
 those are immune as well, their extents being no longer than `MinTrail`, which
 row admission already reserves. Among the **3,417** trails that could genuinely
@@ -405,7 +412,7 @@ fires on **0** of the 2,842 lines qualifying to stack before it runs.
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
-[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `5e73a22bb`.
+[#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `21b57ab91`.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
