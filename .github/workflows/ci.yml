@@ -216,14 +216,23 @@ jobs:
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
               eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
-              eng/prepare-decompiler-package-sweep.cs) DECOMPILER=true ;;
-              # The sweep builds the EVIL pool this gate is run over, and the pin decides
-              # which packages land in it, so both select the IL compared. Adding the
-              # sweep here without the pin left the pin able to change the corpus while
-              # skipping the gate that reads it.
-              eng/prepare-evil-corpus.sh) DECOMPILER=true ;;
-              docs/data/nuget-top-packages.lock.json) DECOMPILER=true ;;
-              docs/data/nuget-top-packages.json) DECOMPILER=true ;;
+              # Deliberately NOT mapped to this lane, though an earlier revision of this
+              # PR mapped all four here on the premise that "the sweep builds the EVIL
+              # pool this gate is run over". Measured, and false: `--gate pre-merge`
+              # selects ByteNeutralityGateTests, FidelityGateTests, GateExpectedClassesTests
+              # and LoweredFidelityGateTests, none of which read the EVIL pool, and this
+              # job never runs eng/prepare-evil-corpus.sh. The mapping scheduled a
+              # fifteen-minute job that validated nothing about the file that triggered it.
+              # EvilPoolSweepGateTests and EvilPoolPinTests carry no Speed=Slow trait, so
+              # the `test` job's `-trait- "Speed=Slow"` runs all of them; CODE=true above
+              # is the whole coverage these paths have, and is enough.
+              #
+              #   eng/prepare-decompiler-package-sweep.cs
+              #   eng/prepare-evil-corpus.sh
+              #   docs/data/nuget-top-packages.json
+              #   docs/data/nuget-top-packages.lock.json
+              #
+              # Map them here if this lane ever consumes the pool.
               *.md) ;;
               src/*) DECOMPILER=true ;;
               tests/*) DECOMPILER=true ;;

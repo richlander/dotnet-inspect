@@ -397,6 +397,10 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
 // Refused rather than replaced. Removing the link would be this step deleting something
 // the caller put there, on a path the caller named, which is a bigger liberty than
 // refusing to run.
+//
+// Gated by EvilPoolSweepGateTests.ASweepRefusesAPoolDirectoryThatIsALinkOutOfTheOutputDirectory,
+// which holds the directory the link points at to its exact contents. It asserted a
+// single composed path before, and passed with this refusal deleted outright.
 if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
 {
     Console.Error.WriteLine(
@@ -836,15 +840,22 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
     // enumeration this replaced materialized for its own reasons; it is spelled out here
     // so the property is not re-lost by someone making the walk lazy again.
     //
-    // That much is unverified: on ext4 the skip does not happen, measured over 5000
-    // entries, so a case asserting it would pass on this filesystem whichever way the
-    // code was written.
+    // That much is unverified, and stays unverified: no gate here enforces it. A case
+    // asserting it would pass on this filesystem whichever way the code was written,
+    // because the skip readdir is permitted to make does not appear to happen on the
+    // ext4 the tests run on. The property is kept by this comment and by materializing,
+    // not by a check -- said plainly rather than implied by a green suite.
     //
     // Sorted, so that a destructive walk visits the pool in an order that does not depend
     // on how the filesystem happens to lay a directory out. What this step did before a
     // failure is part of what it reports, so which removals precede a failure has to be a
     // fact about the pool rather than about readdir -- otherwise the case that holds the
     // report to the disk is only sometimes exercising the path it is about.
+    //
+    // Gated by EvilPoolSweepGateTests.ASweepThatCannotReconcileThePoolSaysSoAndFails,
+    // which plants a removable leftover that sorts before the undeletable one and holds
+    // the manifest's removal record to it. Unsorted, that case would be flaky-green
+    // rather than red, which is why the ordering is a property and not an incidental.
     FileSystemInfo[] entries =
         [.. new DirectoryInfo(directory).EnumerateFileSystemInfos()
             .OrderBy(entry => entry.FullName, StringComparer.Ordinal)];
@@ -890,6 +901,12 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
             // and dilute exactly the signal it is kept for. The shape is instead held by
             // the pool being equal to its record, which is a property of the whole pool
             // rather than of one run's removals.
+            //
+            // Gated by SweepWorld.AssertPoolMatchesRecord, whose directory assertion
+            // derives the directories a pool may contain from the ancestors of the files
+            // the sweep says it pooled. Removing this check reddens five cases. It was
+            // ungatable before that assertion existed, which read the pool with
+            // Directory.GetFiles alone and so could not see a pool entry holding nothing.
             if (!child.EnumerateFileSystemInfos().Any())
                 child.Delete();
 
