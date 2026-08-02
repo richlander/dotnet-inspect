@@ -620,6 +620,15 @@ candidate's acquisition domain. The core-library target remains a distinct
 binding/cache arm even when policy selects the same candidate that an explicit
 `AssemblyRef` would select.
 
+The temporary `IAssemblyReferenceResolver` adapter cannot derive that intrinsic
+answer from its identity-only API and reports `UnsupportedScope`. Decompiler's
+legacy `TypeRef` canonicalization erased which of several explicit core-library
+facade references supplied a type, so its migration seam probes those known
+facade identities as ordered structured reference requests and continues when
+an earlier facade binds but does not declare the requested type. New acquisition
+owners implement the intrinsic policy directly rather than copying that
+compatibility search.
+
 `Module` preserves a decoded `ModuleRef` name and requesting candidate. The
 first engine has no module acquisition policy, so it returns the typed
 `UnsupportedModuleReference` rejection; Analysis never fabricates that verdict

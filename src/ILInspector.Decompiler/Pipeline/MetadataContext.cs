@@ -67,9 +67,7 @@ public sealed class MetadataContext : IDisposable
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         Resolver = resolver;
-        _bindingPolicy = new AssemblyReferenceBindingPolicy(
-            resolver,
-            s_coreLibraryCandidates);
+        _bindingPolicy = new AssemblyReferenceBindingPolicy(resolver);
     }
 
     internal IAssemblyReferenceResolver Resolver { get; }
@@ -125,6 +123,31 @@ public sealed class MetadataContext : IDisposable
                 [root],
                 [request]);
         return context.Resolve(request);
+    }
+
+    internal ResolvedTypeDefinition? ResolveCoreLibraryDefinition(
+        ResolvedAssemblyReference root,
+        MetadataTypeDefinitionName type)
+    {
+        // Pipeline.TypeRef historically canonicalized several facade identities
+        // to "corelib", erasing which explicit AssemblyRef supplied the type.
+        // Probe those legacy identities as structured reference requests and
+        // continue when an earlier facade binds but does not declare the type.
+        foreach (AssemblyReferenceIdentity identity in s_coreLibraryCandidates)
+        {
+            var request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(root),
+                AssemblyResolutionScope.Platform,
+                type);
+            if (Resolve(root, request)
+                is TypeResolutionOutcome.Resolved resolved)
+            {
+                return resolved.Definition;
+            }
+        }
+
+        return null;
     }
 
     internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)

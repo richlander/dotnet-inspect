@@ -314,9 +314,9 @@ public class LibraryBodyIndexTests
         Directory.CreateDirectory(directory);
         try
         {
-            // 7cec85d7bea7798e is System.Private.CoreLib's key, so the forwarded identity is
-            // framework-signed while nothing else in the chain is.
-            byte[] frameworkToken = Convert.FromHexString("7cec85d7bea7798e");
+            // 31bf3856ad364e35 signs Microsoft framework assemblies such as
+            // WindowsBase. It must tighten exactly like the other platform keys.
+            byte[] frameworkToken = Convert.FromHexString("31bf3856ad364e35");
             string appPath = Path.Combine(directory, "Contoso.App.dll");
             string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
             string corelibPath = Path.Combine(directory, "Fake.CoreLib.dll");

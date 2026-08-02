@@ -53,7 +53,7 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
-    public void CoreLibrary_RequiresExplicitCandidates()
+    public void CoreLibrary_IsUnavailableThroughReferenceResolverAdapter()
     {
         var policy = new AssemblyReferenceBindingPolicy(
             new RecordingResolver((_, _) => null));
@@ -64,31 +64,6 @@ public class AssemblyReferenceBindingPolicyTests
         Assert.Equal(
             AssemblyBindingFailureKind.UnsupportedScope,
             unavailable.Failure.Kind);
-    }
-
-    [Fact]
-    public void CoreLibrary_ProbesExplicitCandidatesInOrderAndSnapshotsMiss()
-    {
-        var first = new AssemblyReferenceIdentity(
-            "System.Runtime",
-            Version: null,
-            Culture: null,
-            PublicKeyToken: null);
-        var second = new AssemblyReferenceIdentity(
-            "System.Private.CoreLib",
-            Version: null,
-            Culture: null,
-            PublicKeyToken: null);
-        var resolver = new RecordingResolver((_, _) => null);
-        var policy = new AssemblyReferenceBindingPolicy(
-            resolver,
-            [first, second]);
-        AssemblyBindingRequest request =
-            Request(AssemblyBindingTarget.CoreLibrary());
-
-        Assert.IsType<AssemblyBindingSelection.Missing>(policy.Select(request));
-        Assert.IsType<AssemblyBindingSelection.Missing>(policy.Select(request));
-        Assert.Equal([first, second], resolver.Requests.Select(r => r.Identity));
     }
 
     static AssemblyBindingRequest Request(AssemblyBindingTarget target) =>

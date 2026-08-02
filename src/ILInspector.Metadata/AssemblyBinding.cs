@@ -287,26 +287,14 @@ public interface IAssemblyBindingPolicy
 public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 {
     readonly IAssemblyReferenceResolver _resolver;
-    readonly ImmutableArray<AssemblyReferenceIdentity> _coreLibraryCandidates;
     readonly ConcurrentDictionary<
         SelectionKey,
         Lazy<AssemblyBindingSelection>> _selections = new();
 
-    public AssemblyReferenceBindingPolicy(
-        IAssemblyReferenceResolver resolver,
-        IEnumerable<AssemblyReferenceIdentity>? coreLibraryCandidates = null)
+    public AssemblyReferenceBindingPolicy(IAssemblyReferenceResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         _resolver = resolver;
-        _coreLibraryCandidates = coreLibraryCandidates is null
-            ? []
-            : [.. coreLibraryCandidates];
-        if (_coreLibraryCandidates.Any(static candidate => candidate is null))
-        {
-            throw new ArgumentException(
-                "Core-library candidates cannot contain null.",
-                nameof(coreLibraryCandidates));
-        }
     }
 
     public AssemblyBindingPolicyVersion Version { get; } = new();
@@ -331,7 +319,9 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
                 AssemblyBindingTarget.AssemblyReference reference =>
                     SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                    SelectCoreLibrary(request.Scope),
+                    AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.UnsupportedScope)),
                 _ => AssemblyBindingSelection.Invalid(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.InvalidPolicyResult)),
@@ -357,23 +347,6 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         _resolver.Resolve(identity, scope) is { } assembly
             ? AssemblyBindingSelection.Found(assembly)
             : AssemblyBindingSelection.NotFound();
-
-    AssemblyBindingSelection SelectCoreLibrary(
-        AssemblyResolutionScope scope)
-    {
-        foreach (AssemblyReferenceIdentity identity
-            in _coreLibraryCandidates)
-        {
-            if (_resolver.Resolve(identity, scope) is { } assembly)
-                return AssemblyBindingSelection.Found(assembly);
-        }
-
-        return _coreLibraryCandidates.IsEmpty
-            ? AssemblyBindingSelection.CannotSelect(
-                new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.UnsupportedScope))
-            : AssemblyBindingSelection.NotFound();
-    }
 
     readonly record struct SelectionKey(
         AssemblyBindingTarget Target,

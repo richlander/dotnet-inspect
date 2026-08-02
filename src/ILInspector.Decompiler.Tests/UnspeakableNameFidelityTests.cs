@@ -266,6 +266,20 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void CoreLibraryResolution_TriesLaterFacadeCandidates()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        TypeRef upgraded = source.CrossAssembly.Upgrade(
+            TypeRef.CoreLib("System", "Uri"));
+
+        Assert.Equal(ValueTypeHint.ReferenceType, upgraded.ValueTypeHint);
+    }
+
+    [Fact]
     public void LocalFunctionMetadataName_StaysFull()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "C");

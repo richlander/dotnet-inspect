@@ -629,9 +629,8 @@ internal sealed class CrossAssemblyTypeResolver
         }
         else if (type.Assembly == TypeRef.CoreLibrary)
         {
-            request = TypeResolutionRequest.FromCoreLibrary(
+            return _context.ResolveCoreLibraryDefinition(
                 _selfAssembly,
-                AssemblyResolutionScope.Platform,
                 definitionName);
         }
         else
