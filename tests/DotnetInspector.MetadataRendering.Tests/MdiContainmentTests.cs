@@ -408,7 +408,7 @@ public sealed class HostileAssemblyFixture : IDisposable
                 foreach (var cell in row.Cells)
                 {
                     if (cell is MetadataValue.HeapReference { Heap: HeapKind.String, Text: { } text } heap
-                        && text.Contains(CanaryTail, StringComparison.Ordinal))
+                        && text.ToString().Contains(CanaryTail, StringComparison.Ordinal))
                     {
                         return (row.RowId, heap.Offset);
                     }

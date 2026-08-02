@@ -1,5 +1,6 @@
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.MetadataRendering;
@@ -334,11 +335,7 @@ public static class MetadataProjectionRenderer
         // A truncated stamp must carry the ellipsis for the same reason a
         // truncated handle display does: a prefix must never be mistaken for the
         // whole value.
-        Add(
-            "Metadata version",
-            overview.MetadataVersionTruncated
-                ? overview.MetadataVersion + Ellipsis
-                : overview.MetadataVersion);
+        Add("Metadata version", Display(overview.MetadataVersion));
         Add("Metadata kind", overview.Kind.ToString());
         Add("Has assembly manifest", overview.IsAssembly ? "yes" : "no");
         Add("Metadata offset", overview.MetadataOffset.ToString());
@@ -856,11 +853,28 @@ public static class MetadataProjectionRenderer
         _ => throw new InvalidOperationException($"Unhandled metadata value: {value.GetType().Name}"),
     };
 
+    /// <summary>
+    /// Turns a contained value into display text, marking a partial one so it can never
+    /// be read as whole.
+    /// </summary>
+    /// <remarks>
+    /// This is the boundary the projection carries <see cref="InertString"/> up to. The
+    /// model keeps the text and its truncation together precisely so that the decision
+    /// made here — what a clipped value looks like — is made once, by the sink that knows
+    /// its own notation, rather than by every producer guessing at it.
+    /// </remarks>
+    static string Display(InertString text, bool truncated)
+        => truncated ? text + Ellipsis : text.ToString();
+
+    /// <inheritdoc cref="Display(InertString, bool)"/>
+    static string Display(InertString text) => Display(text, text.IsTruncated);
+
     static string FormatHeap(MetadataValue.HeapReference heap)
     {
         // The Blob heap carries no decoded text; its bounded hex preview stands in.
-        string body = heap.Text ?? heap.Preview;
-        return heap.Truncated ? body + Ellipsis : body;
+        // Truncation comes off the reference rather than the text because a blob's
+        // preview is bounded in bytes, which the hex spelling cannot report.
+        return Display(heap.Text ?? heap.Preview, heap.Truncated);
     }
 
     static string FormatHandle(HandleRef reference)
@@ -870,17 +884,20 @@ public static class MetadataProjectionRenderer
 
         string target = $"{reference.TargetTable}[{reference.TargetRowId}]";
 
+        if (reference.Display is not { } display)
+            return target;
+
         // A truncated display must always carry the ellipsis so it is never
         // mistaken for a whole value — even when the budget clipped it to empty,
         // which must still render as "(…)" rather than a bare target that looks
         // like an unavailable display.
-        if (reference.DisplayTruncated)
-            return $"{target} ({reference.Display}{Ellipsis})";
+        if (display.IsTruncated)
+            return $"{target} ({Display(display)})";
 
-        if (string.IsNullOrEmpty(reference.Display))
+        if (display.IsEmpty)
             return target;
 
-        return $"{target} ({reference.Display})";
+        return $"{target} ({display})";
     }
 
     static string FormatRange(HandleRange range)

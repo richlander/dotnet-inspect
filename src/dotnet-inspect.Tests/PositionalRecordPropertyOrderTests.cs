@@ -61,14 +61,6 @@ public class PositionalRecordPropertyOrderTests
         "ILInspector.Analysis.MethodIdentity",
         "ILInspector.Metadata.ClassifiedMethodObservation",
         "ILInspector.Metadata.ExtensionMemberObservation",
-
-        // Added by #3518, after this gate existed, and benign for a reason the
-        // others do not share: MetadataVersionTruncated qualifies
-        // MetadataVersion, so it is declared next to it, while being optional
-        // forces it last in the constructor. The two orders cannot agree, and
-        // the property the gate protects is unaffected -- the renderer consumes
-        // the flag to append an ellipsis rather than emitting it as a column.
-        "ILInspector.Metadata.MetadataImageOverview",
     ];
 
     [Theory]

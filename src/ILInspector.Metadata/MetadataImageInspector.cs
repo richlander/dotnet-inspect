@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -50,8 +51,8 @@ public static class MetadataImageInspector
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
-        string version = MetadataTableProjector.ContainCellText(
-            reader.MetadataVersion, MetadataVersionBudget, out bool versionTruncated);
+        InertString version = MetadataTableProjector.ContainCellText(
+            reader.MetadataVersion, MetadataVersionBudget);
 
         return new MetadataImageOverview(
             version,
@@ -61,8 +62,7 @@ public static class MetadataImageInspector
             headers.MetadataSize,
             DescribeHeaps(reader),
             DescribeTables(reader),
-            DescribeHeaders(headers),
-            versionTruncated);
+            DescribeHeaders(headers));
     }
 
     /// <summary>
@@ -73,10 +73,11 @@ public static class MetadataImageInspector
     /// the stamp is a counted string read straight out of the image and this code
     /// does not get to assume the image conforms.
     ///
-    /// When the budget does bind, the overview reports it via
-    /// <see cref="MetadataImageOverview.MetadataVersionTruncated"/> rather than
-    /// silently returning a prefix, so a clipped stamp is never mistaken for a
-    /// whole one — the same rule every other truncated value in this layer
+    /// When the budget does bind, the clipped stamp says so itself: the value is
+    /// an <see cref="InertString"/>, and the character budget is the only way it
+    /// can become partial, so <c>IsTruncated</c> carries the fact rather than a
+    /// separate flag a caller could read without. A prefix is never mistaken for
+    /// a whole stamp — the same rule every other contained value in this layer
     /// follows.
     /// </summary>
     const int MetadataVersionBudget = 255 * 6;

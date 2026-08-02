@@ -481,7 +481,7 @@ public static class MetadataTableProjector
 
         if (!addressable)
             return new MetadataValue.Malformed(
-                $"{heap} heap address {address} is past the end of a {size}-byte heap.");
+                InertString.Format(TextPolicy.Field, $"{heap} heap address {address} is past the end of a {size}-byte heap."));
 
         try
         {
@@ -500,7 +500,7 @@ public static class MetadataTableProjector
             // so a rejected address is contained here rather than escaping as a
             // throw from a read-only query. An unknown HeapKind is not caught
             // here: ToHeapIndex above already rejected it.
-            return new MetadataValue.Malformed($"{heap} heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"{heap} heap read failed: {ex.Message}"));
         }
     }
 
@@ -618,7 +618,7 @@ public static class MetadataTableProjector
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
             {
-                value = new MetadataValue.Malformed($"Guid heap read failed at index {index}: {ex.Message}");
+                value = new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Guid heap read failed at index {index}: {ex.Message}"));
             }
 
             entries.Add(new MetadataHeapEntry(
@@ -712,7 +712,7 @@ public static class MetadataTableProjector
             {
                 var malformed = ImmutableArray.CreateBuilder<MetadataValue>(spec.Columns.Length);
                 for (int column = 0; column < spec.Columns.Length; column++)
-                    malformed.Add(new MetadataValue.Malformed($"Row read failed: {ex.Message}"));
+                    malformed.Add(new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Row read failed: {ex.Message}")));
 
                 rows.Add(new MetadataRow(rid, token, malformed.MoveToImmutable()));
             }
@@ -1082,13 +1082,13 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetString(handle);
-            string text = ContainCellText(raw, options.MaxStringChars, out bool truncated);
+            InertString text = ContainCellText(raw, options.MaxStringChars);
             return new MetadataValue.HeapReference(
-                HeapKind.String, HeapOffset(handle), raw.Length, text, text, truncated);
+                HeapKind.String, HeapOffset(handle), raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"String heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"String heap read failed: {ex.Message}"));
         }
     }
 
@@ -1100,13 +1100,13 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetUserString(handle);
-            string text = ContainCellText(raw, options.MaxStringChars, out bool truncated);
+            InertString text = ContainCellText(raw, options.MaxStringChars);
             return new MetadataValue.HeapReference(
-                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, truncated);
+                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"UserString heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"UserString heap read failed: {ex.Message}"));
         }
     }
 
@@ -1117,13 +1117,16 @@ public static class MetadataTableProjector
 
         try
         {
-            string text = reader.GetGuid(handle).ToString();
+            // A GUID's own spelling is hex and dashes, so containment cannot change it;
+            // it goes through the same policy anyway so that no heap value reaches the
+            // projection as raw text and the type carries that uniformly.
+            InertString text = ContainCellText(reader.GetGuid(handle).ToString(), int.MaxValue);
             return new MetadataValue.HeapReference(
                 HeapKind.Guid, HeapOffset(handle), 16, text, text, Truncated: false);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Guid heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Guid heap read failed: {ex.Message}"));
         }
     }
 
@@ -1138,14 +1141,17 @@ public static class MetadataTableProjector
             int length = blobReader.Length;
             int take = Math.Min(length, Math.Max(0, options.MaxPreviewBytes));
             byte[] bytes = blobReader.ReadBytes(take);
-            string preview = Convert.ToHexString(bytes);
+            InertString preview = ContainCellText(Convert.ToHexString(bytes), int.MaxValue);
 
+            // The blob's partiality is a byte-level fact established before there was any
+            // text to bound, so it cannot be read back off the hex: that hex is a complete
+            // spelling of the bytes that were read.
             return new MetadataValue.HeapReference(
                 HeapKind.Blob, HeapOffset(handle), length, Text: null, preview, Truncated: take < length);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Blob heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Blob heap read failed: {ex.Message}"));
         }
     }
 
@@ -1193,7 +1199,7 @@ public static class MetadataTableProjector
         try
         {
             if (!MetadataTokens.TryGetTableIndex(handle.Kind, out var table))
-                return new MetadataValue.Malformed($"Handle kind {handle.Kind} does not map to a table.");
+                return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Handle kind {handle.Kind} does not map to a table."));
 
             int rid = MetadataTokens.GetRowNumber(handle);
             int token = MetadataTokens.GetToken(handle);
@@ -1203,18 +1209,18 @@ public static class MetadataTableProjector
             int targetRows = reader.GetTableRowCount(table);
             if (rid < 1 || rid > targetRows)
                 return new MetadataValue.Malformed(
-                    $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}].");
+                    InertString.Format(TextPolicy.Field, $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}]."));
 
-            string? display = ResolveHandleDisplay(reader, handle);
-            bool displayTruncated = false;
-            if (display is not null)
-                display = ContainCellText(display, options.MaxStringChars, out displayTruncated);
+            string? resolved = ResolveHandleDisplay(reader, handle);
+            InertString? display = resolved is null
+                ? null
+                : ContainCellText(resolved, options.MaxStringChars);
 
-            return new MetadataValue.Handle(new HandleRef(table, rid, token, display, displayTruncated));
+            return new MetadataValue.Handle(new HandleRef(table, rid, token, display));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Handle resolution failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Handle resolution failed: {ex.Message}"));
         }
     }
 
@@ -1236,7 +1242,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1258,7 +1264,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1280,7 +1286,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1339,22 +1345,16 @@ public static class MetadataTableProjector
     /// primitive rather than a parallel one.
     /// </para>
     /// </summary>
-    /// <param name="truncated">
-    /// Whether any input was dropped to stay within budget. Read from the contained value
-    /// rather than computed here: bounding at construction does not leave this method
-    /// holding the unbounded value to subtract from, and the comparison it would reach for
-    /// instead — emitted length against <paramref name="value"/>'s — is wrong in the
-    /// direction that matters, because spelling a scalar makes the text longer.
-    /// </param>
-    internal static string ContainCellText(string value, int maxChars, out bool truncated)
-    {
-        // The budget goes in as configured: a negative one is read as zero rather than
-        // refused, so clamping here would be a line that never changes an answer.
-        var contained = new InertString(TextPolicy.Field, value, maxChars);
-
-        truncated = contained.IsTruncated;
-        return contained.ToString();
-    }
+    /// <returns>
+    /// The contained value, still paired with whether it was bounded. Returning
+    /// <see cref="InertString"/> rather than a <see cref="string"/> and an <c>out</c> flag
+    /// is the point: the pair travels together into the projection, and only a sink that
+    /// has decided how to mark a partial value takes it apart.
+    /// </returns>
+    // The budget goes in as configured: a negative one is read as zero rather than
+    // refused, so clamping here would be a line that never changes an answer.
+    internal static InertString ContainCellText(string value, int maxChars)
+        => new(TextPolicy.Field, value, maxChars);
 
     readonly record struct TableSpec(
         TableIndex Index,
