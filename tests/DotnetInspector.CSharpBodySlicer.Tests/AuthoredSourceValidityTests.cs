@@ -305,30 +305,38 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Characterizes the defect populations that remain so they stay visible and cannot grow
-    /// silently. These are not passing behavior — an under-captured property getter still
-    /// renders a partial accessor under an "Original Source" heading. The ceilings are
-    /// deliberately loose, because the corpus is this repository's own assemblies and exact
-    /// counts move with unrelated edits, but they fail if a change makes either category
-    /// materially worse.
+    /// Both boundary defect populations are gone, so this asserts their absence rather than a
+    /// ceiling over them. A ceiling above a zero rate gates nothing: the previous form allowed
+    /// 3.0% under-capture and 1.5% malformed against measured rates of 0.42% and 0.10%, so the
+    /// whole population could return before it failed.
+    /// <para>
+    /// Locating declarations over the index rather than by scanning backward from the capture is
+    /// what emptied them. Measured over this corpus, the same 4,092 slices: under-capture 17 to
+    /// 0, malformed 4 to 0, well-formed 2,882 to 2,907, and not-sliceable unchanged at 1,185.
+    /// That last figure is the control -- the defects were not traded away for refusals.
+    /// </para>
+    /// <para>
+    /// Not-sliceable is asserted non-empty by
+    /// <see cref="MembersWithNoAuthoredDeclaration_ReportAbsentSource_NotATruncatedTypeHeader"/>,
+    /// so this test
+    /// cannot pass by slicing nothing.
+    /// </para>
     /// </summary>
     [Fact]
-    public void RemainingBoundaryDefects_StayWithinTheirCharacterizedCeilings()
+    public void TheBoundaryDefectPopulations_AreEmpty()
     {
         var slices = SliceCorpus();
         Assert.NotEmpty(slices);
 
         var counts = slices.GroupBy(s => s.Outcome).ToDictionary(g => g.Key, g => g.Count());
         int Count(SliceOutcome outcome) => counts.GetValueOrDefault(outcome);
-        double Rate(SliceOutcome outcome) => 100.0 * Count(outcome) / slices.Count;
 
         var summary = string.Join(
             "\n",
             counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
 
-        // Measured at 1.67% and 0.30% over this corpus.
-        Assert.True(Rate(SliceOutcome.UnderCapture) < 3.0, $"under-capture grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
-        Assert.True(Rate(SliceOutcome.Malformed) < 1.5, $"malformed slices grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
+        Assert.True(Count(SliceOutcome.UnderCapture) == 0, $"under-capture returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
+        Assert.True(Count(SliceOutcome.Malformed) == 0, $"malformed slices returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
     }
 
     /// <summary>
