@@ -3506,6 +3506,60 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// Projection names may be wildcards, so the gate has to match the way markout matches rather
+    /// than by exact name. `Ver*` selects `Version`, and an earlier revision that compared names
+    /// with set membership rejected it whenever the render came out empty -- a null value, or a
+    /// row filter that emptied the table (found by GPT-5.6). The negative case is the companion:
+    /// a wildcard that matches nothing of the right kind must still fail.
+    /// </summary>
+    [Theory]
+    // Every pattern here renders EMPTY against the test assembly and so actually reaches the
+    // gate. `--fields *` would not: it matches fields that do have values, so the render is
+    // non-empty and the name check is never consulted, which would make the case look like
+    // coverage while proving nothing.
+    [InlineData("--fields", "Ver*", 0)]
+    [InlineData("--fields", "TF*", 0)]
+    [InlineData("--fields", "?ersion", 0)]
+    [InlineData("--fields", "Bogus*", 1)]
+    [InlineData("--fields", "Zzz*", 1)]
+    public async Task Type_Listing_WildcardProjection_MatchesTheWayMarkoutMatches(
+        string flag, string pattern, int expectedExit)
+    {
+        // A local .dll rather than a platform library: it carries no version, so `Ver*` renders
+        // nothing and the gate is actually reached. Against a platform library the render is
+        // non-empty and the wildcard never gets as far as the name check.
+        var (exit, _, _) = await RunAppAsync(
+            ["type", "--library", TestAssemblyPath, "-S", "API Info", flag, pattern, "--tsv", "--tips", "q"]);
+
+        Assert.Equal(expectedExit, exit);
+    }
+
+    /// <summary>
+    /// The schema's internal stable name is not a projection name. `Assembly` is the stable name
+    /// of the `Library` field, and markout does not project by it -- `--fields Assembly` renders
+    /// nothing, on this build and on the base. Found by MAI-Code: accepting stable names in the
+    /// gate let a name the user cannot actually project by report success while printing nothing.
+    /// `Library` is the companion assertion, so this pins "stable names are not projectable"
+    /// rather than "Assembly is banned".
+    /// </summary>
+    [Fact]
+    public async Task Type_Listing_StableNameProjection_IsNotAValidProjectionName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Assembly", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Assembly", error, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.Trim());
+
+        var (okExit, okOutput, _) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Library", "--tips", "q"]);
+
+        Assert.Equal(0, okExit);
+        Assert.Contains("| Library | System.Text.Json.dll |", okOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The other two ways an empty render is an honest answer rather than a failed projection.
     /// Both were real false positives of an earlier form of the gate, and neither can be seen by
     /// looking at the rendered bytes alone -- which is exactly why the gate needs the two

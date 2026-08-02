@@ -755,7 +755,7 @@ public class ApiCommand
         // only be satisfied by a field and `--columns` only by a column.
         var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
         var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<string>();
         foreach (var section in schema.SectionNames)
         {
             foreach (var item in schema.Discover(section) ?? [])
@@ -763,12 +763,25 @@ public class ApiCommand
                 if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                known.Add(item.Name);
-                known.Add(item.StableName);
+                // Name only, never StableName. The stable name is the schema's internal
+                // identifier and markout does not project by it -- `--fields Assembly`, the
+                // stable name of `Library`, renders nothing on base and on head. Accepting it
+                // here would let a name the user cannot actually project by satisfy the gate
+                // (found by MAI-Code). Of the whole schema only `Library`/`Assembly`,
+                // `TFM`/`Tfm`, and `Target Library`/`TargetLibrary` differ at all.
+                candidates.Add(item.Name);
             }
         }
 
-        if (names.Any(known.Contains))
+        // Matched by markout's own projection matcher rather than by set membership, because
+        // projection names may be wildcards: `--fields "Ver*"` legitimately selects `Version`,
+        // and an exact comparison rejects it (found by GPT-5.6). Collecting the wanted-kind
+        // names into a throwaway single-section schema is what lets markout answer "does this
+        // pattern match anything of this kind" -- reimplementing the glob here would be a second
+        // matcher that could drift from the one that actually performs the projection.
+        const string ProbeSection = "probe";
+        var probe = new DocumentSchema().Add(ProbeSection, wantedKind, [.. candidates]);
+        if (probe.ValidateProjection(ProbeSection, names).Resolved.Length > 0)
             return true;
 
         var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
