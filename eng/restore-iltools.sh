@@ -76,10 +76,17 @@ fi
 root="$(git rev-parse --show-toplevel)"
 packages_dir="$root/artifacts/iltools/packages"
 
+# The package payload's extension follows the RID being restored, not the host:
+# restoring win-x64 from Linux still yields ilasm.exe.
+case "$rid" in
+    win-*) tool_ext=".exe" ;;
+    *)     tool_ext="" ;;
+esac
+
 ilasm_dir="$packages_dir/runtime.$rid.microsoft.netcore.ilasm/$ILTOOLS_VERSION/runtimes/$rid/native"
 ildasm_dir="$packages_dir/runtime.$rid.microsoft.netcore.ildasm/$ILTOOLS_VERSION/runtimes/$rid/native"
 
-if [ ! -x "$ilasm_dir/ilasm" ] || [ ! -x "$ildasm_dir/ildasm" ]; then
+if [ ! -x "$ilasm_dir/ilasm$tool_ext" ] || [ ! -x "$ildasm_dir/ildasm$tool_ext" ]; then
     echo "Restoring ilasm/ildasm $ILTOOLS_VERSION for $rid..." >&2
 
     proj_dir="$(mktemp -d)"
@@ -106,7 +113,7 @@ fi
 # layout moved would otherwise put a non-existent directory on PATH, and every
 # test that needs these tools would skip -- reporting the same green run as a
 # machine that never tried.
-for tool in "$ilasm_dir/ilasm" "$ildasm_dir/ildasm"; do
+for tool in "$ilasm_dir/ilasm$tool_ext" "$ildasm_dir/ildasm$tool_ext"; do
     [ -x "$tool" ] || { echo "error: expected an executable at $tool after restore." >&2; exit 1; }
 done
 
@@ -114,15 +121,21 @@ echo "$ilasm_dir"
 echo "$ildasm_dir"
 
 if [ "$want_mdv" -eq 1 ]; then
-    tools_dir="${DOTNET_TOOLS_PATH:-$HOME/.dotnet/tools}"
+    # `dotnet tool install --global` installs under $DOTNET_CLI_HOME/.dotnet/tools,
+    # falling back to $HOME. The shim is mdv.exe on a Windows host -- and unlike
+    # the RID-keyed packages above, that follows the host, not --rid.
+    tools_dir="${DOTNET_CLI_HOME:-$HOME}/.dotnet/tools"
 
-    if [ ! -x "$tools_dir/mdv" ]; then
+    if [ ! -x "$tools_dir/mdv" ] && [ ! -x "$tools_dir/mdv.exe" ]; then
         echo "Installing the mdv global tool..." >&2
         # mdv ships prerelease-only from the dotnet-tools feed; it is not on
         # nuget.org under any id.
         dotnet tool install mdv --global --prerelease --add-source "$DOTNET_TOOLS_FEED" >&2
     fi
 
-    [ -x "$tools_dir/mdv" ] || { echo "error: expected an executable at $tools_dir/mdv after install." >&2; exit 1; }
+    if [ ! -x "$tools_dir/mdv" ] && [ ! -x "$tools_dir/mdv.exe" ]; then
+        echo "error: expected an executable at $tools_dir/mdv after install." >&2
+        exit 1
+    fi
     echo "$tools_dir"
 fi
