@@ -43,7 +43,20 @@ public static class NuGetApi
         => await JsonSerializer.DeserializeAsync(json, NuGetJsonContext.Default.SearchResponse, cancellationToken).ConfigureAwait(false);
 }
 
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+// Feeds disagree about whether a JSON number is a number. Azure DevOps Artifacts
+// serialises counts as strings ("0"), which is a common way to keep 64-bit values
+// out of a JavaScript double; nuget.org sends them as numbers. Reading a count
+// strictly therefore rejects an otherwise valid document from a conforming feed,
+// and takes every result in it down with it -- that is how the Azure DevOps search
+// defect in issue #3417 presented. Modelling totalHits away fixed that field; the
+// remaining counts are the two members most likely to be spelled the same way,
+// because both are Int64. Accept either spelling for all of them, once, so the
+// next stringified count is not a second outage.
+//
+// This only affects reading. Nothing serialises through this context.
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString)]
 [JsonSerializable(typeof(ServiceIndex))]
 [JsonSerializable(typeof(VersionIndex))]
 [JsonSerializable(typeof(SearchResponse))]

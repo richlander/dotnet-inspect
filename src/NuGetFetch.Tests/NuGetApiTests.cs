@@ -179,13 +179,91 @@ public class NuGetApiTests
         // Azure DevOps serialises totalHits as a string and reports "0" alongside a
         // populated data array. Modelling the field at all rejected the whole document.
         // Issue #3417.
+        //
+        // The payload is a real Azure DevOps Artifacts response captured off the wire,
+        // reduced only by sanitising the package identifiers. Keeping the members this
+        // host actually sends is the point: nuget.org sends none of "@context",
+        // "lastReopen" or "index", nor the empty "@id"/"registration"/"iconUrl" and the
+        // null "projectUrl"/"summary"/"title" on each hit. A fixture trimmed to the
+        // members the model happens to bind today would still pass if an unbound member
+        // later became bound to a non-nullable type, which is exactly how this feed
+        // broke the first time.
+        //
+        // Note "downloads" arrives as a real JSON number even on this host, so the
+        // string serialisation is specific to totalHits rather than general to the feed.
+        string json = """
+        {
+            "@context": {"@vocab": "http://schema.nuget.org/schema#"},
+            "data": [
+                {
+                    "@id": "",
+                    "@type": "Package",
+                    "id": "Contoso.Internal.Core",
+                    "version": "9.0.0",
+                    "description": "Contoso.Internal.Core",
+                    "versions": [{"@id": "Contoso.Internal.Core", "downloads": 0, "version": "9.0.0"}],
+                    "authors": [],
+                    "iconUrl": "",
+                    "licenseUrl": "",
+                    "projectUrl": null,
+                    "registration": "",
+                    "summary": null,
+                    "tags": [],
+                    "title": null
+                },
+                {
+                    "@id": "",
+                    "@type": "Package",
+                    "id": "Contoso.Internal.Auth",
+                    "version": "13.4.0-preview.6",
+                    "description": "Contoso.Internal.Auth",
+                    "versions": [{"@id": "Contoso.Internal.Auth", "downloads": 0, "version": "13.4.0-preview.6"}],
+                    "authors": [],
+                    "iconUrl": "",
+                    "licenseUrl": "",
+                    "projectUrl": null,
+                    "registration": "",
+                    "summary": null,
+                    "tags": [],
+                    "title": null
+                }
+            ],
+            "lastReopen": "2026-07-29T01:31:47.7885829Z",
+            "index": "PackageIndex",
+            "totalHits": "0"
+        }
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
+
+        // Both hits survive a response whose own count claims there are none, which is
+        // the property that matters: Data is load bearing and totalHits is not merely
+        // mistyped on this host, it is wrong.
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Data.Count);
+        Assert.Equal("Contoso.Internal.Core", result.Data[0].Id);
+        Assert.Equal("9.0.0", result.Data[0].Version);
+        Assert.Equal("Contoso.Internal.Auth", result.Data[1].Id);
+        Assert.Equal("13.4.0-preview.6", result.Data[1].Version);
+    }
+
+    [Fact]
+    public async Task GetSearchResponseAsync_StringSerialisedCounts_Parse()
+    {
+        // Azure DevOps proved a feed will spell a count as a string. Dropping totalHits
+        // from the model answered that field and only that field; totalDownloads and
+        // versions[].downloads are still counts, and both are Int64 -- the width most
+        // often serialised as a string to keep it out of a JavaScript double. A feed
+        // spelling either that way used to fail the whole document, taking every result
+        // with it. Issue #3417.
         string json = """
         {
             "data": [
                 {
                     "id": "Contoso.Internal",
                     "version": "1.2.3",
-                    "versions": []
+                    "totalDownloads": "9007199254740993",
+                    "versions": [{"version": "1.2.3", "downloads": "42"}]
                 }
             ],
             "totalHits": "0"
@@ -195,9 +273,31 @@ public class NuGetApiTests
         var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
-        Assert.Single(result.Data);
-        Assert.Equal("Contoso.Internal", result.Data[0].Id);
-        Assert.Equal("1.2.3", result.Data[0].Version);
+        SearchResult hit = Assert.Single(result.Data);
+
+        // Larger than 2^53, so this also pins that the value survives as an Int64 rather
+        // than going through a double on the way in -- which is the reason a feed spells
+        // it as a string in the first place.
+        Assert.Equal(9007199254740993, hit.TotalDownloads);
+        Assert.Equal(42, Assert.Single(hit.Versions!).Downloads);
+    }
+
+    [Fact]
+    public async Task GetSearchResponseAsync_NumericCounts_StillParse()
+    {
+        // The other direction: nuget.org sends counts as numbers, and tolerating the
+        // string spelling must not cost that.
+        string json = """
+        {"data":[{"id":"Newtonsoft.Json","version":"13.0.3","totalDownloads":5000000,
+          "versions":[{"version":"13.0.3","downloads":7}]}]}
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        SearchResult hit = Assert.Single(result.Data);
+        Assert.Equal(5000000, hit.TotalDownloads);
+        Assert.Equal(7, Assert.Single(hit.Versions!).Downloads);
     }
 
     [Fact]
