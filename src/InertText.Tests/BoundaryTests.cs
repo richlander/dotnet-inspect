@@ -417,4 +417,106 @@ public class BoundaryTests
         Assert.Equal(full.ToString().Length, full.Length);
         Assert.Equal(0, default(InertString).Length);
     }
+
+    [Theory]
+    [MemberData(nameof(AdversarialCorpus.Names), MemberType = typeof(AdversarialCorpus))]
+    public void BoundingConstructor_AgreesWithEncodeThenTruncate_AtEveryBudget(string name)
+    {
+        string payload = AdversarialCorpus.ByName(name).Payload;
+        InertString encoded = new InertString(TextPolicy.Field, payload);
+
+        // Past the encoded length as well, so the budget nobody is near is swept too.
+        for (int budget = 0; budget <= encoded.Length + 2; budget++)
+        {
+            InertString bounded = new InertString(TextPolicy.Field, payload, budget);
+
+            Assert.Equal(encoded.Truncate(budget).ToString(), bounded.ToString());
+            Assert.Equal(bounded.Length < encoded.Length, bounded.IsTruncated);
+        }
+    }
+
+    [Fact]
+    public void BoundingConstructor_ReportsTruncation_WhereTheRawLengthWouldNot()
+    {
+        // The reason IsTruncated exists rather than being left to the caller. Bounding in one
+        // step does not leave the caller holding the unbounded value, so the comparison it
+        // reaches for instead is against the raw input's length — and encoding expands, so that
+        // comparison says "complete" about a value clipped mid-hazard.
+        InertString bounded = new InertString(TextPolicy.Field, Hazard, 8);
+
+        Assert.Equal(@"a\u202Eb", bounded.ToString());
+        Assert.True(bounded.IsTruncated);
+
+        // Eight encoded characters from five raw ones: the fallback compares 8 < 5 and concludes
+        // nothing was dropped, while three characters of the value are gone.
+        Assert.False(bounded.Length < Hazard.Length);
+    }
+
+    [Fact]
+    public void IsTruncated_IsFalse_WhereNothingWasDropped()
+    {
+        Assert.False(default(InertString).IsTruncated);
+        Assert.False(InertString.Empty.IsTruncated);
+        Assert.False(new InertString(TextPolicy.Field, Hazard).IsTruncated);
+        Assert.False(new InertString(TextPolicy.Field, Hazard, 11).IsTruncated);
+        Assert.False(new InertString(TextPolicy.Field, Hazard, 99).IsTruncated);
+    }
+
+    [Fact]
+    public void BoundingConstructor_ReadsANegativeBudgetAsZero()
+    {
+        // A consumer's budget arrives as configured rather than clamped, so a negative one has
+        // to mean "keep nothing" — and keeping nothing of a value that had something is a
+        // truncation, not an empty value that was always empty.
+        InertString bounded = new InertString(TextPolicy.Field, Hazard, -1);
+
+        Assert.Equal(string.Empty, bounded.ToString());
+        Assert.True(bounded.IsTruncated);
+        Assert.NotEqual(InertString.Empty, bounded);
+    }
+
+    [Fact]
+    public void Truncate_KeepsReportingTruncation_ThroughASecondCut()
+    {
+        // The second cut is not the only one, so the value cannot start calling itself whole
+        // again once the first cut is behind it.
+        InertString once = new InertString(TextPolicy.Field, Hazard, 10);
+        InertString twice = once.Truncate(8);
+
+        Assert.True(once.IsTruncated);
+        Assert.True(twice.IsTruncated);
+
+        // A cut that drops nothing leaves the earlier one visible.
+        Assert.True(once.Truncate(once.Length).IsTruncated);
+    }
+
+    [Fact]
+    public void Equality_SeparatesValuesThatWouldRenderDifferently()
+    {
+        // Same text, but a sink marks one of them and not the other, so they are not
+        // substitutable. Equality on text alone would call them the same value.
+        InertString whole = new InertString(TextPolicy.Field, "a\u202Eb");
+        InertString clipped = new InertString(TextPolicy.Field, Hazard, 8);
+
+        Assert.Equal(whole.ToString(), clipped.ToString());
+        Assert.NotEqual(whole, clipped);
+        Assert.False(whole == clipped);
+        Assert.NotEqual(whole.GetHashCode(), clipped.GetHashCode());
+    }
+
+    [Fact]
+    public void Equality_JoinsValuesBoundedFromDifferentLengthsToTheSameText()
+    {
+        // What equality compares is the flag, not the length behind it: both of these render
+        // the same way, so the different amounts dropped to reach that text do not separate them.
+        InertString fromShorter = new InertString(TextPolicy.Field, "a\u202Eb", 7);
+        InertString fromLonger = new InertString(TextPolicy.Field, Hazard, 7);
+
+        Assert.Equal(@"a\u202E", fromShorter.ToString());
+        Assert.Equal(fromShorter.ToString(), fromLonger.ToString());
+        Assert.True(fromShorter.IsTruncated);
+        Assert.True(fromLonger.IsTruncated);
+        Assert.Equal(fromShorter, fromLonger);
+        Assert.Equal(fromShorter.GetHashCode(), fromLonger.GetHashCode());
+    }
 }

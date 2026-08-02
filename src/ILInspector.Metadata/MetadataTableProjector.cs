@@ -1340,16 +1340,20 @@ public static class MetadataTableProjector
     /// </para>
     /// </summary>
     /// <param name="truncated">
-    /// Whether any input was dropped to stay within budget. Derived from the bounded
-    /// length rather than tracked separately, because the encoder already keeps every
-    /// spelling and every surrogate pair whole when it cuts.
+    /// Whether any input was dropped to stay within budget. Read from the contained value
+    /// rather than computed here: bounding at construction does not leave this method
+    /// holding the unbounded value to subtract from, and the comparison it would reach for
+    /// instead — emitted length against <paramref name="value"/>'s — is wrong in the
+    /// direction that matters, because spelling a scalar makes the text longer.
     /// </param>
     internal static string ContainCellText(string value, int maxChars, out bool truncated)
     {
-        var contained = new InertString(TextPolicy.Field, value);
-        InertString bounded = contained.Truncate(maxChars);
-        truncated = bounded.Length < contained.Length;
-        return bounded.ToString();
+        // The budget goes in as configured: a negative one is read as zero rather than
+        // refused, so clamping here would be a line that never changes an answer.
+        var contained = new InertString(TextPolicy.Field, value, maxChars);
+
+        truncated = contained.IsTruncated;
+        return contained.ToString();
     }
 
     readonly record struct TableSpec(

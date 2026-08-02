@@ -83,6 +83,11 @@ public readonly struct InertString : IEquatable<InertString>
     // to empty; a reflection test fails any public member that reads around it.
     private readonly string? _text;
 
+    // The encoded length this value was derived from, before any bounding. Zero means "never
+    // bounded", which is also what default(InertString) carries -- and reads correctly there,
+    // because a zero-length value cannot be a proper prefix of anything.
+    private readonly int _sourceLength;
+
     /// <summary>
     /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, yielding a value
     /// that can be carried to a sink.
@@ -99,13 +104,40 @@ public readonly struct InertString : IEquatable<InertString>
     /// <param name="value">The untreated text.</param>
     public InertString(TextPolicy policy, string value) => this = VisualEncoder.Encode(policy, value);
 
+    /// <summary>
+    /// Encodes <paramref name="value"/> and bounds it to <paramref name="maxLength"/> encoded
+    /// characters, without dividing a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The sink-facing form: a cell, a column or a record field knows its own width, and this
+    /// lets it say so once rather than encode and then bound as two steps whose intermediate
+    /// value it must remember to keep.
+    ///
+    /// That remembering is the reason this overload carries <see cref="IsTruncated"/>. Bounding
+    /// as a separate call leaves the caller holding both values, so it can answer "was anything
+    /// dropped" by comparing them; bounding here does not, and the comparison a caller reaches
+    /// for instead — encoded length against the raw input's — is wrong in the direction that
+    /// matters, because encoding expands. A hostile value clipped mid-spelling would report as
+    /// complete.
+    /// </remarks>
+    /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
+    /// <param name="value">The untreated text.</param>
+    /// <param name="maxLength">The largest encoded length the sink can accept.</param>
+    public InertString(TextPolicy policy, string value, int maxLength)
+    {
+        InertString encoded = VisualEncoder.Encode(policy, value);
+        this = encoded.Truncate(maxLength);
+        _sourceLength = encoded.Length;
+    }
+
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
     // invariant. Internal because composition needs it: Join and the interpolation handler
     // build their result piecewise and would otherwise have to re-encode an encoded string.
-    internal InertString(string text, VisualForm forms)
+    internal InertString(string text, VisualForm forms, int sourceLength = 0)
     {
         _text = text;
         Forms = forms;
+        _sourceLength = sourceLength;
     }
 
     /// <summary>The text, with the zero value read as empty.</summary>
@@ -146,6 +178,20 @@ public readonly struct InertString : IEquatable<InertString>
 
     /// <summary>Whether this value carries no text.</summary>
     public bool IsEmpty => Text.Length == 0;
+
+    /// <summary>Whether bounding dropped any of what this value was made from.</summary>
+    /// <remarks>
+    /// Derived from the length this was bounded from rather than stored as a flag, so no
+    /// operation on the text can leave it stale: <see cref="Bound"/> carries that length
+    /// forward, which is why truncating an already-truncated value does not report the second
+    /// cut as the only one.
+    ///
+    /// Deriving it does not by itself keep it consistent with <see cref="Equals(InertString)"/>,
+    /// because the length it reads is still state the text does not determine — two values can
+    /// carry identical text and disagree here. Equality therefore compares this as well, so that
+    /// values which compare equal also render the same.
+    /// </remarks>
+    public bool IsTruncated => Text.Length < _sourceLength;
 
     /// <summary>The number of characters in the encoded text.</summary>
     /// <remarks>
@@ -256,9 +302,12 @@ public readonly struct InertString : IEquatable<InertString>
 
         // An unbounded request keeps this value rather than rebuilding an identical one, so the
         // common case of a budget nobody is near costs nothing.
-        return from == 0 && to == text.Length
-            ? this
-            : new InertString(text[from..to], forms);
+        if (from == 0 && to == text.Length)
+            return this;
+
+        // The longest thing this value is known to be a prefix of, so truncating an
+        // already-truncated value cannot report the second cut as the only one.
+        return new InertString(text[from..to], forms, Math.Max(_sourceLength, text.Length));
     }
 
     /// <summary>
@@ -451,19 +500,27 @@ public readonly struct InertString : IEquatable<InertString>
     /// Reads through <see cref="Text"/> rather than the field, so the zero value and
     /// <c>Encode("")</c> compare equal. Comparing <c>_text</c> directly is the defect this
     /// replaced: <see langword="null"/> and <c>""</c> are not ordinally equal.
+    ///
+    /// <see cref="IsTruncated"/> participates because a sink renders a bounded value with a
+    /// mark the whole value does not carry, so two values that disagree there are not
+    /// substitutable even when their text matches. <see cref="Forms"/> is excluded instead, and
+    /// safely: it is a function of the text, so equal text already implies equal forms. The
+    /// compared value is the flag rather than the length behind it, because two values bounded
+    /// from different lengths to the same text do render the same.
     /// </remarks>
-    public bool Equals(InertString other) => string.Equals(Text, other.Text, StringComparison.Ordinal);
+    public bool Equals(InertString other) =>
+        string.Equals(Text, other.Text, StringComparison.Ordinal) && IsTruncated == other.IsTruncated;
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is InertString other && Equals(other);
 
     /// <inheritdoc/>
-    public override int GetHashCode() => Text.GetHashCode(StringComparison.Ordinal);
+    public override int GetHashCode() => HashCode.Combine(Text.GetHashCode(StringComparison.Ordinal), IsTruncated);
 
-    /// <summary>Compares two values by their encoded text.</summary>
+    /// <summary>Compares two values by their encoded text and whether either was bounded.</summary>
     public static bool operator ==(InertString left, InertString right) => left.Equals(right);
 
-    /// <summary>Compares two values by their encoded text.</summary>
+    /// <summary>Compares two values by their encoded text and whether either was bounded.</summary>
     public static bool operator !=(InertString left, InertString right) => !left.Equals(right);
 }
 
