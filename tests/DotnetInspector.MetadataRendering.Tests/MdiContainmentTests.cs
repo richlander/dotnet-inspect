@@ -347,6 +347,21 @@ public sealed class HostileAssemblyFixture : IDisposable
     /// </summary>
     static readonly string CanaryTail = CanaryName[(NamePayloadOffset + Payload.Length)..];
 
+    /// <summary>
+    /// The head of the canary name the splice leaves untouched, which is the only
+    /// graphic text guaranteed to survive every budget wide enough to show the row
+    /// at all. Locating the payload cell by this keeps the lookup independent of the
+    /// escaping under test, for the same reason <see cref="CanaryTail"/> exists.
+    /// <para>
+    /// It must come from the canary rather than be spelled again: an anchor that
+    /// merely <em>looks</em> distinctive can match innocent metadata elsewhere in
+    /// this assembly and silently address the wrong cell, which reduces a
+    /// comparison between the two renderings to a comparison of plain ASCII with
+    /// itself.
+    /// </para>
+    /// </summary>
+    public static string CanaryPrefix { get; } = CanaryName[..NamePayloadOffset];
+
     public HostileAssemblyFixture()
     {
         string source = typeof(HostileAssemblyFixture).Assembly.Location;

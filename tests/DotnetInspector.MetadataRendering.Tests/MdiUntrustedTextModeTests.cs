@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using InertText;
+using ILInspector.Metadata;
 using Mdi;
 
 namespace DotnetInspector.MetadataRendering.Tests;
@@ -526,8 +526,10 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
     [InlineData("jsonl")]
     public void RawAndEncodedRenderingsShowTheSamePrefix(string format)
     {
-        // From 8, so the shared graphic prefix "Hostile" is present and the cell is locatable.
-        for (int budget = 8; budget <= 30; budget++)
+        // From the width of the canary's untouched head, so the cell is locatable at
+        // every budget swept; below that neither rendering shows the anchor.
+        int first = HostileAssemblyFixture.CanaryPrefix.Length;
+        for (int budget = first; budget <= first + 22; budget++)
         {
             string[] common =
                 ["--table", "TypeDef", "--format", format, "--show-untrusted-text",
@@ -549,9 +551,13 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
             string rawBody = rawClipped ? rawCell[..^1] : rawCell;
             string encodedBody = encodedClipped ? encodedCell[..^1] : encodedCell;
 
+            // Re-encoding runs the product's own containment factory forward, so the oracle
+            // tracks the policy instead of pinning the one that was current when this was
+            // written. The property under test is relational — same value, different spelling —
+            // so a policy change should flow through both sides rather than redden this.
             Assert.Equal(
                 encodedBody,
-                new InertString(TextPolicy.Field, rawBody, int.MaxValue).ToString());
+                MetadataTableProjector.ContainCellText(rawBody, int.MaxValue).ToString());
         }
     }
 
@@ -561,7 +567,7 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
     /// </summary>
     static string PayloadCell(string output)
     {
-        int start = output.IndexOf("Hostile", StringComparison.Ordinal);
+        int start = output.IndexOf(HostileAssemblyFixture.CanaryPrefix, StringComparison.Ordinal);
         if (start < 0)
             return string.Empty;
 
