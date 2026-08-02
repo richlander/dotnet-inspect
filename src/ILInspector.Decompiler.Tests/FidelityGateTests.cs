@@ -262,9 +262,9 @@ public class FidelityGateTests
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
     /// SharedCaptureLambdas is below Full and now reports `NotFull` because its
-    /// opcode names match but its V1 body comparison differs. CapturingLocalFunction
+    /// opcode names match but its contract body comparison differs. CapturingLocalFunction
     /// is also below Full; fixture additions changed its compiler-generated display
-    /// class and local-function ordinals, which remain observable in V1.
+    /// class and local-function ordinals, which remain observable under the contract.
     /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
     /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.

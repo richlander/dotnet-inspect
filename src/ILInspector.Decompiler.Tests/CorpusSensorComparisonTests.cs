@@ -821,7 +821,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void ClassifyStatus_RequiresV1BodyEqualityForExact()
+    public void ClassifyStatus_RequiresContractBodyEqualityForExact()
     {
         var exact = new IlBodyDiffResult(
             IlBodyDiffOutcome.Exact,

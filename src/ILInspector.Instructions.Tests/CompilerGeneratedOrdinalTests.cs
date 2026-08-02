@@ -1213,6 +1213,42 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// Two generated members inside <em>identically</em> constrained types do not fold
+    /// either. This is a deliberate false negative, pinned so it is a decision rather than
+    /// an accident.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The index is built independently per side and only then matched by key, so at the
+    /// moment a candidate is accepted or refused there is no other side to compare its
+    /// constraints against. Refusing unconditionally is the only fail-closed option
+    /// available at that layer; narrowing it to "refuse only when the two sides differ"
+    /// requires the constraints to be *in the key*, which means a side-independent digest
+    /// of them — that is #3681, and it would make this case fold again for free.
+    /// </para>
+    /// <para>
+    /// The cost is a missed fold, never a masked difference, and it is measured rather
+    /// than assumed: the fidelity corpus retires the same 68 rows with and without the
+    /// refusal. When #3681 lands, this test is expected to fail and should be inverted —
+    /// that is the point of pinning it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void LocalFunctionsInsideIdenticallyConstrainedTypes_DoNotFoldEither()
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|1_0")],
+            declaringTypeConstraint: GenericParameterAttributes.ReferenceTypeConstraint)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|2_0")],
+            declaringTypeConstraint: GenericParameterAttributes.ReferenceTypeConstraint)));
+
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
+    }
+
+    /// <summary>
     /// A local function is never itself generic, so a constraint on the type that
     /// <em>declares</em> it is invisible to a check that reads only the method's own
     /// generic parameters. Two local functions whose declaring types differ only in a

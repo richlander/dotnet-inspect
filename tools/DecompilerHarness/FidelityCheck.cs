@@ -291,7 +291,7 @@ static class FidelityCheck
         Exact,
         /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
         OpcodeDiff,
-        /// <summary>Opcode names matched, but a V1-observable operand or branch target differed.</summary>
+        /// <summary>Opcode names matched, but a contract-observable operand or branch target differed.</summary>
         OperandDiff,
         /// <summary>The product body comparison could not produce a verdict.</summary>
         FidelityUnavailable,
