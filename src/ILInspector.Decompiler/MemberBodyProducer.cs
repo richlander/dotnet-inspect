@@ -215,11 +215,9 @@ public static class MemberBodyProducer
     /// </summary>
     public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         var composed = ComposeCore(
             type,
             dllPath,
@@ -262,11 +260,9 @@ public static class MemberBodyProducer
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         return ComposeMemberCore(
             type,
             member,
@@ -303,11 +299,9 @@ public static class MemberBodyProducer
     public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         return ComposeMembersBatch(
             type,
             () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
