@@ -566,6 +566,17 @@ public class EvilPoolSweepGateTests
         File.WriteAllBytes(sibling, world.FixtureBytes);
         File.WriteAllBytes(underLead, world.FixtureBytes);
 
+        // And one whose name begins with a dot, which is what NuGet itself leaves in a
+        // package directory -- .nupkg.metadata and .signature.p7s are both real. Nothing
+        // in this file had a dotfile in the pool, and the walk enumerating them is not
+        // something a reader can take on faith: filtering them out of the enumeration is
+        // a plausible edit, it is what several directory-walking APIs do by default on
+        // other platforms, and measured before this leftover existed it left all 23 cases
+        // green while an unrecorded file stayed in the pool over an exit code of 0.
+        string dotted = Path.Combine(
+            Path.GetDirectoryName(world.SubjectDestination)!, ".nupkg.metadata");
+        File.WriteAllBytes(dotted, world.FixtureBytes);
+
         var second = world.Run();
         Assert.True(second.ExitCode == 1, world.Explain(second, "a rerun whose subject cannot be acquired"));
         Assert.Equal("acquisition-failed", world.ReportedStatus(second));
@@ -575,7 +586,7 @@ public class EvilPoolSweepGateTests
         // Named, not merely gone. The sweep says which files it removed, so a run that had
         // to remove one is visible to whoever reads the manifest -- and so a leak this
         // step would otherwise quietly tidy away cannot pass for a clean pool.
-        world.AssertPoolMatchesRecord([world.SubjectDestination, sibling, underLead]);
+        world.AssertPoolMatchesRecord([world.SubjectDestination, sibling, underLead, dotted]);
     }
 
     /// <summary>

@@ -892,6 +892,12 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
             // out not to be empty, which is a failure to reconcile and is reported as one,
             // rather than a silent recursive delete of whatever raced in.
             //
+            // That last part is unverified, and no gate here enforces it. The only way to
+            // observe the difference is for a file to appear between the emptiness check
+            // and the delete, so a case would have to drive a race this harness has no way
+            // to schedule; measured, changing this to `Delete(true)` leaves every case
+            // green. Stated as a choice rather than as a property the suite protects.
+            //
             // Not passed to `Record`, unlike every other removal here. That record exists
             // so that content this step destroys is visible to whoever reads the manifest
             // -- a leak it would otherwise quietly tidy away cannot then pass for a clean
