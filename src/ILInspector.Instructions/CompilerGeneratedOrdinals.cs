@@ -358,11 +358,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// </summary>
     /// <remarks>
     /// Each owned form belongs to exactly one kind: Roslyn emits
-    /// <c>&lt;M&gt;d__N</c> as a state-machine <em>type</em> and
-    /// <c>&lt;M&gt;g__L|N_K</c> as a local-function <em>method</em>. A name
-    /// carrying one form on the other kind is not a shape any compiler
-    /// produces, so nothing relates the two sides' ordinals and folding them
-    /// would mask a real difference. This mirrors the rule
+    /// <c>&lt;M&gt;d__N</c> as a state-machine <em>type</em>, and both
+    /// <c>&lt;M&gt;g__L|N_K</c> and <c>&lt;M&gt;b__N_K</c> as <em>methods</em>
+    /// — a local function and a lambda respectively. A name carrying one form
+    /// on the other kind is not a shape any compiler produces, so nothing
+    /// relates the two sides' ordinals and folding them would mask a real
+    /// difference. This mirrors the rule
     /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
     /// already applies to non-canonical ordinals.
     /// </remarks>
@@ -408,7 +409,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 : null;
         }
 
-        if (kind == GeneratedNameKind.Type || !rest.StartsWith("g__", StringComparison.Ordinal))
+        if (kind == GeneratedNameKind.Type)
+            return null;
+
+        // The lambda form `<M>b__N_K` differs from the local-function form only in
+        // carrying no local name, so it has no separator and its ordinals start
+        // immediately. Both are methods, and both spell `N` as the containing type's
+        // member index, which the harness's rebuilt type skeleton renumbers.
+        if (rest.StartsWith("b__", StringComparison.Ordinal))
+        {
+            return ElideScopeOrdinal(rest[3..]) is { } lambdaOrdinals
+                ? $"{containing}b__{lambdaOrdinals}"
+                : null;
+        }
+
+        if (!rest.StartsWith("g__", StringComparison.Ordinal))
             return null;
 
         // Split at the last separator, not the first. Roslyn emits exactly one — a local
@@ -421,19 +436,41 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             return null;
 
         var local = rest[3..bar];
-        var ordinals = rest[(bar + 1)..];
+        if (local.IsEmpty)
+            return null;
+
+        return ElideScopeOrdinal(rest[(bar + 1)..]) is { } localOrdinals
+            ? $"{containing}g__{local}|{localOrdinals}"
+            : null;
+    }
+
+    /// <summary>
+    /// Elides the scope ordinal from the <c>N_K</c> tail both method forms end in,
+    /// yielding <c>#_K</c>, or returns null when the tail is not that shape.
+    /// </summary>
+    /// <remarks>
+    /// The scope ordinal <c>N</c> is the containing type's member index, which the
+    /// harness's rebuilt type skeleton renumbers and which is therefore not evidence.
+    /// The slot ordinal <c>K</c> distinguishes closures within one containing method
+    /// and is preserved, so two lambdas of the same method still differ.
+    /// <para>
+    /// Shared by the lambda and local-function forms because their tails are the same
+    /// grammar; keeping one parser keeps the two from drifting apart, which would show
+    /// up as one form accepting an ordinal the other rejects. Gated on the lambda side
+    /// by <c>LambdaOrdinalTails_AreHeldToTheCanonicalShape</c>.
+    /// </para>
+    /// </remarks>
+    static string? ElideScopeOrdinal(ReadOnlySpan<char> ordinals)
+    {
         int underscore = ordinals.IndexOf('_');
-        if (local.IsEmpty || underscore <= 0)
+        if (underscore <= 0)
             return null;
 
         var scope = ordinals[..underscore];
         var slot = ordinals[(underscore + 1)..];
-        if (!IsCanonicalOrdinal(scope) || !IsCanonicalOrdinal(slot))
-            return null;
-
-        // The scope ordinal `N` is the unstable member index; the slot ordinal `K`
-        // distinguishes local functions within one containing method and is preserved.
-        return $"{containing}g__{local}|{OrdinalPlaceholder}_{slot}";
+        return IsCanonicalOrdinal(scope) && IsCanonicalOrdinal(slot)
+            ? $"{OrdinalPlaceholder}_{slot}"
+            : null;
     }
 
     /// <summary>
@@ -552,16 +589,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 if (typeKeyPrefix is null)
                     continue;
 
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type) is { } elidedType)
+                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, declaringTypeIsGenerated: false) is { } elidedType)
                 {
                     typeNames[typeHandle] = elidedType;
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
                 }
 
+                // Read once per type rather than per member: a generated type's members
+                // are unmarked and inherit this, and the attribute walk is the expensive
+                // half of eligibility.
+                bool typeIsGenerated = HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
+
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method) is not { } elided)
+                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method, declaringTypeIsGenerated: typeIsGenerated) is not { } elided)
                         continue;
 
                     // A generic method's own constraints; the declaring chain's are
@@ -659,7 +701,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
                 string name = typeNames.TryGetValue(chain[i], out var elided)
                     ? elided
-                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type)
+                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, declaringTypeIsGenerated: false)
                         ?? reader.GetString(type.Name);
 
                 if (i == 0)
@@ -677,15 +719,49 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             return builder.ToString();
         }
 
+        /// <summary>
+        /// Reports the elided form of an eligible generated name, or null when the name
+        /// is not an owned shape or the member is not marked compiler-generated.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="declaringTypeIsGenerated"/> carries the mark down one level,
+        /// and is the difference between owning local functions and owning lambdas.
+        /// Roslyn marks a generated <em>type</em> and then leaves its members unmarked,
+        /// because the type-level mark already says it: measured on a Release build,
+        /// <c>&lt;&gt;c</c> carries <c>CompilerGeneratedAttribute</c> while every
+        /// <c>&lt;M&gt;b__N_K</c> and <c>&lt;&gt;9__N_K</c> inside it carries none. A
+        /// local function is the other shape — it sits on the user's own unmarked type,
+        /// so it carries the mark itself. Asking only the member would therefore decline
+        /// every lambda, and asking only the type would decline every local function.
+        /// <para>
+        /// Types are asked about themselves alone: every call site that passes a type
+        /// kind passes <c>false</c> here, because Roslyn marks every generated type it
+        /// emits, so a type has no mark it needs to inherit.
+        /// <c>TypeNameShapeAlone_DoesNotFold</c> pins that an unmarked type does not
+        /// fold on its name; nothing here would let it inherit one, and widening the
+        /// inheritance to types would need a nested-type fixture to gate, which the
+        /// class remarks already track as an unverified branch.
+        /// Gated by <c>UnmarkedMemberOfAGeneratedType_Folds</c> for the inheritance and
+        /// <c>UnmarkedMemberOfAnUnmarkedType_DoesNotFold</c> for its negative.
+        /// </para>
+        /// <para>
+        /// The parameter has no default. Every call site states its answer, so adding
+        /// one — the field index the next slice needs — is a decision rather than an
+        /// omission that compiles.
+        /// </para>
+        /// </remarks>
         static string? TryEligibleName(
             MetadataReader reader,
             string name,
             CustomAttributeHandleCollection attributes,
-            GeneratedNameKind kind)
+            GeneratedNameKind kind,
+            bool declaringTypeIsGenerated)
         {
             if (TryElideOrdinal(name, kind) is not { } elided)
                 return null;
-            return HasCompilerGeneratedAttribute(reader, attributes) ? elided : null;
+            return declaringTypeIsGenerated || HasCompilerGeneratedAttribute(reader, attributes)
+                ? elided
+                : null;
         }
 
         /// <summary>

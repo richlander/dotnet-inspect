@@ -329,12 +329,44 @@ public class IlBodyDiffNormalizationTests
             "<<Run>b__1_0>g__Local|1_0",
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
 
-        // A shape Roslyn does emit, carrying no name the correspondence owns, keeps
-        // folding under both options.
-        Assert.True(CompareMemberNames(
+        // The correspondence does not recurse into a containing name, so this pair keys
+        // under `<<Run>b__103_0>b__#_1` against `<<Run>b__128_0>b__#_1` and finds no
+        // counterpart. Owned and declined, so the guard keeps the rewrite off it too.
+        //
+        // Roslyn does not emit this nesting. Measured on a Release build: a lambda
+        // inside a lambda is named after the *outermost* method — `<Run>b__0_0` and
+        // `<Run>b__0_1`, flat — never `<<Run>b__0_0>b__1_1`. An earlier revision of this
+        // comment asserted the opposite and folding it was pinned as required behavior;
+        // the compiler disagrees, so the shape is hand-written metadata only and
+        // declining it costs no Roslyn-emitted row.
+        Assert.False(CompareMemberNames(
             "<<Run>b__103_0>b__104_1",
             "<<Run>b__128_0>b__129_1",
             Both).IsExact);
+
+        // Under the rewrite alone the name still folds at both levels, so the line above
+        // is the composition rule declining it rather than the grammar ceasing to
+        // recognize it.
+        Assert.True(CompareMemberNames(
+            "<<Run>b__103_0>b__104_1",
+            "<<Run>b__128_0>b__129_1",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+
+        // The shape Roslyn does emit for two lambdas of one method, reached here through
+        // a MemberReference. The correspondence indexes definitions, so it never saw
+        // this member and declines — and because it owns the name, the rewrite is held
+        // off it too. That is #3580's documented accepted cost now extending to lambdas:
+        // a false positive, never a masked difference. The definition path still folds,
+        // gated by CompilerGeneratedOrdinalTests.LambdaShape_Folds.
+        Assert.False(CompareMemberNames(
+            "<Run>b__103_1",
+            "<Run>b__128_1",
+            Both).IsExact);
+
+        Assert.True(CompareMemberNames(
+            "<Run>b__103_1",
+            "<Run>b__128_1",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
     }
 
     /// <summary>
