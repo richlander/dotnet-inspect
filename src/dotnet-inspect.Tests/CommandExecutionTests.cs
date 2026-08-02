@@ -3421,6 +3421,22 @@ public partial class CommandExecutionTests
         Assert.Contains("NoSuchField", countError, StringComparison.Ordinal);
         Assert.DoesNotContain("0", countOutput.Trim(), StringComparison.Ordinal);
 
+        // --plaintext wrote straight to the console and so never saw the gate at all, which is
+        // the same bypass shape as the fact-table routing in #3648: a path that skips the shared
+        // check because it renders differently, not because it should behave differently.
+        var (plainExit, plainOutput, plainError) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "NoSuchField", "--tips", "q"]);
+
+        Assert.Equal(1, plainExit);
+        Assert.Contains("NoSuchField", plainError, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, plainOutput.Trim());
+
+        var (plainOkExit, plainOkOutput, _) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "Library", "--tips", "q"]);
+
+        Assert.Equal(0, plainOkExit);
+        Assert.NotEqual(string.Empty, plainOkOutput.Trim());
+
         // Non-vacuity: the same projection with a REAL name must still succeed, or this would
         // pass on a build that rejected every projection.
         var (okExit, okOutput, _) = await RunAppAsync(
@@ -3453,6 +3469,58 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains(expected, output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other two ways an empty render is an honest answer rather than a failed projection.
+    /// Both were real false positives of an earlier form of the gate, and neither can be seen by
+    /// looking at the rendered bytes alone -- which is exactly why the gate needs the two
+    /// narrowing conditions this pins.
+    /// </summary>
+    [Theory]
+    // A KNOWN field that simply holds no value. `Version` is advertised by -D "API Info", but a
+    // local .dll has none, so the render is empty for a reason that is not an unmatched name.
+    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
+    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
+    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
+    public async Task Type_Listing_EmptyResultWithoutAnUnmatchedName_StaysSuccessful(string[] args)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            ["type", "--library", TestAssemblyPath, .. args, "--tips", "q"]);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("No fields matched", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("No columns matched", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An empty SECTION with no projection at all is a valid zero-row answer. Failing it would
+    /// make the exit code depend on the output format, since only the tabular paths render it as
+    /// literally nothing. The target matters here: this must be a library that genuinely has no
+    /// interfaces, or the section renders rows and the case proves nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Type_Listing_EmptySectionWithNoProjection_StaysSuccessful(string format)
+    {
+        string[] formatArgs = format.Length == 0 ? [] : [format];
+
+        var (exit, _, error) = await RunAppAsync(
+            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", .. formatArgs, "--tips", "q"]);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Nothing to render", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("matched projection", error, StringComparison.Ordinal);
+
+        // Non-vacuity: the section must really be empty in the tabular form, or this asserts
+        // nothing about the gate. `--tsv` renders zero bytes for a zero-row section.
+        var (tsvExit, tsvOutput, _) = await RunAppAsync(
+            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--tsv", "--tips", "q"]);
+
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(string.Empty, tsvOutput.Trim());
     }
 
     [Theory]

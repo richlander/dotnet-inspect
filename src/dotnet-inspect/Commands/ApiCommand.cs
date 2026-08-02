@@ -671,7 +671,15 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             if (options.PlainText)
             {
-                MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                // Buffered rather than written straight to the console so the empty-render gate
+                // can see the result. Writing directly is what let an emptying projection print
+                // nothing and exit 0 here while every sibling path reported it.
+                var plain = new StringWriter();
+                MarkoutSerializer.Serialize(view, plain, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                var plainText = plain.ToString();
+                if (!TryReportEmptyProjection(plainText, options))
+                    return 1;
+                Console.Out.Write(plainText);
             }
             else
             {
@@ -691,27 +699,51 @@ public class ApiCommand
     /// </summary>
     /// <remarks>
     /// This is the gate for "a projection that matches nothing must not look like success".
-    /// `Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing` is the
-    /// non-vacuity test: it fails if this check stops firing.
+    /// <see cref="CommandExecutionTests.Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing"/>
+    /// is the non-vacuity test: it fails if this check stops firing, and
+    /// <c>Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate</c> is the companion that
+    /// fails if it starts firing too widely. Both conditions below are load-bearing and each was
+    /// added because its absence produced a real false positive:
     ///
-    /// It deliberately tests the RENDERED result rather than validating names against the
-    /// schema up front. Two earlier attempts at a name-based pre-check both produced false
-    /// negatives, because the set of legitimately projectable names is wider than any one
-    /// section's schema: `-S "API Info" --columns Field` names a column the fact-table
-    /// renderer synthesizes and the schema never lists, and `-S Classes --fields Types`
-    /// names a document-level field that survives regardless of which section is selected.
-    /// Emptiness has no such blind spot -- if anything rendered, this says nothing.
+    /// <list type="number">
+    /// <item>A projection must actually be active. An empty render with no <c>--fields</c> or
+    /// <c>--columns</c> is an honest empty answer -- <c>-S Interfaces</c> against a library that
+    /// has no interfaces -- and reporting it as failure would turn a valid zero-row query into an
+    /// error, and only in some output formats.</item>
+    /// <item>Every projected name must resolve nowhere. Emptiness alone cannot tell an unknown
+    /// name from a known field that happens to hold no value: <c>-S "API Info" --fields Version</c>
+    /// against a local .dll renders nothing because that assembly has no version, and <c>Version</c>
+    /// is a perfectly valid field that <c>-D "API Info"</c> advertises.</item>
+    /// </list>
+    ///
+    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
+    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
+    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
+    /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
+    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
+    /// emptiness first puts the schema's blind spots out of reach.
     /// </remarks>
-    private static bool TryReportEmptyProjection(string markdown, ApiOptions options)
+    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
     {
-        if (!string.IsNullOrWhiteSpace(markdown))
+        if (!string.IsNullOrWhiteSpace(rendered))
             return true;
 
         var names = options.Fields ?? options.Columns;
+        if (names is not { Length: > 0 } || options.IncludeSections is not { Count: > 0 })
+            return true;
+
+        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        foreach (var section in options.IncludeSections)
+        {
+            var unresolved = new HashSet<string>(
+                schema.ValidateProjection(section, names).Unresolved, StringComparer.OrdinalIgnoreCase);
+            if (names.Any(name => !unresolved.Contains(name)))
+                return true;
+        }
+
         var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
-        CommandError.Write(names is { Length: > 0 }
-            ? $"No {kind} matched projection: {string.Join(", ", names)}"
-            : "Nothing to render for the requested selection.");
+        CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");
         return false;
     }
 
