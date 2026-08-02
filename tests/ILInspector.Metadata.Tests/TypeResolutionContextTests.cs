@@ -507,6 +507,104 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void RegisteredButUnreadableOrigin_IsTerminalForTypesAndBindings()
+    {
+        ResolvedAssemblyReference owner = ResolvedAssemblyReference.Create(
+            Identity("Owner"),
+            path: null,
+            openRead: () => throw new IOException("unreadable"),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        AssemblyBindingOrigin origin =
+            AssemblyBindingOrigin.FromAssembly(owner);
+        TypeResolutionRequest referenceRequest =
+            TypeResolutionRequest.FromReference(
+                Identity("Target"),
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest coreRequest =
+            TypeResolutionRequest.FromCoreLibrary(
+                owner,
+                AssemblyResolutionScope.Platform,
+                TypeName());
+        var bindingRequest = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            origin,
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException("Must not be called."));
+        using var catalog = new TypeResolutionCatalog();
+
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [bindingRequest],
+            requests: [referenceRequest, coreRequest]);
+        using TypeResolutionContext second = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [bindingRequest],
+            requests: [referenceRequest, coreRequest]);
+
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                context.Resolve(referenceRequest)).Failure);
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                context.Resolve(coreRequest)).Failure);
+        Assert.Equal(
+            AssemblyBindingFailureKind.CandidateUnavailable,
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(bindingRequest)).Failure.Kind);
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                second.Resolve(referenceRequest)).Failure);
+        Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+            second.Bind(bindingRequest));
+        Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void CandidateBudgetRejectedOrigin_IsNotExpansionRequired()
+    {
+        ResolvedAssemblyReference first =
+            Descriptor(BuildAssembly("First", definesType: false));
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        AssemblyBindingOrigin origin =
+            AssemblyBindingOrigin.FromAssembly(owner);
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromReference(
+                Identity("Target"),
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            origin,
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException("Must not be called."));
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxCandidates = 1 });
+
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [first, owner],
+            bindingRequests: [binding],
+            requests: [request]);
+
+        Assert.Equal(
+            1,
+            Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    context.Resolve(request)).Failure).Budget);
+        Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+            context.Bind(binding));
+        Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
     public void RequestOutsideFrozenManifest_RequiresExpansion()
     {
         byte[] image = BuildAssembly("Definitions", definesType: true);

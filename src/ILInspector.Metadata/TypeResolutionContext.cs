@@ -412,10 +412,14 @@ public sealed class TypeResolutionContext : IDisposable
                         request.Origin,
                         request.Scope,
                         out BindingKey key,
-                        out _))
+                        out TypeResolutionFailure? failure))
                 {
-                    return new AssemblyBindingOutcome.ExpansionRequired(
-                        request);
+                    return failure
+                        is TypeResolutionFailure.UnregisteredAssembly
+                        ? new AssemblyBindingOutcome.ExpansionRequired(request)
+                        : new AssemblyBindingOutcome.Unavailable(
+                            new AssemblyBindingFailure(
+                                AssemblyBindingFailureKind.CandidateUnavailable));
                 }
 
                 return _bindings.TryGetValue(
@@ -560,6 +564,9 @@ public sealed class TypeResolutionContext : IDisposable
         out TypeResolutionFailure? failure) =>
         TryCreateBindingKey(
             _candidates,
+            _registrationFailures,
+            _descriptors,
+            _catalog.MaxCandidates,
             target,
             origin,
             scope,
@@ -570,6 +577,13 @@ public sealed class TypeResolutionContext : IDisposable
         Dictionary<
             AssemblyAcquisitionRegistration,
             ResolvedAssemblyCandidate> candidates,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            CandidateOpenFailure> registrationFailures,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> descriptors,
+        int maxCandidates,
         AssemblyBindingTarget target,
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope,
@@ -588,8 +602,14 @@ public sealed class TypeResolutionContext : IDisposable
                         out ResolvedAssemblyCandidate? candidate))
                 {
                     key = null!;
-                    failure =
-                        new TypeResolutionFailure.UnregisteredAssembly(
+                    failure = registrationFailures.TryGetValue(
+                            requesting.Registration,
+                            out CandidateOpenFailure? openFailure)
+                        ? CandidateFailure(
+                            descriptors[requesting.Registration],
+                            openFailure,
+                            maxCandidates)
+                        : new TypeResolutionFailure.UnregisteredAssembly(
                             requesting.Registration);
                     return false;
                 }
@@ -1475,6 +1495,9 @@ public sealed class TypeResolutionContext : IDisposable
             out TypeResolutionFailure? failure) =>
             TryCreateBindingKey(
                 _candidates,
+                _registrationFailures,
+                _descriptors,
+                _maxCandidates,
                 target,
                 origin,
                 scope,
