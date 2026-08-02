@@ -289,6 +289,37 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void HopBudgetOutcome_IsReusableAcrossGenerations()
+    {
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: Identity("Target"));
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException("Must not be called."));
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            facade,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxForwarderHops = 0 });
+
+        using TypeResolutionContext first =
+            catalog.CreateContext(policy, [facade], [request]);
+        using TypeResolutionContext second =
+            catalog.CreateContext(policy, [facade], [request]);
+
+        Assert.IsType<TypeResolutionFailure.HopBudgetExceeded>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                first.Resolve(request)).Failure);
+        Assert.IsType<TypeResolutionFailure.HopBudgetExceeded>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                second.Resolve(request)).Failure);
+        Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
     public void PlatformReference_TightensScopeAtForwarderHop()
     {
         const string token = "b03f5f7f11d50a3a";
@@ -871,17 +902,30 @@ public class TypeResolutionContextTests
             AssemblyResolutionScope.Any,
             TypeName());
 
-        using TypeResolutionContext context = TypeResolutionContext.Create(
-            policy,
-            [facade],
-            [request]);
+        TypeResolutionRequest unreadableRequest =
+            TypeResolutionRequest.FromAssembly(
+                unreadable,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext firstContext =
+            catalog.CreateContext(policy, [facade], [request]);
+        using TypeResolutionContext secondContext =
+            catalog.CreateContext(policy, [facade], [request]);
         var ambiguous = Assert.IsType<TypeResolutionOutcome.Ambiguous>(
-            context.Resolve(request));
+            secondContext.Resolve(request));
         var binding =
             Assert.IsType<TypeResolutionAmbiguity.AssemblyBinding>(
                 ambiguous.Ambiguity);
 
         Assert.Equal(2, binding.Candidates.Length);
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                firstContext.Resolve(unreadableRequest)).Failure);
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                secondContext.Resolve(unreadableRequest)).Failure);
+        Assert.Single(policy.Requests);
     }
 
     [Fact]
@@ -902,12 +946,13 @@ public class TypeResolutionContextTests
                 AssemblyResolutionScope.Any,
                 TypeName());
 
+        using var candidateCatalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions { MaxCandidates = 1 });
         using TypeResolutionContext candidateLimited =
-            TypeResolutionContext.Create(
+            candidateCatalog.CreateContext(
                 policy,
                 [facade],
-                [forwardedRequest],
-                new TypeResolutionContextOptions { MaxCandidates = 1 });
+                [forwardedRequest]);
         Assert.Equal(
             1,
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
@@ -923,6 +968,18 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
                 Assert.IsType<TypeResolutionOutcome.Rejected>(
                     candidateLimited.Resolve(unmanifestedRequest)).Failure)
+                .Budget);
+        using TypeResolutionContext secondCandidateLimited =
+            candidateCatalog.CreateContext(
+                policy,
+                [facade],
+                [forwardedRequest]);
+        Assert.Equal(
+            1,
+            Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    secondCandidateLimited.Resolve(unmanifestedRequest))
+                    .Failure)
                 .Budget);
 
         TypeResolutionRequest directRequest =

@@ -5,7 +5,8 @@ namespace ILInspector.Metadata;
 sealed record CachedBindingEvaluation(
     AssemblyBindingOutcome Outcome,
     ResolvedAssemblyReference? Assembly = null,
-    CandidateOpenFailure? OpenFailure = null);
+    CandidateOpenFailure? OpenFailure = null,
+    ImmutableArray<ResolvedAssemblyReference> Registrations = default);
 
 readonly record struct PolicyCacheKey(
     AssemblyBindingPolicyVersion PolicyVersion,
@@ -852,8 +853,17 @@ public sealed class TypeResolutionContext : IDisposable
             if (requestKey is RequestKey.Binding binding)
                 SeedBinding(binding.BindingKey);
 
-            foreach (TypeForwardingHop hop in outcome.Hops)
+            int bindingHopCount =
+                outcome is TypeResolutionOutcome.Rejected
+                {
+                    Failure:
+                        TypeResolutionFailure.HopBudgetExceeded,
+                }
+                    ? outcome.Hops.Length - 1
+                    : outcome.Hops.Length;
+            for (int i = 0; i < bindingHopCount; i++)
             {
+                TypeForwardingHop hop = outcome.Hops[i];
                 Register(hop.SourceAssembly.Assembly);
                 if (TryBindingKey(
                         AssemblyBindingTarget.Reference(
@@ -899,18 +909,13 @@ public sealed class TypeResolutionContext : IDisposable
         void RegisterEvaluationCandidates(
             CachedBindingEvaluation evaluation)
         {
-            switch (evaluation!.Outcome)
+            if (evaluation.Registrations.IsDefaultOrEmpty)
+                return;
+
+            foreach (ResolvedAssemblyReference assembly
+                in evaluation.Registrations)
             {
-                case AssemblyBindingOutcome.Resolved resolved:
-                    Register(resolved.Candidate.Assembly);
-                    break;
-                case AssemblyBindingOutcome.Ambiguous ambiguous:
-                    foreach (ResolvedAssemblyCandidate candidate
-                        in ambiguous.Candidates)
-                    {
-                        Register(candidate.Assembly);
-                    }
-                    break;
+                Register(assembly);
             }
         }
 
@@ -1396,7 +1401,8 @@ public sealed class TypeResolutionContext : IDisposable
                     out ResolvedAssemblyCandidate? candidate))
             {
                 return new(
-                    new AssemblyBindingOutcome.Resolved(candidate));
+                    new AssemblyBindingOutcome.Resolved(candidate),
+                    Registrations: [assembly]);
             }
 
             CandidateOpenFailure failure =
@@ -1406,7 +1412,8 @@ public sealed class TypeResolutionContext : IDisposable
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.CandidateUnavailable)),
                 assembly,
-                failure);
+                failure,
+                [assembly]);
         }
 
         CachedBindingEvaluation SelectMany(
@@ -1439,7 +1446,8 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 return new(
                     new AssemblyBindingOutcome.Ambiguous(
-                        candidates.ToImmutable()));
+                        candidates.ToImmutable()),
+                    Registrations: assemblies);
             }
 
             return unavailableFailure is not null
@@ -1448,7 +1456,8 @@ public sealed class TypeResolutionContext : IDisposable
                         new AssemblyBindingFailure(
                             AssemblyBindingFailureKind.CandidateUnavailable)),
                     unavailableAssembly,
-                    unavailableFailure)
+                    unavailableFailure,
+                    assemblies)
                 : InvalidBinding();
         }
 
