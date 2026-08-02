@@ -1294,6 +1294,109 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// <para>
+    /// An attribute list can CROSS a conditional group, and the tokens inside the group can decide
+    /// whether the list binds to this declaration at all. With <c>X</c> the list is a
+    /// compilation-unit attribute and <c>C</c> starts on line 6 with no attributes; without
+    /// <c>X</c> the same list is <c>C</c>'s own and <c>C</c> starts on line 1 (confirmed against
+    /// Roslyn in both symbol configurations). Knownness sampled at the <c>[</c> found that token
+    /// outside the group and vouched for the first answer.
+    /// </para>
+    /// <para>
+    /// So knownness is accumulated over every token of the list, not just its opener
+    /// (adversarial review round 4, GPT-5.6 Terra).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeTarget_LosesTheRowBelowIt()
+    {
+        var index = DeclarationIndex.Build("""
+            [
+            #if X
+            assembly:
+            #endif
+            System.CLSCompliant(true)]
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.False(c.SpanKnown, "the target decides whether this list is C's own trivia");
+    }
+
+    /// <summary>
+    /// The bodiless-emit counterpart of
+    /// <see cref="AConditionalAttributeTarget_LosesTheRowBelowIt"/>. There are two
+    /// <c>SpanKnown</c> expressions, and a fixture written with <c>class C { }</c> reaches only
+    /// the braced one -- which is how a round-2 fix shipped with the bodiless site ungated. A
+    /// field is emitted through the other.
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeTarget_LosesABodilessRowBelowIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Outer {
+            [
+            #if X
+            field:
+            #endif
+            System.Obsolete]
+            int F;
+            }
+            """);
+
+        var f = Assert.Single(index.Declarations, s => s.Name == "F");
+        Assert.False(f.SpanKnown, "the bodiless emit site must consult the same knownness");
+    }
+
+    /// <summary>
+    /// A literal inside a conditional group inside an attribute list. This is the negative that
+    /// bounds the accumulation: a broader placement that also consumed comment and literal tokens
+    /// refused this row, and refusing it costs recall for nothing, because the list's ends are
+    /// punctuators and its target is a word, so the literal changes no line this row reports
+    /// (adversarial review round 4; the broad placement was written first and this fixture is
+    /// what falsified it).
+    /// </summary>
+    [Fact]
+    public void AConditionalLiteralInsideAnAttributeList_StillVouchesForTheRowBelowIt()
+    {
+        var index = DeclarationIndex.Build("""
+            [System.Obsolete(
+            #if X
+            "a"
+            #else
+            "b"
+            #endif
+            )]
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(1, c.TriviaStartLine);
+        Assert.Equal(8, c.EndLine);
+        Assert.True(c.SpanKnown, "both builds report the same first and last line for this row");
+    }
+
+    /// <summary>
+    /// The negative that bounds the three above. An unconditional compilation-unit attribute still
+    /// resets the trivia and still vouches for what follows, so the round-4 rule refuses crossing
+    /// lists rather than attribute lists in conditional files generally.
+    /// </summary>
+    [Fact]
+    public void AnUnconditionalUnitAttributeInAConditionalFile_StillVouchesForWhatFollows()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            #endif
+            [assembly: System.CLSCompliant(true)]
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(4, c.TriviaStartLine);
+        Assert.True(c.SpanKnown, "nothing about this list crosses the group");
+    }
+
+    /// <summary>
     /// A directive name is an identifier, so <c>#endif_foo</c> spells <c>endif_foo</c> and is not
     /// the <c>#endif</c> directive: Roslyn reports CS1024 and CS1027 and leaves the group open in
     /// every symbol configuration. Reading it as an <c>#endif</c> closed the group, recovered the

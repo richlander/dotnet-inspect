@@ -63,11 +63,28 @@ internal static class DeclarationIndexBuilder
         // span. Comment and attribute-list tokens never reach `pending`, so neither `SpanKnown`
         // expression would otherwise consult them, and a doc comment or attribute list written
         // inside a conditional group would silently contribute one branch's start line to a row
-        // the scan vouches for (adversarial review round 2, GPT-5.6 Sol). Only the token that
-        // *opens* the trivia matters: a later comment inside a group cannot move the recorded
-        // start, and every line it occupies already falls inside the row's range.
+        // the scan vouches for (adversarial review round 2, GPT-5.6 Sol). For a COMMENT, only the
+        // token that opens the trivia matters: a later comment inside a group cannot move the
+        // recorded start, and every line it occupies already falls inside the row's range. An
+        // attribute list is not merely a line inside the range, so it is treated separately below.
         bool triviaKnown = true;
-        bool attributeStartKnown = true;
+
+        // Knownness accumulated over EVERY token of the attribute list currently open, not just
+        // its "[". A list can CROSS a conditional group, and what the tokens inside the group say
+        // can decide whether the list binds to the declaration at all: in
+        //
+        //     [
+        //     #if X
+        //     assembly:
+        //     #endif
+        //     System.CLSCompliant(true)]
+        //     class C { }
+        //
+        // the "[" is outside the group and known, but with X the list is a compilation-unit
+        // attribute and C starts on the last line, while without X the list is C's own and C
+        // starts on the first. Sampling at the "[" vouched for one of those two answers
+        // (adversarial review round 4, GPT-5.6 Terra).
+        bool attributeKnown = true;
         int lastClosed = -1;
         bool inAttribute = false;
         int attributeDepth = 0;
@@ -132,6 +149,20 @@ internal static class DeclarationIndexBuilder
 
             if (tok.Kind == ScanTokenKind.Directive)
                 continue;
+
+            // Comment and literal tokens are excluded, and that exclusion is load-bearing in both
+            // directions. A comment or literal inside a group inside a list can move neither end
+            // of the list -- "[" and "]" are punctuators -- nor decide its target, which is a
+            // word, so refusing on one would cost recall for nothing, exactly as refusing on a
+            // conditional comment in trivia would. The case where a literal or comment DOES
+            // diverge between builds is one where it opens or closes unevenly, and the existing
+            // hidden-directive guard has already lost the depth for the whole file by then, so
+            // the "]" is unknown regardless.
+            if (inAttribute && tok.Kind is not ScanTokenKind.Comment
+                and not ScanTokenKind.StringLiteral and not ScanTokenKind.CharLiteral)
+            {
+                attributeKnown &= tok.DepthKnown;
+            }
 
             if (tok.Kind == ScanTokenKind.Comment)
             {
@@ -210,7 +241,7 @@ internal static class DeclarationIndexBuilder
                         // the next declaration's trivia -- "[assembly: X] // note" is a comment
                         // about the attribute.
                         triviaStart = -1;
-                        triviaKnown = true;
+                        triviaKnown = attributeKnown;
                         lastTerminatorLine = tok.Line + 1;
                     }
                     else
@@ -223,7 +254,7 @@ internal static class DeclarationIndexBuilder
                         // a line inside the row's range -- it is a claim about what is applied to
                         // the declaration. A row whose lists depend on the build is not vouched
                         // for (adversarial review round 3, Gemini 3.1 Pro).
-                        triviaKnown &= attributeStartKnown;
+                        triviaKnown &= attributeKnown;
                         if (triviaStart < 0)
                             triviaStart = attributeStart;
                     }
@@ -262,7 +293,13 @@ internal static class DeclarationIndexBuilder
                 inAttribute = true;
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
-                attributeStartKnown = tok.DepthKnown;
+                // Subsumed by the accumulation above for any input that compiles in both
+                // configurations: the closing "]" is accumulated too, and for this seed to decide
+                // the outcome the group would have to close between the "[" and the rest of the
+                // list -- a file whose other build has no "[" at all. Mutation M6 (seed `true`)
+                // accordingly survives the suite. Kept as the conservative initialization and
+                // marked UNVERIFIED rather than cited to a gate (adversarial review round 4).
+                attributeKnown = tok.DepthKnown;
                 attributeWords = 0;
                 // unitTarget needs no reset: the first word of every list assigns it, and it is
                 // read only after that assignment. An explicit one here would be a dead store that
