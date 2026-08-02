@@ -1061,9 +1061,15 @@ public static class BodySlicer
 
         /// <summary>
         /// Set when a conditional group's branches did not balance. Never cleared, which is what
-        /// makes the loss survive any number of later balanced groups; gated by
-        /// <c>DeclarationIndexTests.AnUnbalancedConditional_StillLosesEveryLaterRow</c>, whose
-        /// third fixture closes a balanced group after the unbalanced one.
+        /// makes the loss survive a later balanced group -- closing one restores the depth for its
+        /// own frame and must not clear a loss recorded before it opened. Gated by
+        /// <c>DeclarationIndexTests.ADirectiveHiddenInsideACommentWithinAGroup_LosesTheDepth</c>
+        /// and <c>...ADirectiveHiddenInsideALiteralWithinAGroup_LosesTheDepth</c>: each sets this
+        /// field inside a group that then closes balanced, so clearing it on a balanced close
+        /// fails both. <c>AnUnbalancedConditional_StillLosesEveryLaterRow</c> does <em>not</em>
+        /// gate it -- an unbalanced group mangles the brace structure enough that its rows are
+        /// unknown for other reasons, which is why two earlier citations of that test here were
+        /// wrong (adversarial review round 3, GPT-5.6 Sol).
         /// </summary>
         private bool conditionalDepthLost;
 
@@ -1113,10 +1119,11 @@ public static class BodySlicer
         }
 
         /// <summary>
-        /// Records that the depth was lost for a non-conditional reason. <c>Untracked</c> is
-        /// read only by the legacy backward scan in <c>ExtractMethodBody</c> and is gated by
-        /// <c>AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText</c>;
-        /// <c>literalDepthLost</c> is what the declaration index reads.
+        /// Records that the depth was lost for a non-conditional reason. <c>Untracked</c> is read
+        /// only from <see cref="ExtractMethodBody"/> and the helpers it calls -- the token-emitting
+        /// path the declaration index consumes never reads it -- and is gated by
+        /// <c>ExtractMethodBodyTests.AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText</c>;
+        /// <c>literalDepthLost</c> is what the index reads.
         /// </summary>
         public void LoseDepth()
         {
@@ -1320,6 +1327,9 @@ public static class BodySlicer
     /// </summary>
     private enum Conditional { None, If, NextBranch, EndIf }
 
+    /// <summary>Whether <paramref name="c"/> can continue a C# identifier.</summary>
+    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+
     private static bool IsDirective(string line, out Conditional conditional)
     {
         conditional = Conditional.None;
@@ -1333,12 +1343,19 @@ public static class BodySlicer
 
         // "elif" and "else" are one case: each ends the branch above it and starts another, and
         // the group's balance is judged the same way at both.
+        //
+        // The character after the name must not continue an identifier: "#endif_foo" spells the
+        // single identifier "endif_foo", which is not the #endif directive at all, and reading it
+        // as one closes a group the compiler leaves open. Underscore is the gap that
+        // char.IsLetterOrDigit misses. Anything else that follows -- "#endif-" (CS1025), or a
+        // comment as in "#endif//note" -- Roslyn still recognizes as the directive, so accepting
+        // those matches it (adversarial review round 3, Gemini 3.1 Pro).
         foreach (var (candidate, kind) in (ReadOnlySpan<(string, Conditional)>)
                  [("if", Conditional.If), ("elif", Conditional.NextBranch),
                   ("else", Conditional.NextBranch), ("endif", Conditional.EndIf)])
         {
             if (name.StartsWith(candidate, StringComparison.Ordinal) &&
-                (name.Length == candidate.Length || !char.IsLetterOrDigit(name[candidate.Length])))
+                (name.Length == candidate.Length || !IsIdentifierPart(name[candidate.Length])))
             {
                 conditional = kind;
                 break;

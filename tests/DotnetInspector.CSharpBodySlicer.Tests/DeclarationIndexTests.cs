@@ -958,6 +958,13 @@ public class DeclarationIndexTests
     [InlineData("class C\n{\n    void M()\n    {\n#if DEBUG\n        if (x) {\n#endif\n        }\n    }\n    void After() { }\n}")]
     // Balance judged over the last branch too: the #else arm is the one that does not return.
     [InlineData("class C\n{\n#if A\n    void M() { }\n#else\n    void M() {\n#endif\n    }\n    void After() { }\n}")]
+    // An unbalanced group followed by a balanced one. This is coverage of a real shape, NOT a gate
+    // on the stickiness of the loss: an unbalanced group mangles the brace structure enough that
+    // these rows are unknown for other reasons too, so the fixture passes whether or not a
+    // balanced close clears the flag. Stickiness is gated by the two hidden-directive tests, which
+    // set the flag inside a group that then closes balanced. Recorded because two successive
+    // attempts to cite this test for stickiness were wrong (adversarial review round 3).
+    [InlineData("class C\n{\n#if A\n    void M() {\n#else\n    void M() {\n#endif\n    }\n#if B\n    void N() { }\n#endif\n    void After() { }\n}")]
     public void AnUnbalancedConditional_StillLosesEveryLaterRow(string source)
     {
         var index = DeclarationIndex.Build(source.Split('\n'));
@@ -1182,6 +1189,140 @@ public class DeclarationIndexTests
             """);
 
         Assert.True(Assert.Single(plain.Declarations, s => s.Name == "D").SpanKnown);
+
+        // One conditional namespace, no alternative. The refusal starts at the row after the
+        // namespace, and with two namespaces the alternative occupies that row -- so a fixture
+        // with two masks an off-by-one that this one catches, because here the refusal's first
+        // row is D itself (adversarial review round 3, GPT-5.6 Sol).
+        var single = DeclarationIndex.Build("""
+            #if X
+            namespace B;
+            #endif
+
+            class D { }
+            """);
+
+        Assert.False(
+            Assert.Single(single.Declarations, s => s.Name == "D").SpanKnown,
+            "D is in namespace B in one build and at file scope in the other");
+    }
+
+    /// <summary>
+    /// An "assembly:" or "module:" attribute list belongs to the compilation unit, so it ends the
+    /// trivia run above it rather than carrying it down: Roslyn reports the next declaration's
+    /// leading trivia as starting after such a list. The knownness of the trivia it consumed must
+    /// be dropped with it, or a conditional comment above a unit attribute would refuse a
+    /// declaration whose own trivia begins below it. This is the one path that resets trivia
+    /// knownness rather than setting it, and nothing else reaches it (adversarial review round 3,
+    /// GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void AUnitAttributeAfterConditionalTrivia_StillVouchesForWhatFollows()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            /// conditional assembly docs
+            #endif
+            [assembly: System.CLSCompliant(true)]
+
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.True(c.SpanKnown, "C's own trivia starts below the unit attribute");
+        Assert.Equal(6, c.TriviaStartLine);
+    }
+
+    /// <summary>
+    /// <para>
+    /// An attribute list inside a conditional group is reported in <c>AttributeLists</c> even
+    /// though only one build compiles it. When an unconditional list comes first the row's lines
+    /// do not move -- trivia still starts at the first list, and the conditional one falls inside
+    /// the range -- so the line-based rule alone vouches for the row while its list set is
+    /// build-dependent. Unlike a comment, a list is not merely a line inside the range: it is a
+    /// claim about what is applied to the declaration, so knownness is intersected over every
+    /// list rather than taken from the one that opened the trivia.
+    /// </para>
+    /// <para>
+    /// The contrasting comment case is deliberately <em>not</em> refused, and
+    /// <see cref="AnUnconditionalCommentAboveAConditionalOne_StillVouchesForTheRow"/> holds that
+    /// line (adversarial review round 3, Gemini 3.1 Pro).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeListAfterAnUnconditionalOne_LosesTheRow()
+    {
+        var index = DeclarationIndex.Build("""
+            [Attr1]
+            #if X
+            [Attr2]
+            #endif
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(1, c.TriviaStartLine);
+        Assert.False(c.SpanKnown, "only one build applies Attr2, and the row reports it either way");
+    }
+
+    /// <summary>
+    /// The comment counterpart of
+    /// <see cref="AConditionalAttributeListAfterAnUnconditionalOne_LosesTheRow"/>, and the reason
+    /// the two are treated differently. A conditional comment below an unconditional one changes
+    /// no line this row reports: trivia still starts at line 1, the row still ends at line 5, and
+    /// the conditional comment's lines already fall inside that range. <c>SpanKnown</c> is a claim
+    /// about the row's lines, so refusing here would cost recall for nothing. Verified by
+    /// rendering both builds with line numbers preserved: every reported line is identical
+    /// (adversarial review round 3, reported by Gemini 3.1 Pro as a defect and dismissed by
+    /// measurement).
+    /// </summary>
+    [Fact]
+    public void AnUnconditionalCommentAboveAConditionalOne_StillVouchesForTheRow()
+    {
+        var index = DeclarationIndex.Build("""
+            // comment 1
+            #if X
+            // comment 2
+            #endif
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(1, c.TriviaStartLine);
+        Assert.Equal(5, c.EndLine);
+        Assert.True(c.SpanKnown, "both builds report the same first and last line for this row");
+    }
+
+    /// <summary>
+    /// A directive name is an identifier, so <c>#endif_foo</c> spells <c>endif_foo</c> and is not
+    /// the <c>#endif</c> directive: Roslyn reports CS1024 and CS1027 and leaves the group open in
+    /// every symbol configuration. Reading it as an <c>#endif</c> closed the group, recovered the
+    /// depth, and vouched for what followed. <c>char.IsLetterOrDigit</c> misses underscore, which
+    /// is the whole gap -- <c>#endif-</c> and <c>#endif//note</c> are recognized by Roslyn and are
+    /// still recognized here (adversarial review round 3, Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void ADirectiveNameRunningIntoAnIdentifier_DoesNotCloseTheGroup()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            class C { }
+            #endif_foo
+            class D { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "D").SpanKnown,
+            "#endif_foo is not an #endif, so the group is still open");
+
+        // The forms Roslyn does accept must keep closing the group, or this costs real recovery.
+        foreach (var closer in (string[])["#endif", "#endif//note", "#endif /* note */", "#endif-"])
+        {
+            var closed = DeclarationIndex.Build($"#if X\nclass C {{ }}\n{closer}\nclass D {{ }}");
+            Assert.True(
+                Assert.Single(closed.Declarations, s => s.Name == "D").SpanKnown,
+                $"'{closer}' closes the group for Roslyn and must close it here");
+        }
     }
 
     /// <summary>

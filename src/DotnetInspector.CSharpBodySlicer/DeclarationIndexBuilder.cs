@@ -216,11 +216,16 @@ internal static class DeclarationIndexBuilder
                     else
                     {
                         attributeLists.Add(list);
+
+                        // Every list, not just the one that opened the trivia. A list written
+                        // inside a conditional group is reported in AttributeLists even though
+                        // only one build compiles it, and unlike a trivia comment it is not merely
+                        // a line inside the row's range -- it is a claim about what is applied to
+                        // the declaration. A row whose lists depend on the build is not vouched
+                        // for (adversarial review round 3, Gemini 3.1 Pro).
+                        triviaKnown &= attributeStartKnown;
                         if (triviaStart < 0)
-                        {
                             triviaStart = attributeStart;
-                            triviaKnown = attributeStartKnown;
-                        }
                     }
                 }
                 else if (attributeDepth == 1)
@@ -475,8 +480,12 @@ internal static class DeclarationIndexBuilder
             if (!rows[i].ClosesAtEndOfFile)
                 continue;
 
-            // Everything after a file-scoped namespace is inside it -- a file cannot open a second
-            // one, and nothing can precede it but usings and attributes, which are not rows.
+            // Everything after a file-scoped namespace is inside it. A file cannot open two in any
+            // one build, but the branches of a conditional group can each open one, and this scan
+            // keeps every branch's rows -- so more than one row here can close at end of file, and
+            // each takes a maximum over the rows below it. That over-wide end is not vouched for:
+            // such a namespace is never SpanKnown, and the refusal above has already unknowed
+            // every row below the first of them.
             int end = rows[i].SignatureEndLine;
             bool guessed = depthLost;
             for (int j = i + 1; j < rows.Count; j++)

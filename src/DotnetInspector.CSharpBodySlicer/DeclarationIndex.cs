@@ -233,8 +233,9 @@ public sealed record DeclarationSpan(
 /// Where the lexer loses its place — an unterminated literal, or a conditional directive whose
 /// braces may belong to a discarded branch — affected rows carry
 /// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span. A conditional
-/// directive affects every row to the end of the file, not only the guarded region; see that
-/// member's remarks and
+/// directive costs the rows inside its own branches, and costs the rest of the file only when the
+/// group's branches do not agree on the structure after its <c>#endif</c>; see that member's
+/// remarks and
 /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>.
 /// </para>
 /// <para>
