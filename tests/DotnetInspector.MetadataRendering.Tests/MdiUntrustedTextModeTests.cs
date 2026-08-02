@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using InertText;
 using Mdi;
 
 namespace DotnetInspector.MetadataRendering.Tests;
@@ -460,6 +461,12 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
     /// of every format — a way for the unsafe tier to be unsafe to the
     /// <em>tool</em> rather than merely to the reader.
     /// </summary>
+    /// <remarks>
+    /// Both flags are required. Passing <c>--dangerously-print-raw</c> alone is rejected, so a
+    /// sweep that omitted <c>--show-untrusted-text</c> would iterate an empty string and pass
+    /// without rendering anything — which is exactly what this test did before it was fixed.
+    /// The <c>Assert.NotEmpty</c> below is what keeps it honest.
+    /// </remarks>
     [Theory]
     [InlineData("md")]
     [InlineData("tsv")]
@@ -471,10 +478,13 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
         for (int budget = 0; budget <= 40; budget++)
         {
             Run(
-                ["--table", "TypeDef", "--format", format, "--dangerously-print-raw",
+                ["--table", "TypeDef", "--format", format,
+                 "--show-untrusted-text", "--dangerously-print-raw",
                  "--max-chars", budget.ToString(CultureInfo.InvariantCulture)],
                 out string output,
                 out _);
+
+            Assert.NotEmpty(output);
 
             for (int i = 0; i < output.Length; i++)
             {
@@ -490,5 +500,72 @@ public sealed class MdiUntrustedTextModeTests(HostileAssemblyFixture fixture)
                     $"A lone surrogate survived at index {i} with --max-chars {budget} in {format}.");
             }
         }
+    }
+
+    /// <summary>
+    /// The two axes are independent: at the same budget, the encoded and raw renderings
+    /// describe the same prefix of the same value, differing only in how it is spelled.
+    /// </summary>
+    /// <remarks>
+    /// This is a property of where the decode happens. Raw output is produced by running the
+    /// encoder backwards at the sink, <em>after</em> the budget has been applied to the encoded
+    /// text, so both modes cut the same value at the same point. Bounding raw text separately —
+    /// in its own units, upstream — would make the rendering axis silently also a
+    /// <em>content</em> axis, so that asking for a different spelling changed how much of the
+    /// value was shown. The threat model calls collapsing the axes a design error; this is the
+    /// gate for the subtler form of it.
+    /// <para>
+    /// The comparison runs the encoder <em>forward</em> over the raw cell rather than decoding
+    /// the encoded one, so it is not a restatement of the implementation: it would still fail if
+    /// the decode were replaced by anything that happened to round-trip differently.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("md")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    public void RawAndEncodedRenderingsShowTheSamePrefix(string format)
+    {
+        // From 8, so the shared graphic prefix "Hostile" is present and the cell is locatable.
+        for (int budget = 8; budget <= 30; budget++)
+        {
+            string[] common =
+                ["--table", "TypeDef", "--format", format, "--show-untrusted-text",
+                 "--max-chars", budget.ToString(CultureInfo.InvariantCulture)];
+
+            Run(common, out string encodedOutput, out _);
+            Run([.. common, "--dangerously-print-raw"], out string rawOutput, out _);
+
+            string encodedCell = PayloadCell(AsConsumerReceivesIt(encodedOutput, format));
+            string rawCell = PayloadCell(AsConsumerReceivesIt(rawOutput, format));
+
+            Assert.NotEmpty(encodedCell);
+            Assert.NotEmpty(rawCell);
+
+            bool encodedClipped = encodedCell.EndsWith('\u2026');
+            bool rawClipped = rawCell.EndsWith('\u2026');
+            Assert.Equal(encodedClipped, rawClipped);
+
+            string rawBody = rawClipped ? rawCell[..^1] : rawCell;
+            string encodedBody = encodedClipped ? encodedCell[..^1] : encodedCell;
+
+            Assert.Equal(
+                encodedBody,
+                new InertString(TextPolicy.Field, rawBody, int.MaxValue).ToString());
+        }
+    }
+
+    /// <summary>
+    /// The rendered cell carrying the payload, from its graphic prefix to the format's next
+    /// delimiter. Located by that prefix because the cell's own content is what is under test.
+    /// </summary>
+    static string PayloadCell(string output)
+    {
+        int start = output.IndexOf("Hostile", StringComparison.Ordinal);
+        if (start < 0)
+            return string.Empty;
+
+        int end = output.AsSpan(start).IndexOfAny(['|', '\t', '\n', '\r', '"']);
+        return end < 0 ? output[start..] : output.Substring(start, end).TrimEnd();
     }
 }

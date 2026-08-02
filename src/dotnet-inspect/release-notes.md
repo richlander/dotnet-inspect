@@ -56,8 +56,11 @@
   select the other treatments: `--show-untrusted-text` renders the inert
   spelling, which is byte for byte what previous versions produced, and
   `--dangerously-print-raw` hands the text over uncontained for studying a
-  hostile artifact. Ordinary assemblies are unaffected: the modes differ only in
-  whether they can fail, so output is unchanged wherever no such text exists.
+  hostile artifact, and must be combined with `--show-untrusted-text` because
+  refusal comes first. Both spellings show the same amount of a clipped value,
+  differing only in how it is written. Ordinary assemblies are unaffected: the
+  modes differ only in whether they can fail, so output is unchanged wherever no
+  such text exists.
 
 ### Output and projections
 

@@ -768,6 +768,32 @@ and TSV replaces the line and paragraph separators, which it cannot carry in a
 record. Markdown carries everything. So the raw mode promises that `mdi` adds
 no encoding of its own, not that every scalar reaches the stream.
 
+**Raw output is produced by the decoder, at the sink.** Since #3687 the
+projection cannot hold untreated text at all: its text-bearing fields are
+`InertString`, and no conversion admits a `string` into one. That closes off the
+obvious implementation — keeping a second, raw copy of every value beside the
+contained one — and forces the honest one, which is to run the encoding
+backwards at the moment of printing. This is the `vis`/`unvis` pairing named
+below rather than a workaround for it: the encoding is lossless and invertible
+precisely so that a decoder can exist, and having the decoder is what makes raw
+output a *rendering* choice instead of a property of the model. A literal
+backslash is always rewritten on the way in, which is what keeps the inverse
+unique. Refusal is unaffected and still happens upstream, against the raw text,
+because the question it asks — does this artifact carry something concerning —
+is about the artifact rather than about the spelling.
+
+Placing the decode after the character budget also buys a property the earlier
+implementation lacked: **both modes cut the same value at the same point.**
+Bounding raw text separately, in its own units, made the rendering axis quietly
+a *content* axis too, so that asking for a different spelling changed how much
+of the value you saw — a subtler form of exactly the collapse this section
+warns about. `MdiUntrustedTextModeTests.RawAndEncodedRenderingsShowTheSamePrefix`
+gates it by re-encoding the raw cell and comparing it to the encoded one,
+running the encoder forward so the assertion is not a restatement of the
+decode. On an artifact carrying nothing that needs containment the three
+tiers are byte-identical; measured over a 2,031,325-byte assembly, all three
+agree exactly.
+
 The axes are independent, and that is the design. Visual encoding is the
 default on **every** artifact-text path, including underneath the trust-axis
 skip — which is precisely what makes that skip defensible: it means "do not

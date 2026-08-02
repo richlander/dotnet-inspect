@@ -322,7 +322,7 @@ public static class MdiCommand
             return 0;
         }
 
-        MetadataProjectionRenderer.Render(projection, output, format);
+        MetadataProjectionRenderer.Render(projection, output, format, options.UntrustedText);
 
         // Markdown announces truncation inline in each table heading. The machine
         // formats carry no heading, so a bounded table would otherwise be
@@ -458,7 +458,7 @@ public static class MdiCommand
             return 1;
         }
 
-        MetadataProjectionRenderer.Render(overview, output, format);
+        MetadataProjectionRenderer.Render(overview, output, format, untrustedText);
 
         // Markdown carries the overview's caveats inline. The machine formats are
         // pure row streams, so the same facts go to the error writer rather than
@@ -529,7 +529,7 @@ public static class MdiCommand
             return 1;
         }
 
-        MetadataProjectionRenderer.Render(value, heap, address, output, format);
+        MetadataProjectionRenderer.Render(value, heap, address, output, format, options.UntrustedText);
 
         if (value is MetadataValue.Malformed malformed)
         {
