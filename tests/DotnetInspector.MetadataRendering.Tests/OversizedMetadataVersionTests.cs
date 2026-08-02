@@ -24,8 +24,8 @@ namespace DotnetInspector.MetadataRendering.Tests;
 /// That makes an oversized stamp reachable in exactly the population this code
 /// exists to survive — malformed images — so the truncation must be visible
 /// rather than silent. This fixture is what proves the state is reachable at
-/// all; without it, the `MetadataVersionTruncated` flag would be dead code that
-/// no test could distinguish from a constant `false`.
+/// all; without it, `MetadataVersion.IsTruncated` would be dead code that no
+/// test could distinguish from a constant `false`.
 /// </para>
 /// <para>
 /// The fixture technique came from the adversarial review of PR #3518, which
@@ -37,8 +37,9 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 {
     /// <summary>
     /// The metadata layer must report that it clipped the value. Everything
-    /// downstream keys off this flag, so if `Describe` does not set it, no
-    /// renderer can mark the value however carefully it is written.
+    /// downstream keys off the contained value's own `IsTruncated`, so if
+    /// `Describe` clips without recording it, no renderer can mark the value
+    /// however carefully it is written.
     /// </summary>
     [Fact]
     public void Describe_ReportsTheStampAsTruncated()
@@ -57,7 +58,7 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
     /// The end-to-end claim, and the one that matters to a reader: the rendered
     /// stamp carries the ellipsis, so a 1530-character prefix cannot be mistaken
     /// for the whole 1547-character value. Asserted through `mdi` rather than the
-    /// renderer alone so the flag is proven to survive the whole path.
+    /// renderer alone so the truncation is proven to survive the whole path.
     /// </summary>
     [Fact]
     public void Overview_RendersTheTruncationMarkerSoAPrefixIsNotReadAsTheWholeStamp()
