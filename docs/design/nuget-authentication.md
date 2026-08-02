@@ -68,12 +68,16 @@ or from the user-level config. Parsing lives in
 Note that the `%TOKEN%` placeholder above is *not* expanded — see the next section. It is
 written that way only to keep a secret out of the example.
 
-## What is ignored
+## Credential forms that are silently ignored
+
+A `nuget.config` can carry a credential in several forms. This tool parses one of them. The rest
+are read past without a word — no warning, no error — so someone whose credential works for
+`dotnet restore` can get an authentication failure here with nothing pointing at the cause.
 
 NuGet's own guidance in
 [Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#security-best-practices-for-managing-credentials)
-ranks credential mechanisms from most to least secure. Lining that ranking up against what this
-tool honors is the clearest statement of the gap:
+ranks those forms from most to least secure. Lining that ranking up against what this tool honors
+is the clearest statement of the gap:
 
 | NuGet's rank | Mechanism | Supported here |
 | --- | --- | --- |
