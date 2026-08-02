@@ -3385,22 +3385,23 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// An unmatched <c>--fields</c>/<c>--columns</c> name with a section selected must fail by
-    /// name, not render nothing and exit 0. Bare <c>-S</c> now always selects a section here, and
-    /// <c>API Info</c> is a two-column fact table, so an unmatched field emptied it completely --
-    /// and markout drops the document title once a projection leaves no renderable field, so the
-    /// output was not thin but ENTIRELY empty with a success exit code. This pins the pre-render
-    /// check that the single-type path and the package path already had. See #3651.
+    /// An unmatched <c>--fields</c> name with a section selected must fail by name, not render
+    /// nothing and exit 0. Bare <c>-S</c> now always selects a section here, and <c>API Info</c>
+    /// is a two-column fact table, so an unmatched field emptied it completely -- and markout
+    /// drops the document title once a projection leaves no renderable field, so the output was
+    /// not thin but ENTIRELY empty with a success exit code. See #3651.
+    ///
+    /// The gate is emptiness of the RENDER, deliberately not validation of the NAMES, which is
+    /// why the false-positive half of this test matters as much as the failing half: two
+    /// name-based pre-checks were tried and both rejected legitimate projections whose names no
+    /// single section schema lists. Those cases are pinned in
+    /// <see cref="Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate"/>.
     /// </summary>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("Classes")]
-    public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing(string? sectionName)
+    [Fact]
+    public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing()
     {
-        string[] select = sectionName == null ? ["-S"] : ["-S", sectionName];
-
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", .. select, "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "--fields", "NoSuchField", "--tips", "q"]);
 
         Assert.Equal(1, exit);
         Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
@@ -3408,15 +3409,50 @@ public partial class CommandExecutionTests
         // Names what it wants rather than checking "something was printed": the defect this pins
         // produced empty stdout, so any assertion satisfied by stderr alone would have passed on
         // the broken build too.
-        Assert.DoesNotContain("| Type | Members |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Field | Value |", output, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.Trim());
 
-        // Non-vacuity: the same projection with a REAL name must still succeed, or this theory
-        // would pass on a build that rejected every projection.
+        // --count consumed the same empty render and reported it as a genuine zero, which is a
+        // success-shaped answer to a request that matched nothing.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--count", "--fields", "NoSuchField", "--tips", "q"]);
+
+        Assert.Equal(1, countExit);
+        Assert.Contains("NoSuchField", countError, StringComparison.Ordinal);
+        Assert.DoesNotContain("0", countOutput.Trim(), StringComparison.Ordinal);
+
+        // Non-vacuity: the same projection with a REAL name must still succeed, or this would
+        // pass on a build that rejected every projection.
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", .. select, "--fields", sectionName == null ? "Types" : "Type", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "--fields", "Types", "--tips", "q"]);
 
         Assert.Equal(0, okExit);
-        Assert.NotEqual(string.Empty, okOutput.Trim());
+        Assert.Contains("| Field | Value |", okOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The false-positive half of the empty-render gate. Every case here is a projection that is
+    /// legitimate but whose name the SELECTED section's schema does not list, so each one was
+    /// rejected with exit 1 by a name-validating pre-check and each is a regression against the
+    /// pre-<c>API Info</c> behavior. They are pinned together because they are the reason the
+    /// gate tests the render rather than the names.
+    /// </summary>
+    [Theory]
+    // Synthesized by the fact-table renderer; named in no schema.
+    [InlineData(new[] { "-S", "API Info", "--columns", "Field" }, "| Field |")]
+    [InlineData(new[] { "-S", "API Info", "--columns", "Value" }, "| Value |")]
+    // A document-level field, which survives whichever section is selected.
+    [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
+    // Unmatched against the section, but the section's own table is not field-projected, so this
+    // renders exactly as it did before and must keep exiting 0.
+    [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
+    public async Task Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate(string[] args, string expected)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(expected, output, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -3572,48 +3608,42 @@ public partial class CommandExecutionTests
         // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
         // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
         // fix, reintroduced one layer down, and no assertion about correct projections could see
-        // it. The bar is parity with the per-kind sections beside it, which is what this compares:
-        // whatever the listing view says about an unmatched projection, the fact table says too.
+        // it. The bar is parity with the per-kind sections beside it.
         //
-        // The parity is now at the STRONGER level the single-type path always had. The listing
-        // view gained the pre-render ValidateProjection it was missing (#3651), so both sides
-        // reject by name and exit 1 instead of reporting a Note and exiting 0. The messages are
-        // compared by shape rather than by string because each correctly names its own section.
-        var (kindExit, _, kindErr) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv", flag, "Nonexistent", "--tips", "q");
-        var (factExit, _, factErr) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", flag, "Nonexistent", "--tips", "q");
+        // Parity is asserted as the INVARIANT rather than as equal exit codes, because the two
+        // sections legitimately differ in outcome: an unmatched --fields empties the `API Info`
+        // fact table completely, while the `Classes` table is not field-projected and still
+        // renders its rows. Demanding identical exit codes would therefore force one of them to
+        // lie. What must hold on both is that the projection is named on stderr, and that neither
+        // ever reports success while printing nothing.
+        foreach (var section in new[] { "Classes", SectionNames.ApiInfo })
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, "Nonexistent", "--tips", "q");
 
-        Assert.Equal(kindExit, factExit);
-        Assert.Equal(1, factExit);
-        Assert.Equal(
-            kindErr.Replace("Classes", "<section>", StringComparison.Ordinal).Trim(),
-            factErr.Replace(SectionNames.ApiInfo, "<section>", StringComparison.Ordinal).Trim());
+            Assert.Contains("Nonexistent", error, StringComparison.Ordinal);
 
-        // Non-vacuity: the reference side must actually diagnose the bad projection BY NAME.
-        // Asserting only that the combined output is non-empty would pass on the class rows the
-        // reference side prints on stdout regardless -- 54 lines of them -- so both diagnostics
-        // could vanish and this test would still be green. That is the same empty-set-reads-as-
-        // success shape the test exists to catch, so the assertion has to name what it wants.
-        Assert.Contains("Nonexistent", kindErr, StringComparison.Ordinal);
+            // The invariant: empty output and exit 0 is the one combination that must not occur.
+            if (exit == 0)
+                Assert.NotEqual(string.Empty, output.Trim());
+            else
+                Assert.Equal(string.Empty, output.Trim());
+        }
 
-        // The combination that used to diverge -- the fact table reporting a field Note and exit 0
-        // where the per-kind section reported a column Error and exit 1, because markout skips the
-        // column-match check once a field filter has emptied the row set -- no longer can: the
-        // pre-render check runs before markout sees either projection. Pinned because it is the
-        // second symptom recorded on #3651, and a regression would silently reopen it.
-        var (bothKindExit, _, bothKindErr) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv",
-            "--fields", "Nonexistent", "--columns", "AlsoNonexistent", "--tips", "q");
-        var (bothFactExit, _, bothFactErr) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv",
-            "--fields", "Nonexistent", "--columns", "AlsoNonexistent", "--tips", "q");
+        // Non-vacuity: a REAL name on both sections must still render and exit 0, or the loop
+        // above would be satisfied by a build that rejected every projection. The valid name
+        // differs by flag on the fact table -- its FIELDS are the row labels (`Library`) and its
+        // COLUMNS are the synthesized `Field`/`Value` pair -- which is itself the reason the gate
+        // upstream tests the rendered result instead of validating names against a schema.
+        var factName = flag == "--fields" ? "Library" : "Field";
+        foreach (var (section, name) in new[] { ("Classes", "Type"), (SectionNames.ApiInfo, factName) })
+        {
+            var (okExit, okOutput, _) = await RunAppAsync(
+                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, name, "--tips", "q");
 
-        Assert.Equal(1, bothKindExit);
-        Assert.Equal(1, bothFactExit);
-        Assert.Equal(
-            bothKindErr.Replace("Classes", "<section>", StringComparison.Ordinal).Trim(),
-            bothFactErr.Replace(SectionNames.ApiInfo, "<section>", StringComparison.Ordinal).Trim());
+            Assert.Equal(0, okExit);
+            Assert.NotEqual(string.Empty, okOutput.Trim());
+        }
     }
 
     [Fact]

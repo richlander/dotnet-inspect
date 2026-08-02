@@ -626,26 +626,12 @@ public class ApiCommand
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
 
-        // Pre-render: validate --columns/--fields against the schema when a section is selected,
-        // mirroring TypeCommand's single-type path and the package path. Without it an unmatched
-        // name silently removes every row and the command exits 0 having printed nothing -- and
-        // bare -S now always selects a section here, so `-S --fields Bogus` landed exactly there.
-        // markout drops the document title too once a projection leaves no renderable field, so
-        // the output was not merely thin but completely empty. See #3651.
-        if (IsColumnProjectionRequested(options)
-            && !options.JsonOutput
-            && !options.Count
-            && options.IncludeSections is { Count: > 0 })
-        {
-            var projectionSchema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-            if (!ProjectionDiagnostics.ValidateProjection(projectionSchema, options.IncludeSections, options.Fields, options.Columns))
-                return 1;
-        }
-
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(markdown, options))
+                return 1;
             markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
@@ -664,6 +650,8 @@ public class ApiCommand
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
                 ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                if (!TryReportEmptyProjection(factRows, options))
+                    return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return 0;
             }
@@ -674,6 +662,8 @@ public class ApiCommand
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+            if (!TryReportEmptyProjection(rendered, options))
+                return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
@@ -685,12 +675,44 @@ public class ApiCommand
             }
             else
             {
-                OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                    MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions), options.Rows);
+                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                if (!TryReportEmptyProjection(markdown, options))
+                    return 1;
+                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
             }
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
+    /// nothing. Returns false when the caller should stop.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for "a projection that matches nothing must not look like success".
+    /// `Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing` is the
+    /// non-vacuity test: it fails if this check stops firing.
+    ///
+    /// It deliberately tests the RENDERED result rather than validating names against the
+    /// schema up front. Two earlier attempts at a name-based pre-check both produced false
+    /// negatives, because the set of legitimately projectable names is wider than any one
+    /// section's schema: `-S "API Info" --columns Field` names a column the fact-table
+    /// renderer synthesizes and the schema never lists, and `-S Classes --fields Types`
+    /// names a document-level field that survives regardless of which section is selected.
+    /// Emptiness has no such blind spot -- if anything rendered, this says nothing.
+    /// </remarks>
+    private static bool TryReportEmptyProjection(string markdown, ApiOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(markdown))
+            return true;
+
+        var names = options.Fields ?? options.Columns;
+        var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
+        CommandError.Write(names is { Length: > 0 }
+            ? $"No {kind} matched projection: {string.Join(", ", names)}"
+            : "Nothing to render for the requested selection.");
+        return false;
     }
 
     // ===== Method Source Resolution =====
