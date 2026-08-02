@@ -69,6 +69,45 @@ public class ApiCommand
             && options.Select is not { Length: > 0 }
             && bareSelectSections.Length == 0;
 
+    /// <summary>
+    /// Re-resolves <c>-S</c> against the type-listing pipeline for a query that entered the
+    /// preamble as a single-type request but renders a listing.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RunPreamble"/> picks its pipeline from the argument shape, so a dotted prefix
+    /// that fails to resolve to a type validated its sections against the single-type pipeline
+    /// while <see cref="TypeCommand"/> goes on to render a listing. The two disagree about every
+    /// name: <c>-D</c> advertises <c>Classes</c> and <c>Structs</c>, and <c>-S Classes</c> is
+    /// rejected. Returns <c>null</c> when resolution failed and the caller should stop with an
+    /// error.
+    /// </remarks>
+    internal static TypeOptions? ReresolveSectionsForListing(TypeOptions options)
+    {
+        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var bareSelectSections = typePipeline.FixedOverviewSectionNames;
+
+        if (HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return null;
+        }
+
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            typePipeline.SelectableSectionNames,
+            bareSelectSections,
+            typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selectResult))
+            return null;
+
+        return selectResult.Sections != null
+            ? options with { IncludeSections = selectResult.Sections }
+            : options;
+    }
+
     // ===== Shared Preamble =====
 
     internal record PreambleResult(

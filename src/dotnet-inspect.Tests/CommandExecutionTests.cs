@@ -1521,6 +1521,41 @@ public partial class CommandExecutionTests
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A dotted prefix that does not resolve to a type enters the preamble looking like a single
+    /// type -- so its sections are validated against the single-type pipeline -- but renders a
+    /// LISTING. Bare <c>-S</c> therefore resolved to <c>Type Info</c>, which the listing cannot
+    /// render, and produced a document with no sections at all. This pins the re-resolution in
+    /// <c>TryWritePrefixBrowse</c>: bare <c>-S</c> must land on the listing's own fixed overview,
+    /// and a single-type section name must be REJECTED BY NAME rather than silently rendering
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_BareSelect_ResolvesAgainstTheListingPipeline()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Coll", "--platform", "System.Private.CoreLib", "--tips", "q", "-S");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
+
+        // Names what it wants: the listing's fixed overview, and nothing else. An empty-document
+        // regression would pass a bare "output is non-empty" check on the H1 alone.
+        Assert.Equal(
+            ApiTypeSectionDescriptors.CreatePipeline().FixedOverviewSectionNames,
+            SectionHeadings(output));
+
+        // The single-type overview is not renderable here, so selecting it must fail loudly and
+        // point at the section that answers the same question for this view.
+        var (staleExit, _, staleError) = await RunAppAsync(
+            "type", "System.Coll", "--platform", "System.Private.CoreLib", "--tips", "q",
+            "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(1, staleExit);
+        Assert.Contains($"Select value '{SectionNames.TypeInfo}' not found", staleError, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.ApiInfo, staleError, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task BareName_ExactNuGetPackageId_RoutesToPackage()
     {
@@ -3318,6 +3353,26 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.DoesNotContain("Library: System.Text.Json.dll |", output, StringComparison.Ordinal);
         }
+
+        // The carve-out, pinned so it cannot be quietly re-emptied: these scalars are the document
+        // fields --fields names, so suppressing them unconditionally turns an explicit projection
+        // into the Classes table with no title. Naming the fields opts out of the default view's
+        // suppression, and the projection still narrows to exactly what was named.
+        var (fieldsExit, fieldsOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "--fields", "Types", "--tips", "q");
+
+        Assert.Equal(0, fieldsExit);
+        Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
+        Assert.Contains("Types: 89", fieldsOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
+
+        // ...but -S still wins, because there the section is already carrying the same facts.
+        var (bothExit, bothOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--fields", "Types", "--tips", "q");
+
+        Assert.Equal(0, bothExit);
+        Assert.Contains("| Types | 89 |", bothOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("\nTypes: 89", bothOutput, StringComparison.Ordinal);
     }
 
     [Theory]
