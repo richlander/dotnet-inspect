@@ -195,9 +195,85 @@ Credentials are requested with `IsNonInteractive` set and `CanShowDialog` clear,
 prompt. Cached credentials and tokens supplied through the environment still work; only
 interactive sign-in is withheld.
 
-On Linux the v2.0.2 Azure Artifacts tool package ships no `msalruntime.so`, so its interactive
-and broker paths throw `DllNotFoundException` regardless. Supplying
-`ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN` avoids those paths entirely.
+### How credentials arrive
+
+Everything above describes the channel. This describes who speaks on it, because the answer
+differs by environment, and "a credential provider supplies it" is not specific enough to act on.
+
+The Azure Artifacts provider resolves in two levels. The outer level chooses a *credential
+provider*, consulting the environment first and the hostname last:
+
+| Order | Provider | Selected when |
+| --- | --- | --- |
+| 1 | `VstsBuildTaskServiceEndpointCredentialProvider` | `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS` is set |
+| 2 | `VstsBuildTaskCredentialProvider` | `ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES` and `..._ACCESSTOKEN` are set |
+| 3 | `VstsCredentialProvider` | the host is a well-known Azure DevOps hostname |
+
+Only when the first two decline does the third run, and only then does MSAL enter the picture at
+all. Its inner chain of bearer token providers is tried in this order:
+
+`MSAL Service Principal` → `MSAL Managed Identity` → `MSAL Silent` → `MSAL Broker Interactive` →
+`MSAL Interactive` → `MSAL Device Code`
+
+Each inner provider logs itself as skipped when its configuration is absent, so `-V Debug` shows
+which link answered without needing source access.
+
+`VstsCredentialProvider` also issues its own unauthenticated request and reads the Entra authority
+out of the **401 response headers**. It is 401-driven internally, independently of
+[our handler](#preemptive-credentials-versus-401-driven-credentials).
+
+The flows, distinguished by what supplies the secret:
+
+| Flow | Driven by | Unattended |
+| --- | --- | --- |
+| `nuget.config` credential | the config file; no provider runs at all | yes |
+| Pipeline build identity | `ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES` and `..._ACCESSTOKEN`, set by `NuGetAuthenticate@1` | yes |
+| Pre-minted token, supplied by hand | the same two variables, exported by a script | yes |
+| External feed endpoints | `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`: endpoint, username, password | yes |
+| Service principal and certificate | `ARTIFACTS_CREDENTIALPROVIDER_FEED_ENDPOINTS`: `clientId` plus `clientCertificateSubjectName` or `clientCertificateFilePath` | yes |
+| Silent | the MSAL token cache, populated by an earlier sign-in | only if warm |
+| Broker interactive, interactive, device code | a human | no |
+
+`MSAL Managed Identity` sits in the chain between the service principal and silent providers, but
+the provider's README documents no configuration for it, so it is deliberately absent from the
+table above rather than guessed at.
+
+Three consequences are worth stating plainly:
+
+- **In an Azure DevOps pipeline there is no secret to configure.** `NuGetAuthenticate@1` installs
+  the provider onto the agent for that run and points it at the build service identity, scoped by
+  **URL prefix** — a semicolon-separated host list, not a feed list. A feed outside those prefixes
+  falls through to the next provider, which is why a feed in another organization needs the
+  external-endpoints variable instead.
+- **`az login` does not help.** There is no Azure CLI credential provider, and the two token
+  caches are unrelated. A token from `az account get-access-token` has to be handed over
+  explicitly, either through the build-provider variables or as a `ClearTextPassword`.
+- **The certificate flow is the one that generalises.** It is configured once through an
+  environment variable, needs no interactive session, and every NuGet-aware tool on the machine
+  reads it from the same place. That is the mechanism for sharing one short-lived credential
+  across build tools, rather than teaching each tool separately.
+
+### The broker on Linux
+
+The MSAL paths of the v2.0.2 Azure Artifacts tool package do not work on a current Ubuntu, for two
+independent reasons that surface in that order:
+
+1. The package ships `runtimes/linux-x64/native/libmsalruntime.so`, but nothing places it beside
+   the entry assembly, so the load fails on a path that does not exist:
+   `.../tools/net8.0/any/libmsalruntime: cannot open shared object file`.
+2. Pointing `LD_LIBRARY_PATH` at that `runtimes/linux-x64/native` directory gets past the first
+   failure, and the load then fails on `libwebkit2gtk-4.0.so.37`. Ubuntu 24.04 ships only
+   `libwebkit2gtk-4.1-0`; the 4.0 ABI is gone, and only a transitional documentation package
+   still carries the old name.
+
+The consequence is worse than "interactive sign-in is unavailable", which would be unremarkable on
+a headless machine. The broker is initialised *before* `MSAL Silent` is attempted, so a GUI
+dependency removes the one MSAL path that is meant to be headless-safe, and the provider gives up
+having tried nothing that could have succeeded.
+
+Every unattended flow in the table above except `MSAL Silent` is unaffected, because none of them
+constructs an MSAL public client. Supplying a token through the build-provider variables sidesteps
+the area entirely.
 
 ## Preemptive credentials versus 401-driven credentials
 
