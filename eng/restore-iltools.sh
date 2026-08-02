@@ -69,7 +69,9 @@ done
 command -v dotnet > /dev/null || { echo "error: dotnet is not on PATH." >&2; exit 1; }
 
 if [ -z "$rid" ]; then
-    rid="$(dotnet --info | sed -n 's/^[ ]*RID:[ ]*//p' | head -1)"
+    # `dotnet --info` emits CRLF on Windows, and a retained \r silently corrupts
+    # the package id (runtime.win-x64\r.Microsoft.NETCore.ILAsm), so strip it.
+    rid="$(dotnet --info | sed -n 's/^[ ]*RID:[ ]*//p' | head -1 | tr -d '\r' | tr -d '[:space:]')"
     [ -n "$rid" ] || { echo "error: could not determine the host RID; pass --rid." >&2; exit 1; }
 fi
 
