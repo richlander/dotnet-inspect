@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+
 namespace ILInspector.Metadata.Tests;
 
 public class TypeForwardResolverTests
@@ -32,11 +35,11 @@ public class TypeForwardResolverTests
     [Fact]
     public void LocateType_ResolverOverload_FollowsForwarderThroughOpenReadWithoutPath()
     {
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity("netstandard", Version: null, Culture: null, PublicKeyToken: null),
-            Path: null,
-            OpenRead: () => File.OpenRead(NetstandardFacade),
-            Provenance: "test");
+        var start = ResolvedAssemblyReference.Create(
+            ReadIdentity(NetstandardFacade),
+            path: null,
+            openRead: () => File.OpenRead(NetstandardFacade),
+            provenance: AssemblyResolutionProvenance.Local("test"));
         var resolver = new FrameworkStreamResolver(pathBacked: false);
 
         var location = TypeForwardResolver.LocateType(
@@ -87,15 +90,28 @@ public class TypeForwardResolverTests
         Assert.True(TypeForwardResolver.ForwardsType(NetstandardFacade, "System.String"));
     }
 
+    static AssemblyReferenceIdentity ReadIdentity(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            peReader.GetMetadataReader());
+    }
+
     sealed class FrameworkStreamResolver(bool pathBacked) : IAssemblyReferenceResolver
     {
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
             string candidate = Path.Combine(FrameworkDir, identity.Name + ".dll");
             return File.Exists(candidate)
-                ? new ResolvedAssemblyReference(identity, Path: pathBacked ? candidate : null, OpenRead: () => File.OpenRead(candidate), Provenance: "test")
+                ? ResolvedAssemblyReference.Create(
+                    ReadIdentity(candidate),
+                    path: pathBacked ? candidate : null,
+                    openRead: () => File.OpenRead(candidate),
+                    provenance: AssemblyResolutionProvenance.Local("test"))
                 : null;
         }
+
     }
 
     sealed class NullResolver : IAssemblyReferenceResolver
@@ -106,6 +122,10 @@ public class TypeForwardResolverTests
     sealed class SelfLoopResolver : IAssemblyReferenceResolver
     {
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-            => new(identity, NetstandardFacade, () => File.OpenRead(NetstandardFacade), Provenance: "test");
+            => ResolvedAssemblyReference.Create(
+                ReadIdentity(NetstandardFacade),
+                NetstandardFacade,
+                () => File.OpenRead(NetstandardFacade),
+                AssemblyResolutionProvenance.Local("test"));
     }
 }

@@ -77,7 +77,9 @@ static class CorpusMetadata
         }
 
         static ResolvedAssemblyReference FromPath(AssemblyReferenceIdentity identity, string path, string provenance)
-            => new(identity, path, () => File.OpenRead(path), provenance);
+            => ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(provenance));
     }
 
     static IReadOnlyDictionary<string, string> TrustedPlatformAssemblies()

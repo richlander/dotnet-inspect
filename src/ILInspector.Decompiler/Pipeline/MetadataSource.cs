@@ -214,11 +214,9 @@ public sealed class MetadataSource : IDisposable
                 string sibling = System.IO.Path.Combine(_directory, identity.Name + ".dll");
                 if (File.Exists(sibling))
                 {
-                    return new ResolvedAssemblyReference(
-                        identity,
+                    return ResolvedAssemblyReference.CreateFromPath(
                         sibling,
-                        () => File.OpenRead(sibling),
-                        Provenance: "SiblingAssembly");
+                        AssemblyResolutionProvenance.Local("SiblingAssembly"));
                 }
             }
 

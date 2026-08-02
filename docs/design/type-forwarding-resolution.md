@@ -1519,7 +1519,7 @@ sessions:
 ```text
 ResolvedAssemblyCandidate
   -> materialized AssemblyInventorySnapshot
-      -> identity, AssemblyRefs, ExportedType forwarding targets
+      -> identity, MVID, AssemblyRefs, ExportedType forwarding targets
   -> optional catalog-owned AssemblyInspectionSession
       -> declaration probe
       -> cached (assembly candidate, type name) result
@@ -1534,13 +1534,16 @@ later body/declaration consumer may open one durable
 `AssemblyInspectionSession`; the snapshot prevents decoding identity,
 references, or forwarding inventory again.
 
-Slice 2 evolves durable sessions to construct `PEReader` with
+Slice 2a evolves durable sessions to construct `PEReader` with
 `PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
 after construction. The catalog may retain prefetched image memory, but holds
 no source file handle for the lifetime of a context. Candidate, retained-image
 byte, and source-open concurrency budgets are explicit plan inputs; budget
 exhaustion is a typed failure rather than an `IOException`-shaped partial
-answer.
+answer. A retained session must match both the selected `AssemblyDef` identity
+and the inventory MVID. A registration whose opener changes artifacts between
+inventory and session construction is rejected rather than combining adjacency
+from one module with declarations from another.
 
 This preserves the single PE-lifetime owner established by
 `AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
@@ -2432,18 +2435,30 @@ Each slice has one behavioral claim and can land independently.
 Claim: one readable image can answer "defines, forwards, misses, or rejects"
 without returning a stringly or nullable result.
 
-### Slice 2: context and resolution engine
+### Slice 2a: acquisition catalog foundation
 
 - Evolve `ResolvedAssemblyReference` to the non-equatable descriptor plus
   acquisition registration contract.
-- Add the resolution request, binding, failure, ambiguity, and outcome
-  hierarchies after their descriptor and catalog dependencies exist.
 - Add one `InspectionAcquisitionPlan` per inspection and collapse today's
   per-path resolver instances into its shared owner adapters.
 - Add catalog-owned `AssemblyInventorySnapshot` values for every discovered
   candidate and open prefetched `AssemblyInspectionSession` values only on
   demand; inventory reads and durable-session opens are separate single-flight
   operations sharing the source-open semaphore.
+- Verify retained sessions against the inventoried assembly identity and MVID,
+  and make the plan the sole owner of retained session lifetime.
+- Keep the plan and its result hierarchy internal until binding policy and
+  resolution outcomes establish the public context boundary.
+- Add no cross-assembly traversal or public binding policy.
+
+Claim: one acquisition registration maps to one catalog-local candidate,
+reader-independent inventory, and at most one lazily retained session under
+explicit resource budgets.
+
+### Slice 2b: context and resolution engine
+
+- Add the resolution request, binding, failure, ambiguity, and outcome
+  hierarchies after their descriptor and catalog dependencies exist.
 - Add the catalog lifetime and compose `TypeResolutionContext` over snapshots
   plus optional sessions without retaining adjacency-only readers.
 - Add public `IAssemblyBindingPolicy` descriptor selections and the

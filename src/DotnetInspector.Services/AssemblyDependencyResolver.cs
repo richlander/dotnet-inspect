@@ -168,11 +168,14 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             if (!MatchesIdentity(identity, dependency.Path, allowVersionRollForward))
                 continue;
 
-            return new ResolvedAssemblyReference(
-                identity,
+            if (TryReadIdentity(dependency.Path) is not { } selectedIdentity)
+                continue;
+
+            return ResolvedAssemblyReference.Create(
+                selectedIdentity,
                 dependency.Path,
                 () => File.OpenRead(dependency.Path),
-                dependency.Provenance.ToString());
+                ResolutionProvenance(dependency));
         }
 
         // The target may reference an older platform contract than the running
@@ -190,16 +193,46 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 path,
                 _options.AllowPlatformAssemblyVersionRollForward))
             {
-                return new ResolvedAssemblyReference(
-                    identity,
+                if (TryReadIdentity(path) is not { } selectedIdentity)
+                    return null;
+
+                return ResolvedAssemblyReference.Create(
+                    selectedIdentity,
                     path,
                     () => File.OpenRead(path),
-                    $"{AssemblyDependencyProvenance.InstalledPlatformAssembly}:{framework}");
+                    AssemblyResolutionProvenance.Platform(
+                        framework ?? "InstalledPlatform",
+                        frameworkVersion: null,
+                        AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
             }
         }
 
         return null;
     }
+
+    static AssemblyResolutionProvenance ResolutionProvenance(
+        ResolvedAssemblyDependency dependency) =>
+        dependency.Provenance switch
+        {
+            AssemblyDependencyProvenance.PackageDependency
+                or AssemblyDependencyProvenance.DepsJsonAsset
+                or AssemblyDependencyProvenance.ProjectAsset
+                when dependency.PackageId is { Length: > 0 } packageId
+                    && dependency.PackageVersion is { Length: > 0 } packageVersion =>
+                AssemblyResolutionProvenance.Package(
+                    packageId,
+                    packageVersion,
+                    tfm: null,
+                    rid: null),
+            AssemblyDependencyProvenance.TrustedPlatformAssembly
+                or AssemblyDependencyProvenance.SharedFramework =>
+                AssemblyResolutionProvenance.Platform(
+                    dependency.FrameworkName ?? "Platform",
+                    frameworkVersion: null,
+                    dependency.Provenance.ToString()),
+            _ => AssemblyResolutionProvenance.Local(
+                dependency.Provenance.ToString()),
+        };
 
     static bool MatchesIdentity(
         AssemblyReferenceIdentity expected,
