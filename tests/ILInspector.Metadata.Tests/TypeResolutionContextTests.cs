@@ -324,7 +324,7 @@ public class TypeResolutionContextTests
     [Fact]
     public void PlatformScope_NeverLoosensAcrossUnsignedForwarder()
     {
-        const string token = "31bf3856ad364e35";
+        const string token = "b03f5f7f11d50a3a";
         byte[] targetImage = BuildAssembly("Target", definesType: true);
         byte[] secondFacadeImage = BuildAssembly(
             "SecondFacade",
@@ -419,6 +419,31 @@ public class TypeResolutionContextTests
             Assert.IsType<
                 TypeResolutionFailure.UnsupportedModuleReference>(
                     rejected.Failure).ModuleName);
+    }
+
+    [Fact]
+    public void ModuleExport_IsExplicitlyUnsupportedWithEvidence()
+    {
+        byte[] image = BuildModuleExport("Facade", "Part.netmodule");
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                _ => throw new InvalidOperationException("Must not be called.")),
+            [assembly],
+            [request]);
+        var failure =
+            Assert.IsType<TypeResolutionFailure.UnsupportedModuleExport>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    context.Resolve(request)).Failure);
+
+        Assert.Equal("Part.netmodule", failure.Module.Name);
+        Assert.True(failure.Module.ContainsMetadata);
+        Assert.Equal([1, 2, 3], failure.Module.Hash);
     }
 
     [Fact]
@@ -584,6 +609,81 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void SharedCatalog_ReusesBindingManifestAcrossGenerations()
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        byte[] targetImage = BuildAssembly("Target", definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(target));
+        using var catalog = new TypeResolutionCatalog();
+
+        using TypeResolutionContext first = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+        using TypeResolutionContext second = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        Assert.IsType<AssemblyBindingOutcome.Resolved>(
+            first.Bind(binding));
+        Assert.Same(
+            target,
+            Assert.IsType<AssemblyBindingOutcome.Resolved>(
+                second.Bind(binding)).Candidate.Assembly);
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void SharedCatalog_ResolvesNewTypeThroughCachedBinding()
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true,
+            definesOtherType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        AssemblyBindingOrigin origin =
+            AssemblyBindingOrigin.FromAssembly(owner);
+        TypeResolutionRequest firstRequest =
+            TypeResolutionRequest.FromReference(
+                ReadIdentity(targetImage),
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest secondRequest =
+            TypeResolutionRequest.FromReference(
+                ReadIdentity(targetImage),
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName("Other"));
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(target));
+        using var catalog = new TypeResolutionCatalog();
+
+        using TypeResolutionContext first =
+            catalog.CreateContext(policy, [owner], [firstRequest]);
+        using TypeResolutionContext second =
+            catalog.CreateContext(policy, [owner], [secondRequest]);
+
+        Assert.IsType<TypeResolutionOutcome.Resolved>(
+            first.Resolve(firstRequest));
+        Assert.IsType<TypeResolutionOutcome.Resolved>(
+            second.Resolve(secondRequest));
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
     public void BindingManifest_FreezesSourceRelativeBinding()
     {
         byte[] ownerImage = BuildAssembly("Owner", definesType: false);
@@ -654,6 +754,47 @@ public class TypeResolutionContextTests
             Assert.IsType<AssemblyBindingOutcome.Resolved>(
                 context.Bind(forwardedBinding)).Candidate.Assembly);
         Assert.Equal(2, policy.Requests.Count);
+    }
+
+    [Fact]
+    public void BindingManifest_DenseGraphUsesBoundedCallStack()
+    {
+        const int candidateCount = 256;
+        string[] names = Enumerable.Range(0, candidateCount)
+            .Select(static i => $"A{i}")
+            .ToArray();
+        var candidates = names.ToDictionary(
+            static name => name,
+            name => Descriptor(BuildForwarderFanout(name, names)),
+            StringComparer.Ordinal);
+        var policy = new RecordingPolicy(request =>
+        {
+            string name = Assert.IsType<
+                AssemblyBindingTarget.AssemblyReference>(request.Target)
+                .Identity.Name;
+            return AssemblyBindingSelection.Found(candidates[name]);
+        });
+        var root = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity(names[0])),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxCandidates = candidateCount,
+            });
+
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [],
+            bindingRequests: [root],
+            requests: []);
+
+        Assert.IsType<AssemblyBindingOutcome.Resolved>(
+            context.Bind(root));
+        Assert.Equal(
+            1 + (candidateCount * candidateCount),
+            policy.Requests.Count);
     }
 
     [Fact]
@@ -772,6 +913,17 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
                 Assert.IsType<TypeResolutionOutcome.Rejected>(
                     candidateLimited.Resolve(forwardedRequest)).Failure).Budget);
+        TypeResolutionRequest unmanifestedRequest =
+            TypeResolutionRequest.FromAssembly(
+                target,
+                AssemblyResolutionScope.Any,
+                TypeName("Other"));
+        Assert.Equal(
+            1,
+            Assert.IsType<TypeResolutionFailure.DiscoveryBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    candidateLimited.Resolve(unmanifestedRequest)).Failure)
+                .Budget);
 
         TypeResolutionRequest directRequest =
             TypeResolutionRequest.FromAssembly(
@@ -957,6 +1109,44 @@ public class TypeResolutionContextTests
         Assert.Equal(catalog.Id, context.Catalog);
     }
 
+    [Fact]
+    public void PartiallyCanceledGeneration_DoesNotPromotePolicyCaches()
+    {
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: Identity("Target"));
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            facade,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        int calls = 0;
+        var policy = new RecordingPolicy(_ =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+                cancellation.Cancel();
+            return AssemblyBindingSelection.NotFound();
+        });
+        using var catalog = new TypeResolutionCatalog();
+
+        Assert.ThrowsAny<OperationCanceledException>(
+            () => catalog.CreateContextWithCancellation(
+                policy,
+                roots: [facade],
+                bindingRequests: [],
+                requests: [request],
+                cancellation.Token));
+
+        using TypeResolutionContext context =
+            catalog.CreateContext(policy, [facade], [request]);
+        Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+            context.Resolve(request));
+        Assert.Equal(2, calls);
+    }
+
     static MetadataTypeDefinitionName TypeName(string name = "Type") =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("N", [name])).Name;
@@ -999,7 +1189,8 @@ public class TypeResolutionContextTests
         string assemblyName,
         bool definesType,
         AssemblyReferenceIdentity? forwardTarget = null,
-        int forwarderCount = 1)
+        int forwarderCount = 1,
+        bool definesOtherType = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1033,6 +1224,16 @@ public class TypeResolutionContextTests
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
         }
+        if (definesOtherType)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Other"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
 
         if (forwardTarget is not null)
         {
@@ -1058,6 +1259,107 @@ public class TypeResolutionContextTests
                     typeDefinitionId: 0);
             }
         }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildForwarderFanout(
+        string assemblyName,
+        IEnumerable<string> targets)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        int index = 0;
+        foreach (string targetName in targets)
+        {
+            AssemblyReferenceHandle target =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString(targetName),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default,
+                    flags: default,
+                    hashValue: default);
+            metadata.AddExportedType(
+                TypeAttributes.Public | Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString($"T{index++}"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildModuleExport(
+        string assemblyName,
+        string moduleName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyFileHandle module = metadata.AddAssemblyFile(
+            metadata.GetOrAddString(moduleName),
+            metadata.GetOrAddBlob(new byte[] { 1, 2, 3 }),
+            containsMetadata: true);
+        metadata.AddExportedType(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Type"),
+            module,
+            typeDefinitionId: 1);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

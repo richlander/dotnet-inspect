@@ -14,6 +14,17 @@ namespace ILInspector.Analysis;
 /// </summary>
 public static class FrameworkAssemblyKeys
 {
+    // Public-key-tokens used by the .NET frameworks (lowercase hex).
+    static readonly HashSet<string> s_frameworkTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "b77a5c561934e089", // ECMA / .NET Framework: mscorlib, System, System.Core, System.Xml, ...
+        "b03f5f7f11d50a3a", // Microsoft .NET ref assemblies / contracts: System.*, System.Linq, ...
+        "7cec85d7bea7798e", // System.Private.CoreLib (and the Silverlight key)
+        "cc7b13ffcd2ddd51", // netstandard and several System.* packages
+        "31bf3856ad364e35", // Microsoft key: WindowsBase, System.ValueTuple, ...
+        "adb9793829ddae60", // assorted System.* packages
+    };
+
     public static bool IsFrameworkReference(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
@@ -29,7 +40,7 @@ public static class FrameworkAssemblyKeys
     /// declaring <see cref="MetadataReader"/> is not.
     /// </summary>
     public static bool IsFrameworkToken(string? publicKeyToken)
-        => ILInspector.Metadata.PlatformKeys.IsPlatform(publicKeyToken);
+        => publicKeyToken is not null && s_frameworkTokens.Contains(publicKeyToken);
 
     public static bool IsFrameworkDefinition(MetadataReader reader)
     {
@@ -80,9 +91,7 @@ public static class FrameworkAssemblyKeys
         if (keyOrToken.Length == 0)
             return false;
         byte[] token = isFullKey ? ComputeToken(keyOrToken) : keyOrToken;
-        return token.Length == 8
-            && ILInspector.Metadata.PlatformKeys.IsPlatform(
-                Convert.ToHexString(token));
+        return token.Length == 8 && s_frameworkTokens.Contains(Convert.ToHexString(token));
     }
 
     // The public-key-token is the low 8 bytes of the SHA-1 hash of the public key,

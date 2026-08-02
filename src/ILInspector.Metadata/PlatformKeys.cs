@@ -17,7 +17,6 @@ public static class PlatformKeys
         "7cec85d7bea7798e", // .NET platform (System.Private.CoreLib)
         "cc7b13ffcd2ddd51", // .NET Native / WinRT projections
         "adb9793829ddae60", // .NET shared framework
-        "31bf3856ad364e35", // Microsoft (WindowsBase, System.ValueTuple, ...)
     };
 
     /// <summary>

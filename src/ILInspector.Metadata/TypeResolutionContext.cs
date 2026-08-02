@@ -147,6 +147,7 @@ public sealed class TypeResolutionCatalog : IDisposable
     }
 
     internal InspectionAcquisitionPlan Acquisition => _acquisition;
+    internal int MaxCandidates => _options.MaxCandidates;
     internal object LifetimeGate => _gate;
 
     internal void EnsureAlive()
@@ -179,11 +180,11 @@ public sealed class TypeResolutionCatalog : IDisposable
             new PolicyCacheKey(policyVersion, key),
             out evaluation);
 
-    internal void AddBinding(
+    internal void PromoteBinding(
         AssemblyBindingPolicyVersion policyVersion,
         object key,
         CachedBindingEvaluation evaluation) =>
-        _bindings.Add(
+        _bindings.TryAdd(
             new PolicyCacheKey(policyVersion, key),
             evaluation);
 
@@ -195,11 +196,11 @@ public sealed class TypeResolutionCatalog : IDisposable
             new PolicyCacheKey(policyVersion, key),
             out outcome);
 
-    internal void AddResolution(
+    internal void PromoteResolution(
         AssemblyBindingPolicyVersion policyVersion,
         object key,
         TypeResolutionOutcome outcome) =>
-        _resolutions.Add(
+        _resolutions.TryAdd(
             new PolicyCacheKey(policyVersion, key),
             outcome);
 
@@ -518,9 +519,10 @@ public sealed class TypeResolutionContext : IDisposable
                 registration,
                 out CandidateOpenFailure? openFailure))
         {
-            failure = new TypeResolutionFailure.CandidateOpenFailed(
+            failure = CandidateFailure(
                 FindDescriptor(registration),
-                openFailure);
+                openFailure,
+                _catalog.MaxCandidates);
             return false;
         }
 
@@ -537,6 +539,17 @@ public sealed class TypeResolutionContext : IDisposable
             : throw new InvalidOperationException(
                 "A registration failure lost its assembly descriptor.");
     }
+
+    static TypeResolutionFailure CandidateFailure(
+        ResolvedAssemblyReference assembly,
+        CandidateOpenFailure failure,
+        int maxCandidates) =>
+        failure.Kind == CandidateOpenFailureKind.ResourceBudget
+            ? new TypeResolutionFailure.DiscoveryBudgetExceeded(
+                maxCandidates)
+            : new TypeResolutionFailure.CandidateOpenFailed(
+                assembly,
+                failure);
 
     bool TryProjectBinding(
         AssemblyBindingTarget target,
@@ -811,10 +824,6 @@ public sealed class TypeResolutionContext : IDisposable
                     _projectionFailures.TryAdd(
                         manifestKey,
                         projectionFailure!);
-                    _catalog.AddResolution(
-                        _policyVersion,
-                        manifestKey,
-                        projectionFailure!);
                 }
                 return;
             }
@@ -834,7 +843,6 @@ public sealed class TypeResolutionContext : IDisposable
 
             TypeResolutionOutcome outcome = ResolveCore(request);
             _outcomes.Add(key, outcome);
-            _catalog.AddResolution(_policyVersion, key, outcome);
         }
 
         void SeedRecipe(
@@ -885,6 +893,12 @@ public sealed class TypeResolutionContext : IDisposable
             }
 
             _bindings.Add(key, evaluation!);
+            RegisterEvaluationCandidates(evaluation!);
+        }
+
+        void RegisterEvaluationCandidates(
+            CachedBindingEvaluation evaluation)
+        {
             switch (evaluation!.Outcome)
             {
                 case AssemblyBindingOutcome.Resolved resolved:
@@ -902,39 +916,46 @@ public sealed class TypeResolutionContext : IDisposable
 
         internal void Add(AssemblyBindingRequest request)
         {
-            _cancellationToken.ThrowIfCancellationRequested();
-            if (!TryBindingKey(
-                    request.Target,
-                    request.Origin,
-                    request.Scope,
-                    out BindingKey key,
-                    out _))
+            var pending = new Stack<AssemblyBindingRequest>();
+            pending.Push(request);
+            while (pending.TryPop(out AssemblyBindingRequest? current))
             {
-                return;
-            }
+                _cancellationToken.ThrowIfCancellationRequested();
+                if (!TryBindingKey(
+                        current.Target,
+                        current.Origin,
+                        current.Scope,
+                        out BindingKey key,
+                        out _)
+                    || _bindings.ContainsKey(key))
+                {
+                    continue;
+                }
 
-            if (_bindings.ContainsKey(key))
-                return;
+                CachedBindingEvaluation evaluation =
+                    EvaluateBinding(key, current);
+                if (evaluation.Outcome
+                    is not AssemblyBindingOutcome.Resolved resolved)
+                {
+                    continue;
+                }
 
-            CachedBindingEvaluation evaluation =
-                EvaluateBinding(key, request);
-            if (evaluation.Outcome
-                is not AssemblyBindingOutcome.Resolved resolved)
-            {
-                return;
-            }
+                AssemblyInventorySnapshot inventory =
+                    _inventories[resolved.Candidate.Id];
+                for (int i = inventory.ForwarderTargets.Length - 1;
+                    i >= 0;
+                    i--)
+                {
+                    AssemblyReferenceIdentity target =
+                        inventory.ForwarderTargets[i];
+                    pending.Push(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(target),
+                            AssemblyBindingOrigin.FromAssembly(
+                                resolved.Candidate.Assembly),
+                            TightenScope(current.Scope, target)));
+                }
 
-            AssemblyInventorySnapshot inventory =
-                _inventories[resolved.Candidate.Id];
-            foreach (AssemblyReferenceIdentity target
-                in inventory.ForwarderTargets)
-            {
-                Add(
-                    new AssemblyBindingRequest(
-                        AssemblyBindingTarget.Reference(target),
-                        AssemblyBindingOrigin.FromAssembly(
-                            resolved.Candidate.Assembly),
-                        TightenScope(request.Scope, target)));
             }
         }
 
@@ -942,6 +963,32 @@ public sealed class TypeResolutionContext : IDisposable
         {
             _cancellationToken.ThrowIfCancellationRequested();
             EnsurePolicyVersion();
+            foreach (KeyValuePair<BindingKey, CachedBindingEvaluation> pair
+                in _bindings)
+            {
+                _catalog.PromoteBinding(
+                    _policyVersion,
+                    pair.Key,
+                    pair.Value);
+            }
+            foreach (KeyValuePair<RequestKey, TypeResolutionOutcome> pair
+                in _outcomes)
+            {
+                _catalog.PromoteResolution(
+                    _policyVersion,
+                    pair.Key,
+                    pair.Value);
+            }
+            foreach (
+                KeyValuePair<ManifestRequestKey, TypeResolutionOutcome> pair
+                in _projectionFailures)
+            {
+                _catalog.PromoteResolution(
+                    _policyVersion,
+                    pair.Key,
+                    pair.Value);
+            }
+
             return new TypeResolutionContext(
                 _catalog,
                 _ownsCatalog,
@@ -1301,6 +1348,7 @@ public sealed class TypeResolutionContext : IDisposable
                     out cached))
             {
                 _bindings.Add(key, cached!);
+                RegisterEvaluationCandidates(cached!);
                 return cached!;
             }
 
@@ -1330,7 +1378,6 @@ public sealed class TypeResolutionContext : IDisposable
                 _ => InvalidBinding(),
             };
             _bindings.Add(key, evaluation);
-            _catalog.AddBinding(_policyVersion, key, evaluation);
             return evaluation;
         }
 
@@ -1338,7 +1385,6 @@ public sealed class TypeResolutionContext : IDisposable
         {
             CachedBindingEvaluation evaluation = InvalidBinding();
             _bindings.Add(key, evaluation);
-            _catalog.AddBinding(_policyVersion, key, evaluation);
             return evaluation;
         }
 
@@ -1470,17 +1516,6 @@ public sealed class TypeResolutionContext : IDisposable
                     "The binding policy changed version during discovery.");
             }
         }
-
-        static TypeResolutionFailure CandidateFailure(
-            ResolvedAssemblyReference assembly,
-            CandidateOpenFailure failure,
-            int maxCandidates) =>
-            failure.Kind == CandidateOpenFailureKind.ResourceBudget
-                ? new TypeResolutionFailure.DiscoveryBudgetExceeded(
-                    maxCandidates)
-                : new TypeResolutionFailure.CandidateOpenFailed(
-                    assembly,
-                    failure);
 
         static AssemblyResolutionScope TightenScope(
             AssemblyResolutionScope current,
