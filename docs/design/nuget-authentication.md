@@ -3,7 +3,9 @@
 How `dotnet-inspect` authenticates to a NuGet feed, which credential mechanisms it honors,
 and which it silently ignores.
 
-This document describes *what the tool does*. For what you *should* do — choosing between
+For instructions on setting up access to a private feed, see
+[Private NuGet Feeds](../private-feeds.md). This document describes *what the tool does*. For
+what you *should* do — choosing between
 Microsoft Entra tokens, PATs, service principals, and workload identity federation — follow
 the Azure DevOps guidance, which is authoritative and kept current:
 
