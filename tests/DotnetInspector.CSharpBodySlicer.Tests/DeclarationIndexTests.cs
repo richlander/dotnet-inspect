@@ -782,13 +782,15 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
-    /// Pins a known limitation, so that fixing it is visible rather than silent.
+    /// A conditional group compiles exactly one branch, or none. If every branch returns to the
+    /// brace depth the <c>#if</c> started at, the depth after the <c>#endif</c> is that depth
+    /// whichever branch the compiler keeps — so declarations below the group are unaffected by it
+    /// and their spans are knowable. Recovering that is #3668.
     /// <para>
-    /// A conditional directive sets the lexer's untracked flag and nothing ever clears it, so the
-    /// place is lost for the rest of the file rather than for the region the directive guards. Here
-    /// the conditional is brace-balanced and everything from <c>Always</c> on is declared after the
-    /// <c>#endif</c>, so no branch can affect it — and it still reports an unknown span and cannot
-    /// be found by body line. Identical code without the directive resolves.
+    /// Before it, a conditional directive set the lexer's untracked flag and nothing cleared it, so
+    /// the place was lost for the rest of the file rather than for the region the directive guards.
+    /// On dotnet/runtime's libraries at revision <c>e614b717a9d</c> a conditional appears in 8.3% of
+    /// files but cost 12.1% of declarations, because the loss ran to end of file.
     /// </para>
     /// <para>
     /// Rows are asserted through both emit paths. A bodiless row — a field, an interface method —
@@ -798,26 +800,15 @@ public class DeclarationIndexTests
     /// <c>Field</c> and <c>Bodiless</c>.
     /// </para>
     /// <para>
-    /// The loss is conservative rather than wrong: every mutation of a row's span checks the
-    /// depth flag, so a span the scan cannot vouch for reports unknown instead of reporting one
-    /// branch's answer as the declaration's. That property is gated by
-    /// <see cref="AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd"/>, which covers
-    /// the one path that mutates an already-measured span. It is also expensive: on
-    /// dotnet/runtime's libraries at revision <c>e614b717a9d</c> a conditional appears in 8.3% of
-    /// files but costs 12.1% of declarations, because the loss runs to end of file. Those figures
-    /// are a point-in-time measurement, not a gated property.
-    /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>
-    /// tracks recovering the depth across a conditional whose every branch is brace-balanced. When
-    /// that lands this test should fail, and its assertions become the new behavior's.
-    /// </para>
-    /// <para>
-    /// The corpus differential cannot cover this: <c>RoslynDeclarations</c> declines every file
-    /// carrying a conditional directive, because Roslyn discards disabled branches while the index,
-    /// being lexical, indexes them.
+    /// What stays lost is asserted by
+    /// <see cref="AnUnbalancedConditional_StillLosesEveryLaterRow"/> and
+    /// <see cref="AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd"/>. Brace balance
+    /// makes a *following* span knowable; it says nothing about a span whose own terminator sits
+    /// inside a branch.
     /// </para>
     /// </summary>
     [Fact]
-    public void AConditionalDirective_LosesEveryLaterRowToEndOfFile()
+    public void ABalancedConditional_CostsOnlyTheRowsInsideIt()
     {
         var index = DeclarationIndex.Build("""
             class C
@@ -836,16 +827,22 @@ public class DeclarationIndexTests
 
         // Named rather than counted: a row that vanished would otherwise pass an Assert.All, and
         // Field and Bodiless are the two that reach EmitBodiless.
-        foreach (var name in new[] { "C", "Debug", "Always", "Field", "I", "Bodiless" })
+        foreach (var name in new[] { "C", "Always", "Field", "I", "Bodiless" })
         {
             var row = Assert.Single(index.Declarations, s => s.Name == name);
-            Assert.False(row.SpanKnown, $"'{name}' should report an unknown span");
+            Assert.True(row.SpanKnown, $"'{name}' sits outside the group and should resolve");
         }
 
-        Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
-        Assert.Null(index.FindByBodyLine(6));
+        // The row *inside* the branch is still withheld. Its text is indexed -- the index is
+        // lexical and reports what is written -- but whether it compiles depends on a symbol the
+        // index does not know, and #3672 is where that question is answered.
+        var conditional = Assert.Single(index.Declarations, s => s.Name == "Debug");
+        Assert.False(conditional.SpanKnown, "a row inside a branch is not known to compile");
 
-        // The same declarations without the directive resolve, so the directive is the whole cause.
+        Assert.Equal("Always", index.FindByBodyLine(6)?.Name);
+
+        // The same declarations without the directive resolve identically, so the group now costs
+        // nothing outside itself.
         var plain = DeclarationIndex.Build("""
             class C
             {
@@ -860,6 +857,125 @@ public class DeclarationIndexTests
 
         Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
         Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+    }
+
+    /// <summary>
+    /// The negative half, and the reason balance is measured per branch rather than over the group
+    /// as scanned. A structural conditional — one that opens a brace in one branch and closes it in
+    /// another, or declares a different signature per branch — leaves a depth after its
+    /// <c>#endif</c> that really does depend on which branch compiles, so the loss must stand.
+    /// These are 26.6% of the directive groups in dotnet/runtime's libraries and are what #3672
+    /// addresses with the PDB; the remaining 0.8% are body-only and unbalanced, and are undecidable
+    /// without knowing the symbol set.
+    /// </summary>
+    [Theory]
+    // A brace opened in one branch and closed after the #endif.
+    [InlineData("class C\n{\n#if NET8\n    void M() {\n#else\n    void M() {\n#endif\n    }\n    void After() { }\n}")]
+    // A brace opened inside a body in one branch only.
+    [InlineData("class C\n{\n    void M()\n    {\n#if DEBUG\n        if (x) {\n#endif\n        }\n    }\n    void After() { }\n}")]
+    // Balance judged over the last branch too: the #else arm is the one that does not return.
+    [InlineData("class C\n{\n#if A\n    void M() { }\n#else\n    void M() {\n#endif\n    }\n    void After() { }\n}")]
+    public void AnUnbalancedConditional_StillLosesEveryLaterRow(string source)
+    {
+        var index = DeclarationIndex.Build(source.Split('\n'));
+
+        // Asserted over every row rather than over "After" alone: an unbalanced group can mangle
+        // the brace structure badly enough that the trailing declaration is never emitted as a row
+        // at all, and a test naming it would then fail for the wrong reason. What must hold is that
+        // nothing in the file claims a span the scan cannot vouch for.
+        Assert.NotEmpty(index.Declarations);
+        Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
+    }
+
+    /// <summary>
+    /// An unbalanced group nested inside a balanced one poisons the outer group: the enclosing
+    /// group cannot return to its own opening depth if something inside it did not. Asserted
+    /// because propagation is a separate line from the balance check and a fixture with one level
+    /// of nesting leaves it ungated.
+    /// </summary>
+    [Fact]
+    public void AnUnbalancedInnerConditional_PoisonsTheGroupAroundIt()
+    {
+        var nested = DeclarationIndex.Build("""
+            class C
+            {
+            #if A
+            #if B
+                void X() {
+            #endif
+                }
+            #endif
+                void After() { }
+            }
+            """);
+
+        Assert.False(
+            Assert.Single(nested.Declarations, s => s.Name == "After").SpanKnown,
+            "an unbalanced inner group must not be forgotten when the outer one closes");
+
+        // The same nesting with both groups balanced resolves, so nesting alone is not the cause.
+        var balanced = DeclarationIndex.Build("""
+            class C
+            {
+            #if A
+            #if B
+                void X() { }
+            #endif
+            #endif
+                void After() { }
+            }
+            """);
+
+        Assert.True(Assert.Single(balanced.Declarations, s => s.Name == "After").SpanKnown);
+    }
+
+    /// <summary>
+    /// Every branch is measured from the group's opening depth, not from where the previous branch
+    /// left off. Without that reset the scan would carry one branch's braces into the next and no
+    /// multi-branch group could look balanced — which is most of them, since <c>#else</c> is
+    /// common. <c>#elif</c> needs no separate handling: it ends the branch above it and starts
+    /// another, exactly as <c>#else</c> does.
+    /// </summary>
+    [Theory]
+    [InlineData("#else")]
+    [InlineData("#elif OTHER")]
+    public void EachBranchIsMeasuredFromTheGroupsOpeningDepth(string middle)
+    {
+        var index = DeclarationIndex.Build(string.Join('\n',
+        [
+            "class C",
+            "{",
+            "    void M()",
+            "    {",
+            "#if FEATURE",
+            "        if (a) { X(); }",
+            middle,
+            "        if (b) { Y(); }",
+            "#endif",
+            "    }",
+            "    void After() { }",
+            "}",
+        ]));
+
+        Assert.True(Assert.Single(index.Declarations, s => s.Name == "After").SpanKnown);
+        Assert.True(Assert.Single(index.Declarations, s => s.Name == "M").SpanKnown);
+    }
+
+    /// <summary>
+    /// A stray <c>#else</c>, <c>#elif</c> or <c>#endif</c> with no group open is malformed source.
+    /// The scan has no opening depth to measure against, so it refuses rather than guessing — the
+    /// alternative is an index-out-of-range on the frame stack.
+    /// </summary>
+    [Theory]
+    [InlineData("#endif")]
+    [InlineData("#else")]
+    [InlineData("#elif X")]
+    public void AConditionalDirectiveWithNoGroupOpen_LosesTheDepth(string stray)
+    {
+        var index = DeclarationIndex.Build(string.Join('\n',
+            ["class C", "{", stray, "    void After() { }", "}"]));
+
+        Assert.False(Assert.Single(index.Declarations, s => s.Name == "After").SpanKnown);
     }
 
     /// <summary>
@@ -894,7 +1010,13 @@ public class DeclarationIndexTests
 
         var p = Assert.Single(index.Declarations, s => s.Name == "P");
         Assert.False(p.SpanKnown, "a span whose end is one branch's must not report as known");
-        Assert.Null(index.FindByBodyLine(3));
+
+        // The property is withheld, so line 3 selects the enclosing class instead. The class is
+        // legitimately known: its own braces sit outside the group, and the group's branches each
+        // balance, so its end does not depend on which branch compiles. Brace balance is what
+        // makes a *following* span knowable; it says nothing about a span whose terminator is
+        // inside a branch, which is why P stays lost while C does not.
+        Assert.Equal("C", index.FindByBodyLine(3)?.Name);
 
         // Without the conditional the same shape resolves, so the directive is the whole cause and
         // the trailing-initializer path still extends the span it belongs to.

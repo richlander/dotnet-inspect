@@ -1040,11 +1040,141 @@ public static class BodySlicer
         public int BracketDepth;
 
         /// <summary>
-        /// Set when a brace could not be placed — an unterminated single-line literal, or a
-        /// delimiter run this scanner will not guess at. The depth count is unusable from that
-        /// point on, and callers treat it as "do not know" rather than as a depth.
+        /// Set when a brace could not be placed — an unterminated single-line literal, a
+        /// delimiter run this scanner will not guess at, or any conditional directive. The depth
+        /// count is unusable from that point on, and callers treat it as "do not know" rather
+        /// than as a depth.
+        /// <para>
+        /// This is the blunt, sticky answer, and it is what the line-oriented recovery helpers on
+        /// this type read. <see cref="StructuralDepthKnown"/> is the sharper one: a conditional
+        /// group whose branches each balance leaves the depth after its <c>#endif</c> knowable,
+        /// which this flag cannot express because it never clears.
+        /// </para>
         /// </summary>
         public bool Untracked;
+
+        /// <summary>
+        /// Conditional groups currently open, innermost last. Each records the brace depth at its
+        /// <c>#if</c> and whether any branch has failed to return to it.
+        /// </summary>
+        private readonly List<Conditional> conditionals = [];
+
+        /// <summary>Set when a conditional group's branches did not balance. Never cleared.</summary>
+        private bool conditionalDepthLost;
+
+        /// <summary>
+        /// Set when the depth was lost for a reason that has nothing to do with conditionals.
+        /// Tracked apart from <see cref="Untracked"/> so that a conditional directive does not
+        /// permanently mask the difference between the two causes.
+        /// </summary>
+        private bool literalDepthLost;
+
+        /// <summary>
+        /// Whether this token's brace depth can be trusted to describe the compiled program.
+        /// <para>
+        /// False inside a conditional group, because the branch being scanned may be the one the
+        /// compiler discards. False after a group whose branches did not each return to the depth
+        /// they started at, because then the depth after the <c>#endif</c> depends on which branch
+        /// compiles. True again after a group that did balance: every branch leaves the same
+        /// depth, so it does not matter which one the compiler keeps.
+        /// </para>
+        /// </summary>
+        /// <summary>
+        /// <para>
+        /// Whether the brace depth is a fact the scan can vouch for. A conditional group is
+        /// unknown <em>while it is open</em>, and knownness returns after an <c>#endif</c> whose
+        /// branches all balance, since every branch then leaves the same depth behind and it no
+        /// longer matters which one was taken.
+        /// </para>
+        /// <para>
+        /// Withholding the inside of a balanced group is deliberate and is not merely caution
+        /// about liveness. A declaration written wholly inside one branch does have a correct
+        /// span, but one that <em>crosses</em> a directive does not: an <c>int P { get; }</c>
+        /// whose initializer is <c>= 1;</c> in one branch and <c>= 2;</c> in another occupies a
+        /// different, and in the second case non-contiguous, set of lines per build, which no
+        /// single line range can express. At token granularity the two shapes are
+        /// indistinguishable, so the conservative answer covers both.
+        /// </para>
+        /// </summary>
+        public bool StructuralDepthKnown =>
+            !literalDepthLost && !conditionalDepthLost && conditionals.Count == 0;
+
+        /// <summary>Records that the depth was lost for a non-conditional reason.</summary>
+        public void LoseDepth()
+        {
+            literalDepthLost = true;
+            Untracked = true;
+        }
+
+        /// <summary>Opens a conditional group at brace depth <paramref name="depth"/>.</summary>
+        public void OpenConditional(int depth)
+        {
+            conditionals.Add(new Conditional(depth));
+            Untracked = true;
+        }
+
+        /// <summary>
+        /// Ends the current branch at <c>#elif</c> or <c>#else</c> and returns the depth the next
+        /// branch starts from. A branch that did not return to the group's opening depth makes the
+        /// group unbalanced; the depth is reset either way, so one branch's braces are never
+        /// counted against the next.
+        /// </summary>
+        public int NextBranch(int depth)
+        {
+            Untracked = true;
+
+            if (conditionals.Count == 0)
+            {
+                // An #elif or #else with no open group is malformed source. Refuse to guess.
+                conditionalDepthLost = true;
+                return depth;
+            }
+
+            var group = conditionals[^1];
+            if (depth != group.BaseDepth)
+                group.Unbalanced = true;
+
+            return group.BaseDepth;
+        }
+
+        /// <summary>
+        /// Closes the current conditional group and returns the depth that follows it. Balance is
+        /// judged over the last branch as well, and an unbalanced inner group is propagated
+        /// outward: an enclosing group cannot be balanced if something inside it was not.
+        /// </summary>
+        public int CloseConditional(int depth)
+        {
+            Untracked = true;
+
+            if (conditionals.Count == 0)
+            {
+                conditionalDepthLost = true;
+                return depth;
+            }
+
+            var group = conditionals[^1];
+            conditionals.RemoveAt(conditionals.Count - 1);
+
+            // An enclosing group cannot balance if something inside it did not, so an inner
+            // failure propagates outward rather than being forgiven by the outer #endif.
+            if (group.Unbalanced || depth != group.BaseDepth)
+            {
+                if (conditionals.Count > 0)
+                    conditionals[^1].Unbalanced = true;
+                else
+                    conditionalDepthLost = true;
+            }
+
+            return group.BaseDepth;
+        }
+
+        private sealed class Conditional(int baseDepth)
+        {
+            public readonly int BaseDepth = baseDepth;
+            public bool Unbalanced;
+
+            public Conditional Copy() => new(BaseDepth) { Unbalanced = Unbalanced };
+        }
 
         public bool InLiteral => frames.Count > 0;
 
@@ -1062,8 +1192,16 @@ public static class BodySlicer
         /// </summary>
         public LexState Clone()
         {
-            var copy = new LexState { InBlockComment = InBlockComment, Untracked = Untracked, BracketDepth = BracketDepth };
+            var copy = new LexState
+            {
+                InBlockComment = InBlockComment,
+                Untracked = Untracked,
+                BracketDepth = BracketDepth,
+                conditionalDepthLost = conditionalDepthLost,
+                literalDepthLost = literalDepthLost,
+            };
             copy.frames.AddRange(frames);
+            copy.conditionals.AddRange(conditionals.Select(c => c.Copy()));
             return copy;
         }
 
@@ -1120,9 +1258,16 @@ public static class BodySlicer
     /// Reports whether <paramref name="line"/> is a preprocessor directive, and whether it is one
     /// of the conditional-compilation directives whose branches the compiler may discard.
     /// </summary>
-    private static bool IsDirective(string line, out bool conditional)
+    /// <summary>
+    /// Which conditional directive a line spells, if any. <see cref="None"/> covers both a
+    /// non-conditional directive and a line that is not a directive at all; callers distinguish
+    /// those by <c>IsDirective</c>'s return value.
+    /// </summary>
+    private enum Conditional { None, If, NextBranch, EndIf }
+
+    private static bool IsDirective(string line, out Conditional conditional)
     {
-        conditional = false;
+        conditional = Conditional.None;
 
         var trimmed = line.AsSpan().TrimStart();
 
@@ -1131,12 +1276,16 @@ public static class BodySlicer
 
         var name = trimmed[1..].TrimStart();
 
-        foreach (var candidate in (ReadOnlySpan<string>)["if", "elif", "else", "endif"])
+        // "elif" and "else" are one case: each ends the branch above it and starts another, and
+        // the group's balance is judged the same way at both.
+        foreach (var (candidate, kind) in (ReadOnlySpan<(string, Conditional)>)
+                 [("if", Conditional.If), ("elif", Conditional.NextBranch),
+                  ("else", Conditional.NextBranch), ("endif", Conditional.EndIf)])
         {
             if (name.StartsWith(candidate, StringComparison.Ordinal) &&
                 (name.Length == candidate.Length || !char.IsLetterOrDigit(name[candidate.Length])))
             {
-                conditional = true;
+                conditional = kind;
                 break;
             }
         }
@@ -1204,7 +1353,7 @@ public static class BodySlicer
         List<ScanToken>? tokens = null,
         int lineIndex = 0)
     {
-        bool untrackedOnEntry = state.Untracked;
+        bool knownOnEntry = state.StructuralDepthKnown;
         int mark = tokens?.Count ?? 0;
 
         int stopped = ScanCore(
@@ -1214,7 +1363,7 @@ public static class BodySlicer
         // Losing the place is discovered at the end of a line, after tokens on it were emitted.
         // Those tokens recorded a depth that has since become meaningless, so correct them rather
         // than leave a stale "known" that reads exactly like a real depth.
-        if (tokens is not null && state.Untracked && !untrackedOnEntry)
+        if (tokens is not null && knownOnEntry && !state.StructuralDepthKnown)
         {
             for (int t = mark; t < tokens.Count; t++)
                 tokens[t] = tokens[t] with { DepthKnown = false };
@@ -1267,7 +1416,7 @@ public static class BodySlicer
                 }
             }
 
-            tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, !state.Untracked));
+            tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown));
         }
 
         // Advances past the rest of an open block comment, clearing the carried flag if the
@@ -1291,13 +1440,22 @@ public static class BodySlicer
             return j;
         }
 
-        if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
+        if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out Conditional conditional))
         {
             // A preprocessor directive is not code, so nothing on the line is scanned. A
             // conditional directive additionally means the braces around it may belong to a
-            // branch the compiler discards, which leaves the structural depth unknowable.
-            if (conditional)
-                state.Untracked = true;
+            // branch the compiler discards. That is only true *inside* the group: a group whose
+            // branches each return to the depth they started at leaves the same depth behind
+            // whichever branch the compiler keeps, so the depth after its #endif is knowable.
+            // Resetting the depth at each branch boundary is what makes that measurable -- the
+            // scan reads every branch, and without the reset one branch's braces would accumulate
+            // into the next and no group with more than one branch could ever look balanced.
+            switch (conditional)
+            {
+                case Conditional.If: state.OpenConditional(depth); break;
+                case Conditional.NextBranch: depth = state.NextBranch(depth); break;
+                case Conditional.EndIf: depth = state.CloseConditional(depth); break;
+            }
 
             Emit(depth, ScanTokenKind.Directive, i, line.Length - i);
             return line.Length;
@@ -1620,7 +1778,7 @@ public static class BodySlicer
 
         // A literal that must close on its own line did not, so the scan lost its place.
         if (state.HasLineBoundLiteral)
-            state.Untracked = true;
+            state.LoseDepth();
 
         return i;
     }
