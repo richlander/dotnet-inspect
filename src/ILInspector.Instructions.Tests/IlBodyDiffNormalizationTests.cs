@@ -240,6 +240,104 @@ public class IlBodyDiffNormalizationTests
     }
 
     /// <summary>
+    /// The composition rule between the two synthesized-ordinal options, which splits
+    /// the name space rather than layering: when
+    /// <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/> is also
+    /// requested, the correspondence owns <c>d__</c> and <c>g__</c>, and the per-side
+    /// rewrite must not fold a name it owns.
+    ///
+    /// It matters because the correspondence folds only where the ordinal-free key is
+    /// one-to-one on both sides. Where it declines — an ambiguous key, or, as here, a
+    /// <c>MemberReference</c> it never indexed — that refusal is a judgement that the
+    /// two members are not known to correspond. Letting the per-side rewrite fold the
+    /// same name anyway would overturn it on weaker evidence and mask a real difference,
+    /// which is the defect #3645 records against the per-side option used alone.
+    ///
+    /// The first assertion is the composition; the second pins that this is a genuine
+    /// composition rule and not a dead branch, by showing the same pair still folds when
+    /// the correspondence is not requested. Without it, deleting the guard would leave
+    /// only an assertion that something does not happen, which a broken build also
+    /// satisfies.
+    /// </summary>
+    [Fact]
+    public void CompilerGeneratedCorrespondence_KeepsTheSynthesizedRewriteOffTheNamesItOwns()
+    {
+        const string Old = "<Run>g__Local|103_0";
+        const string New = "<Run>g__Local|128_0";
+
+        Assert.False(CompareMemberNames(
+            Old,
+            New,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+            | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals).IsExact);
+
+        Assert.True(CompareMemberNames(
+            Old,
+            New,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// The same composition rule one level down, which is where checking only the
+    /// outermost name leaked. The rewrite folds an outer ordinal and then recurses on
+    /// the enclosing name under the same grammar, so a `b__` name enclosing a `g__`
+    /// local function had its `g__` ordinal folded even while the correspondence was
+    /// declining to fold it — a masked difference reached through nesting.
+    ///
+    /// Found by adversarial review (round 12). The reviewer demonstrated it against the
+    /// name rewriter in isolation; this gate pins it end-to-end through
+    /// <see cref="IlBodyDiff.Compare"/>, because a name folding does not by itself prove
+    /// a false <c>Exact</c> — the rest of the operand may still separate the two.
+    ///
+    /// Roslyn does not emit this nesting: measured, a lambda inside a local function is
+    /// named after the outermost method (<c>&lt;Run&gt;b__0_1</c>), not after the local
+    /// function. It is reachable from untrusted metadata, which
+    /// docs/design/untrusted-data-threat-model.md puts in scope, and the third case pins
+    /// that the fix did not simply switch the rewrite off for everything nested — the
+    /// lambda-in-lambda shape Roslyn *does* emit must still fold.
+    /// </summary>
+    [Fact]
+    public void CompilerGeneratedCorrespondence_KeepsTheRewriteOffAnOwnedNameNestedInsideAnother()
+    {
+        const IlBodyDiffNormalization Both =
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+            | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
+
+        Assert.False(CompareMemberNames(
+            "<<Run>g__Inner|0_1>b__2_0",
+            "<<Run>g__Inner|1_1>b__2_0",
+            Both).IsExact);
+
+        // Without the correspondence the rewrite still owns the name, so this is a
+        // composition rule rather than a name the diff simply stopped relating.
+        Assert.True(CompareMemberNames(
+            "<<Run>g__Inner|0_1>b__2_0",
+            "<<Run>g__Inner|1_1>b__2_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+
+        // The other nesting order, where the owned `g__` form is outermost and its
+        // containing name is the generated one. This reaches the guard through a
+        // different failure: the correspondence parsed the name at the first `>` and
+        // disowned a form it owns, so the guard was never consulted about it.
+        Assert.False(CompareMemberNames(
+            "<<Run>b__0_0>g__Local|0_0",
+            "<<Run>b__1_0>g__Local|1_0",
+            Both).IsExact);
+
+        Assert.True(CompareMemberNames(
+            "<<Run>b__0_0>g__Local|0_0",
+            "<<Run>b__1_0>g__Local|1_0",
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+
+        // A shape Roslyn does emit, carrying no name the correspondence owns, keeps
+        // folding under both options.
+        Assert.True(CompareMemberNames(
+            "<<Run>b__103_0>b__104_1",
+            "<<Run>b__128_0>b__129_1",
+            Both).IsExact);
+    }
+
+    /// <summary>
     /// The cache-field half of #3503. <c>&lt;&gt;9__N_M</c> is a field, so it
     /// reaches the formatter through the field paths rather than the call
     /// paths and needs its own gate — the ``StatementBodyLambdaInsideIf`` row

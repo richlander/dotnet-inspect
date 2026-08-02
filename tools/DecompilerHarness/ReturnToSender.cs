@@ -1727,7 +1727,7 @@ static class ReturnToSender
             fullType,
             methodName,
             overload: 0,
-            FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
+            FidelityCheck.ContractBodyDiffNormalization)?.Diff;
 
         if (recompiledOps is null)
         {

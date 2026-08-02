@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The fidelity gate: decompile every method on <see cref="CfgSampleClass"/>,
 /// recompile it inside a reconstructed shape of its type, and compare the body under
-/// compile-back fidelity contract V1. A method that recompiles to a different body
+/// the compile-back fidelity contract. A method that recompiles to a different body
 /// changed the measured program shape — the worst decompiler failure class,
 /// invisible to parse/bind checks. This pins the green set so a regression that turns
 /// an exact method into a diff fails CI, while the documented baseline records the
@@ -19,7 +19,7 @@ public class FidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods that still differ under compile-back fidelity contract V1 — the open
+    /// Methods that still differ under the compile-back fidelity contract — the open
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
@@ -154,10 +154,9 @@ public class FidelityGateTests
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
-        // Compile-back fidelity contract V1 reclassifies these previously
+        // The compile-back fidelity contract reclassifies these previously
         // opcode-exact rows because a value, symbolic target, or branch target
         // differs after recompilation.
-        "BreakWithSideEffect",
         "CapturingLambda",
         "CapturingLocalBodyLambda",
         // #2945: outer-body reads of a hoisted capture field are substituted back
@@ -171,7 +170,6 @@ public class FidelityGateTests
         "ClosureCapture",
         "DayNumber",
         "InvokeLocalCapture",
-        "JustBreak",
         // MakeConsumerWithTwoLeadingArgs (#3272): ExpressionInliningPass removes only
         // one of the two single-use spill temps around the trailing object
         // initializer, leaving an extra stloc/ldloc pair on compile-back. #3290 added
@@ -183,26 +181,7 @@ public class FidelityGateTests
         // itself stays Valid + Correct and is pinned by
         // ObjectInitializerPassTests. Tracked as #3490.
         "MakeConsumerWithTwoLeadingArgs",
-        // The iterator raises added by #2884 recover the source bodies and retain
-        // the same outer factory opcodes, but recompiling the reconstructed large
-        // fixture type assigns different synthesized state-machine ordinals
-        // (d__600/601 -> d__575/576). Those constructor and field targets remain
-        // observable symbolic identities under contract V1.
-        "SwitchYield",
-        "WhileTrueYieldBreak",
         "TwoCaptureLambda",
-        "ValidNestedIf",
-        "YieldCollectionExpressionSpread",
-        "YieldEach",
-        "YieldEnumerator",
-        "YieldGrid",
-        "YieldIf",
-        "YieldPairs",
-        "YieldRange",
-        "YieldSquares",
-        "YieldStrings",
-        "YieldThree",
-        "YieldTwo",
     };
 
     /// <summary>
@@ -220,7 +199,7 @@ public class FidelityGateTests
     };
 
     /// <summary>
-    /// Methods a prior fidelity check fix turned exact under contract V1. Pinning them guards the
+    /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
     /// fix durably: CheckedAdd must keep the overflow check (#604), UnsignedShift
     /// must keep dropping the redundant width mask (#606), Shadowed must keep
     /// qualifying the shadowed this.field load (#607), .ctor must keep lifting
@@ -283,9 +262,9 @@ public class FidelityGateTests
     /// local assignment so the printer does not emit a dead `= default` store the
     /// original IL never carried.
     /// SharedCaptureLambdas is below Full and now reports `NotFull` because its
-    /// opcode names match but its V1 body comparison differs. CapturingLocalFunction
+    /// opcode names match but its contract body comparison differs. CapturingLocalFunction
     /// is also below Full; fixture additions changed its compiler-generated display
-    /// class and local-function ordinals, which remain observable in V1.
+    /// class and local-function ordinals, which remain observable under the contract.
     /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
     /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.
@@ -296,6 +275,35 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3491: retired by the compiler-generated member correspondence. Every row
+        // here differed only in a Roslyn state-machine ordinal — recompiling the
+        // reconstructed fixture type renumbers `d__N`, and the constructor and field
+        // targets carrying that name stayed observable symbolic identities. The
+        // correspondence folds the ordinal where the ordinal-free key is one-to-one on
+        // both sides, so these now recompile opcode-exact and are pinned rather than
+        // docketed. The per-side rewrite #3505 landed does not reach them: it declines
+        // `d__` by design, because the ordinal is that name's only discriminator and a
+        // per-side rewrite has no way to establish correspondence.
+        //
+        // Measured, not assumed — DocketRowsStayCheckedDiffs reported each of these as
+        // "now recompiles Exact" against the merge of this branch with main, and the
+        // gate fails if any of them stops being exact.
+        "BreakWithSideEffect",
+        "JustBreak",
+        "SwitchYield",
+        "ValidNestedIf",
+        "WhileTrueYieldBreak",
+        "YieldCollectionExpressionSpread",
+        "YieldEach",
+        "YieldEnumerator",
+        "YieldGrid",
+        "YieldIf",
+        "YieldPairs",
+        "YieldRange",
+        "YieldSquares",
+        "YieldStrings",
+        "YieldThree",
+        "YieldTwo",
         // #3161: a `switch` with TWO loop-bearing sections — an Array-like arm
         // (length guard + a `foreach`) and an Object-like arm (count guard + a
         // `while` with an in-loop early return) — plus scalar arms and a default,
@@ -535,7 +543,7 @@ public class FidelityGateTests
         });
 
         Assert.True(unexpected.Count == 0,
-            "New fidelity check contract V1 diffs (decompiled C# recompiles to different IL):\n"
+            "New fidelity check contract diffs (decompiled C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(result => result.Method))}");
     }
@@ -619,7 +627,7 @@ public class FidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            "Compile-back fidelity contract V1 was unavailable for: "
+            "The compile-back fidelity contract was unavailable for: "
             + string.Join(", ", unavailable));
     }
 

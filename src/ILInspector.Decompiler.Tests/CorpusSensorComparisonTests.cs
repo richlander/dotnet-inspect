@@ -742,7 +742,8 @@ public class CorpusSensorComparisonTests
 
         Assert.Contains(
             regressions,
-            regression => regression == "fidelity contract differs (baseline v0, current v1)");
+            regression => regression
+                == $"fidelity contract differs (baseline v0, current v{FidelityCheck.CurrentContractVersion})");
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
         Assert.Contains("Fidelity exact (contract differs)", report);
     }
@@ -798,24 +799,29 @@ public class CorpusSensorComparisonTests
     }
 
     /// <summary>
-    /// Contract V1 must compose every declared <see cref="IlBodyDiffNormalization"/>
+    /// The contract must compose every declared <see cref="IlBodyDiffNormalization"/>
     /// option. The enforcement set is derived from the enum rather than restated,
     /// so a newly declared option fails here until someone decides explicitly
     /// whether the compile-back oracle should apply it — a stale entry and a
     /// missing entry both fail, instead of the pin silently drifting.
+    ///
+    /// The version is pinned alongside it, because changing which normalizations the
+    /// comparison applies changes what "exact" means for every persisted corpus
+    /// baseline; the version must move with the set.
     /// </summary>
     [Fact]
-    public void FidelityContractV1_ComposesAllIlBodyNormalizations()
+    public void FidelityContract_ComposesAllIlBodyNormalizations()
     {
         IlBodyDiffNormalization allDeclared = Enum.GetValues<IlBodyDiffNormalization>()
             .Where(option => option != IlBodyDiffNormalization.None)
             .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
 
-        Assert.Equal(FidelityCheck.ContractV1BodyDiffNormalization, allDeclared);
+        Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
+        Assert.Equal(2, FidelityCheck.CurrentContractVersion);
     }
 
     [Fact]
-    public void ClassifyStatus_RequiresV1BodyEqualityForExact()
+    public void ClassifyStatus_RequiresContractBodyEqualityForExact()
     {
         var exact = new IlBodyDiffResult(
             IlBodyDiffOutcome.Exact,
@@ -870,14 +876,17 @@ public class CorpusSensorComparisonTests
         };
 
         string json = JsonSerializer.Serialize(v4)
-            .Replace("\"ContractVersion\":1,", "", StringComparison.Ordinal);
+            .Replace(
+                $"\"ContractVersion\":{CorpusSensor.CurrentFidelityContractVersion},",
+                "",
+                StringComparison.Ordinal);
         var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
 
         Assert.NotNull(restored);
         Assert.Equal(4, restored.SchemaVersion);
         Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
         Assert.Equal(5, CorpusSensor.CurrentSchemaVersion);
-        Assert.Equal(1, CorpusSensor.CurrentFidelityContractVersion);
+        Assert.Equal(2, CorpusSensor.CurrentFidelityContractVersion);
     }
 
     [Fact]
