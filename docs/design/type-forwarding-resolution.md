@@ -1483,11 +1483,11 @@ cryptographic identity; two adversarial modules can share an MVID, so the
 address alone must not establish cross-artifact correspondence. The exact
 catalog-local key remains separate.
 
-The address exposes no handle. Metadata owns an internal dereference operation
-that first verifies the MVID, validates that the token denotes a `TypeDef`, and
-checks its row against the target reader's `TypeDef` table before constructing
-a transient handle. No consumer may cast `TypeDefinitionToken.Value` directly
-to a handle.
+The address stores no handle. Its Metadata-owned `TryResolve` operation first
+verifies the MVID, validates that the token denotes a `TypeDef`, and checks its
+row against the target reader's `TypeDef` table before returning a transient
+handle tied to that reader. No consumer may cast `TypeDefinitionToken.Value`
+directly to a handle.
 
 The assembly descriptor and type name are materialized provenance. Stable
 projections may render or persist the descriptor's identity and provenance;

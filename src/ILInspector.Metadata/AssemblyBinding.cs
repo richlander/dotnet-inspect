@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 
 namespace ILInspector.Metadata;
 
@@ -275,6 +276,127 @@ public interface IAssemblyBindingPolicy
 
     /// <summary>Selects descriptor candidates for one structured request.</summary>
     AssemblyBindingSelection Select(AssemblyBindingRequest request);
+}
+
+/// <summary>
+/// Migration policy that snapshots answers from an
+/// <see cref="IAssemblyReferenceResolver"/> for one inspection lifetime.
+/// New acquisition owners should implement <see cref="IAssemblyBindingPolicy"/>
+/// directly.
+/// </summary>
+public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
+{
+    readonly IAssemblyReferenceResolver _resolver;
+    readonly ImmutableArray<AssemblyReferenceIdentity> _coreLibraryCandidates;
+    readonly ConcurrentDictionary<
+        SelectionKey,
+        Lazy<AssemblyBindingSelection>> _selections = new();
+
+    public AssemblyReferenceBindingPolicy(
+        IAssemblyReferenceResolver resolver,
+        IEnumerable<AssemblyReferenceIdentity>? coreLibraryCandidates = null)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        _resolver = resolver;
+        _coreLibraryCandidates = coreLibraryCandidates is null
+            ? []
+            : [.. coreLibraryCandidates];
+        if (_coreLibraryCandidates.Any(static candidate => candidate is null))
+        {
+            throw new ArgumentException(
+                "Core-library candidates cannot contain null.",
+                nameof(coreLibraryCandidates));
+        }
+    }
+
+    public AssemblyBindingPolicyVersion Version { get; } = new();
+
+    public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var key = SelectionKey.From(request);
+        return _selections.GetOrAdd(
+            key,
+            _ => new Lazy<AssemblyBindingSelection>(
+                () => SelectCore(request),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    AssemblyBindingSelection SelectCore(AssemblyBindingRequest request)
+    {
+        try
+        {
+            return request.Target switch
+            {
+                AssemblyBindingTarget.AssemblyReference reference =>
+                    SelectReference(reference.Identity, request.Scope),
+                AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                    SelectCoreLibrary(request.Scope),
+                _ => AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            };
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException
+                or NotSupportedException
+                or ArgumentException)
+        {
+            return AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
+        }
+    }
+
+    AssemblyBindingSelection SelectReference(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope) =>
+        _resolver.Resolve(identity, scope) is { } assembly
+            ? AssemblyBindingSelection.Found(assembly)
+            : AssemblyBindingSelection.NotFound();
+
+    AssemblyBindingSelection SelectCoreLibrary(
+        AssemblyResolutionScope scope)
+    {
+        foreach (AssemblyReferenceIdentity identity
+            in _coreLibraryCandidates)
+        {
+            if (_resolver.Resolve(identity, scope) is { } assembly)
+                return AssemblyBindingSelection.Found(assembly);
+        }
+
+        return _coreLibraryCandidates.IsEmpty
+            ? AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.UnsupportedScope))
+            : AssemblyBindingSelection.NotFound();
+    }
+
+    readonly record struct SelectionKey(
+        AssemblyBindingTarget Target,
+        AssemblyAcquisitionRegistration? Origin,
+        bool GlobalOrigin,
+        AssemblyResolutionScope Scope)
+    {
+        internal static SelectionKey From(
+            AssemblyBindingRequest request) =>
+            request.Origin switch
+            {
+                AssemblyBindingOrigin.GlobalOrigin =>
+                    new(request.Target, null, true, request.Scope),
+                AssemblyBindingOrigin.RequestingAssembly requesting =>
+                    new(
+                        request.Target,
+                        requesting.Registration,
+                        false,
+                        request.Scope),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding origin."),
+            };
+    }
 }
 
 /// <summary>

@@ -547,6 +547,7 @@ public sealed class CSharpTypePrinter
             Namespace = type.Namespace,
             Name = type.Name,
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = attributes?.ToList()!,
