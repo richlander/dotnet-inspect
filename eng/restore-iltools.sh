@@ -100,10 +100,14 @@ emit_path() {
         emitted="$1"
     fi
 
-    # Never emit a blank line. A consumer joining these with ':' would turn one
-    # into an empty PATH entry, which means the current directory -- a silent
-    # correctness and safety hazard rather than a visible failure.
-    [ -n "$emitted" ] || { echo "error: refusing to emit an empty path for '$1'." >&2; exit 1; }
+    # Never emit a blank or whitespace-only line. A consumer joining these with
+    # ':' would turn one into an empty PATH entry, which means the current
+    # directory -- a silent correctness and safety hazard rather than a visible
+    # failure. Whitespace-only counts: it is equally unusable and equally quiet.
+    case "$emitted" in
+        *[![:space:]]*) ;;
+        *) echo "error: refusing to emit a blank path for '$1'." >&2; exit 1 ;;
+    esac
     printf '%s\n' "$emitted"
 }
 
