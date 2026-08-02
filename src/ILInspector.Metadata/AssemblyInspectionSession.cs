@@ -179,8 +179,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// (including tables the projection does not model), and PE/CLI header
     /// facts. Null when the image carries no metadata.
     /// </summary>
-    public MetadataImageOverview? MetadataImage()
-        => MetadataImageInspector.Describe(_image.PEReader);
+    /// <param name="untrustedText">
+    /// What to do with the metadata root's version stamp, which is artifact-controlled text.
+    /// Defaults to containment, matching the projection.
+    /// </param>
+    public MetadataImageOverview? MetadataImage(
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
+        => MetadataImageInspector.Describe(_image.PEReader, untrustedText);
 
     /// <summary>
     /// One heap value read by address, independent of any row that references

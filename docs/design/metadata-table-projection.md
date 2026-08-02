@@ -847,12 +847,17 @@ channel the check just closed.
 ### Status
 
 The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
-implemented, with their gates named above. The identifier allow lists, the
-trust and rendering axes, `--survey`, the visual-encoding spelling and its
-decoder, and the failure-message rule are the **target model** and are not yet
-implemented; today the projector neutralizes control characters unconditionally
-and continues, and nothing validates an identifier's grammar at all. See the
-threat model's open work.
+implemented, with their gates named above. So are the visual-encoding spelling
+(#3636, extended to Unicode general categories in #3628), the failure-message
+rule, and both the trust and rendering axes, which `mdi` exposes as
+`--show-untrusted-text` and `--dangerously-print-raw`.
+
+The identifier allow lists and `--survey` remain the **target model**: nothing
+validates an identifier's grammar, and refusal stops at the first violation
+rather than surveying them all. The projector itself still encodes and
+continues by default — the axes are a property of the command line, not of the
+library, because containment is a guarantee every caller gets while refusing is
+a policy only a caller can choose. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 

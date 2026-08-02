@@ -38,7 +38,9 @@ public static class MetadataImageInspector
     /// renderer having to remember. A value that skips the projection must still
     /// not skip its containment.
     /// </summary>
-    public static MetadataImageOverview? Describe(PEReader peReader)
+    public static MetadataImageOverview? Describe(
+        PEReader peReader,
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
@@ -52,7 +54,10 @@ public static class MetadataImageInspector
         var headers = peReader.PEHeaders;
 
         InertString version = MetadataTableProjector.ContainCellText(
-            reader.MetadataVersion, MetadataVersionBudget);
+            reader.MetadataVersion,
+            MetadataVersionBudget,
+            untrustedText,
+            TextOrigin.Named("the metadata root version stamp"));
 
         return new MetadataImageOverview(
             version,

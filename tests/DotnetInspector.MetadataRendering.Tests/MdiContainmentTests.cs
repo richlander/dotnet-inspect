@@ -241,18 +241,7 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
         }
     }
 
-    /// <summary>
-    /// The categories that carry no glyph of their own: controls, formatting
-    /// characters (which includes every bidi override), unpaired surrogates, and
-    /// the line and paragraph separators.
-    /// </summary>
-    static bool IsNonGraphic(Rune rune)
-        => Rune.GetUnicodeCategory(rune)
-            is UnicodeCategory.Control
-            or UnicodeCategory.Format
-            or UnicodeCategory.Surrogate
-            or UnicodeCategory.LineSeparator
-            or UnicodeCategory.ParagraphSeparator;
+    static bool IsNonGraphic(Rune rune) => HostileAssemblyFixture.IsNonGraphic(rune);
 }
 
 /// <summary>
@@ -315,6 +304,25 @@ public sealed class HostileAssemblyFixture : IDisposable
         0xE2, 0x80, 0xAE, // U+202E
         0x07,
     ];
+
+    /// <summary>
+    /// The categories that carry no glyph of their own: controls, formatting
+    /// characters (which includes every bidi override), unpaired surrogates, and
+    /// the line and paragraph separators.
+    /// <para>
+    /// Defined once, here beside the payload, and shared by every gate over it.
+    /// A second copy would be a second oracle, and the failure this whole corpus
+    /// exists to prevent was two definitions of "dangerous" agreeing with each
+    /// other instead of with Unicode.
+    /// </para>
+    /// </summary>
+    public static bool IsNonGraphic(Rune rune)
+        => Rune.GetUnicodeCategory(rune)
+            is UnicodeCategory.Control
+            or UnicodeCategory.Format
+            or UnicodeCategory.Surrogate
+            or UnicodeCategory.LineSeparator
+            or UnicodeCategory.ParagraphSeparator;
 
     /// <summary>How each scalar in <see cref="Payload"/> must appear once contained.</summary>
     public static readonly string[] NeutralizedForms =
