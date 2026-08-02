@@ -491,6 +491,63 @@ public class BoundaryTests
     }
 
     [Fact]
+    public void EnsurePermitted_KeepsTruncation_AcrossARespellingThatGrowsTheText()
+    {
+        // The case a remembered length cannot survive. Prose keeps LF raw at one character
+        // each; Field spells it \^J at three. Ten of them cut from eleven characters re-spell
+        // to thirty, so a value that compared its length against the eleven it was cut from
+        // would find thirty is not less and call a truncated value whole.
+        InertString prose = new InertString(TextPolicy.Prose, new string('\n', 10) + "X", 10);
+
+        Assert.Equal(10, prose.Length);
+        Assert.True(prose.IsTruncated);
+
+        InertString conformed = prose.EnsurePermitted(TextPolicy.Field);
+
+        Assert.Equal(30, conformed.Length);
+        Assert.True(conformed.IsTruncated);
+    }
+
+    [Fact]
+    public void EnsurePermitted_LeavesAWholeValueWhole()
+    {
+        InertString prose = new InertString(TextPolicy.Prose, "a\nb");
+
+        Assert.False(prose.IsTruncated);
+        Assert.False(prose.EnsurePermitted(TextPolicy.Field).IsTruncated);
+    }
+
+    [Fact]
+    public void Join_ReportsTruncation_WhenAPartWasClipped()
+    {
+        // A composed value missing part of what it was built from cannot claim to be whole.
+        // The single-element case also pins the identity equality would otherwise break: the
+        // join of one value renders exactly as that value, so it must compare equal to it.
+        InertString clipped = new InertString(TextPolicy.Field, Hazard, 8);
+        InertString joined = InertString.Join(string.Empty, TextPolicy.Field, [clipped]);
+
+        Assert.Equal(clipped.ToString(), joined.ToString());
+        Assert.True(joined.IsTruncated);
+        Assert.Equal(clipped, joined);
+
+        // And a part clipped anywhere in the sequence, not only at the end.
+        InertString whole = new InertString(TextPolicy.Field, "tail");
+        Assert.True(InertString.Join("-", TextPolicy.Field, [clipped, whole]).IsTruncated);
+        Assert.True(InertString.Join("-", TextPolicy.Field, [whole, clipped]).IsTruncated);
+        Assert.False(InertString.Join("-", TextPolicy.Field, [whole, whole]).IsTruncated);
+    }
+
+    [Fact]
+    public void Interpolation_ReportsTruncation_WhenASplicedValueWasClipped()
+    {
+        InertString clipped = new InertString(TextPolicy.Field, Hazard, 8);
+        InertString whole = new InertString(TextPolicy.Field, "name");
+
+        Assert.True(InertString.Format(TextPolicy.Field, $"cell {clipped} end").IsTruncated);
+        Assert.False(InertString.Format(TextPolicy.Field, $"cell {whole} end").IsTruncated);
+    }
+
+    [Fact]
     public void Equality_SeparatesValuesThatWouldRenderDifferently()
     {
         // Same text, but a sink marks one of them and not the other, so they are not
@@ -505,10 +562,10 @@ public class BoundaryTests
     }
 
     [Fact]
-    public void Equality_JoinsValuesBoundedFromDifferentLengthsToTheSameText()
+    public void Equality_JoinsValuesBoundedFromDifferentSourcesToTheSameText()
     {
-        // What equality compares is the flag, not the length behind it: both of these render
-        // the same way, so the different amounts dropped to reach that text do not separate them.
+        // How much was dropped is not part of the value. These were cut from different sources
+        // and render identically, so nothing about them can separate them.
         InertString fromShorter = new InertString(TextPolicy.Field, "a\u202Eb", 7);
         InertString fromLonger = new InertString(TextPolicy.Field, Hazard, 7);
 
