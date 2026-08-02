@@ -371,6 +371,58 @@ you are about to apply, short of sweeping every scalar to compare their
 permitted sets — so the value would carry an extra field and still pay for the
 scan.
 
+## Bounding a value to a budget
+
+A sink that puts treated text in a column or a record field has a length limit,
+and applying it to the encoded text is not a substring operation. A spelling is
+between two and ten characters wide, so an arbitrary cut can land inside one and
+leave `\u2` behind.
+
+That is not merely ugly, it is unsound. `EnsurePermitted` treats text it cannot
+decode as raw and re-encodes it, so the surviving backslash doubles and `a\u2`
+becomes `a\\u2` — which is exactly what the untreated literal `a\u2` encodes to.
+Two unrelated inputs converge on one output, and the injectivity the repair path
+rests on is gone. The budget is enforced on the *encoded* length for the same
+reason it is in the escaper this replaces: encoding expands, so bounding the
+input bounds the wrong number.
+
+Two members divide a value, and both are best-effort:
+
+| Member | Takes |
+| ------ | ----- |
+| `Truncate(int maxLength)` | the longest prefix within the budget |
+| `Truncate(Range)` | the largest whole window inside the range |
+
+Both bounds move **inward** — the start forward to the next whole spelling, the
+end back to the previous one — so the result is always a subset of what was
+asked for. That asymmetry is the whole of the safety argument: returning less
+than a caller asked for is something it can detect from `Length`, while
+returning more is not. A window holding no whole spelling is therefore empty
+rather than widened to the spelling enclosing it.
+
+Every range is answerable, including a reversed one and one that runs off
+either end. Neither member reports truncation separately, because
+`result.Length` against the width that was asked for already says whether
+anything moved.
+
+There is deliberately **no exact counterpart** that refuses an unusable window.
+An indexer would wear the syntax of ordinary slicing while throwing on bounds
+that look perfectly reasonable — six of the twelve positions in an
+eleven-character value divide a spelling — so the shape invites exactly the call
+it refuses. It would also buy nothing over the length comparison above.
+
+A surrogate pair counts as one thing however it is spelled — raw, as `\U`, or as
+the two `\uXXXX` escapes that composition produces when the halves are encoded in
+separate fragments — so a boundary can never leave a lone surrogate behind.
+`Forms` is recomputed from what is kept, so a legend drawn from a bounded value
+cannot name a spelling that went with the tail.
+
+The walker that finds these boundaries lives beside the speller rather than on
+the currency type, because its widths are the speller's output read backwards; a
+new spelling added to one and not the other would make every boundary past it
+wrong. It is internal, and it adds nothing to the capability surface: it reports
+where text can be divided, never what any of it decodes to.
+
 ## Testing
 
 Two shapes, because they fail differently.

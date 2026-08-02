@@ -147,6 +147,31 @@ public readonly struct InertString : IEquatable<InertString>
     /// <summary>Whether this value carries no text.</summary>
     public bool IsEmpty => Text.Length == 0;
 
+    /// <summary>The number of characters in the encoded text.</summary>
+    /// <remarks>
+    /// The encoded length, not the length of the text this was built from, because that is the
+    /// number a sink has a budget in: encoding expands, so a scalar that arrived as one
+    /// character can leave as ten, and a caller bounding what it emits has to measure what it
+    /// will emit. The original's length is not recoverable from here by design.
+    /// </remarks>
+    public int Length => Text.Length;
+
+    /// <summary>
+    /// The position of the first spelling this value emitted, or <c>-1</c> when it emitted none.
+    /// </summary>
+    /// <remarks>
+    /// Reports where treated text begins, so a caller can show a prefix it knows to be unchanged
+    /// — a survey listing where in a name the first hazard sits, for instance — without asking
+    /// what was there before. Every spelling is introduced by a backslash and a raw backslash is
+    /// always rewritten, so this is the first character of an escape and never text that merely
+    /// resembles one.
+    ///
+    /// Answers the same question as <see cref="WasEncoded"/> and locates it;
+    /// <c>IndexOfFirstEncoded() &gt;= 0</c> and <see cref="WasEncoded"/> agree. Like that member
+    /// it reports what was done to this value, never what it satisfies.
+    /// </remarks>
+    public int IndexOfFirstEncoded() => Text.IndexOf('\\');
+
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     /// <remarks>
     /// Reports what was <em>done</em> to this value, never what it <em>satisfies</em>. It is not
@@ -164,6 +189,77 @@ public readonly struct InertString : IEquatable<InertString>
 
     /// <summary>The encoded text.</summary>
     public override string ToString() => Text;
+
+    /// <summary>
+    /// Shortens this value to at most <paramref name="maxLength"/> characters, cutting only
+    /// where a cut cannot divide a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The budget-bounded form, for a sink that has to place treated text in a column or a
+    /// record field. The budget is on the encoded length, because that is what the sink emits.
+    ///
+    /// Cutting at the requested position is not an option worth offering. A spelling is several
+    /// characters wide, so an arbitrary cut can leave <c>\u2</c> behind, which is no longer
+    /// something this library can read back: <see cref="EnsurePermitted"/> treats text it cannot
+    /// decode as raw and re-encodes it, turning that into <c>\\u2</c> — the same text an entirely
+    /// different input encodes to. So the cut is moved down to the nearest position that keeps
+    /// every spelling whole, and a surrogate pair counts as one thing however it is spelled.
+    ///
+    /// A negative budget is read as zero rather than refused, and a budget at or above
+    /// <see cref="Length"/> returns this value unchanged, so a caller can hand a configured
+    /// limit straight in. Truncation is not reported separately because
+    /// <c>result.Length &lt; Length</c> already answers it, and a flag that restates a
+    /// comparison is a second thing to keep true.
+    ///
+    /// <see cref="Forms"/> is recomputed from what is kept, so a legend drawn from the result
+    /// cannot name a spelling that was dropped with the tail.
+    /// </remarks>
+    /// <param name="maxLength">The largest encoded length the caller can accept.</param>
+    public InertString Truncate(int maxLength) => Bound(0, maxLength);
+
+    /// <summary>
+    /// Takes as much of <paramref name="range"/> as can be taken without dividing a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The general form of <see cref="Truncate(int)"/>, for a caller that wants a window rather
+    /// than a prefix. Total: every range is answerable, including a reversed one and one that
+    /// runs off either end, both of which are read as the part that overlaps the text.
+    ///
+    /// Both bounds move inward — the start forward to the next whole spelling, the end back to
+    /// the previous one — so the result is always a subset of what was asked for. That
+    /// asymmetry is the point: returning less than a caller asked for is something it can
+    /// detect from <see cref="Length"/>, while returning more is not. A window that contains no
+    /// whole spelling is therefore empty rather than approximated.
+    ///
+    /// There is deliberately no exact counterpart that refuses an unusable window. An indexer
+    /// wears the syntax of ordinary slicing while throwing on bounds that look perfectly
+    /// reasonable — six of the twelve positions in an eleven-character value divide a spelling —
+    /// and it would buy nothing, because comparing <see cref="Length"/> against the width that
+    /// was asked for already reports whether anything had to move.
+    /// </remarks>
+    /// <param name="range">The window to take, in encoded characters.</param>
+    public InertString Truncate(Range range)
+    {
+        string text = Text;
+
+        // Index.GetOffset does not validate, so a from-end index past the start of the text
+        // arrives negative and an absolute one can run past the end. Neither is clamped here,
+        // because the walker is total in both bounds and a clamp that never changes an answer
+        // is a line nothing can hold true.
+        return Bound(range.Start.GetOffset(text.Length), range.End.GetOffset(text.Length));
+    }
+
+    private InertString Bound(int start, int end)
+    {
+        string text = Text;
+        (int from, int to, VisualForm forms) = VisualEncoder.WindowWithin(text, start, end);
+
+        // An unbounded request keeps this value rather than rebuilding an identical one, so the
+        // common case of a budget nobody is near costs nothing.
+        return from == 0 && to == text.Length
+            ? this
+            : new InertString(text[from..to], forms);
+    }
 
     /// <summary>
     /// Builds a value from an interpolated string, encoding every part of it.
