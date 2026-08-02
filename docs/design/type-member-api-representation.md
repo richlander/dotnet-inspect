@@ -90,23 +90,31 @@ identity is required. The round-trip design calls that pairing
 `ModuleIdentity`; current product code has `MemberAnchor` and the tools-specific
 `RoundTripModuleIdentity`, not a shared product type named `ModuleIdentity`.
 
-### Proposed forwarding currencies
+### Structured forwarding currencies
 
-These contracts belong to the structured forwarding design and remain proposed
-until its delivery slices implement them.
+The first Metadata delivery slice implements the single-image declaration
+currencies. The Analysis provenance and cross-assembly resolution currencies
+remain proposed until later delivery slices implement them.
 
-#### `ILInspector.Analysis` forwarding provenance
+#### Proposed `ILInspector.Analysis` forwarding provenance
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
 
-#### `ILInspector.Metadata` forwarding resolution
+#### Current `ILInspector.Metadata` single-image declaration
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
-| `TypeDefinitionToken`, `ExportedTypeToken` | One registered candidate's manifest module; multi-module exports are rejected | Which validated metadata row the candidate contains | Definition correspondence by itself |
+| `TypeDefinitionToken`, `ExportedTypeToken` | One readable candidate's manifest module | Which validated metadata row the candidate contains | Definition correspondence or a live metadata handle |
 | `MetadataTypeDefinitionName` | Reader-independent lookup value | Which exact `TypeDef` / `ExportedType` name to probe, including nesting and arity | Assembly selection, signature shape, CLI selection, display, or universal identity |
+| `TypeDeclarationResult` and `TypeDeclarationCandidate` | One exact name in one readable image | Whether the image defines, forwards, misses, ambiguously declares, exports from a module, or rejects the name | Opening another assembly or resolving a target |
+| `ModuleFileReference` | One copied `File` row | Which module file an exported declaration names, including metadata and hash evidence | Module acquisition or readability |
+
+#### Proposed `ILInspector.Metadata` cross-assembly resolution
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
 | `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory/session state the catalog owns | Session ownership or durable identity outside the catalog |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |

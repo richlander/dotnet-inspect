@@ -6,12 +6,13 @@
 
 ## Status
 
-Design for replacing the current collection of type-forwarder helpers and
-spelling-based caller matching with one structured reference-to-definition
-system.
+Design and staged implementation plan for replacing the current collection of
+type-forwarder helpers and spelling-based caller matching with one structured
+reference-to-definition system.
 
-The first implementation slice adds the model and the single-image metadata
-primitive only. It migrates no production caller. That boundary follows the
+The first implementation slice provides the structured lookup name, validated
+row tokens, closed declaration outcomes, and bounded single-image metadata
+probe. It migrates no production caller. That boundary follows the
 primitive-first approach used by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish the
 value, its invariants, and its gates before asking consumers to depend on it.
