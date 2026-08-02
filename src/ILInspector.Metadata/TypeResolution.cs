@@ -308,8 +308,8 @@ public abstract class TypeResolutionFailure
 
 /// <summary>
 /// Opaque key for one resolved TypeDef in one frozen catalog generation.
-/// Consumers use Metadata-owned correspondence APIs rather than constructing
-/// or decomposing this key.
+/// It does not establish correspondence with definitions from other
+/// generations.
 /// </summary>
 public sealed class ResolvedTypeDefinitionKey
 {

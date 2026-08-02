@@ -36,8 +36,9 @@ public sealed class AssemblyBindingPolicyVersion;
 
 /// <summary>
 /// The thing a binding policy is asked to select. This is deliberately
-/// separate from <see cref="TypeResolutionStart"/>, which also carries the
-/// type name and describes where type resolution begins.
+/// separate from <see cref="TypeResolutionStart"/>, which describes where
+/// type resolution begins, and <see cref="TypeResolutionRequest"/>, which
+/// pairs that start with the type name.
 /// </summary>
 public abstract record AssemblyBindingTarget
 {
