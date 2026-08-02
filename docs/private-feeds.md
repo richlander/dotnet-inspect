@@ -26,6 +26,12 @@ dotnet tool install --global Microsoft.Artifacts.CredentialProvider.NuGet.Tool
 There is no registration step, and nothing to add to `nuget.config`. NuGet discovers the provider
 by name on `PATH`.
 
+dotnet-inspect finds a provider the same way `dotnet restore` does: the `NUGET_NETCORE_PLUGIN_PATHS`
+and `NUGET_PLUGIN_PATHS` variables, then `~/.nuget/plugins/netcore/` and executables named
+`nuget-plugin-*` on `PATH`. It launches the one it finds as a separate process and asks it for
+credentials over the standard NuGet plugin protocol. A provider that already works for
+`dotnet restore` works here, with nothing further to install or configure.
+
 Add the feed, with no credential in it:
 
 ```bash
@@ -103,11 +109,16 @@ Four forms look like they should work here and do not:
 | `NuGetPackageSourceCredentials_<name>` environment variable | Not read. |
 | A token in the source URL, `https://user:token@host/...` | Not read. Put it in `packageSourceCredentials`. |
 
-This file holds a token in plain text, so keep it out of source control. If you keep it outside
-the normal discovery path, point at it explicitly:
+This file holds a token in plain text, so it should not live inside a repository at all. NuGet
+discovers `nuget.config` by walking up from the working directory, which makes a working tree a
+convenient place to put one and a dangerous one — a config written next to your code can be
+committed and published along with it.
+
+Put it in your user-level NuGet configuration instead, which applies to every project without
+sitting next to any of them. To keep it somewhere else entirely, point at it explicitly:
 
 ```bash
-dotnet-inspect package MyCompany.Widgets --nugetconfig ./private.nuget.config
+dotnet-inspect package MyCompany.Widgets --nugetconfig ~/private-feeds/nuget.config
 ```
 
 ## Checking a source without changing your config
