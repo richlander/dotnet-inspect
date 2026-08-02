@@ -1160,9 +1160,18 @@ public static class BodySlicer
             Untracked = true;
         }
 
+        /// <summary>
+        /// Which run of source between conditional directives the scanner is in. Incremented at
+        /// every directive that starts or ends a branch, so two tokens sharing a value were
+        /// certainly written in the same compiled branch. See <see cref="ScanToken.Section"/> for
+        /// why the converse does not hold and why that asymmetry is the useful one.
+        /// </summary>
+        public int Section { get; private set; }
+
         /// <summary>Opens a conditional group at brace depth <paramref name="depth"/>.</summary>
         public void OpenConditional(int depth)
         {
+            Section++;
             conditionals.Add(new Conditional(depth));
             Untracked = true;
         }
@@ -1181,6 +1190,7 @@ public static class BodySlicer
         /// </summary>
         public int NextBranch(int depth)
         {
+            Section++;
             Untracked = true;
 
             if (conditionals.Count == 0)
@@ -1213,6 +1223,16 @@ public static class BodySlicer
         /// </summary>
         public int CloseConditional(int depth)
         {
+            // Unlike the increments at #if and #elif/#else, this one is UNVERIFIED AND UNGATED, and
+            // recorded as conservative rather than load-bearing: it is an equivalent mutation for
+            // safety and a small over-refusal for recall. Merging "inside the group's last branch"
+            // with "after the group" can only make two tokens compare equal, and a header inside a
+            // branch is at an unknown depth, where knownness is already intersected away and cannot
+            // be restored. So no answer becomes wrong without it. It is kept because a section is
+            // meant to name one run of source between directives, and a consumer reasoning about
+            // nesting should not have to know that the last branch and the text after it were
+            // silently merged.
+            Section++;
             Untracked = true;
 
             if (conditionals.Count == 0)
@@ -1522,7 +1542,7 @@ public static class BodySlicer
                 }
             }
 
-            tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown));
+            tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown, state.Section));
         }
 
         // Advances past the rest of an open block comment, clearing the carried flag if the

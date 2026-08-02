@@ -67,6 +67,9 @@ internal static class DeclarationIndexBuilder
         // token that opens the trivia matters: a later comment inside a group cannot move the
         // recorded start, and every line it occupies already falls inside the row's range. An
         // attribute list is not merely a line inside the range, so it is treated separately below.
+        // Whether the recorded trivia run's START LINE is the same in every build. An
+        // "assembly:" list legitimately discharges this one: such a list ends the trivia run above
+        // it in every build, so whatever was above stops being the next declaration's problem.
         bool triviaKnown = true;
 
         // Knownness accumulated over EVERY token of the attribute list currently open, not just
@@ -85,10 +88,21 @@ internal static class DeclarationIndexBuilder
         // starts on the first. Sampling at the "[" vouched for one of those two answers
         // (adversarial review round 4, GPT-5.6 Terra).
         bool attributeKnown = true;
+
+        // Whether everything ELSE carried toward the next declaration is the same in every build:
+        // attribute lists that will bind to it, modifiers gathered for it, and headers a
+        // branch-dependent terminator threw away. Kept apart from triviaKnown because the
+        // unit-attribute path may discharge a trivia poison and must not discharge one of these --
+        // an unconsumed conditional list still binds to whatever follows, and a header eaten in
+        // one branch is still live in the other. Folding both into one flag is what let the
+        // seventh and eighth ways through (adversarial review round 6).
+        bool headerKnown = true;
         int lastClosed = -1;
         bool inAttribute = false;
         int attributeDepth = 0;
         int attributeStart = 0;
+        int attributeSection = 0;
+        int triviaSection = 0;
         int attributeWords = 0;
         bool unitTarget = false;
         bool unitAttribute = false;
@@ -107,32 +121,95 @@ internal static class DeclarationIndexBuilder
         bool InAnonymousScope() => scopes.Count > 0 && scopes[^1] < 0;
         int EnclosingIndex() => scopes.Count > 0 ? scopes[^1] : -1;
 
-        void ResetHeader(bool atKnownPoint = true)
+        // Ends the run of trivia, attribute lists and signature tokens gathered for the next
+        // declaration, at a terminator sitting in conditional section <paramref name="section"/>.
+        //
+        // Whatever was gathered is discarded, and if the terminator was written in a DIFFERENT
+        // branch than the gathered header, the discard is the whole problem: only one branch
+        // compiles, so in the other build nothing discarded that header and it still belongs to
+        // the declaration below. In
+        //
+        //     #if X
+        //     // X docs
+        //     #else
+        //     using System;
+        //     #endif
+        //     class C { }
+        //
+        // the "using" terminator belongs to one branch and the comment to the other, so with X the
+        // comment is C's documentation and without it C has none. Resetting unconditionally forgot
+        // the comment AND restored knownness, and C was vouched for with the second build's answer
+        // (adversarial review round 5, GPT-5.6 Sol).
+        //
+        // Trivia is not the only thing a terminator discards. Replace the comment with a bare
+        // "public" and the same terminator throws away a MODIFIER, moving C's signature start
+        // rather than its trivia start, so a rule keyed on recorded trivia alone still vouched for
+        // the wrong span (round 6, GPT-5.6 Sol).
+        //
+        // The test is section identity, not the terminator's DepthKnown. DepthKnown asks "is this
+        // inside an unresolved group?", which is true of every ordinary statement inside every
+        // group, so keying on it condemns a file's whole conditional content -- it was tolerable
+        // while only trivia consulted it and is not once signature tokens do. Section identity asks
+        // the question the defect is actually about: were the header and the terminator that ate it
+        // written in the same branch? Sections are conservative in the safe direction only (see
+        // ScanToken.Section), so a header entirely inside one branch is never condemned.
+        //
+        // Gated by ATerminatorInOneBranchDiscardingAnothersModifier_LosesTheRowBelow,
+        // ATerminatorInOneBranchDiscardingAnothersTrivia_LosesTheRowBelow,
+        // ATerminatorInOneBranchDiscardingAnothersAttribute_LosesTheRowBelow and
+        // AnInitializerInOneBranchDiscardingAnothersTrivia_LosesTheRowBelow, against
+        // ATerminatorInsideAGroupDiscardingNothing_StillVouchesForTheRowBelow and
+        // AStatementInsideAGroup_StillVouchesForTheRowBelow, which pin that a header and terminator
+        // sharing a branch are left alone.
+        void ResetHeader(ScanToken terminator)
         {
+            bool crossesABranch =
+                (triviaStart >= 0 && triviaSection != terminator.Section) ||
+                (pending.Count > 0 && pending[0].Section != terminator.Section);
+
             pending.Clear();
 
-            // Discarding recorded trivia at a point only one build reaches makes the NEXT row's
-            // trivia start branch-dependent. In
+            // A reset INSIDE an unresolved group may only take knownness away, never restore it,
+            // because the declaration it just finished exists in one build and not the other. In
             //
             //     #if X
-            //     // X docs
+            //     // doc
             //     #else
-            //     using System;
+            //     struct s { }
             //     #endif
-            //     class C { }
+            //     class Tail { }
             //
-            // the "using" terminator belongs to one branch and the comment to the other, so with X
-            // the comment is C's documentation and without it C has none. Resetting unconditionally
-            // forgot the comment AND restored knownness, and C was vouched for with the second
-            // build's answer (adversarial review round 5, GPT-5.6 Sol).
-            triviaKnown = atKnownPoint || triviaStart < 0;
+            // the comment is discarded by "struct s {", which poisons; then "}" resets again with
+            // nothing recorded and nothing crossing, and ASSIGNING there declared the header clean
+            // while still inside the group. But with X there is no "struct s" to have eaten the
+            // comment, so the comment is Tail's documentation and Tail's trivia is line 2, not 6.
+            // Intersecting instead keeps the poison until the group closes, which is exactly how
+            // long the other build's header stays live. Found by a differential fuzzer over 16,673
+            // fair cases (adversarial review round 6, Claude Opus 4.8); 2,597 flags, all this.
+            //
+            // Outside a group the assignment is what discharges a spent poison: the declaration
+            // that just ended exists in every build, so the next header genuinely starts fresh.
+            // Gated by ADiscardedHeaderInsideAGroup_StaysLostAcrossALaterCleanReset and
+            // ADiscardedAttributeInsideAGroup_StaysLostAcrossALaterCleanReset, against
+            // ATerminatorInsideAGroupDiscardingNothing_StillVouchesForTheRowBelow and
+            // AStatementInsideAGroup_StillVouchesForTheRowBelow.
+            // Nothing is recorded once this returns, so the trivia-line claim starts clean; the
+            // crossing, if any, is a claim about the header that was thrown away, which outlives
+            // this reset whenever the reset itself only happened in one build.
+            triviaKnown = true;
+
+            if (terminator.DepthKnown)
+                headerKnown = !crossesABranch;
+            else
+                headerKnown &= !crossesABranch;
+
             triviaStart = -1;
             attributeLists.Clear();
         }
 
         void EndDeclaration(ScanToken terminator)
         {
-            ResetHeader(terminator.DepthKnown);
+            ResetHeader(terminator);
             lastTerminatorLine = terminator.Line + 1;
         }
 
@@ -153,7 +230,7 @@ internal static class DeclarationIndexBuilder
                 EndLine = terminator.Line + 1,
                 ParentIndex = EnclosingIndex(),
                 AttributeLists = [.. attributeLists],
-                SpanKnown = terminator.DepthKnown && triviaKnown && pending.All(t => t.DepthKnown),
+                SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
             });
         }
 
@@ -213,6 +290,7 @@ internal static class DeclarationIndexBuilder
                 if (pending.Count == 0 && !inAttribute && triviaStart < 0 && commentOpenLine > lastTerminatorLine)
                 {
                     triviaStart = commentOpenLine;
+                    triviaSection = tok.Section;
                     triviaKnown &= tok.DepthKnown;
                 }
                 continue;
@@ -256,7 +334,42 @@ internal static class DeclarationIndexBuilder
                         // the next declaration's trivia -- "[assembly: X] // note" is a comment
                         // about the attribute.
                         triviaStart = -1;
-                        triviaKnown = attributeKnown;
+
+                        // The same assign-versus-intersect rule ResetHeader follows, and the one
+                        // restore site the round-6 fix first overlooked. This path ends a header
+                        // too, so inside an unresolved group it may only take knownness away. In
+                        //
+                        //     #if Y
+                        //     #else
+                        //     [System.Obsolete]
+                        //     #endif
+                        //     #if X
+                        //     class t1 { }
+                        //     #endif
+                        //     [assembly: System.CLSCompliant(true)]
+                        //     class Tail { }
+                        //
+                        // the line-3 list poisons; t1's reset empties attributeLists but rightly
+                        // keeps the poison; then this path ASSIGNED it away, and Tail was vouched
+                        // with one build's answer. Without Y, Roslyn binds the line-3 list to Tail
+                        // and the unit list with it (CS0657), so Tail's trivia is line 3 and it
+                        // carries two lists; with Y its trivia is line 9 and it carries none. No
+                        // single line range describes both. Found by the differential fuzzer
+                        // (adversarial review round 6, Claude Opus 4.8) after the ResetHeader fix
+                        // had already cut its flag count from 3,146 to 6 -- every survivor this
+                        // one site. Gated by
+                        // AUnitAttributeAfterADiscardedAttribute_DoesNotRestoreTheVouch.
+                        //
+                        // It intersects unconditionally, where ResetHeader assigns outside a
+                        // group. The difference is that ResetHeader runs where a DECLARATION
+                        // ended, which happens in every build and so genuinely spends the header
+                        // it consumed; this path runs where a list merely closed, consuming
+                        // nothing. A poison reaching here is still live no matter what depth the
+                        // bracket sits at -- above, the list is outside the group entirely and the
+                        // vouch was still wrong.
+                        triviaKnown = true;
+                        headerKnown &= attributeKnown;
+
                         lastTerminatorLine = tok.Line + 1;
                     }
                     else
@@ -269,9 +382,12 @@ internal static class DeclarationIndexBuilder
                         // a line inside the row's range -- it is a claim about what is applied to
                         // the declaration. A row whose lists depend on the build is not vouched
                         // for (adversarial review round 3, Gemini 3.1 Pro).
-                        triviaKnown &= attributeKnown;
+                        headerKnown &= attributeKnown;
                         if (triviaStart < 0)
+                        {
                             triviaStart = attributeStart;
+                            triviaSection = attributeSection;
+                        }
                     }
                 }
                 else if (attributeDepth == 1)
@@ -308,6 +424,7 @@ internal static class DeclarationIndexBuilder
                 inAttribute = true;
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
+                attributeSection = tok.Section;
                 // Subsumed by the accumulation above for any input that compiles in both
                 // configurations: the closing "]" is accumulated too, and for this seed to decide
                 // the outcome the group would have to close between the "[" and the rest of the
@@ -363,7 +480,7 @@ internal static class DeclarationIndexBuilder
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
                         AttributeLists = [.. attributeLists],
-                        SpanKnown = tok.DepthKnown && triviaKnown && pending.All(t => t.DepthKnown),
+                        SpanKnown = tok.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
                     });
                     scopes.Add(rows.Count - 1);
                 }
@@ -436,7 +553,7 @@ internal static class DeclarationIndexBuilder
                     // conditional between the block and the initializer puts the ";" in a branch,
                     // and the end this reads is one branch's, not the declaration's.
                     if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
-                    ResetHeader(tok.DepthKnown);
+                    ResetHeader(tok);
                     lastClosed = -1;
                     continue;
                 }

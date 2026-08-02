@@ -1585,6 +1585,181 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The unit-attribute close path ends a header too, so inside a group it may only take
+    /// knownness away. The line-3 list poisons; <c>t1</c>'s reset empties the list set but rightly
+    /// keeps the poison; then the <c>[assembly:]</c> path ASSIGNED it away. Without <c>Y</c> Roslyn
+    /// binds the line-3 list to <c>Tail</c> and the unit list with it (CS0657), so <c>Tail</c>'s
+    /// trivia is line 3 and it carries two lists; with <c>Y</c> its trivia is line 9 and it carries
+    /// none. Found by the differential fuzzer after the <c>ResetHeader</c> fix had cut its flag
+    /// count from 3,146 to 6, every survivor this one site (adversarial review round 6,
+    /// Claude Opus 4.8).
+    /// </summary>
+    [Fact]
+    public void AUnitAttributeAfterADiscardedAttribute_DoesNotRestoreTheVouch()
+    {
+        var index = DeclarationIndex.Build("""
+            #if Y
+            #else
+            [System.Obsolete]
+            #endif
+            #if X
+            class t1 { }
+            #endif
+            [assembly: System.CLSCompliant(true)]
+            class Tail { }
+            """);
+
+        var tail = Assert.Single(index.Declarations, s => s.Name == "Tail");
+        Assert.False(tail.SpanKnown, "without Y the line-3 list binds to Tail, and the unit list with it");
+    }
+
+    /// <summary>
+    /// A poison raised inside a group must survive every later reset until the group closes. The
+    /// comment is discarded by <c>struct s {</c>, which poisons; then <c>}</c> resets again with
+    /// nothing recorded and nothing crossing, and ASSIGNING knownness there declared the header
+    /// clean while still inside the group. But with <c>X</c> there is no <c>struct s</c> to have
+    /// eaten the comment, so it is <c>Tail</c>'s documentation: Roslyn reports trivia line 2 with
+    /// <c>X</c> and line 6 without, both configurations parsing with zero errors. Found by a
+    /// differential fuzzer over 16,673 fair cases (adversarial review round 6, Claude Opus 4.8).
+    /// </summary>
+    [Fact]
+    public void ADiscardedHeaderInsideAGroup_StaysLostAcrossALaterCleanReset()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            // doc
+            #else
+            struct s { }
+            #endif
+            class Tail { }
+            """);
+
+        var tail = Assert.Single(index.Declarations, s => s.Name == "Tail");
+        Assert.False(tail.SpanKnown, "with X the comment on line 2 is Tail's documentation");
+    }
+
+    /// <summary>
+    /// The same restore, reached through an attribute list rather than a comment, and costing a
+    /// semantic claim rather than a line: with <c>Y</c> the class carries TWO <c>[Obsolete]</c>
+    /// lists and the row reported one. The brace scope that resets a second time is a property's
+    /// <c>{ get; set; }</c> here, which is why round 5's single-reset fixture missed the shape
+    /// (adversarial review round 6, Claude Opus 4.8).
+    /// </summary>
+    [Fact]
+    public void ADiscardedAttributeInsideAGroup_StaysLostAcrossALaterCleanReset()
+    {
+        var index = DeclarationIndex.Build("""
+            #if Y
+            [System.Obsolete]
+            #else
+            int p0 { get; set; }
+            #endif
+            [System.Obsolete]
+            class Tail { }
+            """);
+
+        var tail = Assert.Single(index.Declarations, s => s.Name == "Tail");
+        Assert.False(tail.SpanKnown, "with Y the class carries the line-2 list as well");
+    }
+
+    /// <summary>
+    /// Sections must advance at the <c>#if</c>, not only at the <c>#else</c>. Here the discarded
+    /// header sits BEFORE the group at a known depth -- so nothing else in the builder condemns it
+    /// -- and only the opening directive separates it from the terminator that eats it. Roslyn
+    /// reports <c>C</c>'s trivia at line 4 with <c>X</c> and line 1 without, both configurations
+    /// parsing with zero errors. Verified by mutation: without the increment at <c>#if</c> this is
+    /// the only test that fails.
+    /// </summary>
+    [Fact]
+    public void AHeaderBeforeAGroupEatenInsideIt_LosesTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            // docs
+            #if X
+            using System;
+            #endif
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.False(c.SpanKnown, "without X the comment on line 1 is C's documentation");
+    }
+
+    /// <summary>
+    /// A terminator in one branch discarding a MODIFIER recorded in another. Round 5 keyed the
+    /// rule on recorded trivia alone, so with nothing to lose on the trivia side the reset
+    /// declared the row below known -- and got its SIGNATURE start wrong instead. Compiled in both
+    /// configurations: with <c>X</c>, <c>C</c>'s signature starts at line 2 (<c>public</c>);
+    /// without, at line 6 (adversarial review round 6, GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void ATerminatorInOneBranchDiscardingAnothersModifier_LosesTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            public
+            #else
+            using System;
+            #endif
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.False(c.SpanKnown, "with X the modifier on line 2 is part of C's signature");
+    }
+
+    /// <summary>
+    /// The same rule at the OTHER reset site: a property initializer's terminator. The reset there
+    /// was ungated -- neutralizing it left all 398 tests passing -- while its doc comment claimed
+    /// otherwise (adversarial review round 6, GPT-5.6 Sol). With <c>X</c> the property has no
+    /// initializer and the comment on line 4 documents <c>D</c>; without it the <c>= 1;</c>
+    /// terminator eats that comment and <c>D</c> has none. Both configurations compile.
+    /// </summary>
+    [Fact]
+    public void AnInitializerInOneBranchDiscardingAnothersTrivia_LosesTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            class Outer {
+                int P { get; }
+            #if X
+                // X docs
+            #else
+                = 1;
+            #endif
+                class D { }
+            }
+            """);
+
+        var d = Assert.Single(index.Declarations, s => s.Name == "D");
+        Assert.False(d.SpanKnown, "with X the comment on line 4 is D's documentation");
+    }
+
+    /// <summary>
+    /// The over-refusal guard for the round-6 widening. A header and the terminator that discards
+    /// it, written in the SAME branch, lose nothing: whichever build compiles, either both are
+    /// present or neither is. Keying the rule on the terminator's <c>DepthKnown</c> instead of on
+    /// section identity would condemn every declaration below every group containing a statement,
+    /// which is most of a conditional file.
+    /// </summary>
+    [Fact]
+    public void AStatementInsideAGroup_StillVouchesForTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            class Outer {
+            #if X
+                int Conditional = 1;
+                void M() { }
+            #endif
+                class D { }
+            }
+            """);
+
+        var d = Assert.Single(index.Declarations, s => s.Name == "D");
+        Assert.Equal(6, d.SignatureStartLine);
+        Assert.True(d.SpanKnown, "nothing crossed a branch boundary");
+    }
+
+    /// <summary>
     /// A UTF-8 byte order mark is not whitespace, so trimming left it in front of the <c>#</c> and
     /// the opening directive was scanned as code. Roslyn strips the preamble and reports no error
     /// for this file, selecting <c>C</c> on line 3 with <c>X</c> and line 5 without it, so the
