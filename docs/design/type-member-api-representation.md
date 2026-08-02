@@ -28,8 +28,8 @@ operation. It does not mean a repository-wide interchange type. A value becomes
 unsafe when it crosses into a question whose discriminators it does not carry.
 
 There is no `MetadataTypeDefinition` type in the current product or the
-structured forwarding design. The similarly named proposed types are
-deliberately separate:
+structured forwarding design. The similarly named types are deliberately
+separate:
 
 - `MetadataTypeDefinitionName` is an exact Metadata **lookup name**:
   namespace plus root-to-leaf metadata-name segments. It has no assembly,
@@ -92,10 +92,10 @@ identity is required. The round-trip design calls that pairing
 
 ### Structured forwarding currencies
 
-The first two Metadata delivery slices implement the single-image declaration
-and acquisition currencies. The Analysis provenance and cross-assembly
-resolution currencies remain proposed until later delivery slices implement
-them.
+The Metadata delivery slices implement the single-image declaration,
+acquisition, binding, and cross-assembly resolution currencies. Analysis
+provenance and definition-correspondence currencies remain proposed until later
+delivery slices implement them.
 
 #### Proposed `ILInspector.Analysis` forwarding provenance
 
@@ -123,17 +123,25 @@ them.
 | `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory and session state the catalog owns | Durable artifact identity outside the catalog |
 | `AssemblyInventorySnapshot` | One inventoried candidate | The copied assembly identity, MVID, references, forwarder targets, and image size | A live reader, declaration answer, or cross-assembly binding |
 
-#### Proposed `ILInspector.Metadata` cross-assembly resolution
+#### Current `ILInspector.Metadata` cross-assembly resolution
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
+| `TypeResolutionCatalog` | One inspection and its progressive generations | Which acquisition, declaration, stable-policy binding, and resolution-recipe caches generations share | A frozen answer set or ownership by one context |
+| `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
+| `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and whether it resolved, missed, was unavailable, ambiguous, rejected, or requires expansion | Type lookup or hidden fallback probing |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
 | `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
 | `ResolvedTypeDefinitionKey` | One frozen catalog generation | What the catalog may compare for exact definition correspondence | Hashing, sorting, cross-catalog comparison, or durable storage |
-| `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
 | `MetadataTypeDefinitionAddress` | MVID plus validated TypeDef token | Where to re-locate a definition after reopening the module | Proof that two artifacts correspond |
+
+#### Proposed `ILInspector.Metadata` correspondence
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
 | `DefinitionJoinToken` | One frozen catalog generation | Hashable exact-or-indeterminate definition class for graph joins | Display, persistence, or reconstruction from addresses |
 
 The table separates four axes that are often collapsed:

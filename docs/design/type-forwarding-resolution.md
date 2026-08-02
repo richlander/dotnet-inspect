@@ -1557,12 +1557,15 @@ reason `LibraryBodyIndex` currently repeats traversal beside
 `TypeForwardResolver`.
 
 Candidate discovery and correspondence are separate phases.
-`AssemblyCatalogBuilder` is the discovery-phase vehicle. The consumer planner
-first supplies a manifest with two root kinds:
+`TypeResolutionCatalog` is the inspection-lifetime owner. Its internal
+generation builder is the discovery-phase vehicle, and each
+`CreateContext` call freezes one `TypeResolutionContext`. The consumer planner
+supplies explicit assembly descriptors for every requesting origin plus a
+manifest with two request kinds:
 
-- concrete `TypeResolutionRequest` roots for the target, matching caller
+- concrete `TypeResolutionRequest` entries for the target, matching caller
   references, and named signature types in graph edges being indexed;
-- binding-only `AssemblyBindingRequest` roots for every snapshotted
+- binding-only `AssemblyBindingRequest` entries for every snapshotted
   `AssemblyRef` used to build caller-scope reverse adjacency, each carrying its
   requesting candidate origin; selected candidates contribute only the
   additional `AssemblyRef` targets used by their valid `ExportedType`
@@ -2466,13 +2469,13 @@ explicit resource budgets.
 - Add the catalog lifetime and compose `TypeResolutionContext` over snapshots
   plus optional sessions without retaining adjacency-only readers.
 - Add public `IAssemblyBindingPolicy` descriptor selections and the
-  Metadata-internal candidate-interning adapter, with explicit adapters from
-  existing resolvers.
+  Metadata-internal candidate-interning adapter.
 - Implement the iterative cross-assembly engine.
 - Make catalog and resolution caches safe for concurrent Analysis with
   single-flight opens and probes.
-- Route current `TypeForwardResolver` tests through the engine.
-- Keep compatibility adapters only where needed for the next migration.
+- Port the current `TypeForwardResolver` behavioral coverage to engine tests,
+  but leave that compatibility resolver's scope and per-call behavior unchanged
+  until its consumers migrate with caller-owned catalogs in Slice 3.
 
 Claim: one typed request resolves to one typed definition or one explicit
 non-success outcome, with one lifetime owner.
