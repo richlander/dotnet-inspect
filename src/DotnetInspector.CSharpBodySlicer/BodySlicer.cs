@@ -49,103 +49,22 @@ public static class BodySlicer
     public static string? ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
     {
         var lines = sourceText.Split('\n');
-        int start = startLine;
-        int end = Math.Min(endLine, lines.Length);
+        var row = DeclarationIndex.Build(lines).FindByLine(startLine);
 
-        // The declaring type name may arrive namespace-qualified/nested/generic; the source
-        // destructor spells only the simple name, so reduce it once up front.
-        string? simpleTypeName = string.IsNullOrEmpty(destructorTypeName) ? null : SimpleTypeName(destructorTypeName);
+        // No row, or a row that is a type header rather than a member: there is no authored member
+        // declaration to isolate. A positional record's property accessor, a primary constructor,
+        // and a constructor synthesized from field initializers all report their sequence points
+        // against the enclosing type, and returning that header would present a truncated type
+        // declaration as the member's source -- wrong output rather than absent output. A row whose
+        // span the scan could not vouch for is likewise absent: the index withholds it, and a guess
+        // is not source.
+        if (row is null || IsTypeOrNamespace(row.Kind))
+            return null;
 
-        // Scan backward from the first sequence point to capture the method signature.
-        // A member whose first sequence point already lands on its own declaration line — a
-        // one-line expression-bodied member, or a property/event accessor whose points map to
-        // the property declaration — needs no backward scan. Scanning back from such a line
-        // skips the blank separator or opening brace above it and captures the preceding member
-        // or the enclosing type header instead, which misattributes source (issue #3278).
-        int sigStart = start;
-        bool startsAtDeclaration = start >= 1 && start <= lines.Length
-            && (IsMemberSignatureLine(lines[start - 1].TrimStart(), isDestructor, simpleTypeName)
-                || DeclaresMember(lines[start - 1].TrimStart(), methodName));
-        for (int i = start - 2; !startsAtDeclaration && i >= Math.Max(0, start - 15); i--)
-        {
-            var trimmed = lines[i].TrimStart();
-            if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
-                || trimmed.StartsWith("[") || trimmed.StartsWith("#"))
-                continue;
-            if (trimmed == "{")
-                continue;
-            if (trimmed.StartsWith("}"))
-            {
-                sigStart = i + 2;
-                break;
-            }
-
-            sigStart = i + 1;
-            if (StartsWithDeclarationModifier(trimmed)
-                || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName))
-                || trimmed.Contains(methodName))
-                break;
-        }
-
-        int from = sigStart - 1;
-        int to = end;
-
+        int from = row.SignatureStartLine - 1;
+        int to = Math.Min(row.EndLine, lines.Length);
         if (from < 0) from = 0;
-        if (to > lines.Length) to = lines.Length;
-
-        // A positional record's property accessor, a primary constructor, and a constructor
-        // synthesized from field initializers have no authored member declaration of their own,
-        // so their sequence points legitimately land on the enclosing type's header. There is
-        // nothing to slice: returning the header would present a truncated type declaration as
-        // the member's source, which is wrong output rather than absent output. Report absence
-        // and let the caller say so.
-        //
-        // A range that merely *contains* the header is a different case. The backward scan
-        // cannot recognize a constructor that leads with no modifier, because ".ctor" is not
-        // its source spelling, so it walks past the declaration and up to the header. That
-        // constructor does have authored source, and the header names the type it is named
-        // for, so look below the header for it before concluding there is nothing to show.
-        //
-        // This runs before the end boundary is decided, because moving the start moves the
-        // brace depth the end-boundary scan reads: measured from the type header the range
-        // still has the type's block open, and the forward scan would then append the type's
-        // closing brace to the constructor.
-        int headerIndex = IndexOfTypeDeclaration(lines[from..to], start - 1 - from, out string? declaredTypeName);
-        if (headerIndex >= 0)
-        {
-            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex, start - 1 - from, declaredTypeName);
-            if (ctorIndex < 0)
-                return null;
-
-            from += ctorIndex;
-        }
-
-        // A declaration whose range already terminates on its last line — an expression body's
-        // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
-        // next "}" below it closes the enclosing type instead (issue #3278). A range that still
-        // has a block open does own one, even when its last line ends in ";": a signature whose
-        // "{" sits on the declaration line ends its sequence range on the last statement.
-        //
-        // Both answers read the same lexical state, so one scan produces both. A trailing
-        // comment must not hide the terminating ";" (issue #3300), and a brace inside a comment
-        // or a literal must not count as structural.
-        //
-        // This asks the captured range alone, not where the range began. A conventionally
-        // braced member starts its sequence range on "{", so it is not "at" its declaration,
-        // yet the range still closes its own block and owns no brace below it. Gating on the
-        // start let the forward scan run for every such member; that was harmless while a
-        // sibling followed, and swallowed the enclosing type's "}" when the member was the
-        // last one in its type.
-        bool endsAtDeclaration = EndsDeclaration(lines, from, to);
-
-        // Recover the member's own closing brace when its range stops above it.
-        if (!endsAtDeclaration)
-            to = IndexPastClosingBrace(lines, from, to, IsAccessorName(methodName));
-
-        if (to > lines.Length) to = lines.Length;
-
-        while (from < to && lines[from].TrimStart().Length == 0)
-            from++;
+        if (from >= to) return null;
 
         var methodLines = lines[from..to];
 
@@ -158,6 +77,11 @@ public static class BodySlicer
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
     }
+
+    private static bool IsTypeOrNamespace(DeclarationKind kind) =>
+        kind is DeclarationKind.Class or DeclarationKind.Struct or DeclarationKind.Record
+            or DeclarationKind.Interface or DeclarationKind.Enum or DeclarationKind.Delegate
+            or DeclarationKind.Namespace;
 
     /// <summary>
     /// Keywords that make a declaration a type or namespace rather than a member.

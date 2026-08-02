@@ -152,7 +152,7 @@ public class DeclarationIndexTests
     }
 
     [Fact]
-    public void FindByBodyLine_ReturnsTheInnermostDeclarationCoveringThatLine()
+    public void FindByLine_ReturnsTheInnermostDeclarationCoveringThatLine()
     {
         var index = DeclarationIndex.Build("""
             namespace N;
@@ -170,12 +170,12 @@ public class DeclarationIndexTests
             }
             """);
 
-        var deep = index.FindByBodyLine(9);
+        var deep = index.FindByLine(9);
         Assert.NotNull(deep);
         Assert.Equal(DeclarationKind.Method, deep.Kind);
         Assert.Equal("Deep", deep.Name);
 
-        var inner = index.FindByBodyLine(8);
+        var inner = index.FindByLine(8);
         Assert.NotNull(inner);
         Assert.Equal(DeclarationKind.Class, inner.Kind);
         Assert.Equal("Inner", inner.Name);
@@ -843,7 +843,7 @@ public class DeclarationIndexTests
         }
 
         Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
-        Assert.Null(index.FindByBodyLine(6));
+        Assert.Null(index.FindByLine(6));
 
         // The same declarations without the directive resolve, so the directive is the whole cause.
         var plain = DeclarationIndex.Build("""
@@ -859,7 +859,7 @@ public class DeclarationIndexTests
             """);
 
         Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
-        Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+        Assert.Equal("Always", plain.FindByLine(3)?.Name);
     }
 
     /// <summary>
@@ -894,7 +894,7 @@ public class DeclarationIndexTests
 
         var p = Assert.Single(index.Declarations, s => s.Name == "P");
         Assert.False(p.SpanKnown, "a span whose end is one branch's must not report as known");
-        Assert.Null(index.FindByBodyLine(3));
+        Assert.Null(index.FindByLine(3));
 
         // Without the conditional the same shape resolves, so the directive is the whole cause and
         // the trailing-initializer path still extends the span it belongs to.

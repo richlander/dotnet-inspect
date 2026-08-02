@@ -254,21 +254,38 @@ public sealed class DeclarationIndex
         new(DeclarationIndexBuilder.Build(lines));
 
     /// <summary>
-    /// The innermost declaration whose <i>body</i> contains <paramref name="line"/>, which is how
-    /// a PDB sequence-point line selects the member it belongs to.
+    /// The innermost declaration containing <paramref name="line"/> — its signature or its body —
+    /// which is how a PDB sequence-point line selects the member it belongs to.
+    /// <para>
+    /// Containment starts at the signature, not the body, because a sequence point is not always
+    /// inside one. A constructor's first point lands on its <i>signature</i> line, so body-only
+    /// containment falls through to the enclosing type and reports the type header as the
+    /// constructor's source. Measured over this repository's own assemblies and PDBs, that is 104
+    /// of 4,098 authored members — every constructor with a multi-line signature, and every static
+    /// constructor synthesized from field initializers. Gated by
+    /// <c>DeclarationIndexTests.AConstructorsSignatureLine_SelectsTheConstructorNotTheType</c>.
+    /// </para>
     /// <para>
     /// Innermost is by <see cref="DeclarationSpan.Depth"/>, so a local function or lambda does not
-    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one.
+    /// hide the member that encloses it: only declarations are indexed, and a lambda is not one. A
+    /// compiler-generated member therefore selects the authored member it was lifted out of, which
+    /// is the declaration a reader can actually be shown.
+    /// </para>
+    /// <para>
     /// A row whose span is not known is never returned, because a guessed span that happens to
-    /// contain the line is indistinguishable from a real match.
+    /// contain the line is indistinguishable from a real match. A caller that gets a
+    /// <see cref="DeclarationKind"/> naming a type rather than a member has landed on a type
+    /// header, which is what a positional record's accessor, a primary constructor, and a
+    /// constructor synthesized from field initializers all do; there is no authored member
+    /// declaration to show, and the caller must report absence rather than the header.
     /// </para>
     /// </summary>
-    public DeclarationSpan? FindByBodyLine(int line)
+    public DeclarationSpan? FindByLine(int line)
     {
         DeclarationSpan? best = null;
         foreach (var d in Declarations)
         {
-            if (!d.SpanKnown || !d.BodyContains(line))
+            if (!d.SpanKnown || !d.Contains(line))
                 continue;
             if (best is null || d.Depth > best.Depth)
                 best = d;
