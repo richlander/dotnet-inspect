@@ -91,6 +91,8 @@ public class DeclarationIndexTests
         int files = 0;
         int compared = 0;
         int inside = 0;
+        int containing = 0;
+        int containingVouched = 0;
 
         foreach (var file in ConditionalCorpus())
         {
@@ -106,14 +108,26 @@ public class DeclarationIndexTests
             foreach (var e in expected)
             {
                 // Roslyn reports a declaration once, at the lines it occupies in this build. A
-                // declaration that touches a conditional region is not that stable -- it may be
-                // one branch's spelling, or it may straddle a directive -- so the claim is made
-                // only where the text is unconditional.
-                if (regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= e.EndLine))
+                // declaration whose own header sits in conditional text is not that stable -- it
+                // may be one branch's spelling, or it may straddle a directive -- so it is skipped.
+                //
+                // A declaration that merely CONTAINS a group is a different case, and skipping it
+                // was a hole: those are exactly the rows whose closing line this PR recovers, and
+                // a mutation that reported their EndLine one line short passed the gate
+                // (adversarial review round 5, GPT-5.6 Sol). They are compared, but the index is
+                // allowed to refuse them -- an unbalanced group in the corpus is a legitimate
+                // refusal -- so the claim is that a row it DOES vouch for is right.
+                bool startsInside = regions.Any(r =>
+                    (e.TriviaStartLine >= r.Start && e.TriviaStartLine <= r.End)
+                    || (e.SignatureStartLine >= r.Start && e.SignatureStartLine <= r.End));
+
+                if (startsInside)
                 {
                     inside++;
                     continue;
                 }
+
+                bool containsRegion = regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= e.EndLine);
 
                 compared++;
 
@@ -123,6 +137,19 @@ public class DeclarationIndexTests
                 if (match is null)
                 {
                     mismatches.Add($"{Path.GetFileName(file)}: {Format(e)} is missing from the index");
+                    continue;
+                }
+
+                if (containsRegion)
+                {
+                    containing++;
+                    if (!match.SpanKnown)
+                        continue;
+
+                    containingVouched++;
+                    if (Format(match) != Format(e))
+                        mismatches.Add($"{Path.GetFileName(file)}: expected {Format(e)}, got {Format(match)}");
+
                     continue;
                 }
 
@@ -141,6 +168,10 @@ public class DeclarationIndexTests
         Assert.True(files >= 5, $"no conditional corpus to gate anything: {files} files");
         Assert.True(compared >= 300, $"conditional corpus too small to gate anything: {compared} declarations");
         Assert.True(inside > 0, $"the skip is vacuous: no declaration touched a conditional region");
+        Assert.True(
+            containingVouched > 0,
+            $"no declaration that CONTAINS a conditional group was vouched for, so the recovered "
+                + $"closing spans are not gated here ({containing} containing, {containingVouched} vouched)");
 
         Assert.True(
             mismatches.Count == 0,
@@ -1402,21 +1433,24 @@ public class DeclarationIndexTests
     /// every symbol configuration. Reading it as an <c>#endif</c> closed the group, recovered the
     /// depth, and vouched for what followed. <c>char.IsLetterOrDigit</c> misses underscore, which
     /// is the whole gap -- <c>#endif-</c> and <c>#endif//note</c> are recognized by Roslyn and are
-    /// still recognized here (adversarial review round 3, Gemini 3.1 Pro).
+    /// still recognized here (adversarial review round 3, Gemini 3.1 Pro). Round 5 added the rest
+    /// of what C# allows to continue an identifier: a combining mark (U+0301), connector
+    /// punctuation (U+203F) and a format character (U+200C) all behave exactly like
+    /// <c>_foo</c> for Roslyn, and letters/digits/underscore alone missed all three
+    /// (adversarial review round 5, GPT-5.6 Sol).
     /// </summary>
     [Fact]
     public void ADirectiveNameRunningIntoAnIdentifier_DoesNotCloseTheGroup()
     {
-        var index = DeclarationIndex.Build("""
-            #if X
-            class C { }
-            #endif_foo
-            class D { }
-            """);
-
-        Assert.False(
-            Assert.Single(index.Declarations, s => s.Name == "D").SpanKnown,
-            "#endif_foo is not an #endif, so the group is still open");
+        // Every suffix here was checked against Roslyn: the first four report CS1024 and CS1027
+        // in every symbol configuration, and the last two are accepted.
+        foreach (var open in (string[])["#endif_foo", "#endif\u0301", "#endif\u203F", "#endif\u200C"])
+        {
+            var index = DeclarationIndex.Build($"#if X\nclass C {{ }}\n{open}\nclass D {{ }}");
+            Assert.False(
+                Assert.Single(index.Declarations, s => s.Name == "D").SpanKnown,
+                $"'{open}' is not an #endif, so the group is still open");
+        }
 
         // The forms Roslyn does accept must keep closing the group, or this costs real recovery.
         foreach (var closer in (string[])["#endif", "#endif//note", "#endif /* note */", "#endif-"])
@@ -1426,6 +1460,144 @@ public class DeclarationIndexTests
                 Assert.Single(closed.Declarations, s => s.Name == "D").SpanKnown,
                 $"'{closer}' closes the group for Roslyn and must close it here");
         }
+    }
+
+    /// <summary>
+    /// <para>
+    /// A terminator in one branch discards trivia recorded in another, and the row below the group
+    /// then reports a trivia start only one build agrees with: with <c>X</c> the comment documents
+    /// <c>C</c>, and without it the <c>using</c> ends a declaration and <c>C</c> has no
+    /// documentation at all. Confirmed against Roslyn in both configurations.
+    /// </para>
+    /// <para>
+    /// Resetting the header unconditionally forgot the comment <em>and</em> restored knownness
+    /// (adversarial review round 5, GPT-5.6 Sol). This is the sixth distinct way two branches can
+    /// agree on brace depth and disagree on meaning.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ATerminatorInOneBranchDiscardingAnothersTrivia_LosesTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            // X docs
+            #else
+            using System;
+            #endif
+            class C { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "one build documents C and the other does not");
+    }
+
+    /// <summary>
+    /// The attribute form of <see cref="ATerminatorInOneBranchDiscardingAnothersTrivia_LosesTheRowBelow"/>.
+    /// With <c>X</c> Roslyn reports one attribute list on <c>C</c>; without it, none.
+    /// </summary>
+    [Fact]
+    public void ATerminatorInOneBranchDiscardingAnothersAttribute_LosesTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            [System.Obsolete]
+            #else
+            using System;
+            #endif
+            class C { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "one build applies the attribute and the other does not");
+    }
+
+    /// <summary>
+    /// The negative that bounds the two above. A terminator inside a group discards nothing when
+    /// no trivia was recorded, and both builds report the same first line for <c>C</c>, so the
+    /// rule refuses branch-dependent discards rather than conditional terminators generally.
+    /// </summary>
+    [Fact]
+    public void ATerminatorInsideAGroupDiscardingNothing_StillVouchesForTheRowBelow()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            using System;
+            #endif
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(4, c.TriviaStartLine);
+        Assert.True(c.SpanKnown, "nothing branch-dependent was discarded");
+    }
+
+    /// <summary>
+    /// The poison from a branch-dependent discard must survive a later trivia record. Here the
+    /// comment below the <c>#endif</c> is on a known line, so assigning knownness at that point
+    /// rather than intersecting it restored a vouch the discard had just removed. Roslyn reports
+    /// <c>C</c>'s first comment on line 6 without <c>X</c> and line 2 with it.
+    /// </summary>
+    [Fact]
+    public void TriviaRecordedAfterABranchDependentDiscard_DoesNotRestoreTheVouch()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            // X docs
+            #else
+            using System;
+            #endif
+            // C docs
+            class C { }
+            """);
+
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.Equal(6, c.TriviaStartLine);
+        Assert.False(c.SpanKnown, "with X the comment on line 2 is C's documentation instead");
+    }
+
+    /// <summary>
+    /// The recovered closing line of a type that CONTAINS a balanced group -- the row the whole
+    /// rule exists to keep. The corpus gate skipped every such declaration until round 5, so a
+    /// mutation reporting their end one line short passed it (adversarial review round 5,
+    /// GPT-5.6 Sol); this pins the same property on a fixture, and the gate's
+    /// <c>containingVouched</c> floor keeps the corpus path non-vacuous.
+    /// </summary>
+    [Fact]
+    public void ATypeContainingABalancedGroup_ReportsItsRealClosingLine()
+    {
+        var index = DeclarationIndex.Build("""
+            class Outer
+            {
+            #if X
+                void M() { }
+            #else
+                void M() { }
+            #endif
+            }
+            """);
+
+        var outer = Assert.Single(index.Declarations, s => s.Name == "Outer");
+        Assert.Equal(1, outer.SignatureStartLine);
+        Assert.Equal(8, outer.EndLine);
+        Assert.True(outer.SpanKnown, "every branch returns to the depth the group opened at");
+    }
+
+    /// <summary>
+    /// A UTF-8 byte order mark is not whitespace, so trimming left it in front of the <c>#</c> and
+    /// the opening directive was scanned as code. Roslyn strips the preamble and reports no error
+    /// for this file, selecting <c>C</c> on line 3 with <c>X</c> and line 5 without it, so the
+    /// misread vouched for one branch's declaration (adversarial review round 5, GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void AByteOrderMarkBeforeAnOpeningDirective_DoesNotHideTheGroup()
+    {
+        var index = DeclarationIndex.Build("\uFEFF#if X\nusing System;\nclass C { }\n#else\nclass C { }\n#endif\n");
+
+        Assert.All(
+            index.Declarations.Where(s => s.Name == "C"),
+            s => Assert.False(s.SpanKnown, "both C rows are inside a conditional group"));
     }
 
     /// <summary>

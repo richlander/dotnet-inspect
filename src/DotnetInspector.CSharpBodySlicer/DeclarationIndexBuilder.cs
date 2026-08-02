@@ -107,17 +107,32 @@ internal static class DeclarationIndexBuilder
         bool InAnonymousScope() => scopes.Count > 0 && scopes[^1] < 0;
         int EnclosingIndex() => scopes.Count > 0 ? scopes[^1] : -1;
 
-        void ResetHeader()
+        void ResetHeader(bool atKnownPoint = true)
         {
             pending.Clear();
+
+            // Discarding recorded trivia at a point only one build reaches makes the NEXT row's
+            // trivia start branch-dependent. In
+            //
+            //     #if X
+            //     // X docs
+            //     #else
+            //     using System;
+            //     #endif
+            //     class C { }
+            //
+            // the "using" terminator belongs to one branch and the comment to the other, so with X
+            // the comment is C's documentation and without it C has none. Resetting unconditionally
+            // forgot the comment AND restored knownness, and C was vouched for with the second
+            // build's answer (adversarial review round 5, GPT-5.6 Sol).
+            triviaKnown = atKnownPoint || triviaStart < 0;
             triviaStart = -1;
-            triviaKnown = true;
             attributeLists.Clear();
         }
 
         void EndDeclaration(ScanToken terminator)
         {
-            ResetHeader();
+            ResetHeader(terminator.DepthKnown);
             lastTerminatorLine = terminator.Line + 1;
         }
 
@@ -198,7 +213,7 @@ internal static class DeclarationIndexBuilder
                 if (pending.Count == 0 && !inAttribute && triviaStart < 0 && commentOpenLine > lastTerminatorLine)
                 {
                     triviaStart = commentOpenLine;
-                    triviaKnown = tok.DepthKnown;
+                    triviaKnown &= tok.DepthKnown;
                 }
                 continue;
             }
@@ -421,7 +436,7 @@ internal static class DeclarationIndexBuilder
                     // conditional between the block and the initializer puts the ";" in a branch,
                     // and the end this reads is one branch's, not the declaration's.
                     if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
-                    ResetHeader();
+                    ResetHeader(tok.DepthKnown);
                     lastClosed = -1;
                     continue;
                 }

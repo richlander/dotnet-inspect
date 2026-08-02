@@ -75,9 +75,19 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
-/// All line numbers are <b>1-based</b>, matching portable-PDB sequence points and
-/// <see cref="BodySlicer.ExtractMethodBody"/>, so a caller never converts at the boundary where
-/// an off-by-one would silently select the neighbouring member.
+/// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
+/// never converts at the boundary where an off-by-one would silently select the neighbouring
+/// member. They normally coincide with portable-PDB sequence points, but that correspondence is
+/// the <i>caller's</i> to establish, not a property this type asserts: a <c>#line</c> directive
+/// remaps what the PDB reports, in both line number and document name. Measured against a real
+/// build, <c>#line 500 "elsewhere.cs"</c> above a method makes every one of its sequence points
+/// read <c>elsewhere.cs:500</c> while this type reports the physical line it occupies. This is a
+/// <b>known, ungated limitation</b> of correlating a row with debug info, raised in adversarial
+/// review round 5 of PR #3680 by GPT-5.6 Sol; it is a property of any physical-line index and is
+/// not affected by conditional recovery, which changes only which rows are vouched for and never
+/// which lines they name. It is rare (4 of 20,838 files in <c>dotnet/runtime/src/libraries</c>
+/// carry a renumbering <c>#line</c>, and none of those four is a conditional file), and it belongs
+/// to whichever layer performs the PDB-to-row match.
 /// </para>
 /// </summary>
 /// <param name="Kind">What was declared.</param>

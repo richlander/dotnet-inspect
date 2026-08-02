@@ -1062,14 +1062,26 @@ public static class BodySlicer
         /// <summary>
         /// Set when a conditional group's branches did not balance. Never cleared, which is what
         /// makes the loss survive a later balanced group -- closing one restores the depth for its
-        /// own frame and must not clear a loss recorded before it opened. Gated by
+        /// own frame and must not clear a loss recorded before it opened.
+        /// <para>
+        /// Two separate properties, each with its own gate, because conflating them produced three
+        /// successive false citations here:
+        /// </para>
+        /// <list type="bullet">
+        /// <item>the ASSIGNMENT in <see cref="CloseConditional"/> is gated by
+        /// <c>DeclarationIndexTests.AnUnbalancedConditional_StillLosesEveryLaterRow</c> -- making
+        /// it a no-op fails that test, and four others;</item>
+        /// <item>the STICKINESS is gated by
         /// <c>DeclarationIndexTests.ADirectiveHiddenInsideACommentWithinAGroup_LosesTheDepth</c>
         /// and <c>...ADirectiveHiddenInsideALiteralWithinAGroup_LosesTheDepth</c>: each sets this
         /// field inside a group that then closes balanced, so clearing it on a balanced close
-        /// fails both. <c>AnUnbalancedConditional_StillLosesEveryLaterRow</c> does <em>not</em>
-        /// gate it -- an unbalanced group mangles the brace structure enough that its rows are
-        /// unknown for other reasons, which is why two earlier citations of that test here were
-        /// wrong (adversarial review round 3, GPT-5.6 Sol).
+        /// fails both, and no other test does.</item>
+        /// </list>
+        /// <para>
+        /// Round 3 corrected a citation that named the unbalanced test for the stickiness, where
+        /// it gates nothing, by asserting it gated neither property -- which round 5 falsified by
+        /// mutating the assignment (adversarial review rounds 3 and 5).
+        /// </para>
         /// </summary>
         private bool conditionalDepthLost;
 
@@ -1110,7 +1122,8 @@ public static class BodySlicer
         /// below the depth it opened at. Such a branch is closing a scope that was opened outside
         /// the group, which means the group's branches disagree about which declaration encloses
         /// the text after the <c>#endif</c> even when they agree about the depth -- and depth is
-        /// all the balance rule measures.
+        /// all the balance rule measures. Gated by
+        /// <c>DeclarationIndexTests.ABranchThatClosesAScopeItsGroupDidNotOpen_LosesTheDepth</c>.
         /// </summary>
         public void NoteDepth(int depth)
         {
@@ -1212,7 +1225,8 @@ public static class BodySlicer
             conditionals.RemoveAt(conditionals.Count - 1);
 
             // An enclosing group cannot balance if something inside it did not, so an inner
-            // failure propagates outward rather than being forgiven by the outer #endif.
+            // failure propagates outward rather than being forgiven by the outer #endif. Gated by
+            // AnUnbalancedInnerConditional_PoisonsTheGroupAroundIt.
             if (group.Unbalanced || depth != group.BaseDepth)
             {
                 if (conditionals.Count > 0)
@@ -1328,13 +1342,33 @@ public static class BodySlicer
     private enum Conditional { None, If, NextBranch, EndIf }
 
     /// <summary>Whether <paramref name="c"/> can continue a C# identifier.</summary>
-    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+    /// <summary>
+    /// Whether <paramref name="c"/> continues a C# identifier. Letters, digits and underscore are
+    /// the obvious part; the Unicode categories are the rest of what the language allows, and
+    /// omitting them read "#endif\u0301" (a combining mark) as the #endif directive when Roslyn
+    /// reports CS1024 and CS1027 and leaves the group open (adversarial review round 5,
+    /// GPT-5.6 Sol).
+    /// </summary>
+    private static bool IsIdentifierPart(char c) =>
+        char.IsLetterOrDigit(c)
+        || c == '_'
+        || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.NonSpacingMark
+            or System.Globalization.UnicodeCategory.SpacingCombiningMark
+            or System.Globalization.UnicodeCategory.ConnectorPunctuation
+            or System.Globalization.UnicodeCategory.Format;
 
     private static bool IsDirective(string line, out Conditional conditional)
     {
         conditional = Conditional.None;
 
         var trimmed = line.AsSpan().TrimStart();
+
+        // A UTF-8 byte order mark is not whitespace, so TrimStart leaves it in front of the "#"
+        // and the directive reads as code. Roslyn strips the preamble before parsing, so a file
+        // whose first line is "\uFEFF#if X" opens a conditional group there; scanning it as code
+        // vouched for the wrong branch's declaration (adversarial review round 5, GPT-5.6 Sol).
+        if (!trimmed.IsEmpty && trimmed[0] == '\uFEFF')
+            trimmed = trimmed[1..].TrimStart();
 
         if (trimmed.IsEmpty || trimmed[0] != '#')
             return false;
