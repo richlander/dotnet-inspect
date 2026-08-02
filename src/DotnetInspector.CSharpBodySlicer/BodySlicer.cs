@@ -1131,9 +1131,18 @@ public static class BodySlicer
             }
 
             var group = conditionals[^1];
+
+            // The flag is what decides. It is raised here rather than at the #endif because the
+            // reset below erases the evidence: by the time the group closes, a branch that left a
+            // brace open is indistinguishable from one that did not.
             if (depth != group.BaseDepth)
                 group.Unbalanced = true;
 
+            // The reset itself is unobservable, since the flag has already condemned the group in
+            // every case that would reach it -- verified by mutation, and recorded as equivalent
+            // rather than gated. It is kept so that each branch's check means what it says: a
+            // later branch measured against an earlier branch's leftovers is not a per-branch
+            // check at all.
             return group.BaseDepth;
         }
 
@@ -1201,6 +1210,12 @@ public static class BodySlicer
                 literalDepthLost = literalDepthLost,
             };
             copy.frames.AddRange(frames);
+            // Ungated, and unverified as a property of any caller: neither of the two sites that
+            // clone a state consults structural knownness or emits tokens -- both are backward-scan
+            // probes reading Untracked, InLiteral, InBlockComment and BracketDepth -- so dropping
+            // this line changes no observable answer today. It is here because a clone that
+            // reported knownness the original does not have would be wrong the moment a probe did
+            // look, and a state that lies is a worse default than a line with no test.
             copy.conditionals.AddRange(conditionals.Select(c => c.Copy()));
             return copy;
         }

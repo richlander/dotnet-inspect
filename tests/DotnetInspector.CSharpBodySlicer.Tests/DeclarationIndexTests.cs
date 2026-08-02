@@ -67,6 +67,89 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// <para>
+    /// The differential above compares only files with no conditional directive, and it declines
+    /// the rest by construction: Roslyn with no symbols defined discards the disabled branches
+    /// while the index, being lexical, indexes them, so the two lists cannot be equal. That
+    /// exemption is what let a conditional cost every later declaration in the file, to end of
+    /// file, with the suite green -- the gate could not see the collateral after the
+    /// <c>#endif</c> because it was not looking at those files at all.
+    /// </para>
+    /// <para>
+    /// This is the same differential restricted to a population where the two <em>are</em>
+    /// comparable, and weakened from equality to containment. A declaration lying wholly outside
+    /// every conditional region is present in every build, so Roslyn reports it and the index
+    /// must report it identically, with a span it vouches for. Extra index rows -- the disabled
+    /// branches' declarations -- are expected and are not failures, which is exactly why this is
+    /// a subset comparison and the other one is not.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void InAConditionalFile_EveryDeclarationOutsideTheConditionals_IsStillVouchedFor()
+    {
+        var mismatches = new List<string>();
+        int files = 0;
+        int compared = 0;
+        int inside = 0;
+
+        foreach (var file in ConditionalCorpus())
+        {
+            var lines = File.ReadAllLines(file);
+            var expected = RoslynDeclarations(lines, requireNoConditionals: false, out var regions);
+            if (expected is null || regions.Count == 0)
+                continue;
+
+            files++;
+
+            var actual = DeclarationIndex.Build(lines).Declarations.ToList();
+
+            foreach (var e in expected)
+            {
+                // Roslyn reports a declaration once, at the lines it occupies in this build. A
+                // declaration that touches a conditional region is not that stable -- it may be
+                // one branch's spelling, or it may straddle a directive -- so the claim is made
+                // only where the text is unconditional.
+                if (regions.Any(r => e.TriviaStartLine <= r.End && r.Start <= e.EndLine))
+                {
+                    inside++;
+                    continue;
+                }
+
+                compared++;
+
+                var match = actual.FirstOrDefault(a =>
+                    a.Kind == e.Kind && a.Name == e.Name && a.SignatureStartLine == e.SignatureStartLine);
+
+                if (match is null)
+                {
+                    mismatches.Add($"{Path.GetFileName(file)}: {Format(e)} is missing from the index");
+                    continue;
+                }
+
+                if (!match.SpanKnown)
+                    mismatches.Add($"{Path.GetFileName(file)}: {Format(e)} is present but not vouched for");
+                else if (Format(match) != Format(e))
+                    mismatches.Add($"{Path.GetFileName(file)}: expected {Format(e)}, got {Format(match)}");
+            }
+        }
+
+        // Non-vacuity, and it is load-bearing twice over. The first two floors catch a corpus that
+        // stopped containing conditional files at all, which would make this gate pass by
+        // comparing nothing -- the precise way its predecessor failed. The third asserts the
+        // population it is *not* comparing is non-empty too, so a change that quietly widened the
+        // skip until every declaration fell inside a region could not pass here.
+        Assert.True(files >= 5, $"no conditional corpus to gate anything: {files} files");
+        Assert.True(compared >= 300, $"conditional corpus too small to gate anything: {compared} declarations");
+        Assert.True(inside > 0, $"the skip is vacuous: no declaration touched a conditional region");
+
+        Assert.True(
+            mismatches.Count == 0,
+            $"{mismatches.Count} declarations outside a conditional region are not reported "
+                + $"({compared} compared across {files} conditional files, {inside} skipped as conditional):\n\n"
+                + string.Join("\n", mismatches.Take(12)));
+    }
+
+    /// <summary>
     /// The reason the index exists: the declaration, not just the body. A member's slice has to
     /// start at its documentation comment, which sits above the first sequence point and so is
     /// invisible to the PDB.
@@ -888,6 +971,53 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// <para>
+    /// A branch that does not return to the depth its group opened at makes the group unbalanced,
+    /// even when the group's <em>closing</em> depth is right. This is the direction that matters:
+    /// each branch is measured from the opening depth and the depth is reset at every branch
+    /// boundary, so by the time the <c>#endif</c> is reached the discrepancy has been erased and
+    /// the group looks balanced. The flag raised at the branch boundary is the only record that
+    /// it was not, and it is what stops a span being vouched for on the strength of one branch.
+    /// </para>
+    /// <para>
+    /// Written because the mutation battery found the flag ungated: deleting it left the suite
+    /// green while turning every such group into a false <c>SpanKnown</c>, which is the one
+    /// outcome the index is not allowed to produce.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABranchThatDoesNotReturnToTheOpeningDepth_UnbalancesTheGroup()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if A
+                void Extra() {
+            #else
+                void Extra() { }
+            #endif
+                void After() { }
+            }
+            }
+            """);
+
+        // The group closes at the depth it opened at -- the reset saw to that -- so nothing the
+        // #endif can measure distinguishes this from a group whose branches balance.
+        //
+        // The trailing brace balances the file for the branch that leaves one open, so that a row
+        // after the #endif closes cleanly and would be vouched for if the group were judged
+        // balanced. Without it the imbalance wrecks the row structure instead, and every row
+        // reports unknown for a reason that has nothing to do with the rule under test -- which
+        // is how the first draft of this fixture passed against a build with the rule deleted.
+        //
+        // Asserted over the whole file rather than by naming the trailing declaration, since the
+        // row set differs between the two readings and a test naming one row can fail on its
+        // absence rather than on its knownness.
+        Assert.NotEmpty(index.Declarations);
+        Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
+    }
+
+    /// <summary>
     /// An unbalanced group nested inside a balanced one poisons the outer group: the enclosing
     /// group cannot return to its own opening depth if something inside it did not. Asserted
     /// because propagation is a separate line from the balance check and a fixture with one level
@@ -913,6 +1043,31 @@ public class DeclarationIndexTests
             Assert.Single(nested.Declarations, s => s.Name == "After").SpanKnown,
             "an unbalanced inner group must not be forgotten when the outer one closes");
 
+        // The fixture above does not actually reach the propagation line: the inner group's stray
+        // brace also drives the outer group off its own opening depth, so the outer #endif catches
+        // it unaided. Propagation is only load-bearing when the outer group looks balanced on its
+        // own, which needs the inner group to have two branches -- the branch reset returns the
+        // depth to the inner group's base, hiding the discrepancy from every later measurement, so
+        // the flag raised at the #else is the only surviving evidence.
+        var masked = DeclarationIndex.Build("""
+            class C
+            {
+            #if A
+            #if B
+                void X() {
+            #else
+                void X() { }
+            #endif
+            #endif
+                void After() { }
+            }
+            }
+            """);
+
+        // Balanced for the open branch, for the same reason as the fixture above.
+        Assert.NotEmpty(masked.Declarations);
+        Assert.All(masked.Declarations, s => Assert.False(s.SpanKnown));
+
         // The same nesting with both groups balanced resolves, so nesting alone is not the cause.
         var balanced = DeclarationIndex.Build("""
             class C
@@ -930,16 +1085,29 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
-    /// Every branch is measured from the group's opening depth, not from where the previous branch
-    /// left off. Without that reset the scan would carry one branch's braces into the next and no
-    /// multi-branch group could look balanced — which is most of them, since <c>#else</c> is
-    /// common. <c>#elif</c> needs no separate handling: it ends the branch above it and starts
-    /// another, exactly as <c>#else</c> does.
+    /// <para>
+    /// A group with more than one branch, each of which balances, is still balanced — most groups
+    /// have a second branch, so a rule that only handled <c>#if</c>/<c>#endif</c> would recover
+    /// almost nothing. <c>#elif</c> needs no separate handling: it ends the branch above it and
+    /// starts another, exactly as <c>#else</c> does, which is why both spellings are asserted
+    /// against one fixture.
+    /// </para>
+    /// <para>
+    /// This does <em>not</em> gate the depth reset at the branch boundary, and an earlier version
+    /// of this comment claimed it did. The reset is unobservable: a branch that fails to return to
+    /// the group's opening depth raises the unbalanced flag in the same breath, and the flag
+    /// condemns the group whatever the depth counter goes on to say, so deleting the reset leaves
+    /// every assertion in this suite green. It is recorded as an equivalent mutation and kept for
+    /// the invariant, not for the answer — without it a later branch's check would be measured
+    /// against an earlier branch's leftovers, which is a worse thing for the code to mean.
+    /// <see cref="ABranchThatDoesNotReturnToTheOpeningDepth_UnbalancesTheGroup"/> is what gates
+    /// the flag.
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData("#else")]
     [InlineData("#elif OTHER")]
-    public void EachBranchIsMeasuredFromTheGroupsOpeningDepth(string middle)
+    public void AMultiBranchConditional_IsBalancedWhenEveryBranchIs(string middle)
     {
         var index = DeclarationIndex.Build(string.Join('\n',
         [
@@ -1315,8 +1483,25 @@ public class DeclarationIndexTests
     /// design, because it is lexical — indexes the text it can see and marks what it cannot vouch
     /// for unknown. Neither is wrong; they are answering different questions.
     /// </summary>
-    private static List<Declaration>? RoslynDeclarations(string[] lines)
+    private static List<Declaration>? RoslynDeclarations(string[] lines) =>
+        RoslynDeclarations(lines, requireNoConditionals: true, out _);
+
+    /// <param name="requireNoConditionals">
+    /// When true the file is declined if it carries any conditional directive, which is what an
+    /// equality comparison requires: Roslyn drops the disabled branches and the lexical index
+    /// keeps them. The subset gate passes false and reads <paramref name="regions"/> instead.
+    /// </param>
+    /// <param name="regions">
+    /// The outermost conditional regions, as 1-based inclusive line ranges from each <c>#if</c>
+    /// to the <c>#endif</c> that closes it. Empty for a file with no conditional.
+    /// </param>
+    private static List<Declaration>? RoslynDeclarations(
+        string[] lines,
+        bool requireNoConditionals,
+        out List<(int Start, int End)> regions)
     {
+        regions = [];
+
         var tree = CSharpSyntaxTree.ParseText(
             string.Join("\n", lines),
             new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse));
@@ -1330,11 +1515,37 @@ public class DeclarationIndexTests
         // it nine times and has no directive at all — and a substring test declines those files,
         // shrinking the corpus for no reason and doing it invisibly. Only conditional directives
         // matter here; #region, #pragma, and #nullable do not change which text is present.
-        if (root.ContainsDirectives && root.DescendantTrivia(descendIntoTrivia: true).Any(t =>
-                t.IsKind(SyntaxKind.IfDirectiveTrivia)
-                || t.IsKind(SyntaxKind.ElifDirectiveTrivia)
-                || t.IsKind(SyntaxKind.ElseDirectiveTrivia)))
-            return null;
+        if (root.ContainsDirectives)
+        {
+            int open = 0;
+            int start = 0;
+
+            foreach (var trivia in root.DescendantTrivia(descendIntoTrivia: true))
+            {
+                bool isIf = trivia.IsKind(SyntaxKind.IfDirectiveTrivia);
+                if (!isIf && !trivia.IsKind(SyntaxKind.EndIfDirectiveTrivia))
+                    continue;
+
+                if (requireNoConditionals && isIf)
+                    return null;
+
+                int line = trivia.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+
+                if (isIf)
+                {
+                    if (open++ == 0)
+                        start = line;
+                }
+                else if (open > 0 && --open == 0)
+                {
+                    regions.Add((start, line));
+                }
+            }
+
+            // A group left open at end of file closes nowhere, so its region runs to the last line.
+            if (open > 0)
+                regions.Add((start, lines.Length));
+        }
 
         var result = new List<Declaration>();
         Walk(root, result);
@@ -1512,6 +1723,55 @@ public class DeclarationIndexTests
     /// Real C# from this repository, discovered the same way the parse-validity corpus is: every
     /// PDB beside the test binary names the source files its assembly was built from.
     /// </summary>
+    /// <summary>
+    /// <para>
+    /// The files carrying a conditional directive, which is a different corpus from
+    /// <see cref="Corpus"/> and has to be, because this repository has almost none:
+    /// five files in fourteen hundred, and not one of them is in this test binary's
+    /// dependency closure, so the PDB-discovered corpus contains zero. A gate built on that
+    /// corpus would pass by comparing nothing.
+    /// </para>
+    /// <para>
+    /// The <c>#if</c> text search is a candidate filter, not the answer -- Roslyn confirms every
+    /// candidate. Searching text to <em>decline</em> a file is unsound, because <c>#if</c> occurs
+    /// in comments and string literals; searching it to <em>select</em> candidates is sound in
+    /// the direction that matters, since a file with a real directive always contains the text.
+    /// </para>
+    /// </summary>
+    private static List<string> ConditionalCorpus()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
+            root = root.Parent;
+
+        // Deliberately not a skip. A gate that cannot find its corpus has to say so; returning an
+        // empty list would be indistinguishable from a corpus with no conditional files, which is
+        // the exact failure this test exists to rule out.
+        Assert.NotNull(root);
+
+        var files = new List<string>();
+
+        foreach (var directory in new[] { "src", "tests" })
+        {
+            var path = Path.Combine(root.FullName, directory);
+            if (!Directory.Exists(path))
+                continue;
+
+            foreach (var file in Directory.EnumerateFiles(path, "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                    continue;
+
+                if (File.ReadAllText(file).Contains("#if", StringComparison.Ordinal))
+                    files.Add(file);
+            }
+        }
+
+        files.Sort(StringComparer.Ordinal);
+        return files;
+    }
+
     private static List<string> Corpus()
     {
         var files = new SortedSet<string>(StringComparer.Ordinal);
