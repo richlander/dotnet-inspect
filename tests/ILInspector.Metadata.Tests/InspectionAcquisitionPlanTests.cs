@@ -230,6 +230,20 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Register_OutOfRangeForwarderTarget_IsTypedInvalidImage()
+    {
+        byte[] image = BuildForwarderImage(
+            TypeAttributes.Public | Forwarder,
+            targetRow: 4);
+        using var plan = new InspectionAcquisitionPlan();
+
+        var rejected = Assert.IsType<CandidateRegistrationResult.Rejected>(
+            plan.Register(Descriptor(ReadIdentity(image), () => image)));
+
+        Assert.Equal(CandidateOpenFailureKind.InvalidImage, rejected.Failure.Kind);
+    }
+
+    [Fact]
     public void Register_UnreadableSource_IsTypedFailureAndCached()
     {
         byte[] image = SelfBytes();
@@ -660,7 +674,8 @@ public class InspectionAcquisitionPlanTests
     static byte[] BuildForwarderImage(
         TypeAttributes attributes,
         int forwarderCount = 1,
-        int assemblyReferenceCount = 1)
+        int assemblyReferenceCount = 1,
+        int? targetRow = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -683,24 +698,22 @@ public class InspectionAcquisitionPlanTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
-        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("Target"),
-            new Version(1, 0, 0, 0),
-            culture: default,
-            publicKeyOrToken: default,
-            flags: default,
-            hashValue: default);
-        for (int i = 1; i < assemblyReferenceCount; i++)
+        AssemblyReferenceHandle target = default;
+        for (int i = 0; i < assemblyReferenceCount; i++)
         {
-            metadata.AddAssemblyReference(
+            AssemblyReferenceHandle added = metadata.AddAssemblyReference(
                 metadata.GetOrAddString("Target"),
                 new Version(1, 0, 0, 0),
                 culture: default,
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
+            if (i == 0)
+                target = added;
         }
 
+        if (targetRow is int row)
+            target = MetadataTokens.AssemblyReferenceHandle(row);
         for (int i = 0; i < forwarderCount; i++)
         {
             metadata.AddExportedType(

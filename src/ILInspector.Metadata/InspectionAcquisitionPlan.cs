@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
@@ -227,14 +226,15 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             var references =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
             var seenReferences = new HashSet<AssemblyReferenceIdentity>();
-            var referencesByRow = new AssemblyReferenceIdentity[
-                reader.GetTableRowCount(TableIndex.AssemblyRef)];
+            var referencesByHandle =
+                new Dictionary<
+                    AssemblyReferenceHandle,
+                    AssemblyReferenceIdentity>();
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
                 AssemblyReferenceIdentity reference =
                     AssemblyReferenceIdentity.From(reader, handle);
-                referencesByRow[MetadataTokens.GetRowNumber(handle) - 1] =
-                    reference;
+                referencesByHandle.Add(handle, reference);
                 if (seenReferences.Add(reference))
                     references.Add(reference);
             }
@@ -271,11 +271,26 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                             "An AssemblyRef-terminated ExportedType chain is not a forwarder.");
                     }
 
-                    int targetIndex =
-                        MetadataTokens.GetRowNumber(
-                            (AssemblyReferenceHandle)terminal) - 1;
-                    AssemblyReferenceIdentity target =
-                        referencesByRow[targetIndex];
+                    var targetHandle = (AssemblyReferenceHandle)terminal;
+                    if (!referencesByHandle.TryGetValue(
+                            targetHandle,
+                            out AssemblyReferenceIdentity? target))
+                    {
+                        target = AssemblyReferenceIdentity.From(
+                            reader,
+                            targetHandle);
+                        referencesByHandle.Add(targetHandle, target);
+                        if (seenReferences.Add(target))
+                            references.Add(target);
+                    }
+
+                    if (target is null)
+                    {
+                        return RejectInvalid(
+                            entry,
+                            "The selected image has an invalid AssemblyRef target.");
+                    }
+
                     if (seenForwarderTargets.Add(target))
                         forwarderTargets.Add(target);
                 }
