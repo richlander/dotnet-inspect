@@ -216,6 +216,14 @@ public sealed class ResolvedAssemblyReference
 /// <summary>Identifies one acquisition catalog's candidate key space.</summary>
 public readonly record struct AssemblyCatalogId(Guid Value);
 
+/// <summary>Opaque identity for one frozen generation in a catalog.</summary>
+public sealed class AssemblyCatalogGenerationId
+{
+    internal AssemblyCatalogGenerationId()
+    {
+    }
+}
+
 internal readonly record struct AssemblyCandidateId(Guid Value);
 
 /// <summary>One descriptor interned by a Metadata-owned acquisition catalog.</summary>

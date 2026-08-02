@@ -371,6 +371,14 @@ public sealed record MetadataProjectionOptions
     public int MaxStringChars { get; init; } = DefaultMaxStringChars;
 
     /// <summary>
+    /// What the projection does with artifact text carrying scalars the rendering policy
+    /// refuses. Defaults to <see cref="UntrustedTextMode.Contain"/>, which is what every
+    /// consumer wants unless it has a reason not to: containment is the projection's safety
+    /// property, while refusing and raw output are policies a caller adds either side of it.
+    /// </summary>
+    public UntrustedTextMode UntrustedText { get; init; } = UntrustedTextMode.Contain;
+
+    /// <summary>
     /// When non-default, restricts projection to these tables. Default projects
     /// every supported table.
     /// </summary>

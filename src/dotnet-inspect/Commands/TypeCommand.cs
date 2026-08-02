@@ -657,7 +657,16 @@ public static class TypeCommand
         };
 
         CommandError.WriteNote($"Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
-        return ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
+
+        // The preamble resolved -S against the single-type pipeline because the argument shape
+        // looked like one type. It is not: this renders a listing, so the section names have to be
+        // re-resolved against the pipeline that will actually render them. Ordered after the note
+        // so a rejected section name still says which view rejected it.
+        var resolved = ApiCommand.ReresolveSectionsForListing(browseOptions);
+        if (resolved == null)
+            return 1;
+
+        return ApiCommand.WriteFullApiOutput(api, resolved, selectedTfm);
     }
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)

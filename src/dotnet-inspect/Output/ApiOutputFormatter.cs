@@ -45,21 +45,38 @@ public static class ApiOutputFormatter
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
+        // The compact fields list is the whole of the -v:q view, and only that. Everywhere else the
+        // same facts are available as the bounded API Info section, so carrying them as a document
+        // scalar too would print identity twice on any view that shows both -- which is exactly
+        // what bare -S started doing once it began selecting API Info. Quiet keeps the line because
+        // at quiet there are no sections to carry it. See #3547.
+        //
+        // An active --fields/--columns projection is the exception, and not as a special case for
+        // its own sake: markout renders the document title alongside these scalars, so once a
+        // projection is active and no scalar survives it drops the H1 as well. Emptying them
+        // therefore did not merely hide a line -- it turned `--fields Types` into the Classes table
+        // with no title, and `--columns Type` into a headless table. Suppressing the line is a
+        // decision about the DEFAULT view, so a caller who names fields or columns opts out of it.
+        var projectionActive = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+        var showCompactFields = options.Verbosity == Verbosity.Quiet
+            ? options.IncludeSections is not { Count: > 0 }
+            : projectionActive;
+
         var view = new CliApiSurface
         {
             Name = api.Name,
-            Library = api.Library,
-            Types = api.PublicTypeCount,
-            Methods = api.PublicMethodCount,
-            Properties = api.PublicPropertyCount,
-            Source = api.Source,
-            Version = api.Version,
-            Tfm = api.Tfm,
+            Library = showCompactFields ? api.Library : null,
+            Types = showCompactFields ? api.PublicTypeCount : null,
+            Methods = showCompactFields ? api.PublicMethodCount : null,
+            Properties = showCompactFields ? api.PublicPropertyCount : null,
+            Source = showCompactFields ? api.Source : null,
+            Version = showCompactFields ? api.Version : null,
+            Tfm = showCompactFields ? api.Tfm : null,
 
-            // Deliberately the same values the inline identity line above carries, not a second
-            // spelling of them: this section is a promotion of that line into a selectable fixed
-            // section, so a reader who selects it and a reader who reads the line must not see two
-            // different answers to the same question.
+            // Deliberately the same values the compact fields list carries, not a second spelling
+            // of them: this section is a promotion of that line into a selectable fixed section, so
+            // a reader who selects it and a reader who reads the line must not see two different
+            // answers to the same question.
             ApiInfo = new ApiInfoSection
             {
                 Assembly = api.Library,

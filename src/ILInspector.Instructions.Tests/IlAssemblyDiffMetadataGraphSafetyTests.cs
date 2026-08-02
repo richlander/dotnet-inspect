@@ -84,6 +84,11 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
 
         GraphEdgeCount[] expected =
         [
+            // CompilerGeneratedOrdinals.cs resolves the declaring type of an attribute
+            // constructor to identify CompilerGeneratedAttribute. That is a single hop,
+            // not a relationship chain: its nesting walk goes through the bounded
+            // MetadataRelationshipTraversal, which is why this count is 1 and not 2.
+            new("CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
             new("IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
             new("IlBodyDiff.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
             new("MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
