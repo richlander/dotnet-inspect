@@ -490,7 +490,9 @@ public class LibraryBodyIndexTests
         {
             string candidate = Path.Combine(directory, identity.Name + ".dll");
             return File.Exists(candidate)
-                ? new ResolvedAssemblyReference(identity, candidate, () => File.OpenRead(candidate), "test")
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    candidate,
+                    AssemblyResolutionProvenance.Local("test"))
                 : null;
         }
     }
@@ -499,7 +501,9 @@ public class LibraryBodyIndexTests
     sealed class ConstantResolver(string path) : IAssemblyReferenceResolver
     {
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-            => new(identity, path, () => File.OpenRead(path), "test");
+            => ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("test"));
     }
 
     /// <summary>Records every identity and scope the builder asks for.</summary>
