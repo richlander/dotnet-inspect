@@ -288,7 +288,7 @@ public static class AnnotationAnchor
 
     /// <summary>
     /// Extents for offsets whose owning node prints nothing, taken from the
-    /// narrowest printed node inside it.
+    /// nearest printed node inside it.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -304,10 +304,15 @@ public static class AnnotationAnchor
     /// Measured over <c>System.Private.CoreLib</c> as the annotated-source view
     /// prints it: of 37,800 facts, 4,143 had no extent. For 2,573 the offset
     /// belonged to a node that exists but prints nothing, and 1,907 of those
-    /// have a printed descendant — 1,899 of them boxes, whose descendants are
-    /// the boxed expression itself (1,234 <c>LoadArgument</c>, 510
-    /// <c>LoadLocal</c>, 104 <c>LoadIndirect</c>, 42 <c>Constant</c>, the rest
-    /// field and property loads). That is the population this recovers.
+    /// have a printed descendant — 1,899 of them boxes. Those 1,907 offsets
+    /// adopt 1,023 <c>LoadArgument</c>, 498 <c>LoadLocal</c>, 129 <c>Call</c>,
+    /// 107 <c>LoadIndirect</c>, 75 <c>Convert</c>, 42 <c>Binary</c>, 14
+    /// <c>Constant</c>, 11 <c>LoadField</c>, 5 <c>LoadStackSlot</c> and three
+    /// singletons. That is the population this recovers, and it is counted per
+    /// distinct (function, offset) pair: one offset is typically carried by
+    /// several unprinted owners — 1,858 of the 1,907 are — so a count of
+    /// matching nodes visited would be more than twice as large and would not
+    /// describe anything the renderer produces.
     /// </para>
     /// <para>
     /// Descent only, never ascent. A printed <em>ancestor</em> is available for
@@ -342,6 +347,7 @@ public static class AnnotationAnchor
 
         var level = new List<IrNode>();
         var next = new List<IrNode>();
+        var chosen = new Dictionary<int, (int Start, int Width)>();
         foreach (var span in statements)
         {
             foreach (var node in Self(span.Statement))
@@ -352,8 +358,27 @@ public static class AnnotationAnchor
                 // The owner prints nothing; look inside it for something that does.
                 if (printedRanges.TryGetRange(node, out _))
                     continue;
-                if (NearestPrinted(node, printedRanges, ref level, ref next) is { } inner)
-                    adopted[offset] = inner;
+                if (NearestPrinted(node, printedRanges, ref level, ref next) is not { } inner
+                    || !printedRanges.TryGetRange(inner, out var innerRange))
+                    continue;
+                // One offset can be carried by several unprinted owners naming
+                // different places: 1,858 of the 1,907 offsets adoption resolves
+                // have more than one owner, and on 66 of them the owners pick
+                // different nodes -- every one a group of `Box` nodes over
+                // different locals of equal width. No choice among those is more
+                // correct than another, so the requirement is only that it be a
+                // function of the ranges rather than of the walk: leftmost, and
+                // narrowest where two start together. On this corpus that agrees
+                // with what the unarbitrated walk already produced on all 66, so
+                // this changes no rendered output here; it exists so that the
+                // choice cannot move when traversal order does.
+                if (chosen.TryGetValue(offset, out var best)
+                    && (best.Start < innerRange.Start.Value
+                        || (best.Start == innerRange.Start.Value
+                            && best.Width <= innerRange.End.Value - innerRange.Start.Value)))
+                    continue;
+                chosen[offset] = (innerRange.Start.Value, innerRange.End.Value - innerRange.Start.Value);
+                adopted[offset] = inner;
             }
         }
         return adopted;
@@ -371,18 +396,16 @@ public static class AnnotationAnchor
     /// argument <c>x</c>, not the call <c>Foo(x)</c> whose result is boxed, so
     /// the caret underlined characters the fact is not about. Measured over
     /// <c>System.Private.CoreLib</c> as the annotated-source view prints it,
-    /// the two rules disagree on 502 of the 4,262 offsets adoption resolves:
-    /// 240 <c>box</c>-over-<c>Call</c>, 112 and 38 over <c>Convert</c>, 72 and
-    /// 12 over <c>Binary</c>, and the rest single figures. Depth is right in
-    /// every one of them, because what a box boxes is its operand.
+    /// the two rules disagree on 252 of the 1,907 offsets adoption resolves:
+    /// 119 over <c>Call</c>, 56 and 19 over <c>Convert</c>, 36 and 6 over
+    /// <c>Binary</c>, and the rest single figures. Depth is right in every one
+    /// of them, because what a box boxes is its operand.
     /// <para>
-    /// The width tie-break never runs on that corpus: no node has two printed
-    /// descendants at its shallowest printed level, all 4,262 times. It is kept
-    /// because "never here" is a measurement, not a guarantee, and a silent
-    /// dependence on traversal order is what the old rule died of — it left 231
-    /// of these offsets decided by which equally-narrow node the walk reached
-    /// first. Preferring the widest at a level keeps the caret over as much of
-    /// the expression as the printer will name.
+    /// The width tie-break never runs on that corpus: at every descent, no node
+    /// had two printed descendants at its shallowest printed level. It is kept
+    /// because "never here" is a measurement rather than a guarantee, and
+    /// preferring the widest at a level keeps the caret over as much of the
+    /// expression as the printer will name.
     /// </para>
     /// </remarks>
     static IrNode? NearestPrinted(
