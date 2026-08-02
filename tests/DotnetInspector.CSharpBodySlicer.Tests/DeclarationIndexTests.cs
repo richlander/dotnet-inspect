@@ -2290,6 +2290,177 @@ public class DeclarationIndexTests
         }
     }
 
+    /// <summary>
+    /// Which declaration an initializer extends is itself branch-dependent when a conditional
+    /// group sits between the accessor block and the <c>=</c>. Roslyn reports <c>P</c> as
+    /// lines 2-2 with <c>X</c> and 2-6 without, both configurations parsing with zero errors,
+    /// so the row before the group cannot be vouched for. Every other conditional rule asks
+    /// whether a header written BEFORE a group survives it; this is a token written after the
+    /// group reaching back through it. Found by adversarial review round 7 (Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                public int P { get; }
+            #if X
+                public int Q { get; }
+            #endif
+                = 1;
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.False(p.SpanKnown, "without X the initializer belongs to P, which then ends on line 6");
+    }
+
+    /// <summary>
+    /// An <c>#elif</c> chain offers more than one alternative target, so the refusal has to take
+    /// the whole preceding sibling run rather than only the nearest one: the initializer belongs
+    /// to <c>Q</c> with <c>X</c>, to <c>R</c> with <c>Y</c>, and to <c>P</c> with neither.
+    /// </summary>
+    [Fact]
+    public void AnInitializerReachingBackThroughAnElifChain_LosesEverySiblingItCouldBindTo()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                public int P { get; }
+            #if X
+                public int Q { get; }
+            #elif Y
+                public int R { get; }
+            #endif
+                = 1;
+            }
+            """);
+
+        Assert.All(
+            index.Declarations.Where(s => s.Name is "P" or "Q" or "R"),
+            s => Assert.False(s.SpanKnown, $"{s.Name} is a possible target of the line-8 initializer"));
+    }
+
+    /// <summary>
+    /// The guard against over-refusing: an initializer that shares its branch with the block it
+    /// closes reaches back through nothing, so the siblings around it keep their vouch. Without
+    /// this the ninth-way rule would condemn every declaration preceding any conditional
+    /// initializer in a file.
+    /// </summary>
+    [Fact]
+    public void AnInitializerSharingItsBranch_StillVouchesForTheDeclarationBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                public int A { get; } = 1;
+            #if X
+                public int Q { get; } = 2;
+            #endif
+            }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.True(a.SpanKnown, "the line-4 initializer never reaches past its own branch");
+    }
+
+    /// <summary>
+    /// A trivia poison that crosses no branch is spent once the declaration that raised it ends,
+    /// and <c>ResetHeader</c> discharging it is what keeps the rest of the file vouched. With
+    /// <c>X</c> the comment documents <c>s</c>; without <c>X</c> neither exists, so <c>Tail</c>
+    /// starts on its own signature line in every build. This is the over-refusal side of the
+    /// round-6 stickiness rule, and it is the only gate on the discharge: round 7 (Gemini 3.1
+    /// Pro) showed all 410 tests passing with the assignment neutralized.
+    /// </summary>
+    [Fact]
+    public void ATriviaPoisonCrossingNoBranch_IsDischargedByTheNextReset()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            // doc
+            class s { }
+            #endif
+            class Tail { }
+            """);
+
+        var tail = Assert.Single(index.Declarations, s => s.Name == "Tail");
+        Assert.True(tail.SpanKnown, "the comment is consumed inside the branch that contains it");
+    }
+
+    /// <summary>
+    /// The second shape of the ninth way, and the one that walks past
+    /// <c>AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c> entirely: the
+    /// initializer sits INSIDE the group, and the sibling branch has already consumed the row it
+    /// would have extended, so the guarded path is never entered at all. Roslyn reports <c>P</c>
+    /// as lines 3-3 with <c>X</c> and 3-7 without. Found independently by adversarial review
+    /// round 7 (Gemini 3.1 Pro via a widened fuzzer, Claude Opus 5 as repro B).
+    /// </summary>
+    [Fact]
+    public void AnInitializerConsumedByAnotherBranch_LosesTheDeclarationBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; set; }
+            #if X
+                int Q;
+            #else
+                = 5;
+            #endif
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.False(p.SpanKnown, "without X the line-7 initializer belongs to P, which then ends there");
+    }
+
+    /// <summary>
+    /// The bodiless emit path consults its terminator's depth flag, and nothing enforced it: the
+    /// whole suite, differential fuzzer included, stayed green with the term deleted, because the
+    /// shipped generator never placed a group inside a type body and so had never compared a
+    /// field, method, property or event row at all. Roslyn reports <c>f</c> as lines 3-5 with
+    /// <c>X</c> and 3-7 without. Found by adversarial review round 7 (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int f
+            #if X
+                ;
+            #else
+                ;
+            #endif
+            }
+            """);
+
+        var f = Assert.Single(index.Declarations, s => s.Name == "f");
+        Assert.False(f.SpanKnown, "which \";\" terminates the field depends on the branch");
+    }
+
+    /// <summary>
+    /// The other half of the bodiless emit path: a signature token left in a branch moves the
+    /// row's start, and that term was ungated for the same reason. Roslyn reports <c>f</c> as
+    /// lines 4-6 with <c>X</c> and 6-6 without. Found by adversarial review round 7
+    /// (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if X
+                public
+            #endif
+                int f;
+            }
+            """);
+
+        var f = Assert.Single(index.Declarations, s => s.Name == "f");
+        Assert.False(f.SpanKnown, "without X the field's signature starts on line 6, not line 4");
+    }
+
     private static string Format(Declaration d) =>
         $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
 

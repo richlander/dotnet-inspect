@@ -145,7 +145,7 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// branches do not each balance, or that reaches below its own opening depth, or that contains a
 /// directive this scan could only skip because it believed itself inside a comment or literal,
 /// loses the place for the rest of the file. Measured over dotnet/runtime's libraries, the
-/// remaining loss is 1.14% of declarations, against 12.12% when any conditional poisoned the file
+/// remaining loss is 1.46% of declarations, against 12.12% when any conditional poisoned the file
 /// to its end. Those figures are an ungated point-in-time measurement, not a property: no test
 /// re-measures them, and they will drift as that corpus moves.
 /// </para>
@@ -154,10 +154,22 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// instead of reporting one branch's answer as the declaration's. That holds by a discipline at
 /// each site rather than by a central check: a site that fixes a row's span either consults the
 /// depth flag or sets <c>SpanKnown</c> false outright, the unclosed-row sweep being the only one
-/// of the latter kind. Being per-site, it is gated at the site where it was once absent:
+/// of the latter kind. Being per-site, the discipline is only as good as its weakest site, and
+/// naming one of them as "the only path that can report a wrong span" was wrong twice over:
 /// <c>DeclarationIndexTests.AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c>
-/// covers the one path that extends a span already measured and marked known, which is the only
-/// path that can report a wrong span rather than lose a row. Recovery after a balanced group is
+/// gates the initializer path only for a terminator the scan already knows is in a branch, and
+/// review round 7 produced two builds that walk straight past it — one where the initializer sits
+/// after the group, one where the other branch has already consumed the row it would extend. What
+/// enforces the property across sites is not a citation but the differential:
+/// <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> compares every vouched row
+/// against Roslyn under four symbol configurations and fails on any row whose lines move between
+/// two builds that both compile, which is the property this paragraph asserts. The per-site gates
+/// remain as regression pins:
+/// <c>AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt</c> and
+/// <c>AnInitializerConsumedByAnotherBranch_LosesTheDeclarationBeforeIt</c> for the two round-7
+/// shapes, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
+/// Recovery after a balanced group is
 /// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over
 /// real conditional sources, by
 /// <c>DeclarationIndexTests.InAConditionalFile_EveryDeclarationOutsideTheConditionals_IsStillVouchedFor</c>.
@@ -242,7 +254,9 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Where the lexer loses its place — an unterminated literal, or a conditional directive whose
 /// braces may belong to a discarded branch — affected rows carry
-/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span. A conditional
+/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span; that is the
+/// property <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> gates, and it is a
+/// claim about vouched rows only, never about how many rows are vouched. A conditional
 /// directive costs the rows inside its own branches, and costs the rest of the file only when the
 /// group's branches do not agree on the structure after its <c>#endif</c>; see that member's
 /// remarks and

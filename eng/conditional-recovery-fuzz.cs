@@ -20,10 +20,11 @@ using DotnetInspector.CSharpBodySlicer.Tests;
 
 int seed = args.Length > 0 && int.TryParse(args[0], out var s) ? s : Environment.TickCount;
 int cases = args.Length > 1 && int.TryParse(args[1], out var c) ? c : 20000;
+string mode = args.Length > 2 ? args[2] : "diff";
 
-Console.WriteLine($"seed={seed} cases={cases}");
+Console.WriteLine($"seed={seed} cases={cases} mode={mode}");
 
-var (fair, flagged, report) = ConditionalRecoveryFuzzTests.Run(seed, cases);
+var (fair, flagged, report) = ConditionalRecoveryFuzzTests.Run(seed, cases, mode);
 
 Console.WriteLine(report);
 Console.WriteLine($"seed={seed} fair={fair} flagged={flagged}");

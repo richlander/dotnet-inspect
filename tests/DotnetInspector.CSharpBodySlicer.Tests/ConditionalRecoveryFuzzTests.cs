@@ -49,16 +49,32 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //                       emit the same name in two compiled branches); matching
 //                       by name would invent a correspondence, so skip it.
 // A row flags only when >= 2 configs each supply a unique match AND those
-// matches disagree on (TriviaStartLine, SignatureStartLine, EndLine, attribute
-// line ranges). Only SpanKnown == true rows are ever inspected: a row the index
-// already declines is out of scope by construction -- the whole point of the
-// feature is that the DECLINE is allowed to be broad, only the VOUCH must be
-// exact.
+// matches disagree on the compared facts. Only SpanKnown == true rows are ever
+// inspected: a row the index already declines is out of scope by construction --
+// the whole point of the feature is that the DECLINE is allowed to be broad,
+// only the VOUCH must be exact.
+//
+// --------------------------- widened in round 7 ----------------------------
+// The round-6 generator emitted every group at FILE SCOPE. At file scope the
+// only rows Roslyn's Walk and the product's Allowed both produce are types and
+// namespaces, so in 140,000 clean cases it had never once compared a Method,
+// Property, Field, Event, Constructor, EnumMember or Indexer row -- and
+// EmitBodiless, the enum terminator paths and the initializer path are all
+// member-only code. A clean run was therefore evidence about a third of the
+// product. Round 7 (Claude Opus 5) built the widened generator adopted here and
+// round 7 (Gemini 3.1 Pro) found the ninth way living in exactly that gap.
+//
+// It now also places groups inside type bodies, splits single declarations
+// across group boundaries (base lists, parameter lists, constraints, accessor
+// lists, declarator lists, initializer tails, terminators), nests groups,
+// spells #elif chains and negated/compound conditions, hides directive text in
+// verbatim and raw string literals, and compares SignatureEndLine and
+// BodyStartLine -- both documented on DeclarationSpan as part of the span, and
+// both absent from the round-6 comparison.
 //
 // Consequently the fuzzer is sound in one direction only: every flag is a real
 // over-vouch, but a clean run is evidence, not proof -- it cannot flag a defect
-// the generator never spells (it emits no #line, no verbatim/interpolated
-// literals, no nested-namespace crossings, etc.).
+// the generator never spells (it emits no #line and no #define/#undef).
 // ---------------------------------------------------------------------------
 
 public class ConditionalRecoveryFuzzTests
@@ -75,13 +91,15 @@ public class ConditionalRecoveryFuzzTests
     /// The differential gate for conditional recovery. Every flag is a real over-vouch; a clean
     /// run is evidence, not proof, because the generator only spells the shapes it knows. It found
     /// the seventh and eighth ways a vouched span can be wrong, at 3,146 flags against the
-    /// pre-fix build on seed 12345 alone (adversarial review round 6, Claude Opus 4.8).
+    /// pre-fix build on seed 12345 alone (adversarial review round 6, Claude Opus 4.8); widened in
+    /// round 7, it flags the ninth way unaided and kills two guards in EmitBodiless that the
+    /// round-6 generator could not reach at all.
     /// </summary>
     [Theory]
     [MemberData(nameof(Seeds))]
     public void NoVouchedRowMovesBetweenBuilds(int seed)
     {
-        var (fair, flagged, report) = Run(seed, 4000);
+        var (fair, flagged, report) = Run(seed, 5000);
 
         Assert.True(fair > 2000, $"only {fair} fair cases; the generator or the fair-case gate has drifted");
         Assert.True(flagged == 0, report);
@@ -90,13 +108,19 @@ public class ConditionalRecoveryFuzzTests
     /// <summary>
     /// Public so eng/conditional-recovery-fuzz.cs can drive deep runs without a second copy of
     /// the generator or the oracle. A harness that reimplemented either would stop testing this
-    /// one.
+    /// one. <paramref name="mode"/> selects the comparison: "diff" compares every fact,
+    /// "legacy" drops SignatureEndLine and BodyStartLine (the round-6 comparison), and "product"
+    /// checks the product's own numbers against each valid build rather than the builds against
+    /// each other.
     /// </summary>
-    public static (int Fair, int Flagged, string Report) Run(int seed, int cases)
+    public static (int Fair, int Flagged, string Report) Run(int seed, int cases, string mode = "diff")
     {
+        bool legacy = mode == "legacy";
+        bool product = mode == "product";
         var rnd = new Random(seed);
         int tested = 0, fair = 0, flagged = 0;
         var reported = new List<string>();
+        var buckets = new Dictionary<string, int>();
 
         for (int iter = 0; iter < cases; iter++)
         {
@@ -111,7 +135,6 @@ public class ConditionalRecoveryFuzzTests
             foreach (var syms in new[] { new string[0], new[] { "X" }, new[] { "Y" }, new[] { "X", "Y" } })
                 configs[syms.Length == 0 ? "{}" : "{" + string.Join(",", syms) + "}"] = RoslynDeclarations(src, syms);
 
-            // FAIR CASE gate: need two valid builds to compare (see header).
             if (configs.Values.Count(v => v != null) < 2)
                 continue;
             fair++;
@@ -123,7 +146,7 @@ public class ConditionalRecoveryFuzzTests
                 {
                     if (kv.Value == null) continue;
                     var m = kv.Value.Where(x => x.Kind == pr.Kind && x.Name == pr.Name).ToList();
-                    if (m.Count == 1) seen.Add((kv.Key, m[0])); // unique match only
+                    if (m.Count == 1) seen.Add((kv.Key, m[0]));
                 }
 
                 for (int a = 0; a < seen.Count; a++)
@@ -131,90 +154,351 @@ public class ConditionalRecoveryFuzzTests
                 {
                     var (ca, da) = seen[a];
                     var (cb, db) = seen[b];
-                    if (Same(da, db)) continue;
-
+                    string why = Differ(da, db, legacy);
+                    if (why.Length == 0) continue;
                     flagged++;
-                    if (reported.Count < 40)
+                    Bump(buckets, "ORACLE/" + why);
+                    Report(reported, iter, src, pr, ca, da, cb, db, "ORACLE-DISAGREE:" + why);
+                }
+
+                if (seen.Count > 0) Bump(buckets, "cmp1/" + pr.Kind);
+                if (seen.Count > 1) Bump(buckets, "cmp2/" + pr.Kind);
+
+                if (product && seen.Count > 0)
+                {
+                    // Every config that supplies a unique match agrees (otherwise it flagged
+                    // above); the product must agree with them.
+                    var (cfg, only) = seen[0];
+                    string why = DifferFromProduct(pr, only);
+                    if (why.Length > 0)
                     {
-                        var sb = new System.Text.StringBuilder();
-                        sb.AppendLine($"===== FLAG (iter={iter}) {pr.Kind} \"{pr.Name}\" =====");
-                        sb.AppendLine("SOURCE:");
-                        var sl = src.Split('\n');
-                        for (int li = 0; li < sl.Length; li++) sb.AppendLine($"  {li + 1,3}: {sl[li]}");
-                        sb.AppendLine($"PRODUCT (SpanKnown=true): trivia={pr.TriviaStartLine} sig={pr.SignatureStartLine} end={pr.EndLine} attrs=[{AttrsL(pr.AttributeLists)}]");
-                        sb.AppendLine($"ROSLYN {ca}: trivia={da.TriviaStartLine} sig={da.SignatureStartLine} end={da.EndLine} attrs=[{Attrs(da.AttributeLists)}]");
-                        sb.AppendLine($"ROSLYN {cb}: trivia={db.TriviaStartLine} sig={db.SignatureStartLine} end={db.EndLine} attrs=[{Attrs(db.AttributeLists)}]");
-                        sb.Append("  --> a single line range cannot describe both builds; the vouch is wrong.");
-                        reported.Add(sb.ToString());
+                        flagged++;
+                        Bump(buckets, "PRODUCT/" + why);
+                        Report(reported, iter, src, pr, cfg, only, cfg, only, "PRODUCT-DISAGREE:" + why);
                     }
                 }
             }
         }
 
-
-
-        return (fair, flagged, $"seed={seed} tested={tested} fair={fair} flagged={flagged}"
-            + Environment.NewLine + string.Join(Environment.NewLine, reported));
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(string.Join(Environment.NewLine, reported));
+        foreach (var kv in buckets.OrderByDescending(k => k.Value))
+            sb.AppendLine($"  bucket {kv.Key}: {kv.Value}");
+        sb.AppendLine($"seed={seed} tested={tested} fair={fair} flagged={flagged}");
+        return (fair, flagged, sb.ToString());
     }
 
+    static void Bump(Dictionary<string, int> b, string k) => b[k] = b.TryGetValue(k, out var v) ? v + 1 : 1;
 
-    // ---------------------------------------------------------------------------
-    // Generator. Emits a leading member (maybe), one to three conditional groups
-    // each optionally with an #else and 0-2 members per branch, an optional member
-    // after each #endif, and always a uniquely named trailing type -- the row the
-    // recovery is meant to vouch for. Names carry a counter so a member outside a
-    // group is unambiguous across builds; members inside two compiled branches can
-    // still collide, which the unique-match rule above handles.
-    // ---------------------------------------------------------------------------
+    static void Report(List<string> reported, int iter, string src, DeclarationSpan pr,
+        string ca, Decl da, string cb, Decl db, string why)
+    {
+        if (reported.Count >= 25) return;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"===== FLAG (iter={iter}) {pr.Kind} \"{pr.Name}\" [{why}] =====");
+        var sl = src.Split('\n');
+        for (int li = 0; li < sl.Length; li++) sb.AppendLine($"  {li + 1,3}: {sl[li]}");
+        sb.AppendLine($"PRODUCT (SpanKnown=true): trivia={pr.TriviaStartLine} sig={pr.SignatureStartLine} sigEnd={pr.SignatureEndLine} body={pr.BodyStartLine} end={pr.EndLine} attrs=[{AttrsL(pr.AttributeLists)}]");
+        sb.AppendLine($"ROSLYN {ca}: trivia={da.TriviaStartLine} sig={da.SignatureStartLine} sigEnd={da.SignatureEndLine} body={da.BodyStartLine} end={da.EndLine} attrs=[{Attrs(da.AttributeLists)}]");
+        sb.AppendLine($"ROSLYN {cb}: trivia={db.TriviaStartLine} sig={db.SignatureStartLine} sigEnd={db.SignatureEndLine} body={db.BodyStartLine} end={db.EndLine} attrs=[{Attrs(db.AttributeLists)}]");
+        reported.Add(sb.ToString());
+    }
+
+    static string Differ(Decl a, Decl b, bool legacy)
+    {
+        var w = new List<string>();
+        if (a.TriviaStartLine != b.TriviaStartLine) w.Add("trivia");
+        if (a.SignatureStartLine != b.SignatureStartLine) w.Add("sig");
+        if (a.EndLine != b.EndLine) w.Add("end");
+        if (Attrs(a.AttributeLists) != Attrs(b.AttributeLists)) w.Add("attrs");
+        if (!legacy)
+        {
+            if (a.SignatureEndLine != b.SignatureEndLine) w.Add("sigEnd");
+            if (a.BodyStartLine != b.BodyStartLine) w.Add("body");
+        }
+        return string.Join("+", w);
+    }
+
+    static string DifferFromProduct(DeclarationSpan p, Decl o)
+    {
+        var w = new List<string>();
+        if (p.TriviaStartLine != o.TriviaStartLine) w.Add("trivia");
+        if (p.SignatureStartLine != o.SignatureStartLine) w.Add("sig");
+        if (p.EndLine != o.EndLine) w.Add("end");
+        if (AttrsL(p.AttributeLists) != Attrs(o.AttributeLists)) w.Add("attrs");
+        return string.Join("+", w);
+    }
+
+    // -----------------------------------------------------------------------
+    // Widened generator.
+    // -----------------------------------------------------------------------
+    static int n;
+
+    static string[] MemberPool()
+    {
+        int a = n++;
+        return new[]
+        {
+            $"int f{a};",
+            $"int g{a}, h{a};",
+            $"void m{a}() {{ }}",
+            $"void e{a}() => M{a}();",
+            $"int p{a} {{ get; set; }}",
+            $"int q{a} => 1;",
+            $"class t{a} {{ }}",
+            $"struct u{a} {{ }}",
+            $"record r{a}(int V);",
+            $"enum n{a} {{ A{a}, B{a} }}",
+            $"interface i{a} {{ }}",
+            $"event System.Action ev{a};",
+            $"public int c{a} {{ get {{ return 1; }} }}",
+            // (W3b) A bare initializer continuation. A property whose ACCESSOR BLOCK closed
+            // inside a conditional group, followed by "= v;" after the #endif, makes which
+            // declaration the initializer binds to branch-dependent while the ";" itself is
+            // outside the group and reads as known.
+            "= 5;",
+            $"int P{a} {{ get; }}",
+            $"// doc{a}",
+            $"/* c{a} */",
+            "[System.Obsolete]",
+            "[return: System.Obsolete]",
+            "[field: System.Obsolete]",
+            "[method: System.Obsolete]",
+            "public",
+            "static",
+            $"string s{a} = @\"#endif\";",
+            $"string v{a} = \"\"\"" + "\n#if X\n" + "\"\"\";",
+            $"int k{a} = 1; // {{",
+            $"void L{a}() {{ void Inner{a}() {{ }} Inner{a}(); }}",
+            $"public T{a} Gen{a}<T{a}>(T{a} x) where T{a} : struct {{ return x; }}",
+            "#region R",
+            "#endregion",
+        };
+    }
+
+    static string[] TopPool()
+    {
+        int a = n++;
+        return new[]
+        {
+            $"class t{a} {{ }}",
+            $"struct u{a} {{ }}",
+            $"partial class w{a} {{ }}",
+            $"record r{a}(int V);",
+            $"class gg{a}<T> {{ }}",
+            $"enum n{a} {{ A{a} }}",
+            $"delegate void d{a}();",
+            $"// doc{a}",
+            $"/* c{a} */",
+            "[System.Obsolete]",
+            "[assembly: System.CLSCompliant(true)]",
+            "[module: System.CLSCompliant(true)]",
+            $"namespace ns{a};",
+            $"namespace nb{a} {{ }}",
+            "using System;",
+            "public",
+            "#region R",
+            "#endregion",
+            $"int f{a};",
+            $"int g{a}, h{a};",
+        };
+    }
+
+    static string Cond(Random rnd)
+    {
+        switch (rnd.Next(6))
+        {
+            case 0: return "X";
+            case 1: return "Y";
+            case 2: return "!X";
+            case 3: return "X && Y";
+            case 4: return "X || Y";
+            default: return "!Y";
+        }
+    }
+
+    static void EmitGroup(Random rnd, List<string> lines, Func<string[]> pool, int depth)
+    {
+        lines.Add($"#if {Cond(rnd)}");
+        EmitBranch(rnd, lines, pool, depth);
+        for (int e = 0, en = rnd.Next(0, 3); e < en; e++)
+        {
+            lines.Add($"#elif {Cond(rnd)}");
+            EmitBranch(rnd, lines, pool, depth);
+        }
+        if (rnd.Next(2) == 0)
+        {
+            lines.Add("#else");
+            EmitBranch(rnd, lines, pool, depth);
+        }
+        lines.Add("#endif");
+    }
+
+    static void EmitBranch(Random rnd, List<string> lines, Func<string[]> pool, int depth)
+    {
+        var p = pool();
+        for (int k = 0, kn = rnd.Next(0, 3); k < kn; k++)
+        {
+            if (depth < 2 && rnd.Next(6) == 0)
+                EmitGroup(rnd, lines, pool, depth + 1);
+            else
+                foreach (var line in p[rnd.Next(p.Length)].Split('\n'))
+                    lines.Add(line);
+        }
+    }
+
     static string Generate(Random rnd, int iter)
     {
-        int n = 0;
-        string[] Pool()
-        {
-            int a = n++;
-            return new[]
-            {
-                $"int f{a};",
-                $"void m{a}() {{ }}",
-                $"class t{a} {{ }}",
-                $"struct u{a} {{ }}",
-                $"int p{a} {{ get; set; }}",
-                $"// doc{a}",
-                $"/* c{a} */",
-                "[System.Obsolete]",
-                "[assembly: System.CLSCompliant(true)]",
-                $"namespace ns{a};",
-                $"int g{a}, h{a};",
-                "public",
-            };
-        }
-
+        n = 0;
         var lines = new List<string>();
-        var pool = Pool();
+        bool inType = rnd.Next(2) == 0;
+
+        if (inType)
+            lines.Add($"class Outer{iter}");
+        if (inType)
+            lines.Add("{");
+
+        var pool = inType ? (Func<string[]>)MemberPool : TopPool;
         int blocks = rnd.Next(1, 4);
         for (int bl = 0; bl < blocks; bl++)
         {
-            if (rnd.Next(2) == 0) lines.Add(pool[rnd.Next(pool.Length)]);
-            string sym = rnd.Next(2) == 0 ? "X" : "Y";
-            lines.Add($"#if {sym}");
-            for (int k = 0, kn = rnd.Next(0, 3); k < kn; k++) lines.Add(pool[rnd.Next(pool.Length)]);
+            var p = pool();
+            if (rnd.Next(2) == 0)
+                foreach (var line in p[rnd.Next(p.Length)].Split('\n')) lines.Add(line);
+            if (rnd.Next(3) == 0)
+                EmitSplit(rnd, lines, inType);
+            else
+                EmitGroup(rnd, lines, pool, 0);
             if (rnd.Next(2) == 0)
             {
-                lines.Add("#else");
-                for (int k = 0, kn = rnd.Next(0, 3); k < kn; k++) lines.Add(pool[rnd.Next(pool.Length)]);
+                p = pool();
+                foreach (var line in p[rnd.Next(p.Length)].Split('\n')) lines.Add(line);
             }
-            lines.Add("#endif");
-            if (rnd.Next(2) == 0) lines.Add(pool[rnd.Next(pool.Length)]);
-            pool = Pool();
         }
-        lines.Add($"class Tail{iter} {{ }}");
+
+        if (inType)
+        {
+            lines.Add($"    void Tail{iter}() {{ }}");
+            lines.Add("}");
+        }
+        else
+        {
+            lines.Add($"class Tail{iter} {{ }}");
+        }
         return string.Join("\n", lines);
     }
 
-    // ---------------------------------------------------------------------------
-    // The Roslyn oracle -- a faithful copy of DeclarationIndexTests' Walk / Make /
-    // TriviaStartLine / EndLine, parametrised by preprocessor symbols.
-    // ---------------------------------------------------------------------------
+    // (W3c) A declaration whose own text is SPLIT BY a conditional group: a base list, a
+    // parameter list, a generic constraint, an initializer, an enum member list, an attribute
+    // list or an accessor list with the group in the middle. The shipped generator emits whole
+    // pool lines only, so no group it produces can ever fall inside a declaration.
+    static void EmitSplit(Random rnd, List<string> lines, bool inType)
+    {
+        int a = n++;
+        string sym = Cond(rnd);
+        void Group(params string[] body)
+        {
+            lines.Add($"#if {sym}");
+            foreach (var b in body) lines.Add(b);
+            if (rnd.Next(2) == 0)
+            {
+                lines.Add("#else");
+                foreach (var b in body) lines.Add(b.Replace("__", "Else"));
+            }
+            lines.Add("#endif");
+        }
+
+        int pick = rnd.Next(inType ? 14 : 4);
+        switch (pick)
+        {
+            case 0:
+                lines.Add($"class Sa{a}");
+                Group("    : System.IDisposable");
+                lines.Add("{");
+                lines.Add("    public void Dispose() { }");
+                lines.Add("}");
+                return;
+            case 1:
+                lines.Add("[System.Obsolete]");
+                Group($"    class Mid{a} {{ }}");
+                lines.Add($"class Sd{a} {{ }}");
+                return;
+            case 2:
+                lines.Add($"enum Ef{a}");
+                lines.Add("{");
+                lines.Add($"    A{a}");
+                Group($"    , B{a}");
+                lines.Add("}");
+                return;
+            case 3:
+                lines.Add($"class Sg{a}<T>");
+                Group("    where T : struct");
+                lines.Add("{");
+                lines.Add("}");
+                return;
+            case 4:
+                lines.Add($"    void Mc{a}(");
+                Group("        int x");
+                lines.Add("    ) { }");
+                return;
+            case 5:
+                lines.Add($"    int Pb{a} {{ get; }}");
+                Group($"    int Pc{a} {{ get; }}");
+                lines.Add("    = 5;");
+                return;
+            case 6:
+                lines.Add($"    int Pd{a}");
+                Group("        // note");
+                lines.Add("    { get; set; }");
+                return;
+            case 7:
+                lines.Add($"    event System.Action Ev{a}");
+                Group("        // note");
+                lines.Add("    { add { } remove { } }");
+                return;
+            case 8:
+                lines.Add($"    int Fa{a}");
+                Group($"        , Fb{a}");
+                lines.Add("    ;");
+                return;
+            case 9:
+                lines.Add($"    public Outer{a}(int q)");
+                Group("        : this()");
+                lines.Add("    { }");
+                lines.Add($"    public Outer{a}() {{ }}");
+                return;
+            case 10:
+                lines.Add($"    int this[int i{a}]");
+                Group("        // note");
+                lines.Add("    { get { return 1; } }");
+                return;
+            case 11:
+                lines.Add($"    void Mb{a}() {{");
+                Group($"        int loc{a} = 1;");
+                lines.Add("    }");
+                return;
+            case 12:
+                // The TERMINATOR itself inside the group, both branches spelling it, header
+                // outside. Balanced, both builds parse, and the ";" the row is measured at is
+                // branch-dependent.
+                lines.Add($"    int Fs{a} = 1");
+                lines.Add($"#if {sym}");
+                lines.Add("    ;");
+                lines.Add("#else");
+                lines.Add("    ;");
+                lines.Add("#endif");
+                return;
+            default:
+                lines.Add($"    [System.Obsolete]");
+                Group("    [System.CLSCompliant(true)]");
+                lines.Add($"    void Ma{a}() {{ }}");
+                return;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Oracle.
+    // -----------------------------------------------------------------------
     static List<Decl>? RoslynDeclarations(string src, string[] symbols)
     {
         var opts = new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse)
@@ -285,10 +569,58 @@ public class ConditionalRecoveryFuzzTests
     {
         var attributes = node switch { MemberDeclarationSyntax m => m.AttributeLists, _ => default };
         var signatureStart = attributes.Count > 0 ? attributes.Last().GetLastToken().GetNextToken() : node.GetFirstToken();
+        var (sigEnd, bodyStart) = Shape(node);
         return new Decl(kind, name, TriviaStartLine(node), Line(node.SyntaxTree, signatureStart.SpanStart), EndLine(node))
         {
             AttributeLists = attributes.Select(a => (Line(node.SyntaxTree, a.SpanStart), Line(node.SyntaxTree, a.Span.End))).ToList(),
+            SignatureEndLine = sigEnd,
+            BodyStartLine = bodyStart,
         };
+    }
+
+    // (W1) The line the signature ends on and the line the body opens on, computed from the
+    // parse tree. Only ever compared oracle-to-oracle, so the convention need only be
+    // deterministic; it does not have to reproduce the product's spelling exactly.
+    static (int SigEnd, int BodyStart) Shape(SyntaxNode node)
+    {
+        var tree = node.SyntaxTree;
+        int L(SyntaxToken t) => t == default ? -1 : Line(tree, t.SpanStart);
+
+        switch (node)
+        {
+            case BaseMethodDeclarationSyntax m:
+                if (m.Body is not null) return (L(m.Body.OpenBraceToken), L(m.Body.OpenBraceToken));
+                if (m.ExpressionBody is not null) return (L(m.SemicolonToken), L(m.ExpressionBody.ArrowToken));
+                return (L(m.SemicolonToken), -1);
+            case PropertyDeclarationSyntax p:
+                if (p.AccessorList is not null) return (L(p.AccessorList.OpenBraceToken), L(p.AccessorList.OpenBraceToken));
+                if (p.ExpressionBody is not null) return (L(p.SemicolonToken), L(p.ExpressionBody.ArrowToken));
+                return (L(p.SemicolonToken), -1);
+            case IndexerDeclarationSyntax ix:
+                if (ix.AccessorList is not null) return (L(ix.AccessorList.OpenBraceToken), L(ix.AccessorList.OpenBraceToken));
+                if (ix.ExpressionBody is not null) return (L(ix.SemicolonToken), L(ix.ExpressionBody.ArrowToken));
+                return (L(ix.SemicolonToken), -1);
+            case EventDeclarationSyntax ev:
+                return ev.AccessorList is not null
+                    ? (L(ev.AccessorList.OpenBraceToken), L(ev.AccessorList.OpenBraceToken))
+                    : (L(ev.SemicolonToken), -1);
+            case BaseFieldDeclarationSyntax f:
+                return (L(f.SemicolonToken), -1);
+            case DelegateDeclarationSyntax d:
+                return (L(d.SemicolonToken), -1);
+            case BaseTypeDeclarationSyntax t:
+                return t.OpenBraceToken != default
+                    ? (L(t.OpenBraceToken), L(t.OpenBraceToken))
+                    : (L(t.SemicolonToken), -1);
+            case FileScopedNamespaceDeclarationSyntax fns:
+                return (L(fns.SemicolonToken), -1);
+            case NamespaceDeclarationSyntax bns:
+                return (L(bns.OpenBraceToken), L(bns.OpenBraceToken));
+            case EnumMemberDeclarationSyntax em:
+                return (Line(tree, em.Span.End), -1);
+            default:
+                return (-1, -1);
+        }
     }
 
     static int TriviaStartLine(SyntaxNode node)
@@ -315,18 +647,13 @@ public class ConditionalRecoveryFuzzTests
     static int EndLine(SyntaxNode node) =>
         node.SyntaxTree.GetLineSpan(node.Span).EndLinePosition.Line + 1;
 
-    static bool Same(Decl a, Decl b) =>
-        a.TriviaStartLine == b.TriviaStartLine
-        && a.SignatureStartLine == b.SignatureStartLine
-        && a.EndLine == b.EndLine
-        && Attrs(a.AttributeLists) == Attrs(b.AttributeLists);
-
     static string Attrs(IEnumerable<(int, int)> lists) => string.Join(",", lists.Select(l => $"{l.Item1}-{l.Item2}"));
     static string AttrsL(IEnumerable<LineRange> lists) => string.Join(",", lists.Select(l => $"{l.StartLine}-{l.EndLine}"));
 
-    sealed record Decl(DeclarationKind Kind, string Name, int TriviaStartLine, int SignatureStartLine, int EndLine)
+    public sealed record Decl(DeclarationKind Kind, string Name, int TriviaStartLine, int SignatureStartLine, int EndLine)
     {
         public IReadOnlyList<(int, int)> AttributeLists { get; init; } = new List<(int, int)>();
+        public int SignatureEndLine { get; init; } = -1;
+        public int BodyStartLine { get; init; } = -1;
     }
-
 }

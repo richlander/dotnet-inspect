@@ -98,6 +98,7 @@ internal static class DeclarationIndexBuilder
         // seventh and eighth ways through (adversarial review round 6).
         bool headerKnown = true;
         int lastClosed = -1;
+        int lastClosedSection = 0;
         bool inAttribute = false;
         int attributeDepth = 0;
         int attributeStart = 0;
@@ -521,6 +522,7 @@ internal static class DeclarationIndexBuilder
                         rows[idx].EndLine = tok.Line + 1;
                         if (!tok.DepthKnown) rows[idx].SpanKnown = false;
                         lastClosed = idx;
+                        lastClosedSection = tok.Section;
                     }
                     else
                     {
@@ -543,19 +545,100 @@ internal static class DeclarationIndexBuilder
 
                 // "public List<T>? Edges { get; } = edges;" — the initializer belongs to the
                 // property whose accessor block just closed, not to a new declaration.
-                if (lastClosed >= 0 && pending.Count > 0
-                    && pending[0].Kind == ScanTokenKind.Punctuator && Text(pending[0]) == "=")
+                //
+                // The ninth way a group can change meaning: WHICH declaration an initializer
+                // extends is itself branch-dependent. In
+                //
+                //     class C {
+                //         public int P { get; }
+                //     #if X
+                //         public int Q { get; }
+                //     #endif
+                //         = 1;
+                //     }
+                //
+                // the "= 1;" belongs to Q with X and to P without it, so P ends on line 2 in one
+                // build and line 6 in the other -- both parsing with zero errors. Every rule above
+                // this one asks whether a header written BEFORE a group survives it; this is the
+                // reverse, an initializer reaching BACK through a group, so nothing above can see
+                // it and P was vouched unconditionally.
+                //
+                // It has two shapes, and the second is why this test is not simply
+                // "lastClosed >= 0". When the initializer sits inside the group instead of after
+                // it, the block it appears to extend can be one the same group already consumed,
+                // leaving lastClosed == -1 at a bare "= 0;" that still binds to a declaration
+                // above the group in the other build:
+                //
+                //     class C {
+                //         int p { get; }
+                //     #if X
+                //         int p { get; } = 0;
+                //     #elif Y
+                //         = 0;
+                //     #endif
+                //     }
+                //
+                // So the vouch survives only when the "=", the ";", and the "}" that produced the
+                // target are provably in one branch. Otherwise every declaration under the same
+                // parent is a candidate target -- an "#elif" chain offers several -- and the
+                // refusal takes the whole run rather than guessing. Sections are conservative in
+                // the safe direction only (see ScanToken.Section), so an ordinary
+                // "{ get; } = value;" is never condemned. Found by adversarial review round 7
+                // (Gemini 3.1 Pro); the second shape independently by Claude Opus 5 and by the
+                // member-scoped fuzzer generator that round adopted.
+                // The "=" does not have to be pending[0]: a modifier left behind by ANOTHER branch
+                // can sit in front of it, as in an "#if X / public / #else / = 1; / #endif" pair
+                // where "public" and "= 1;" never coexist in a build. The "=" starts its own run
+                // whenever everything before it belongs to some other branch, so that -- not
+                // position zero -- is the test.
+                int eq = -1;
+                for (int i = 0; i < pending.Count; i++)
                 {
-                    rows[lastClosed].EndLine = tok.Line + 1;
+                    if (pending[i].Kind == ScanTokenKind.Punctuator && Text(pending[i]) == "=")
+                    {
+                        eq = i;
+                        break;
+                    }
+                }
 
-                    // This extends a span that was already measured and marked known when its
-                    // accessor block closed, so it needs the same correction that close took: a
-                    // conditional between the block and the initializer puts the ";" in a branch,
-                    // and the end this reads is one branch's, not the declaration's.
-                    if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
-                    ResetHeader(tok);
-                    lastClosed = -1;
-                    continue;
+                bool initializerTail = eq >= 0;
+                for (int i = 0; i < eq; i++)
+                {
+                    if (pending[i].Section == pending[eq].Section)
+                    {
+                        initializerTail = false;
+                        break;
+                    }
+                }
+
+                if (initializerTail)
+                {
+                    bool oneBranch = lastClosed >= 0
+                        && lastClosedSection == pending[eq].Section
+                        && lastClosedSection == tok.Section;
+
+                    if (!oneBranch)
+                    {
+                        int parent = lastClosed >= 0 ? rows[lastClosed].ParentIndex : EnclosingIndex();
+                        for (int i = lastClosed >= 0 ? lastClosed : rows.Count - 1; i >= 0; i--)
+                            if (rows[i].ParentIndex == parent)
+                                rows[i].SpanKnown = false;
+                    }
+
+                    if (lastClosed >= 0 && eq == 0)
+                    {
+                        rows[lastClosed].EndLine = tok.Line + 1;
+
+                        // This extends a span that was already measured and marked known when its
+                        // accessor block closed, so it needs the same correction that close took:
+                        // a conditional between the block and the initializer puts the ";" in a
+                        // branch, and the end this reads is one branch's, not the declaration's.
+                        if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
+
+                        ResetHeader(tok);
+                        lastClosed = -1;
+                        continue;
+                    }
                 }
 
                 if (pending.Count > 0)
