@@ -1070,21 +1070,14 @@ public static class BodySlicer
         private bool literalDepthLost;
 
         /// <summary>
-        /// Whether this token's brace depth can be trusted to describe the compiled program.
         /// <para>
-        /// False inside a conditional group, because the branch being scanned may be the one the
-        /// compiler discards. False after a group whose branches did not each return to the depth
-        /// they started at, because then the depth after the <c>#endif</c> depends on which branch
-        /// compiles. True again after a group that did balance: every branch leaves the same
-        /// depth, so it does not matter which one the compiler keeps.
-        /// </para>
-        /// </summary>
-        /// <summary>
-        /// <para>
-        /// Whether the brace depth is a fact the scan can vouch for. A conditional group is
-        /// unknown <em>while it is open</em>, and knownness returns after an <c>#endif</c> whose
-        /// branches all balance, since every branch then leaves the same depth behind and it no
-        /// longer matters which one was taken.
+        /// Whether the brace depth is a fact the scan can vouch for, and so whether it describes
+        /// the compiled program. False inside a conditional group, because the branch being
+        /// scanned may be the one the compiler discards. False after a group whose branches did
+        /// not each return to the depth they started at, because then the depth after the
+        /// <c>#endif</c> depends on which branch compiles. True again after a group that did
+        /// balance: every branch leaves the same depth behind, so it no longer matters which one
+        /// the compiler keeps.
         /// </para>
         /// <para>
         /// Withholding the inside of a balanced group is deliberate and is not merely caution
@@ -1093,16 +1086,49 @@ public static class BodySlicer
         /// whose initializer is <c>= 1;</c> in one branch and <c>= 2;</c> in another occupies a
         /// different, and in the second case non-contiguous, set of lines per build, which no
         /// single line range can express. At token granularity the two shapes are
-        /// indistinguishable, so the conservative answer covers both.
+        /// indistinguishable, so the conservative answer covers both. Gated by
+        /// <c>AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c> for the crossing
+        /// shape and <c>ABalancedConditional_CostsOnlyTheRowsInsideIt</c> for the contained one.
         /// </para>
         /// </summary>
         public bool StructuralDepthKnown =>
             !literalDepthLost && !conditionalDepthLost && conditionals.Count == 0;
 
-        /// <summary>Records that the depth was lost for a non-conditional reason.</summary>
+        /// <summary>
+        /// Reports a brace that closed, so that a conditional group can notice a branch reaching
+        /// below the depth it opened at. Such a branch is closing a scope that was opened outside
+        /// the group, which means the group's branches disagree about which declaration encloses
+        /// the text after the <c>#endif</c> even when they agree about the depth -- and depth is
+        /// all the balance rule measures.
+        /// </summary>
+        public void NoteDepth(int depth)
+        {
+            if (conditionals.Count > 0 && depth < conditionals[^1].BaseDepth)
+                conditionals[^1].Unbalanced = true;
+        }
+
+        /// <summary>
+        /// Records that the depth was lost for a non-conditional reason. <c>Untracked</c> is
+        /// read only by the legacy backward scan in <c>ExtractMethodBody</c> and is gated by
+        /// <c>AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText</c>;
+        /// <c>literalDepthLost</c> is what the declaration index reads.
+        /// </summary>
         public void LoseDepth()
         {
             literalDepthLost = true;
+            Untracked = true;
+        }
+
+        /// <summary>Whether a conditional group is currently open.</summary>
+        public bool InConditional => conditionals.Count > 0;
+
+        /// <summary>
+        /// Gives up on the depth for a conditional reason that no <c>#endif</c> can repair, which
+        /// is sticky exactly as an unbalanced group is.
+        /// </summary>
+        public void LoseConditionalDepth()
+        {
+            conditionalDepthLost = true;
             Untracked = true;
         }
 
@@ -1455,6 +1481,22 @@ public static class BodySlicer
             return j;
         }
 
+        // Preprocessor-disabled text is not lexed as code: inside a branch the compiler drops,
+        // "/*" opens no comment and a quote opens no string, but directives are still recognized
+        // and still nest. So a conditional directive sitting in what this scan believes is a
+        // comment or a literal is genuinely ambiguous -- if the surrounding text is disabled it is
+        // a directive, and skipping it makes a later #endif close the wrong group and restore
+        // knownness early, which is the one failure the index may not have. Refuse instead.
+        //
+        // Only while a group is open: outside one the text cannot be disabled, so "#if" inside a
+        // comment is unambiguously prose, and this repository's own sources write it that way.
+        if ((state.InBlockComment || state.InLiteral)
+            && state.InConditional
+            && IsDirective(line, out _))
+        {
+            state.LoseConditionalDepth();
+        }
+
         if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out Conditional conditional))
         {
             // A preprocessor directive is not code, so nothing on the line is scanned. A
@@ -1462,9 +1504,9 @@ public static class BodySlicer
             // branch the compiler discards. That is only true *inside* the group: a group whose
             // branches each return to the depth they started at leaves the same depth behind
             // whichever branch the compiler keeps, so the depth after its #endif is knowable.
-            // Resetting the depth at each branch boundary is what makes that measurable -- the
-            // scan reads every branch, and without the reset one branch's braces would accumulate
-            // into the next and no group with more than one branch could ever look balanced.
+            // The unbalanced flag raised at a branch boundary is what decides; the depth reset
+            // that accompanies it is unobservable, and is kept for the invariant rather than for
+            // the answer. See NextBranch.
             switch (conditional)
             {
                 case Conditional.If: state.OpenConditional(depth); break;
@@ -1779,6 +1821,7 @@ public static class BodySlicer
                 else
                 {
                     depth--;
+                    state.NoteDepth(depth);
                 }
             }
 

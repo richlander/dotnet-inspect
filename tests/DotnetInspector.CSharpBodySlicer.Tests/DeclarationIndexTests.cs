@@ -972,6 +972,105 @@ public class DeclarationIndexTests
 
     /// <summary>
     /// <para>
+    /// In preprocessor-disabled text the compiler does not lex code: <c>/*</c> opens no comment
+    /// and a quote opens no string, but directives are still recognized and still nest. So a
+    /// conditional directive sitting in what this lexical scan believes is a comment is real if
+    /// the surrounding branch is disabled, and skipping it makes a later <c>#endif</c> close the
+    /// wrong group.
+    /// </para>
+    /// <para>
+    /// That is the one failure the index may not have: with <c>OUTER</c> undefined the class ends
+    /// on the last line, but skipping the commented <c>#if</c> closes the outer group early, makes
+    /// the brace on line 8 look live, and vouches for a span two lines short. Found by adversarial
+    /// review; the rule refuses instead, and only while a group is open, since outside one the
+    /// text cannot be disabled and <c>#if</c> in a comment is unambiguously prose.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ADirectiveHiddenInsideACommentWithinAGroup_LosesTheDepth()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if OUTER
+            /*
+            #if INNER
+            */
+            #endif
+            }
+            #endif
+            }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "a directive the scan could only skip by believing itself in a comment is ambiguous");
+
+        // The same shape with no group open is not ambiguous at all, and must keep working --
+        // this repository's own sources write "#if" inside comments and would otherwise be lost.
+        var prose = DeclarationIndex.Build("""
+            class C
+            {
+            /*
+            #if INNER
+            */
+                void M() { }
+            }
+            """);
+
+        Assert.True(Assert.Single(prose.Declarations, s => s.Name == "M").SpanKnown);
+    }
+
+    /// <summary>
+    /// <para>
+    /// Equal brace depth does not prove equal enclosing declaration. A branch that closes a brace
+    /// its group did not open is closing a scope from outside the group, so the branches can agree
+    /// on the depth after the <c>#endif</c> while disagreeing about which type encloses the text
+    /// there -- below, the trailing member is inside <c>B</c> in one build and <c>C</c> in the
+    /// other, at identical depth.
+    /// </para>
+    /// <para>
+    /// Both reviewers found this independently, from opposite ends. The balance rule measures
+    /// depth, so the fix is a floor: a group may not reach below its own opening depth.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABranchThatClosesAScopeItsGroupDidNotOpen_LosesTheDepth()
+    {
+        var index = DeclarationIndex.Build("""
+            class A {
+            #if X
+            }
+            class B {
+            #else
+            }
+            class C {
+            #endif
+                void M() { }
+            }
+            """);
+
+        Assert.NotEmpty(index.Declarations);
+        Assert.All(index.Declarations, s => Assert.False(s.SpanKnown));
+
+        // Reaching below the opening depth is the discriminator, not nesting: a group opened
+        // inside a nested type that stays at or above its own opening depth still recovers.
+        var nested = DeclarationIndex.Build("""
+            class C {
+                class D {
+            #if X
+                    void Inner() { }
+            #endif
+                    void After() { }
+                }
+            }
+            """);
+
+        Assert.True(Assert.Single(nested.Declarations, s => s.Name == "After").SpanKnown);
+    }
+
+    /// <summary>
+    /// <para>
     /// A branch that does not return to the depth its group opened at makes the group unbalanced,
     /// even when the group's <em>closing</em> depth is right. This is the direction that matters:
     /// each branch is measured from the opening depth and the depth is reset at every branch

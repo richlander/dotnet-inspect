@@ -67,9 +67,13 @@ internal enum ScanTokenKind
 /// from the code around it.
 /// </param>
 /// <param name="DepthKnown">
-/// False once the scanner has lost its place — an unterminated single-line literal, or a
-/// conditional directive whose braces may belong to a discarded branch. <see cref="Depth"/> is
-/// meaningless from that point on and callers must treat it as "do not know" rather than as zero.
+/// False where the scanner cannot vouch for <see cref="Depth"/>, which callers must then treat as
+/// "do not know" rather than as zero. Two causes. An unterminated single-line literal loses the
+/// place for the rest of the file. A conditional group loses it for the tokens inside the group,
+/// because the branch being scanned may be the one the compiler discards, and recovers after an
+/// <c>#endif</c> whose branches each returned to the depth the group opened at — every branch then
+/// leaves the same depth behind, so it no longer matters which one compiles. A group that does not
+/// meet that bar loses the place for the rest of the file, as before.
 /// </param>
 internal readonly record struct ScanToken(
     ScanTokenKind Kind,
