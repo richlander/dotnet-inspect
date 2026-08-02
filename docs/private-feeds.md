@@ -1,8 +1,8 @@
 # Using a Private NuGet Feed
 
-This document explains how to give dotnet-inspect access to a private NuGet feed.
+This document explains how to give `dotnet-inspect` access to a private NuGet feed.
 
-dotnet-inspect reads packages from the sources in your `nuget.config` — the same file
+`dotnet-inspect` reads packages from the sources in your `nuget.config` — the same file
 `dotnet restore` uses — so a feed that already works for `dotnet restore` usually works here too.
 A private feed needs credentials. There are two ways to supply them, and a credential provider is
 the one to prefer.
@@ -26,11 +26,15 @@ dotnet tool install --global Microsoft.Artifacts.CredentialProvider.NuGet.Tool
 There is no registration step, and nothing to add to `nuget.config`. NuGet discovers the provider
 by name on `PATH`.
 
-dotnet-inspect finds a provider the same way `dotnet restore` does: the `NUGET_NETCORE_PLUGIN_PATHS`
-and `NUGET_PLUGIN_PATHS` variables, then `~/.nuget/plugins/netcore/` and executables named
-`nuget-plugin-*` on `PATH`. It launches the one it finds as a separate process and asks it for
-credentials over the standard NuGet plugin protocol. A provider that already works for
-`dotnet restore` works here, with nothing further to install or configure.
+`dotnet-inspect` finds a provider the same way `dotnet restore` does: the
+`NUGET_NETCORE_PLUGIN_PATHS` and `NUGET_PLUGIN_PATHS` variables, then `~/.nuget/plugins/netcore/`
+and executables named `nuget-plugin-*` on `PATH`. It launches the one it finds as a separate
+process and asks it for credentials over the standard NuGet plugin protocol. Those routes are the
+ones implemented by NuGet's own
+[`PluginDiscoverer`](https://github.com/NuGet/NuGet.Client/blob/dev/src/NuGet.Core/NuGet.Protocol/Plugins/PluginDiscoverer.cs),
+which reads the same variables, scans `PATH`, and matches the same `nuget-plugin-` prefix. A
+provider that already works for `dotnet restore` works here, with nothing further to install or
+configure.
 
 Add the feed, with no credential in it:
 
@@ -38,7 +42,7 @@ Add the feed, with no credential in it:
 dotnet nuget add source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json --name my-feed
 ```
 
-Then use dotnet-inspect normally:
+Then use `dotnet-inspect` normally:
 
 ```bash
 dotnet-inspect package MyCompany.Widgets
@@ -50,19 +54,23 @@ reuse it. On a headless machine, supply a token through the environment as shown
 
 ## Unattended and CI
 
-In Azure Pipelines, add `NuGetAuthenticate@1` before any step that runs dotnet-inspect. It
-installs the provider on the agent and points it at the build identity, so there is no token to
+In Azure Pipelines, add `NuGetAuthenticate@1` before any step that runs `dotnet-inspect` or
+`dotnet restore`. Both consume the same credentials from the same place, so one task covers both.
+It installs the provider on the agent and points it at the build identity, so there is no token to
 store anywhere:
 
 ```yaml
 - task: NuGetAuthenticate@1
+- script: dotnet restore
 - script: dotnet-inspect package MyCompany.Widgets
 ```
 
-Elsewhere, supply the token through `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`, the
-documented mechanism for unattended agents outside Azure DevOps Pipelines. It takes the feed's
-index URL as it appears in your `nuget.config`, so one form covers Azure Artifacts and every
-other feed the provider serves:
+Elsewhere, you need to supply the token yourself, through
+`ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`. This is what the provider's documentation
+directs unattended agents outside Azure DevOps Pipelines to use — see
+[Other automated build scenarios](https://github.com/microsoft/artifacts-credprovider#other-automated-build-scenarios).
+It takes the feed's index URL as it appears in your `nuget.config`, so one form covers Azure
+Artifacts and every other feed the provider serves:
 
 ```bash
 export ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://example.com/index.json","username":"unused","password":"'"$TOKEN"'"}]}'
@@ -80,6 +88,11 @@ export ARTIFACTS_CREDENTIALPROVIDER_FEED_ENDPOINTS='{"endpointCredentials":[{"en
 
 Use `clientCertificateFilePath` instead of `clientCertificateSubjectName` to point at a
 certificate file rather than the certificate store.
+
+The examples above use `export`, the shell syntax. In PowerShell, set the same variables with
+`$env:ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS = '...'`, and in `cmd.exe` with
+`set ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS=...`. The variable names and the JSON
+are identical on every platform.
 
 ## Alternative: a credential in `nuget.config`
 
@@ -105,9 +118,18 @@ Four forms look like they should work here and do not:
 | Form | What happens |
 | --- | --- |
 | `%TOKEN%` macro | Not expanded. The literal text `%TOKEN%` is sent as the password. |
-| Encrypted `<Password>` | Not read. `dotnet nuget add source --password` writes this form by default on Windows; add `--store-password-in-clear-text`. |
+| Encrypted `<Password>` | Not read. See below. |
 | `NuGetPackageSourceCredentials_<name>` environment variable | Not read. |
 | A token in the source URL, `https://user:token@host/...` | Not read. Put it in `packageSourceCredentials`. |
+
+The encrypted `<Password>` form is the one most likely to catch you out, because
+`dotnet nuget add source --password` writes it by default on Windows. It is encrypted with a
+Windows-only, user-specific mechanism, so the value cannot be read on Linux or macOS, cannot be
+read by a different user, and cannot be copied between machines. NuGet itself gives up on it with
+*"Password decryption is not supported on .NET Core for this platform … You can use a clear text
+password as a workaround"*, and that workaround is what this tool supports. Pass
+`--store-password-in-clear-text` when adding the source, or write the `ClearTextPassword` entry
+by hand.
 
 This file holds a token in plain text, so it should not live inside a repository at all. NuGet
 discovers `nuget.config` by walking up from the working directory, which makes a working tree a
