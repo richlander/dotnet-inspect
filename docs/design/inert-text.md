@@ -287,6 +287,17 @@ return new MetadataValue.HeapReference(
     HeapKind.String, HeapOffset(handle), raw.Length, text, text, text.IsTruncated);
 ```
 
+One consequence is worth stating, because it looks like an over-share until the
+alternative is written down. `ContainCellText` is `internal`, and the renderer's
+own test assembly reaches it through `InternalsVisibleTo` rather than
+constructing `new InertString(TextPolicy.Field, …)` in fixture code. A fixture
+spelled the second way pins the policy that was current when it was written, so
+changing `TextPolicy.Field` would leave every such fixture asserting the old
+policy while the product moved — the tests would stay green and mean less. The
+factory is the single place the policy is chosen, so tests should be made to go
+through it. Widening `InternalsVisibleTo` to the one assembly that needs it is a
+smaller surface than making the factory public.
+
 ### A partiality flag survives only where the text cannot know
 
 The tempting next step is to delete every truncation field and read
