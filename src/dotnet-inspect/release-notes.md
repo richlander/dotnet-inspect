@@ -33,6 +33,12 @@
   `Kind` column. The `type`/`member` `Performance Triage` lens is
   unchanged (#2833).
 
+### Native AOT codegen
+
+- Builds the Native AOT tools with `OptimizationPreference=Speed` instead of
+  `Size`, worth a measured 6-7% on real commands for about 9% more binary size
+  (#3675).
+
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,
