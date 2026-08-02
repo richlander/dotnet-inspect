@@ -2,6 +2,9 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Metadata;
 
+// A policy selection contains public acquisition descriptors. This internal
+// value pairs the catalog-interned outcome with everything needed to reproduce
+// that outcome in a later generation, including failed selected descriptors.
 sealed record CachedBindingEvaluation(
     AssemblyBindingOutcome Outcome,
     ResolvedAssemblyReference? Assembly = null,
@@ -12,14 +15,28 @@ readonly record struct PolicyCacheKey(
     AssemblyBindingPolicyVersion PolicyVersion,
     object RequestKey);
 
+/// <summary>
+/// Resource and traversal limits shared by all generations in a
+/// <see cref="TypeResolutionCatalog"/>.
+/// </summary>
 public sealed record TypeResolutionContextOptions
 {
+    /// <summary>Maximum acquisition registrations retained by the catalog.</summary>
     public int MaxCandidates { get; init; } =
         InspectionAcquisitionPlanOptions.DefaultMaxCandidates;
+
+    /// <summary>Maximum aggregate bytes retained in open candidate images.</summary>
     public long MaxRetainedImageBytes { get; init; } =
         InspectionAcquisitionPlanOptions.DefaultMaxRetainedImageBytes;
+
+    /// <summary>Maximum source-open operations permitted concurrently.</summary>
     public int MaxConcurrentSourceOpens { get; init; } =
         InspectionAcquisitionPlanOptions.DefaultMaxConcurrentSourceOpens;
+
+    /// <summary>
+    /// Maximum forwarding edges followed before resolution reports
+    /// <see cref="TypeResolutionFailure.HopBudgetExceeded"/>.
+    /// </summary>
     public int MaxForwarderHops { get; init; } =
         TypeForwardResolver.DefaultMaxHops;
 
@@ -39,6 +56,12 @@ public sealed record TypeResolutionContextOptions
     }
 }
 
+/// <summary>
+/// Inspection-lifetime owner of assembly acquisition and reusable declaration,
+/// binding, and resolution caches. A catalog creates immutable
+/// <see cref="TypeResolutionContext"/> generations as their request manifests
+/// evolve.
+/// </summary>
 public sealed class TypeResolutionCatalog : IDisposable
 {
     readonly object _gate = new();
@@ -53,6 +76,10 @@ public sealed class TypeResolutionCatalog : IDisposable
     readonly TypeResolutionContextOptions _options;
     bool _disposed;
 
+    /// <summary>
+    /// Creates an inspection-lifetime catalog with the supplied resource and
+    /// traversal limits.
+    /// </summary>
     public TypeResolutionCatalog(TypeResolutionContextOptions? options = null)
     {
         _options = options ?? new TypeResolutionContextOptions();
@@ -60,8 +87,13 @@ public sealed class TypeResolutionCatalog : IDisposable
             _options.AcquisitionOptions());
     }
 
+    /// <summary>Gets the identity shared by every generation in this catalog.</summary>
     public AssemblyCatalogId Id => _acquisition.CatalogId;
 
+    /// <summary>
+    /// Discovers and freezes a context for type requests over the supplied
+    /// roots.
+    /// </summary>
     public TypeResolutionContext CreateContext(
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -73,6 +105,10 @@ public sealed class TypeResolutionCatalog : IDisposable
             requests,
             CancellationToken.None);
 
+    /// <summary>
+    /// Discovers and freezes a context for explicit binding and type requests
+    /// over the supplied roots.
+    /// </summary>
     public TypeResolutionContext CreateContext(
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -85,6 +121,10 @@ public sealed class TypeResolutionCatalog : IDisposable
             requests,
             CancellationToken.None);
 
+    /// <summary>
+    /// Discovers and freezes a cancellable context for explicit binding and
+    /// type requests over the supplied roots.
+    /// </summary>
     public TypeResolutionContext CreateContextWithCancellation(
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -205,6 +245,7 @@ public sealed class TypeResolutionCatalog : IDisposable
             new PolicyCacheKey(policyVersion, key),
             outcome);
 
+    /// <summary>Releases every retained candidate session owned by the catalog.</summary>
     public void Dispose()
     {
         _generationGate.Wait();
@@ -230,6 +271,12 @@ public sealed class TypeResolutionCatalog : IDisposable
         MetadataTypeDefinitionName Type);
 }
 
+/// <summary>
+/// One frozen catalog generation containing the binding and type-resolution
+/// answers discovered for an explicit manifest. <see cref="Resolve"/> and
+/// <see cref="Bind"/> only project requests onto that manifest; missing work is
+/// returned as an expansion request for a later generation.
+/// </summary>
 public sealed class TypeResolutionContext : IDisposable
 {
     readonly object _gate = new();
@@ -281,9 +328,16 @@ public sealed class TypeResolutionContext : IDisposable
         _bindings = bindings;
     }
 
+    /// <summary>Gets the owning catalog's inspection-lifetime identity.</summary>
     public AssemblyCatalogId Catalog => _catalog.Id;
+
+    /// <summary>Gets this frozen manifest generation's identity.</summary>
     public AssemblyCatalogGenerationId Generation { get; }
 
+    /// <summary>
+    /// Creates a standalone context that owns its private catalog and its
+    /// retained candidate sessions.
+    /// </summary>
     public static TypeResolutionContext Create(
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -296,6 +350,10 @@ public sealed class TypeResolutionContext : IDisposable
             options,
             CancellationToken.None);
 
+    /// <summary>
+    /// Creates a cancellable standalone context that owns its private catalog
+    /// and its retained candidate sessions.
+    /// </summary>
     public static TypeResolutionContext CreateWithCancellation(
         IAssemblyBindingPolicy policy,
         IEnumerable<ResolvedAssemblyReference> roots,
@@ -361,6 +419,11 @@ public sealed class TypeResolutionContext : IDisposable
         return builder.Freeze();
     }
 
+    /// <summary>
+    /// Returns the frozen answer for <paramref name="request"/>, or a typed
+    /// expansion result when the request was not in this generation's
+    /// manifest.
+    /// </summary>
     public TypeResolutionOutcome Resolve(TypeResolutionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -397,6 +460,11 @@ public sealed class TypeResolutionContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the frozen binding answer for <paramref name="request"/>, or an
+    /// expansion result when the request was not in this generation's
+    /// manifest.
+    /// </summary>
     public AssemblyBindingOutcome Bind(AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -626,6 +694,10 @@ public sealed class TypeResolutionContext : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Releases this generation and, for standalone contexts created by
+    /// <see cref="Create"/>, its private catalog.
+    /// </summary>
     public void Dispose()
     {
         lock (_gate)
@@ -854,6 +926,9 @@ public sealed class TypeResolutionContext : IDisposable
             _outcomes.Add(key, outcome);
         }
 
+        // A catalog-level resolution cache entry names candidate-based keys.
+        // Rehydrate every binding and descriptor dependency into this
+        // generation before reprojecting its definition key.
         void SeedRecipe(
             RequestKey requestKey,
             TypeResolutionOutcome outcome)
@@ -861,6 +936,9 @@ public sealed class TypeResolutionContext : IDisposable
             if (requestKey is RequestKey.Binding binding)
                 SeedBinding(binding.BindingKey);
 
+            // HopBudgetExceeded records the terminal evidence hop without
+            // evaluating its target binding, so that hop has no cache
+            // dependency to seed.
             int bindingHopCount =
                 outcome is TypeResolutionOutcome.Rejected
                 {
@@ -929,6 +1007,9 @@ public sealed class TypeResolutionContext : IDisposable
 
         internal void Add(AssemblyBindingRequest request)
         {
+            // Forwarder inventories form attacker-controlled graphs. Use an
+            // explicit worklist so discovery depth does not consume the
+            // process stack.
             var pending = new Stack<AssemblyBindingRequest>();
             pending.Push(request);
             while (pending.TryPop(out AssemblyBindingRequest? current))
@@ -976,6 +1057,10 @@ public sealed class TypeResolutionContext : IDisposable
         {
             _cancellationToken.ThrowIfCancellationRequested();
             EnsurePolicyVersion();
+
+            // Policy-dependent work is promoted only after the whole
+            // generation completes under the policy version captured at its
+            // start. Canceled or version-racing generations publish nothing.
             foreach (KeyValuePair<BindingKey, CachedBindingEvaluation> pair
                 in _bindings)
             {
@@ -1362,6 +1447,9 @@ public sealed class TypeResolutionContext : IDisposable
             if (selection is null || !HasPolicyVersion())
                 return CacheInvalidBinding(key);
 
+            // Policy returns public descriptors. Registration turns those
+            // selections into catalog candidates and a frozen Metadata-owned
+            // outcome.
             CachedBindingEvaluation evaluation = selection switch
             {
                 AssemblyBindingSelection.Selected selected =>

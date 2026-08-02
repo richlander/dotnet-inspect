@@ -2,12 +2,21 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Metadata;
 
+/// <summary>
+/// Closed description of where an exact metadata type-name lookup begins.
+/// The start is separate from <see cref="TypeResolutionRequest"/> so each arm
+/// carries only the coordinates needed for that kind of lookup.
+/// </summary>
 public abstract class TypeResolutionStart
 {
     private protected TypeResolutionStart()
     {
     }
 
+    /// <summary>
+    /// Begins by probing an explicitly acquired assembly, then follows any
+    /// matching forwarder.
+    /// </summary>
     public sealed class Assembly : TypeResolutionStart
     {
         internal Assembly(
@@ -22,6 +31,9 @@ public abstract class TypeResolutionStart
         public AssemblyResolutionScope Scope { get; }
     }
 
+    /// <summary>
+    /// Begins by binding an exact assembly reference from the supplied origin.
+    /// </summary>
     public sealed class Reference : TypeResolutionStart
     {
         internal Reference(
@@ -39,6 +51,10 @@ public abstract class TypeResolutionStart
         public AssemblyResolutionScope Scope { get; }
     }
 
+    /// <summary>
+    /// Begins by asking policy for the requesting assembly's intrinsic core
+    /// library, without synthesizing an assembly reference.
+    /// </summary>
     public sealed class CoreLibrary : TypeResolutionStart
     {
         internal CoreLibrary(
@@ -53,6 +69,10 @@ public abstract class TypeResolutionStart
         public AssemblyResolutionScope Scope { get; }
     }
 
+    /// <summary>
+    /// Preserves a module-reference start. Module acquisition is represented
+    /// explicitly as unsupported by the current engine.
+    /// </summary>
     public sealed class Module : TypeResolutionStart
     {
         internal Module(
@@ -68,6 +88,10 @@ public abstract class TypeResolutionStart
     }
 }
 
+/// <summary>
+/// Resolves one exact <see cref="MetadataTypeDefinitionName"/> from one
+/// structured <see cref="TypeResolutionStart"/>.
+/// </summary>
 public sealed class TypeResolutionRequest
 {
     public TypeResolutionRequest(
@@ -83,6 +107,7 @@ public sealed class TypeResolutionRequest
     public TypeResolutionStart Start { get; }
     public MetadataTypeDefinitionName Type { get; }
 
+    /// <summary>Creates a request that starts from an acquired assembly.</summary>
     public static TypeResolutionRequest FromAssembly(
         ResolvedAssemblyReference value,
         AssemblyResolutionScope scope,
@@ -93,6 +118,9 @@ public sealed class TypeResolutionRequest
         return new(new TypeResolutionStart.Assembly(value, scope), type);
     }
 
+    /// <summary>
+    /// Creates a request that first binds an assembly reference.
+    /// </summary>
     public static TypeResolutionRequest FromReference(
         AssemblyReferenceIdentity value,
         AssemblyBindingOrigin origin,
@@ -105,6 +133,9 @@ public sealed class TypeResolutionRequest
         return new(new TypeResolutionStart.Reference(value, origin, scope), type);
     }
 
+    /// <summary>
+    /// Creates a request for the requesting assembly's intrinsic core library.
+    /// </summary>
     public static TypeResolutionRequest FromCoreLibrary(
         ResolvedAssemblyReference requestingAssembly,
         AssemblyResolutionScope scope,
@@ -119,6 +150,7 @@ public sealed class TypeResolutionRequest
             type);
     }
 
+    /// <summary>Creates a request that preserves a module-reference start.</summary>
     public static TypeResolutionRequest FromModule(
         ResolvedAssemblyReference requestingAssembly,
         string moduleName,
@@ -140,18 +172,24 @@ public sealed class TypeResolutionRequest
     }
 }
 
+/// <summary>
+/// Work that a coordinator may add to a later catalog generation after a
+/// frozen lookup reports that its manifest was incomplete.
+/// </summary>
 public abstract class ResolutionPlanRequest
 {
     private protected ResolutionPlanRequest()
     {
     }
 
+    /// <summary>A type-resolution request absent from the frozen manifest.</summary>
     public sealed class Type : ResolutionPlanRequest
     {
         internal Type(TypeResolutionRequest request) => Request = request;
         public TypeResolutionRequest Request { get; }
     }
 
+    /// <summary>An assembly-binding request absent from the frozen manifest.</summary>
     public sealed class Binding : ResolutionPlanRequest
     {
         internal Binding(AssemblyBindingRequest request) => Request = request;
@@ -159,12 +197,18 @@ public abstract class ResolutionPlanRequest
     }
 }
 
+/// <summary>
+/// Closed reason why type resolution was rejected. These failures describe
+/// resolution mechanics; binding policy diagnostics remain
+/// <see cref="AssemblyBindingFailure"/> values.
+/// </summary>
 public abstract class TypeResolutionFailure
 {
     private protected TypeResolutionFailure()
     {
     }
 
+    /// <summary>The single-image declaration probe rejected the type name.</summary>
     public sealed class DeclarationRejected : TypeResolutionFailure
     {
         internal DeclarationRejected(MetadataTypeNameFailure rejection) =>
@@ -173,14 +217,20 @@ public abstract class TypeResolutionFailure
         public MetadataTypeNameFailure Rejection { get; }
     }
 
+    /// <summary>A forwarding chain revisited a catalog candidate.</summary>
     public sealed class ForwarderCycle : TypeResolutionFailure;
 
+    /// <summary>The forwarding chain exceeded its configured hop budget.</summary>
     public sealed class HopBudgetExceeded : TypeResolutionFailure
     {
         internal HopBudgetExceeded(int budget) => Budget = budget;
         public int Budget { get; }
     }
 
+    /// <summary>
+    /// The declaration is exported from a module, for which the current engine
+    /// has no acquisition policy.
+    /// </summary>
     public sealed class UnsupportedModuleExport : TypeResolutionFailure
     {
         internal UnsupportedModuleExport(ModuleFileReference module) =>
@@ -188,6 +238,10 @@ public abstract class TypeResolutionFailure
         public ModuleFileReference Module { get; }
     }
 
+    /// <summary>
+    /// Resolution began from a module reference, which the current engine does
+    /// not acquire.
+    /// </summary>
     public sealed class UnsupportedModuleReference : TypeResolutionFailure
     {
         internal UnsupportedModuleReference(string moduleName) =>
@@ -195,6 +249,10 @@ public abstract class TypeResolutionFailure
         public string ModuleName { get; }
     }
 
+    /// <summary>
+    /// The start or requesting origin was absent from this generation's
+    /// registered roots.
+    /// </summary>
     public sealed class UnregisteredAssembly : TypeResolutionFailure
     {
         internal UnregisteredAssembly(
@@ -203,6 +261,7 @@ public abstract class TypeResolutionFailure
         public AssemblyAcquisitionRegistration Registration { get; }
     }
 
+    /// <summary>The binding policy returned an invalid result.</summary>
     public sealed class InvalidBindingPolicy : TypeResolutionFailure
     {
         internal InvalidBindingPolicy(AssemblyBindingFailure failure) =>
@@ -210,6 +269,10 @@ public abstract class TypeResolutionFailure
         public AssemblyBindingFailure Failure { get; }
     }
 
+    /// <summary>
+    /// A selected descriptor could not be inventoried or opened as a retained
+    /// inspection session.
+    /// </summary>
     public sealed class CandidateOpenFailed : TypeResolutionFailure
     {
         internal CandidateOpenFailed(
@@ -224,12 +287,17 @@ public abstract class TypeResolutionFailure
         public CandidateOpenFailure Failure { get; }
     }
 
+    /// <summary>Discovery exceeded the configured candidate budget.</summary>
     public sealed class DiscoveryBudgetExceeded : TypeResolutionFailure
     {
         internal DiscoveryBudgetExceeded(int budget) => Budget = budget;
         public int Budget { get; }
     }
 
+    /// <summary>
+    /// The request was not part of the frozen manifest and must be included in
+    /// a later generation before it can be answered.
+    /// </summary>
     public sealed class PlanExpansionRequired : TypeResolutionFailure
     {
         internal PlanExpansionRequired(ResolutionPlanRequest request) =>
@@ -238,6 +306,11 @@ public abstract class TypeResolutionFailure
     }
 }
 
+/// <summary>
+/// Opaque key for one resolved TypeDef in one frozen catalog generation.
+/// Consumers use Metadata-owned correspondence APIs rather than constructing
+/// or decomposing this key.
+/// </summary>
 public sealed class ResolvedTypeDefinitionKey
 {
     internal ResolvedTypeDefinitionKey(
@@ -258,10 +331,18 @@ public sealed class ResolvedTypeDefinitionKey
     internal TypeDefinitionToken Definition { get; }
 }
 
+/// <summary>
+/// Durable physical location of a TypeDef row: module MVID plus validated
+/// TypeDef token. This is an address, not a correspondence claim.
+/// </summary>
 public readonly record struct MetadataTypeDefinitionAddress(
     Guid ModuleVersionId,
     TypeDefinitionToken Definition);
 
+/// <summary>
+/// Successful resolution payload combining the opaque definition key, durable
+/// address, catalog candidate, and exact lookup name.
+/// </summary>
 public sealed class ResolvedTypeDefinition
 {
     internal ResolvedTypeDefinition(
@@ -282,6 +363,11 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionName Type { get; }
 }
 
+/// <summary>
+/// Evidence for one followed forwarding edge. The declarations belong to
+/// <see cref="SourceAssembly"/> and target the exact recorded assembly
+/// reference under the scope used for the next binding.
+/// </summary>
 public sealed class TypeForwardingHop
 {
     internal TypeForwardingHop(
@@ -302,12 +388,17 @@ public sealed class TypeForwardingHop
     public AssemblyResolutionScope Scope { get; }
 }
 
+/// <summary>
+/// Closed evidence describing whether ambiguity came from assembly binding or
+/// from competing declarations inside one candidate.
+/// </summary>
 public abstract class TypeResolutionAmbiguity
 {
     private protected TypeResolutionAmbiguity()
     {
     }
 
+    /// <summary>Several assembly candidates remained plausible.</summary>
     public sealed class AssemblyBinding : TypeResolutionAmbiguity
     {
         internal AssemblyBinding(
@@ -328,6 +419,7 @@ public abstract class TypeResolutionAmbiguity
         public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
     }
 
+    /// <summary>One candidate contained competing declarations.</summary>
     public sealed class TypeDeclaration : TypeResolutionAmbiguity
     {
         internal TypeDeclaration(
@@ -346,6 +438,10 @@ public abstract class TypeResolutionAmbiguity
     }
 }
 
+/// <summary>
+/// Complete frozen answer for one type-resolution request. Every arm carries
+/// the ordered forwarding hops observed before the terminal result.
+/// </summary>
 public abstract class TypeResolutionOutcome
 {
     private protected TypeResolutionOutcome(
@@ -354,6 +450,7 @@ public abstract class TypeResolutionOutcome
 
     public ImmutableArray<TypeForwardingHop> Hops { get; }
 
+    /// <summary>An exact type definition was resolved.</summary>
     public sealed class Resolved : TypeResolutionOutcome
     {
         internal Resolved(
@@ -363,6 +460,10 @@ public abstract class TypeResolutionOutcome
         public ResolvedTypeDefinition Definition { get; }
     }
 
+    /// <summary>
+    /// The final readable candidate contained neither a definition nor a
+    /// matching forwarder.
+    /// </summary>
     public sealed class NotFound : TypeResolutionOutcome
     {
         internal NotFound(
@@ -372,6 +473,7 @@ public abstract class TypeResolutionOutcome
         public ResolvedAssemblyCandidate LastAssembly { get; }
     }
 
+    /// <summary>Policy found no assembly for the required binding.</summary>
     public sealed class UnboundBinding : TypeResolutionOutcome
     {
         internal UnboundBinding(
@@ -390,6 +492,9 @@ public abstract class TypeResolutionOutcome
         public AssemblyResolutionScope Scope { get; }
     }
 
+    /// <summary>
+    /// Policy understood the binding but could not provide a usable candidate.
+    /// </summary>
     public sealed class Unavailable : TypeResolutionOutcome
     {
         internal Unavailable(
@@ -411,6 +516,7 @@ public abstract class TypeResolutionOutcome
         public AssemblyBindingFailure Failure { get; }
     }
 
+    /// <summary>Resolution ended with explicit ambiguity evidence.</summary>
     public sealed class Ambiguous : TypeResolutionOutcome
     {
         internal Ambiguous(
@@ -420,6 +526,7 @@ public abstract class TypeResolutionOutcome
         public TypeResolutionAmbiguity Ambiguity { get; }
     }
 
+    /// <summary>Resolution stopped with a typed mechanical failure.</summary>
     public sealed class Rejected : TypeResolutionOutcome
     {
         internal Rejected(
