@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
+using InertText;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -38,7 +39,7 @@ public class MetadataTableProjectionTests
         => row.Cells[ColumnIndex(table, column)];
 
     static string? StringText(MetadataTableView table, MetadataRow row, string column)
-        => (Cell(table, row, column) as MetadataValue.HeapReference)?.Text;
+        => (Cell(table, row, column) as MetadataValue.HeapReference)?.Text?.ToString();
 
     [Fact]
     public void Project_ProducesTablesInEcmaOrder()
@@ -70,7 +71,7 @@ public class MetadataTableProjectionTests
 
         var name = Assert.IsType<MetadataValue.HeapReference>(Cell(module, row, "Name"));
         Assert.Equal(HeapKind.String, name.Heap);
-        Assert.False(string.IsNullOrEmpty(name.Text));
+        Assert.False(name.Text!.Value.IsEmpty);
 
         var mvid = Assert.IsType<MetadataValue.HeapReference>(Cell(module, row, "Mvid"));
         Assert.Equal(HeapKind.Guid, mvid.Heap);
@@ -94,7 +95,7 @@ public class MetadataTableProjectionTests
         var extends = Assert.IsType<MetadataValue.Handle>(Cell(typeDef, row, "Extends"));
         Assert.Equal(TableIndex.TypeRef, extends.Reference.TargetTable);
         Assert.True(extends.Reference.TargetRowId >= 1);
-        Assert.Contains("Object", extends.Reference.Display);
+        Assert.Contains("Object", extends.Reference.Display!.Value.ToString());
 
         // MethodList is a contiguous run in the MethodDef table; this type has methods.
         var methods = Assert.IsType<MetadataValue.Range>(Cell(typeDef, row, "MethodList"));
@@ -112,7 +113,7 @@ public class MetadataTableProjectionTests
         var signature = Assert.IsType<MetadataValue.HeapReference>(Cell(methodDef, row, "Signature"));
         Assert.Equal(HeapKind.Blob, signature.Heap);
         Assert.Null(signature.Text);
-        Assert.False(string.IsNullOrEmpty(signature.Preview));
+        Assert.False(signature.Preview.IsEmpty);
     }
 
     [Fact]
@@ -220,7 +221,7 @@ public class MetadataTableProjectionTests
 
         var name = Assert.IsType<MetadataValue.HeapReference>(Cell(assembly, row, "Name"));
         Assert.Equal(HeapKind.String, name.Heap);
-        Assert.Equal("ILInspector.Metadata.Tests", name.Text);
+        Assert.Equal("ILInspector.Metadata.Tests", name.Text!.Value.ToString());
 
         // HashAlgId is a single-valued enum surfaced as a scalar with an additive
         // decoded name (SHA-1 is the csc default), not a bitflag set.
@@ -249,7 +250,7 @@ public class MetadataTableProjectionTests
         Assert.IsType<MetadataValue.Flags>(Cell(exportedType, row, "Attributes"));
 
         var @namespace = Assert.IsType<MetadataValue.HeapReference>(Cell(exportedType, row, "Namespace"));
-        Assert.Equal("ILInspector.Metadata", @namespace.Text);
+        Assert.Equal("ILInspector.Metadata", @namespace.Text!.Value.ToString());
 
         // A forwarded type's Implementation is an AssemblyRef edge to the defining
         // assembly; the column advertises the full Implementation coded-index set.
@@ -277,7 +278,7 @@ public class MetadataTableProjectionTests
             Assert.Contains(owner.Reference.TargetTable, new[] { TableIndex.TypeDef, TableIndex.MethodDef });
 
             var name = Assert.IsType<MetadataValue.HeapReference>(Cell(genericParam, row, "Name"));
-            Assert.False(string.IsNullOrEmpty(name.Text));
+            Assert.False(name.Text!.Value.IsEmpty);
         }
 
         var ownerColumn = genericParam.Columns[ColumnIndex(genericParam, "Owner")];
@@ -359,7 +360,7 @@ public class MetadataTableProjectionTests
         {
             // Length reports the full decoded size; the retained preview is bounded.
             Assert.True(heap.Length > 1);
-            Assert.False(string.IsNullOrEmpty(heap.Text));
+            Assert.False(heap.Text!.Value.IsEmpty);
         });
     }
 
@@ -386,6 +387,37 @@ public class MetadataTableProjectionTests
         });
     }
 
+    /// <summary>
+    /// A blob's partiality is established in bytes, before there is any text to bound,
+    /// so it cannot be recovered from the hex the projection carries.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for the claim in <c>docs/design/inert-text.md</c> that
+    /// <see cref="MetadataValue.HeapReference.Truncated"/> must stay a stored field
+    /// rather than being derived from its text the way <see cref="HandleRef.Display"/>'s
+    /// truncation now is. Deriving it would report a blob that lost most of its content
+    /// as whole, because the hex is a complete spelling of the bytes that were actually
+    /// read. If this test fails, the two notions of truncation have been conflated.
+    /// </remarks>
+    [Fact]
+    public void BlobTruncation_IsInvisibleToTheHexItProduces()
+    {
+        var methodDef = Table(
+            Project(new MetadataProjectionOptions { MaxPreviewBytes = 2 }),
+            TableIndex.MethodDef);
+
+        var clipped = methodDef.Rows
+            .Select(row => Cell(methodDef, row, "Signature"))
+            .OfType<MetadataValue.HeapReference>()
+            .Where(heap => heap.Truncated)
+            .ToList();
+
+        Assert.NotEmpty(clipped);
+        Assert.All(clipped, heap => Assert.False(
+            heap.Preview.IsTruncated,
+            "The hex spells every byte that was read, so the text cannot know bytes were dropped."));
+    }
+
     [Fact]
     public void HandleDisplay_RespectsStringBudgetWithExplicitTruncation()
     {
@@ -405,9 +437,9 @@ public class MetadataTableProjectionTests
 
         Assert.NotEmpty(references);
         Assert.All(references, reference => Assert.True(
-            reference.Display!.Length <= budget,
+            reference.Display!.Value.Length <= budget,
             $"Display '{reference.Display}' exceeds the {budget}-char budget."));
-        Assert.Contains(references, reference => reference.DisplayTruncated);
+        Assert.Contains(references, reference => reference.Display!.Value.IsTruncated);
     }
 
     [Fact]
@@ -427,39 +459,38 @@ public class MetadataTableProjectionTests
 
         Assert.NotEmpty(strings);
         Assert.All(strings, heap => Assert.True(
-            heap.Text!.Length <= budget,
+            heap.Text!.Value.Length <= budget,
             $"String preview '{heap.Text}' exceeds the {budget}-char budget."));
     }
 
     [Fact]
-    public void EscapeText_KeepsSurrogatePairsAtomicAndEscapesLoneSurrogates()
+    public void ContainCellText_KeepsSurrogatePairsAtomicAndContainsLoneSurrogates()
     {
         // The budget is measured in UTF-16 code units, but a supplementary scalar
         // is two of them; truncation must never retain a lone high surrogate, and
-        // an unpaired surrogate must be escaped rather than emitted raw.
-        var escape = typeof(MetadataTableProjector).GetMethod(
-            "EscapeText",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-
+        // an unpaired surrogate must be contained rather than emitted raw.
+        //
+        // Called directly rather than by reflection. When this reflected on the
+        // method by name, renaming it produced a NullReferenceException inside the
+        // test instead of a build error, which reports a rename as a mysterious
+        // failure rather than as the trivially fixable thing it is.
         const string emoji = "\U0001F600"; // one scalar, two UTF-16 code units
 
         // Budget 2: 'A' fits (1); the pair needs 2 more and is dropped as a unit.
-        var dropped = new object?[] { "A" + emoji, 2, null };
-        var droppedText = (string)escape.Invoke(null, dropped)!;
+        InertString dropped = MetadataTableProjector.ContainCellText("A" + emoji, 2);
+        string droppedText = dropped.ToString();
         Assert.Equal("A", droppedText);
-        Assert.True((bool)dropped[2]!);
+        Assert.True(dropped.IsTruncated);
         Assert.DoesNotContain(droppedText, char.IsSurrogate);
 
         // Budget 3: 'A' plus the atomic pair fit exactly; nothing is truncated.
-        var kept = new object?[] { "A" + emoji, 3, null };
-        var keptText = (string)escape.Invoke(null, kept)!;
-        Assert.Equal("A" + emoji, keptText);
-        Assert.False((bool)kept[2]!);
+        InertString kept = MetadataTableProjector.ContainCellText("A" + emoji, 3);
+        Assert.Equal("A" + emoji, kept.ToString());
+        Assert.False(kept.IsTruncated);
 
-        // A lone (unpaired) surrogate is escaped, never emitted as raw text.
-        var lone = new object?[] { "\uD83D", 10, null };
-        var loneText = (string)escape.Invoke(null, lone)!;
-        Assert.Equal("\\uD83D", loneText);
+        // A lone (unpaired) surrogate is contained, never emitted as raw text.
+        string loneText = MetadataTableProjector.ContainCellText("\uD83D", 10).ToString();
+        Assert.Equal(@"\uD83D", loneText);
         Assert.DoesNotContain(loneText, char.IsSurrogate);
     }
 

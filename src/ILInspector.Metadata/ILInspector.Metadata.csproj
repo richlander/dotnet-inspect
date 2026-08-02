@@ -16,6 +16,15 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <!-- Crosses a subsystem boundary, unlike the two above, so it is worth
+         saying why. The renderer tests build projection fixtures, and a fixture
+         must be contained by the same policy the projector applies rather than
+         by a hand-rolled TextPolicy.Field in test code — otherwise the policy
+         could change and the fixtures would keep asserting the old one. This
+         grants exactly that: MetadataTableProjector.ContainCellText, the
+         product's own containment factory. Prefer widening this to making that
+         factory public; the alternative surface is larger, not smaller. -->
+    <InternalsVisibleTo Include="DotnetInspector.MetadataRendering.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +33,7 @@
     <Compile Include="..\ILInspector.CSharp\CSharpKeywords.cs" Link="CSharpKeywords.cs" />
     <Compile Include="..\ILInspector.CSharp\CSharpIdentifierCore.cs" Link="CSharpIdentifierCore.cs" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
     <ProjectReference Include="..\SourceLinkFetch\SourceLinkFetch.csproj" />

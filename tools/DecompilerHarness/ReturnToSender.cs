@@ -1727,7 +1727,7 @@ static class ReturnToSender
             fullType,
             methodName,
             overload: 0,
-            FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
+            FidelityCheck.ContractBodyDiffNormalization)?.Diff;
 
         if (recompiledOps is null)
         {
@@ -2079,11 +2079,16 @@ static class ReturnToSender
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
 
-        var recompiledReference = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity("return-to-sender", Version: null, Culture: null, PublicKeyToken: null),
-            Path: null,
-            OpenRead: () => new MemoryStream(recompiledAssembly, writable: false),
-            Provenance: "ReturnToSender");
+        using var recompiledIdentityStream =
+            new MemoryStream(recompiledAssembly, writable: false);
+        using var recompiledIdentityReader =
+            new PEReader(recompiledIdentityStream);
+        var recompiledReference = ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                recompiledIdentityReader.GetMetadataReader()),
+            path: null,
+            openRead: () => new MemoryStream(recompiledAssembly, writable: false),
+            provenance: AssemblyResolutionProvenance.Local("ReturnToSender"));
         var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
         using var originalSource = MetadataSource.OpenWithoutSymbols(assemblyPath);
         using var recompiledSource = MetadataSource.OpenWithoutSymbols(recompiledReference, resolver);

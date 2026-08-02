@@ -720,14 +720,20 @@ Artifact text can contain Markdown delimiters, newlines, terminal control
 characters, URLs, or prompt-like instructions. Renderers must preserve output
 structure and must not interpret inspected text as authority.
 
-> **Status.** The two axes below are the **target model**, not current
-> behavior. Today the metadata projector neutralizes control characters
-> unconditionally and continues, with no flags on either axis. See open work
-> item 10, and
-> [metadata-table-projection.md](metadata-table-projection.md#status).
+> **Status.** Both axes are built in `mdi`, which is the reference consumer:
+> the default refuses, `--show-untrusted-text` opts out of the trust axis, and
+> `--dangerously-print-raw` additionally opts out of the rendering axis. The
+> rendering axis rests on `InertText.InertString` (#3636), extended to Unicode
+> general categories in #3628.
 >
-> The rendering axis has a primitive as of #3636: `InertText.InertString`
-> supplies the encoded default. The flags, and the trust axis, remain unbuilt.
+> Two things remain unbuilt. **Survey mode** is not implemented: refusal stops
+> at the first violation rather than reporting every one, though
+> `InertString.IsPermitted` already returns a `ScalarViolation` shaped for it.
+> And **`dotnet-inspect` has neither flag**; the library default is to encode
+> and continue, so its behavior is the middle row of both tables. That default
+> is deliberate — containment is a safety property the library owes every
+> caller, while refusing is a policy only a caller can choose — but it means the
+> trust axis currently exists only where a command line can express it.
 
 Presentation is **two orthogonal decisions**, and collapsing them into one flag
 is a design error.
@@ -738,21 +744,64 @@ is a design error.
 | --- | --- |
 | *(default)* | abort at the first one |
 | survey mode | keep going; report location and pattern kind, never content, bounded by the traversal budget |
-| a `dangerously`-named skip | keep going and render the values anyway |
+| `--show-untrusted-text` | keep going and render the values anyway |
+
+The trust skip is **not** `dangerously`-named, which is a correction to an
+earlier draft of this section rather than a departure from it. The argument
+below is that the skip is defensible precisely because visual encoding still
+applies underneath it — it means "do not refuse," not "it is fine to put my
+terminal at risk." A name that called it dangerous would contradict that, and
+would spend the word on the safe path, leaving nothing louder for the flag that
+genuinely hands over live control characters.
 
 **Rendering** — how artifact text is spelled once something is printed:
 
 | Flag | Behavior |
 | --- | --- |
 | *(default)* | visually encoded into an inert form |
-| a `dangerously`-named raw mode | no visual encoding; the output format's own structural escaping still applies |
+| `--dangerously-print-raw` | no visual encoding; the output format's own structural escaping still applies |
+
+That last clause is load-bearing and measured: the format keeps itself well
+formed regardless of the flag. JSONL escapes scalars below U+0020 per RFC 8259,
+which is not containment — those escapes decode back to the original scalar —
+and TSV replaces the line and paragraph separators, which it cannot carry in a
+record. Markdown carries everything. So the raw mode promises that `mdi` adds
+no encoding of its own, not that every scalar reaches the stream.
+
+**Raw output is produced by the decoder, at the sink.** Since #3687 the
+projection cannot hold untreated text at all: its text-bearing fields are
+`InertString`, and no conversion admits a `string` into one. That closes off the
+obvious implementation — keeping a second, raw copy of every value beside the
+contained one — and forces the honest one, which is to run the encoding
+backwards at the moment of printing. This is the `vis`/`unvis` pairing named
+below rather than a workaround for it: the encoding is lossless and invertible
+precisely so that a decoder can exist, and having the decoder is what makes raw
+output a *rendering* choice instead of a property of the model. A literal
+backslash is always rewritten on the way in, which is what keeps the inverse
+unique. Refusal is unaffected and still happens upstream, against the raw text,
+because the question it asks — does this artifact carry something concerning —
+is about the artifact rather than about the spelling.
+
+Placing the decode after the character budget also buys a property the earlier
+implementation lacked: **both modes cut the same value at the same point.**
+Bounding raw text separately, in its own units, made the rendering axis quietly
+a *content* axis too, so that asking for a different spelling changed how much
+of the value you saw — a subtler form of exactly the collapse this section
+warns about. `MdiUntrustedTextModeTests.RawAndEncodedRenderingsShowTheSamePrefix`
+gates it by re-encoding the raw cell and comparing it to the encoded one,
+running the encoder forward so the assertion is not a restatement of the
+decode. On an artifact carrying nothing that needs containment the three
+tiers are byte-identical; measured over a 2,031,325-byte assembly, all three
+agree exactly.
 
 The axes are independent, and that is the design. Visual encoding is the
 default on **every** artifact-text path, including underneath the trust-axis
 skip — which is precisely what makes that skip defensible: it means "do not
 refuse," not "it is fine to put my terminal at risk." Reaching a live control
 character therefore requires opting out of both axes, two separately named
-mistakes.
+mistakes. `mdi` enforces exactly that: `--dangerously-print-raw` on its own is
+rejected rather than silently ignored, because refusal comes first and the flag
+would otherwise change nothing while appearing to.
 
 Rendering is **visual encoding, not neutralization**: control characters are
 re-spelled into an inert, lossless, invertible form rather than removed or
@@ -876,7 +925,7 @@ only ordinary compiler output.
 | SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
-| Structured output | Control characters the projector recognizes cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw control character survives and every neutralized form is present. The `--references` view carries no artifact text, so it is asserted only against raw controls, as a regression net. Mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone. Two limits worth naming: the payload is `Cc` only, so a bidi override would not be noticed, and the assertion deliberately permits raw `CR`/`LF`/`TAB`. Format *delimiters* are not covered by this gate at all |
+| Structured output | Untrusted non-graphic scalars cannot escape the selected format. `MdiContainmentTests` splices a payload reaching past any single predicate's notion of "control" (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, a C1 control, the bidi override `U+202E`, the line separator `U+2028`, the zero-width space `U+200B`, and the supplementary tag character `U+E0074`) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw non-graphic scalar survives and every contained form is present. The `--references` view carries no artifact text, so it is asserted only against raw scalars, as a regression net. Mutation-checked by restoring the pre-#3628 range predicate (dies naming `U+202E`) and by a category-correct but `char`-based predicate (dies naming `U+E0074`). Until #3628 this row named a payload that was `Cc` only, so a bidi override would not have been noticed; the payload and the assertion helper had both been scoped to the projector's own predicate, which is why the gate stayed green while `U+202E` reached the terminal. Both now classify by Unicode general category over scalars. Two limits remain: the assertion deliberately permits raw `CR`/`LF`/`TAB`, and format *delimiters* are not covered by this gate at all |
 
 ## Open work
 

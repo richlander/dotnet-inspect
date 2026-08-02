@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -480,7 +481,7 @@ public static class MetadataTableProjector
 
         if (!addressable)
             return new MetadataValue.Malformed(
-                $"{heap} heap address {address} is past the end of a {size}-byte heap.");
+                InertString.Format(TextPolicy.Field, $"{heap} heap address {address} is past the end of a {size}-byte heap."));
 
         try
         {
@@ -499,7 +500,7 @@ public static class MetadataTableProjector
             // so a rejected address is contained here rather than escaping as a
             // throw from a read-only query. An unknown HeapKind is not caught
             // here: ToHeapIndex above already rejected it.
-            return new MetadataValue.Malformed($"{heap} heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"{heap} heap read failed: {ex.Message}"));
         }
     }
 
@@ -617,7 +618,7 @@ public static class MetadataTableProjector
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
             {
-                value = new MetadataValue.Malformed($"Guid heap read failed at index {index}: {ex.Message}");
+                value = new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Guid heap read failed at index {index}: {ex.Message}"));
             }
 
             entries.Add(new MetadataHeapEntry(
@@ -711,7 +712,7 @@ public static class MetadataTableProjector
             {
                 var malformed = ImmutableArray.CreateBuilder<MetadataValue>(spec.Columns.Length);
                 for (int column = 0; column < spec.Columns.Length; column++)
-                    malformed.Add(new MetadataValue.Malformed($"Row read failed: {ex.Message}"));
+                    malformed.Add(new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Row read failed: {ex.Message}")));
 
                 rows.Add(new MetadataRow(rid, token, malformed.MoveToImmutable()));
             }
@@ -1081,13 +1082,18 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetString(handle);
-            string text = EscapeText(raw, options.MaxStringChars, out bool truncated);
+            int offset = HeapOffset(handle);
+            InertString text = ContainCellText(
+                raw,
+                options.MaxStringChars,
+                options.UntrustedText,
+                TextOrigin.At(HeapKind.String, offset));
             return new MetadataValue.HeapReference(
-                HeapKind.String, HeapOffset(handle), raw.Length, text, text, truncated);
+                HeapKind.String, offset, raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"String heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"String heap read failed: {ex.Message}"));
         }
     }
 
@@ -1099,13 +1105,18 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetUserString(handle);
-            string text = EscapeText(raw, options.MaxStringChars, out bool truncated);
+            int offset = MetadataTokens.GetHeapOffset(handle);
+            InertString text = ContainCellText(
+                raw,
+                options.MaxStringChars,
+                options.UntrustedText,
+                TextOrigin.At(HeapKind.UserString, offset));
             return new MetadataValue.HeapReference(
-                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, truncated);
+                HeapKind.UserString, offset, raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"UserString heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"UserString heap read failed: {ex.Message}"));
         }
     }
 
@@ -1116,13 +1127,16 @@ public static class MetadataTableProjector
 
         try
         {
-            string text = reader.GetGuid(handle).ToString();
+            // A GUID's own spelling is hex and dashes, so containment cannot change it;
+            // it goes through the same policy anyway so that no heap value reaches the
+            // projection as raw text and the type carries that uniformly.
+            InertString text = ContainCellText(reader.GetGuid(handle).ToString(), int.MaxValue);
             return new MetadataValue.HeapReference(
                 HeapKind.Guid, HeapOffset(handle), 16, text, text, Truncated: false);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Guid heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Guid heap read failed: {ex.Message}"));
         }
     }
 
@@ -1137,14 +1151,17 @@ public static class MetadataTableProjector
             int length = blobReader.Length;
             int take = Math.Min(length, Math.Max(0, options.MaxPreviewBytes));
             byte[] bytes = blobReader.ReadBytes(take);
-            string preview = Convert.ToHexString(bytes);
+            InertString preview = ContainCellText(Convert.ToHexString(bytes), int.MaxValue);
 
+            // The blob's partiality is a byte-level fact established before there was any
+            // text to bound, so it cannot be read back off the hex: that hex is a complete
+            // spelling of the bytes that were read.
             return new MetadataValue.HeapReference(
                 HeapKind.Blob, HeapOffset(handle), length, Text: null, preview, Truncated: take < length);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Blob heap read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Blob heap read failed: {ex.Message}"));
         }
     }
 
@@ -1192,7 +1209,7 @@ public static class MetadataTableProjector
         try
         {
             if (!MetadataTokens.TryGetTableIndex(handle.Kind, out var table))
-                return new MetadataValue.Malformed($"Handle kind {handle.Kind} does not map to a table.");
+                return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Handle kind {handle.Kind} does not map to a table."));
 
             int rid = MetadataTokens.GetRowNumber(handle);
             int token = MetadataTokens.GetToken(handle);
@@ -1202,18 +1219,22 @@ public static class MetadataTableProjector
             int targetRows = reader.GetTableRowCount(table);
             if (rid < 1 || rid > targetRows)
                 return new MetadataValue.Malformed(
-                    $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}].");
+                    InertString.Format(TextPolicy.Field, $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}]."));
 
-            string? display = ResolveHandleDisplay(reader, handle);
-            bool displayTruncated = false;
-            if (display is not null)
-                display = NeutralizeControls(display, options.MaxStringChars, out displayTruncated);
+            string? resolved = ResolveHandleDisplay(reader, handle);
+            InertString? display = resolved is null
+                ? null
+                : ContainCellText(
+                    resolved,
+                    options.MaxStringChars,
+                    options.UntrustedText,
+                    TextOrigin.Named("a resolved handle display"));
 
-            return new MetadataValue.Handle(new HandleRef(table, rid, token, display, displayTruncated));
+            return new MetadataValue.Handle(new HandleRef(table, rid, token, display));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"Handle resolution failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"Handle resolution failed: {ex.Message}"));
         }
     }
 
@@ -1235,7 +1256,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1257,7 +1278,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1279,7 +1300,7 @@ public static class MetadataTableProjector
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
-            return new MetadataValue.Malformed($"List column read failed: {ex.Message}");
+            return new MetadataValue.Malformed(InertString.Format(TextPolicy.Field, $"List column read failed: {ex.Message}"));
         }
     }
 
@@ -1321,122 +1342,56 @@ public static class MetadataTableProjector
         => new MetadataValue.Flags(raw, decoded);
 
     /// <summary>
-    /// Escapes a decoded heap string for use as data and bounds the EMITTED
-    /// preview to <paramref name="maxChars"/> characters. Backslash and quote
-    /// are escaped, and every control character (including ESC) is rendered as
-    /// <c>\uXXXX</c> so the value cannot inject terminal control sequences or
-    /// break structured output. Because escaping can expand a single character,
-    /// the budget is enforced on the output length, not the input length;
-    /// <paramref name="truncated"/> reports whether any input was dropped to keep
-    /// the preview within budget.
-    /// </summary>
-    static string EscapeText(string value, int maxChars, out bool truncated)
-        => EscapeCore(value, maxChars, escapeStructural: true, out truncated);
-
-    /// <summary>
-    /// Renders every control character in a display string as <c>\uXXXX</c>,
-    /// leaving all other characters (including the structural <c>::</c>, quotes,
-    /// and generic-arity marks in resolved names) intact, and bounds the EMITTED
-    /// text to <paramref name="maxChars"/> characters so a large resolved name
-    /// cannot be re-materialized across every referencing row. The budget is
-    /// enforced on the output length, not the input length;
-    /// <paramref name="truncated"/> reports whether any input was dropped to keep
-    /// the text within budget.
+    /// Applies <paramref name="mode"/> to a decoded heap string and bounds the EMITTED text to
+    /// <paramref name="maxChars"/> characters.
+    /// <para>
+    /// Under <see cref="UntrustedTextMode.Contain"/> and <see cref="UntrustedTextMode.Refuse"/>,
+    /// every non-graphic scalar is spelled rather than emitted, by Unicode general category
+    /// (<c>Cc</c>, <c>Cf</c>, <c>Cs</c>, <c>Zl</c>, <c>Zp</c>) rather than by a hand-written
+    /// range. Category is what makes this correct where the range this replaced was not:
+    /// <c>U+202E</c> is <c>Cf</c> and <c>U+2028</c>/<c>U+2029</c> are <c>Zl</c>/<c>Zp</c>, so
+    /// none of them is below <c>U+0020</c> and all three reached the terminal raw (issue #3628).
+    /// </para>
+    /// <para>
+    /// Refusal is checked against the raw text, before encoding, because the question it asks is
+    /// about the artifact rather than about the rendering. When it passes, the value renders
+    /// exactly as <see cref="UntrustedTextMode.Contain"/> would, so the two modes differ only in
+    /// whether they can fail.
+    /// </para>
     /// <para>
     /// Internal rather than private because the image overview
-    /// (<see cref="MetadataImageInspector"/>) reports an artifact-derived string
-    /// of its own — the metadata root's version stamp — and must neutralize it
-    /// with this same escaper rather than a parallel one.
+    /// (<see cref="MetadataImageInspector"/>) reports an artifact-derived string of its own —
+    /// the metadata root's version stamp — and must apply this same treatment rather than a
+    /// parallel one.
     /// </para>
     /// </summary>
-    internal static string NeutralizeControls(string value, int maxChars, out bool truncated)
-        => EscapeCore(value, maxChars, escapeStructural: false, out truncated);
-
-    /// <summary>
-    /// Shared budget-bounded escaper. Walks the UTF-16 value one scalar at a
-    /// time so a well-formed surrogate pair is kept atomic — the budget boundary
-    /// can never retain a lone (malformed) surrogate — while an unpaired
-    /// surrogate is rendered as <c>\uXXXX</c> so it cannot corrupt the output on
-    /// UTF-8 conversion. When <paramref name="escapeStructural"/> is set,
-    /// <c>\ " \n \r \t</c> are escaped for use as data; either way every control
-    /// character is rendered as <c>\uXXXX</c>. The <paramref name="maxChars"/>
-    /// budget is enforced on the emitted length; <paramref name="truncated"/>
-    /// reports whether any input was dropped to stay within it.
-    /// </summary>
-    static string EscapeCore(string value, int maxChars, bool escapeStructural, out bool truncated)
+    /// <returns>
+    /// The contained value, still paired with whether it was bounded. Returning
+    /// <see cref="InertString"/> rather than a <see cref="string"/> and an <c>out</c> flag
+    /// is the point: the pair travels together into the projection, and only a sink that
+    /// has decided how to mark a partial value takes it apart.
+    /// </returns>
+    /// <exception cref="UntrustedTextException">
+    /// <paramref name="mode"/> is <see cref="UntrustedTextMode.Refuse"/> and the text carries a
+    /// scalar the policy does not permit.
+    /// </exception>
+    // The budget goes in as configured: a negative one is read as zero rather than
+    // refused, so clamping here would be a line that never changes an answer.
+    internal static InertString ContainCellText(
+        string value,
+        int maxChars,
+        UntrustedTextMode mode = UntrustedTextMode.Contain,
+        TextOrigin origin = default)
     {
-        int limit = Math.Max(0, maxChars);
-        var builder = new System.Text.StringBuilder(Math.Min(value.Length, limit));
-        truncated = false;
-
-        int i = 0;
-        while (i < value.Length)
+        if (mode is UntrustedTextMode.Refuse
+            && !InertString.IsPermitted(TextPolicy.Field, value, out ScalarViolation? violation))
         {
-            char c = value[i];
-
-            // A well-formed surrogate pair is one scalar; emit it atomically.
-            if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
-            {
-                if (builder.Length + 2 > limit)
-                {
-                    truncated = true;
-                    break;
-                }
-
-                builder.Append(c).Append(value[i + 1]);
-                i += 2;
-                continue;
-            }
-
-            // A lone surrogate is ill-formed text; escape it rather than emit it.
-            if (char.IsSurrogate(c))
-            {
-                if (builder.Length + 6 > limit)
-                {
-                    truncated = true;
-                    break;
-                }
-
-                builder.Append("\\u").Append(((int)c).ToString("X4"));
-                i++;
-                continue;
-            }
-
-            string? structural = escapeStructural
-                ? c switch
-                {
-                    '\\' => "\\\\",
-                    '"' => "\\\"",
-                    '\n' => "\\n",
-                    '\r' => "\\r",
-                    '\t' => "\\t",
-                    _ => null,
-                }
-                : null;
-
-            int width = structural is not null ? structural.Length : (IsControl(c) ? 6 : 1);
-            if (builder.Length + width > limit)
-            {
-                truncated = true;
-                break;
-            }
-
-            if (structural is not null)
-                builder.Append(structural);
-            else if (IsControl(c))
-                builder.Append("\\u").Append(((int)c).ToString("X4"));
-            else
-                builder.Append(c);
-
-            i++;
+            throw new UntrustedTextException(
+                origin, violation.Value.Index, violation.Value.Scalar, violation.Value.Category);
         }
 
-        return builder.ToString();
+        return new InertString(TextPolicy.Field, value, maxChars);
     }
-
-    // C0 controls, DEL, and the C1 control range — none of which are safe to
-    // emit verbatim into a terminal or a structured record.
-    static bool IsControl(char c) => c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f');
 
     readonly record struct TableSpec(
         TableIndex Index,

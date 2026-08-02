@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -200,9 +201,14 @@ public sealed class MetadataSource : IDisposable
     /// resolution (packages, deps.json, projects, shared frameworks) belongs to
     /// callers that inject a resolver.
     /// </summary>
-    sealed class SiblingAssemblyReferenceResolver(string path) : IAssemblyReferenceResolver
+    internal sealed class SiblingAssemblyReferenceResolver(string path)
+        : IAssemblyReferenceResolver
     {
         readonly string? _directory = System.IO.Path.GetDirectoryName(path);
+        readonly ConcurrentDictionary<
+            string,
+            Lazy<ResolvedAssemblyReference?>> _assemblies =
+                new(StringComparer.Ordinal);
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
@@ -214,11 +220,17 @@ public sealed class MetadataSource : IDisposable
                 string sibling = System.IO.Path.Combine(_directory, identity.Name + ".dll");
                 if (File.Exists(sibling))
                 {
-                    return new ResolvedAssemblyReference(
-                        identity,
+                    return _assemblies.GetOrAdd(
                         sibling,
-                        () => File.OpenRead(sibling),
-                        Provenance: "SiblingAssembly");
+                        static path => new Lazy<ResolvedAssemblyReference?>(
+                            () => ResolvedAssemblyReference.TryCreateFromPath(
+                                path,
+                                AssemblyResolutionProvenance.Local(
+                                    "SiblingAssembly"),
+                                out ResolvedAssemblyReference? reference)
+                                    ? reference
+                                    : null,
+                            LazyThreadSafetyMode.ExecutionAndPublication)).Value;
                 }
             }
 
