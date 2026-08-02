@@ -1,0 +1,1521 @@
+using System.Collections.Immutable;
+
+namespace ILInspector.Metadata;
+
+sealed record CachedBindingEvaluation(
+    AssemblyBindingOutcome Outcome,
+    ResolvedAssemblyReference? Assembly = null,
+    CandidateOpenFailure? OpenFailure = null);
+
+readonly record struct PolicyCacheKey(
+    AssemblyBindingPolicyVersion PolicyVersion,
+    object RequestKey);
+
+public sealed record TypeResolutionContextOptions
+{
+    public int MaxCandidates { get; init; } =
+        InspectionAcquisitionPlanOptions.DefaultMaxCandidates;
+    public long MaxRetainedImageBytes { get; init; } =
+        InspectionAcquisitionPlanOptions.DefaultMaxRetainedImageBytes;
+    public int MaxConcurrentSourceOpens { get; init; } =
+        InspectionAcquisitionPlanOptions.DefaultMaxConcurrentSourceOpens;
+    public int MaxForwarderHops { get; init; } =
+        TypeForwardResolver.DefaultMaxHops;
+
+    internal InspectionAcquisitionPlanOptions AcquisitionOptions()
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxCandidates);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxRetainedImageBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            MaxConcurrentSourceOpens);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxForwarderHops);
+        return new InspectionAcquisitionPlanOptions
+        {
+            MaxCandidates = MaxCandidates,
+            MaxRetainedImageBytes = MaxRetainedImageBytes,
+            MaxConcurrentSourceOpens = MaxConcurrentSourceOpens,
+        };
+    }
+}
+
+public sealed class TypeResolutionCatalog : IDisposable
+{
+    readonly object _gate = new();
+    readonly SemaphoreSlim _generationGate = new(1, 1);
+    readonly InspectionAcquisitionPlan _acquisition;
+    readonly Dictionary<DeclarationCacheKey, TypeDeclarationResult>
+        _declarations = [];
+    readonly Dictionary<PolicyCacheKey, CachedBindingEvaluation>
+        _bindings = [];
+    readonly Dictionary<PolicyCacheKey, TypeResolutionOutcome>
+        _resolutions = [];
+    readonly TypeResolutionContextOptions _options;
+    bool _disposed;
+
+    public TypeResolutionCatalog(TypeResolutionContextOptions? options = null)
+    {
+        _options = options ?? new TypeResolutionContextOptions();
+        _acquisition = new InspectionAcquisitionPlan(
+            _options.AcquisitionOptions());
+    }
+
+    public AssemblyCatalogId Id => _acquisition.CatalogId;
+
+    public TypeResolutionContext CreateContext(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<TypeResolutionRequest> requests) =>
+        CreateContextWithCancellation(
+            policy,
+            roots,
+            [],
+            requests,
+            CancellationToken.None);
+
+    public TypeResolutionContext CreateContext(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<AssemblyBindingRequest> bindingRequests,
+        IEnumerable<TypeResolutionRequest> requests) =>
+        CreateContextWithCancellation(
+            policy,
+            roots,
+            bindingRequests,
+            requests,
+            CancellationToken.None);
+
+    public TypeResolutionContext CreateContextWithCancellation(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<AssemblyBindingRequest> bindingRequests,
+        IEnumerable<TypeResolutionRequest> requests,
+        CancellationToken cancellationToken) =>
+        CreateContextCore(
+            policy,
+            roots,
+            bindingRequests,
+            requests,
+            ownsCatalog: false,
+            cancellationToken);
+
+    internal TypeResolutionContext CreateOwnedContext(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<TypeResolutionRequest> requests,
+        CancellationToken cancellationToken) =>
+        CreateContextCore(
+            policy,
+            roots,
+            [],
+            requests,
+            ownsCatalog: true,
+            cancellationToken);
+
+    TypeResolutionContext CreateContextCore(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<AssemblyBindingRequest> bindingRequests,
+        IEnumerable<TypeResolutionRequest> requests,
+        bool ownsCatalog,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(bindingRequests);
+        ArgumentNullException.ThrowIfNull(requests);
+
+        _generationGate.Wait(cancellationToken);
+        try
+        {
+            lock (_gate)
+                ObjectDisposedException.ThrowIf(_disposed, this);
+
+            return TypeResolutionContext.Build(
+                this,
+                policy,
+                roots,
+                bindingRequests,
+                requests,
+                _options,
+                ownsCatalog,
+                cancellationToken);
+        }
+        finally
+        {
+            _generationGate.Release();
+        }
+    }
+
+    internal InspectionAcquisitionPlan Acquisition => _acquisition;
+    internal object LifetimeGate => _gate;
+
+    internal void EnsureAlive()
+    {
+        lock (_gate)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    internal bool TryGetDeclaration(
+        AssemblyCandidateId candidate,
+        MetadataTypeDefinitionName type,
+        out TypeDeclarationResult? declaration) =>
+        _declarations.TryGetValue(
+            new DeclarationCacheKey(candidate, type),
+            out declaration);
+
+    internal void AddDeclaration(
+        AssemblyCandidateId candidate,
+        MetadataTypeDefinitionName type,
+        TypeDeclarationResult declaration) =>
+        _declarations.Add(
+            new DeclarationCacheKey(candidate, type),
+            declaration);
+
+    internal bool TryGetBinding(
+        AssemblyBindingPolicyVersion policyVersion,
+        object key,
+        out CachedBindingEvaluation? evaluation) =>
+        _bindings.TryGetValue(
+            new PolicyCacheKey(policyVersion, key),
+            out evaluation);
+
+    internal void AddBinding(
+        AssemblyBindingPolicyVersion policyVersion,
+        object key,
+        CachedBindingEvaluation evaluation) =>
+        _bindings.Add(
+            new PolicyCacheKey(policyVersion, key),
+            evaluation);
+
+    internal bool TryGetResolution(
+        AssemblyBindingPolicyVersion policyVersion,
+        object key,
+        out TypeResolutionOutcome? outcome) =>
+        _resolutions.TryGetValue(
+            new PolicyCacheKey(policyVersion, key),
+            out outcome);
+
+    internal void AddResolution(
+        AssemblyBindingPolicyVersion policyVersion,
+        object key,
+        TypeResolutionOutcome outcome) =>
+        _resolutions.Add(
+            new PolicyCacheKey(policyVersion, key),
+            outcome);
+
+    public void Dispose()
+    {
+        _generationGate.Wait();
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                _disposed = true;
+            }
+
+            _acquisition.Dispose();
+        }
+        finally
+        {
+            _generationGate.Release();
+        }
+    }
+
+    readonly record struct DeclarationCacheKey(
+        AssemblyCandidateId Candidate,
+        MetadataTypeDefinitionName Type);
+}
+
+public sealed class TypeResolutionContext : IDisposable
+{
+    readonly object _gate = new();
+    readonly TypeResolutionCatalog _catalog;
+    readonly bool _ownsCatalog;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        ResolvedAssemblyCandidate> _candidates;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        CandidateOpenFailure> _registrationFailures;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        ResolvedAssemblyReference> _descriptors;
+    readonly ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
+    readonly ImmutableDictionary<
+        ManifestRequestKey,
+        TypeResolutionOutcome> _projectionFailures;
+    readonly ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
+    bool _disposed;
+
+    TypeResolutionContext(
+        TypeResolutionCatalog catalog,
+        bool ownsCatalog,
+        AssemblyCatalogGenerationId generation,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyCandidate> candidates,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            CandidateOpenFailure> registrationFailures,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> descriptors,
+        ImmutableDictionary<RequestKey, TypeResolutionOutcome> outcomes,
+        ImmutableDictionary<
+            ManifestRequestKey,
+            TypeResolutionOutcome> projectionFailures,
+        ImmutableDictionary<BindingKey, AssemblyBindingOutcome> bindings)
+    {
+        _catalog = catalog;
+        _ownsCatalog = ownsCatalog;
+        Generation = generation;
+        _candidates = candidates;
+        _registrationFailures = registrationFailures;
+        _descriptors = descriptors;
+        _outcomes = outcomes;
+        _projectionFailures = projectionFailures;
+        _bindings = bindings;
+    }
+
+    public AssemblyCatalogId Catalog => _catalog.Id;
+    public AssemblyCatalogGenerationId Generation { get; }
+
+    public static TypeResolutionContext Create(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<TypeResolutionRequest> requests,
+        TypeResolutionContextOptions? options = null) =>
+        CreateWithCancellation(
+            policy,
+            roots,
+            requests,
+            options,
+            CancellationToken.None);
+
+    public static TypeResolutionContext CreateWithCancellation(
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<TypeResolutionRequest> requests,
+        TypeResolutionContextOptions? options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(requests);
+
+        var catalog = new TypeResolutionCatalog(options);
+        try
+        {
+            return catalog.CreateOwnedContext(
+                    policy,
+                    roots,
+                    requests,
+                    cancellationToken);
+        }
+        catch
+        {
+            catalog.Dispose();
+            throw;
+        }
+    }
+
+    internal static TypeResolutionContext Build(
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy policy,
+        IEnumerable<ResolvedAssemblyReference> roots,
+        IEnumerable<AssemblyBindingRequest> bindingRequests,
+        IEnumerable<TypeResolutionRequest> requests,
+        TypeResolutionContextOptions options,
+        bool ownsCatalog,
+        CancellationToken cancellationToken)
+    {
+        var builder = new Builder(
+            catalog,
+            policy,
+            options.MaxForwarderHops,
+            options.MaxCandidates,
+            ownsCatalog,
+            cancellationToken);
+        foreach (ResolvedAssemblyReference root in roots)
+        {
+            ArgumentNullException.ThrowIfNull(root);
+            builder.Register(root);
+        }
+
+        foreach (AssemblyBindingRequest request in bindingRequests)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            builder.Add(request);
+        }
+
+        foreach (TypeResolutionRequest request in requests)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            builder.Add(request);
+        }
+
+        return builder.Freeze();
+    }
+
+    public TypeResolutionOutcome Resolve(TypeResolutionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+
+                if (!TryProjectRequest(
+                        request,
+                        out RequestKey key,
+                        out var failure))
+                {
+                    return _projectionFailures.TryGetValue(
+                            ManifestRequestKey.From(request),
+                            out TypeResolutionOutcome? projectionOutcome)
+                        ? projectionOutcome
+                        : new TypeResolutionOutcome.Rejected(
+                            failure!,
+                            ImmutableArray<TypeForwardingHop>.Empty);
+                }
+
+                return _outcomes.TryGetValue(
+                        key,
+                        out TypeResolutionOutcome? outcome)
+                    ? outcome
+                    : new TypeResolutionOutcome.Rejected(
+                        new TypeResolutionFailure.PlanExpansionRequired(
+                            new ResolutionPlanRequest.Type(request)),
+                        ImmutableArray<TypeForwardingHop>.Empty);
+            }
+        }
+    }
+
+    public AssemblyBindingOutcome Bind(AssemblyBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+
+                if (!TryProjectBinding(
+                        request.Target,
+                        request.Origin,
+                        request.Scope,
+                        out BindingKey key,
+                        out _))
+                {
+                    return new AssemblyBindingOutcome.ExpansionRequired(
+                        request);
+                }
+
+                return _bindings.TryGetValue(
+                        key,
+                        out AssemblyBindingOutcome? outcome)
+                    ? outcome
+                    : new AssemblyBindingOutcome.ExpansionRequired(request);
+            }
+        }
+    }
+
+    bool TryProjectRequest(
+        TypeResolutionRequest request,
+        out RequestKey key,
+        out TypeResolutionFailure? failure)
+    {
+        key = null!;
+        failure = null;
+        switch (request.Start)
+        {
+            case TypeResolutionStart.Assembly assembly:
+                if (!TryCandidate(
+                        assembly.Value.Registration,
+                        out ResolvedAssemblyCandidate candidate,
+                        out failure))
+                {
+                    return false;
+                }
+
+                key = new RequestKey.Assembly(
+                    candidate.Id,
+                    assembly.Scope,
+                    request.Type);
+                return true;
+
+            case TypeResolutionStart.Reference reference:
+                if (!TryProjectBinding(
+                        AssemblyBindingTarget.Reference(reference.Value),
+                        reference.Origin,
+                        reference.Scope,
+                        out BindingKey referenceKey,
+                        out failure))
+                {
+                    return false;
+                }
+
+                key = new RequestKey.Binding(referenceKey, request.Type);
+                return true;
+
+            case TypeResolutionStart.CoreLibrary coreLibrary:
+                if (!TryProjectBinding(
+                        AssemblyBindingTarget.CoreLibrary(),
+                        coreLibrary.Origin,
+                        coreLibrary.Scope,
+                        out BindingKey coreKey,
+                        out failure))
+                {
+                    return false;
+                }
+
+                key = new RequestKey.Binding(coreKey, request.Type);
+                return true;
+
+            case TypeResolutionStart.Module module:
+                if (!TryCandidate(
+                        module.Origin.Registration,
+                        out ResolvedAssemblyCandidate moduleCandidate,
+                        out failure))
+                {
+                    return false;
+                }
+
+                key = new RequestKey.Module(
+                    moduleCandidate.Id,
+                    module.Name,
+                    request.Type);
+                return true;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown type-resolution start.");
+        }
+    }
+
+    bool TryCandidate(
+        AssemblyAcquisitionRegistration registration,
+        out ResolvedAssemblyCandidate candidate,
+        out TypeResolutionFailure? failure)
+    {
+        candidate = null!;
+        if (_candidates.TryGetValue(
+                registration,
+                out ResolvedAssemblyCandidate? found)
+            && found is not null)
+        {
+            candidate = found;
+            failure = null;
+            return true;
+        }
+
+        if (_registrationFailures.TryGetValue(
+                registration,
+                out CandidateOpenFailure? openFailure))
+        {
+            failure = new TypeResolutionFailure.CandidateOpenFailed(
+                FindDescriptor(registration),
+                openFailure);
+            return false;
+        }
+
+        failure = new TypeResolutionFailure.UnregisteredAssembly(registration);
+        candidate = null!;
+        return false;
+    }
+
+    ResolvedAssemblyReference FindDescriptor(
+        AssemblyAcquisitionRegistration registration)
+    {
+        return _descriptors.TryGetValue(registration, out var descriptor)
+            ? descriptor
+            : throw new InvalidOperationException(
+                "A registration failure lost its assembly descriptor.");
+    }
+
+    bool TryProjectBinding(
+        AssemblyBindingTarget target,
+        AssemblyBindingOrigin origin,
+        AssemblyResolutionScope scope,
+        out BindingKey key,
+        out TypeResolutionFailure? failure) =>
+        TryCreateBindingKey(
+            _candidates,
+            target,
+            origin,
+            scope,
+            out key,
+            out failure);
+
+    static bool TryCreateBindingKey(
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyCandidate> candidates,
+        AssemblyBindingTarget target,
+        AssemblyBindingOrigin origin,
+        AssemblyResolutionScope scope,
+        out BindingKey key,
+        out TypeResolutionFailure? failure)
+    {
+        BindingDomainKey domain;
+        switch (origin)
+        {
+            case AssemblyBindingOrigin.GlobalOrigin:
+                domain = BindingDomainKey.Global;
+                break;
+            case AssemblyBindingOrigin.RequestingAssembly requesting:
+                if (!candidates.TryGetValue(
+                        requesting.Registration,
+                        out ResolvedAssemblyCandidate? candidate))
+                {
+                    key = null!;
+                    failure =
+                        new TypeResolutionFailure.UnregisteredAssembly(
+                            requesting.Registration);
+                    return false;
+                }
+
+                domain = BindingDomainKey.FromCandidate(candidate!.Id);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown assembly-binding origin.");
+        }
+
+        key = new BindingKey(domain, target, scope);
+        failure = null;
+        return true;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+        }
+
+        if (_ownsCatalog)
+            _catalog.Dispose();
+    }
+
+    abstract record RequestKey(MetadataTypeDefinitionName Type)
+    {
+        internal sealed record Assembly(
+            AssemblyCandidateId Candidate,
+            AssemblyResolutionScope Scope,
+            MetadataTypeDefinitionName Name) : RequestKey(Name);
+
+        internal sealed record Binding(
+            BindingKey BindingKey,
+            MetadataTypeDefinitionName Name) : RequestKey(Name);
+
+        internal sealed record Module(
+            AssemblyCandidateId Candidate,
+            string ModuleName,
+            MetadataTypeDefinitionName Name) : RequestKey(Name);
+    }
+
+    abstract record ManifestRequestKey(MetadataTypeDefinitionName Type)
+    {
+        internal static ManifestRequestKey From(TypeResolutionRequest request) =>
+            request.Start switch
+            {
+                TypeResolutionStart.Assembly assembly =>
+                    new Assembly(
+                        assembly.Value.Registration,
+                        assembly.Scope,
+                        request.Type),
+                TypeResolutionStart.Reference reference =>
+                    new Binding(
+                        reference.Value,
+                        OriginKey.From(reference.Origin),
+                        reference.Scope,
+                        request.Type),
+                TypeResolutionStart.CoreLibrary coreLibrary =>
+                    new CoreLibrary(
+                        coreLibrary.Origin.Registration,
+                        coreLibrary.Scope,
+                        request.Type),
+                TypeResolutionStart.Module module =>
+                    new Module(
+                        module.Origin.Registration,
+                        module.Name,
+                        request.Type),
+                _ => throw new InvalidOperationException(
+                    "Unknown type-resolution start."),
+            };
+
+        internal sealed record Assembly(
+            AssemblyAcquisitionRegistration Registration,
+            AssemblyResolutionScope Scope,
+            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
+
+        internal sealed record Binding(
+            AssemblyReferenceIdentity Reference,
+            OriginKey Origin,
+            AssemblyResolutionScope Scope,
+            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
+
+        internal sealed record CoreLibrary(
+            AssemblyAcquisitionRegistration Registration,
+            AssemblyResolutionScope Scope,
+            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
+
+        internal sealed record Module(
+            AssemblyAcquisitionRegistration Registration,
+            string ModuleName,
+            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
+    }
+
+    readonly record struct OriginKey(
+        bool IsGlobal,
+        AssemblyAcquisitionRegistration? Registration)
+    {
+        internal static OriginKey From(AssemblyBindingOrigin origin) =>
+            origin switch
+            {
+                AssemblyBindingOrigin.GlobalOrigin => new(true, null),
+                AssemblyBindingOrigin.RequestingAssembly requesting =>
+                    new(false, requesting.Registration),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding origin."),
+            };
+    }
+
+    readonly record struct BindingDomainKey(
+        bool IsGlobal,
+        AssemblyCandidateId Candidate)
+    {
+        internal static BindingDomainKey Global => new(true, default);
+        internal static BindingDomainKey FromCandidate(
+            AssemblyCandidateId candidate) =>
+            new(false, candidate);
+    }
+
+    sealed record BindingKey(
+        BindingDomainKey Domain,
+        AssemblyBindingTarget Target,
+        AssemblyResolutionScope Scope);
+
+    sealed class Builder
+    {
+        readonly TypeResolutionCatalog _catalog;
+        readonly InspectionAcquisitionPlan _acquisition;
+        readonly IAssemblyBindingPolicy _policy;
+        readonly AssemblyBindingPolicyVersion _policyVersion;
+        readonly int _maxForwarderHops;
+        readonly int _maxCandidates;
+        readonly bool _ownsCatalog;
+        readonly CancellationToken _cancellationToken;
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyCandidate> _candidates =
+                new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            CandidateOpenFailure> _registrationFailures =
+                new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> _descriptors =
+                new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+            _inventories = [];
+        readonly Dictionary<BindingKey, CachedBindingEvaluation> _bindings = [];
+        readonly Dictionary<RequestKey, TypeResolutionOutcome> _outcomes = [];
+        readonly Dictionary<
+            ManifestRequestKey,
+            TypeResolutionOutcome> _projectionFailures = [];
+        readonly AssemblyCatalogGenerationId _generation =
+            new();
+
+        internal Builder(
+            TypeResolutionCatalog catalog,
+            IAssemblyBindingPolicy policy,
+            int maxForwarderHops,
+            int maxCandidates,
+            bool ownsCatalog,
+            CancellationToken cancellationToken)
+        {
+            _catalog = catalog;
+            _acquisition = catalog.Acquisition;
+            _policy = policy;
+            _policyVersion = policy.Version
+                ?? throw new ArgumentException(
+                    "A binding policy must expose a version.",
+                    nameof(policy));
+            _maxForwarderHops = maxForwarderHops;
+            _maxCandidates = maxCandidates;
+            _ownsCatalog = ownsCatalog;
+            _cancellationToken = cancellationToken;
+        }
+
+        internal void Register(ResolvedAssemblyReference assembly)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (_candidates.ContainsKey(assembly.Registration)
+                || _registrationFailures.ContainsKey(assembly.Registration))
+            {
+                return;
+            }
+
+            _descriptors.Add(assembly.Registration, assembly);
+            switch (_acquisition.Register(assembly))
+            {
+                case CandidateRegistrationResult.Ready ready:
+                    _candidates.Add(assembly.Registration, ready.Candidate);
+                    _inventories.Add(ready.Candidate.Id, ready.Inventory);
+                    break;
+                case CandidateRegistrationResult.Rejected rejected:
+                    _registrationFailures.Add(
+                        assembly.Registration,
+                        rejected.Failure);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown candidate-registration result.");
+            }
+        }
+
+        internal void Add(TypeResolutionRequest request)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (request.Start is TypeResolutionStart.Assembly assembly)
+                Register(assembly.Value);
+
+            if (!TryProjectRequest(
+                    request,
+                    out RequestKey key,
+                    out TypeResolutionOutcome? projectionFailure))
+            {
+                ManifestRequestKey manifestKey =
+                    ManifestRequestKey.From(request);
+                if (_catalog.TryGetResolution(
+                        _policyVersion,
+                        manifestKey,
+                        out TypeResolutionOutcome? cachedFailure))
+                {
+                    _projectionFailures.TryAdd(
+                        manifestKey,
+                        cachedFailure!);
+                }
+                else
+                {
+                    _projectionFailures.TryAdd(
+                        manifestKey,
+                        projectionFailure!);
+                    _catalog.AddResolution(
+                        _policyVersion,
+                        manifestKey,
+                        projectionFailure!);
+                }
+                return;
+            }
+
+            if (_outcomes.ContainsKey(key))
+                return;
+
+            if (_catalog.TryGetResolution(
+                    _policyVersion,
+                    key,
+                    out TypeResolutionOutcome? cached))
+            {
+                SeedRecipe(key, cached!);
+                _outcomes.Add(key, Reproject(cached!));
+                return;
+            }
+
+            TypeResolutionOutcome outcome = ResolveCore(request);
+            _outcomes.Add(key, outcome);
+            _catalog.AddResolution(_policyVersion, key, outcome);
+        }
+
+        void SeedRecipe(
+            RequestKey requestKey,
+            TypeResolutionOutcome outcome)
+        {
+            if (requestKey is RequestKey.Binding binding)
+                SeedBinding(binding.BindingKey);
+
+            foreach (TypeForwardingHop hop in outcome.Hops)
+            {
+                Register(hop.SourceAssembly.Assembly);
+                if (TryBindingKey(
+                        AssemblyBindingTarget.Reference(
+                            hop.TargetReference),
+                        AssemblyBindingOrigin.FromAssembly(
+                            hop.SourceAssembly.Assembly),
+                        hop.Scope,
+                        out BindingKey key,
+                        out _))
+                {
+                    SeedBinding(key);
+                }
+            }
+
+            switch (outcome)
+            {
+                case TypeResolutionOutcome.Resolved resolved:
+                    Register(resolved.Definition.Assembly.Assembly);
+                    break;
+                case TypeResolutionOutcome.NotFound notFound:
+                    Register(notFound.LastAssembly.Assembly);
+                    break;
+            }
+        }
+
+        void SeedBinding(BindingKey key)
+        {
+            if (_bindings.ContainsKey(key))
+                return;
+            if (!_catalog.TryGetBinding(
+                    _policyVersion,
+                    key,
+                    out CachedBindingEvaluation? evaluation))
+            {
+                throw new InvalidOperationException(
+                    "A cached resolution recipe lost a binding dependency.");
+            }
+
+            _bindings.Add(key, evaluation!);
+            switch (evaluation!.Outcome)
+            {
+                case AssemblyBindingOutcome.Resolved resolved:
+                    Register(resolved.Candidate.Assembly);
+                    break;
+                case AssemblyBindingOutcome.Ambiguous ambiguous:
+                    foreach (ResolvedAssemblyCandidate candidate
+                        in ambiguous.Candidates)
+                    {
+                        Register(candidate.Assembly);
+                    }
+                    break;
+            }
+        }
+
+        internal void Add(AssemblyBindingRequest request)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (!TryBindingKey(
+                    request.Target,
+                    request.Origin,
+                    request.Scope,
+                    out BindingKey key,
+                    out _))
+            {
+                return;
+            }
+
+            if (_bindings.ContainsKey(key))
+                return;
+
+            CachedBindingEvaluation evaluation =
+                EvaluateBinding(key, request);
+            if (evaluation.Outcome
+                is not AssemblyBindingOutcome.Resolved resolved)
+            {
+                return;
+            }
+
+            AssemblyInventorySnapshot inventory =
+                _inventories[resolved.Candidate.Id];
+            foreach (AssemblyReferenceIdentity target
+                in inventory.ForwarderTargets)
+            {
+                Add(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(target),
+                        AssemblyBindingOrigin.FromAssembly(
+                            resolved.Candidate.Assembly),
+                        TightenScope(request.Scope, target)));
+            }
+        }
+
+        internal TypeResolutionContext Freeze()
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            EnsurePolicyVersion();
+            return new TypeResolutionContext(
+                _catalog,
+                _ownsCatalog,
+                _generation,
+                _candidates,
+                _registrationFailures,
+                _descriptors,
+                _outcomes.ToImmutableDictionary(),
+                _projectionFailures.ToImmutableDictionary(),
+                _bindings.ToImmutableDictionary(
+                    static pair => pair.Key,
+                    static pair => pair.Value.Outcome));
+        }
+
+        bool TryProjectRequest(
+            TypeResolutionRequest request,
+            out RequestKey key,
+            out TypeResolutionOutcome? failure)
+        {
+            key = null!;
+            failure = null;
+            switch (request.Start)
+            {
+                case TypeResolutionStart.Assembly assembly:
+                    if (!TryCandidate(
+                            assembly.Value.Registration,
+                            out ResolvedAssemblyCandidate candidate,
+                            out TypeResolutionFailure? candidateFailure))
+                    {
+                        failure = Rejected(candidateFailure!);
+                        return false;
+                    }
+
+                    key = new RequestKey.Assembly(
+                        candidate.Id,
+                        assembly.Scope,
+                        request.Type);
+                    return true;
+
+                case TypeResolutionStart.Reference reference:
+                    if (!TryBindingKey(
+                            AssemblyBindingTarget.Reference(reference.Value),
+                            reference.Origin,
+                            reference.Scope,
+                            out BindingKey referenceKey,
+                            out TypeResolutionFailure? referenceFailure))
+                    {
+                        failure = Rejected(referenceFailure!);
+                        return false;
+                    }
+
+                    key = new RequestKey.Binding(referenceKey, request.Type);
+                    return true;
+
+                case TypeResolutionStart.CoreLibrary coreLibrary:
+                    if (!TryBindingKey(
+                            AssemblyBindingTarget.CoreLibrary(),
+                            coreLibrary.Origin,
+                            coreLibrary.Scope,
+                            out BindingKey coreKey,
+                            out TypeResolutionFailure? coreFailure))
+                    {
+                        failure = Rejected(coreFailure!);
+                        return false;
+                    }
+
+                    key = new RequestKey.Binding(coreKey, request.Type);
+                    return true;
+
+                case TypeResolutionStart.Module module:
+                    if (!TryCandidate(
+                            module.Origin.Registration,
+                            out ResolvedAssemblyCandidate moduleCandidate,
+                            out TypeResolutionFailure? moduleFailure))
+                    {
+                        failure = Rejected(moduleFailure!);
+                        return false;
+                    }
+
+                    key = new RequestKey.Module(
+                        moduleCandidate.Id,
+                        module.Name,
+                        request.Type);
+                    return true;
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown type-resolution start.");
+            }
+        }
+
+        TypeResolutionOutcome ResolveCore(TypeResolutionRequest request)
+        {
+            var hops = ImmutableArray.CreateBuilder<TypeForwardingHop>();
+            ResolvedAssemblyCandidate current;
+            AssemblyResolutionScope scope;
+
+            switch (request.Start)
+            {
+                case TypeResolutionStart.Assembly assembly:
+                    if (!TryCandidate(
+                            assembly.Value.Registration,
+                            out current!,
+                            out TypeResolutionFailure? candidateFailure))
+                    {
+                        return Rejected(candidateFailure!, hops);
+                    }
+                    scope = assembly.Scope;
+                    break;
+
+                case TypeResolutionStart.Reference reference:
+                    if (!TrySelect(
+                            AssemblyBindingTarget.Reference(reference.Value),
+                            reference.Origin,
+                            reference.Scope,
+                            hops,
+                            out current!,
+                            out TypeResolutionOutcome? referenceOutcome))
+                    {
+                        return referenceOutcome!;
+                    }
+                    scope = reference.Scope;
+                    break;
+
+                case TypeResolutionStart.CoreLibrary coreLibrary:
+                    if (!TrySelect(
+                            AssemblyBindingTarget.CoreLibrary(),
+                            coreLibrary.Origin,
+                            coreLibrary.Scope,
+                            hops,
+                            out current!,
+                            out TypeResolutionOutcome? coreOutcome))
+                    {
+                        return coreOutcome!;
+                    }
+                    scope = coreLibrary.Scope;
+                    break;
+
+                case TypeResolutionStart.Module module:
+                    return Rejected(
+                        new TypeResolutionFailure.UnsupportedModuleReference(
+                            module.Name),
+                        hops);
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown type-resolution start.");
+            }
+
+            var visited = new HashSet<AssemblyCandidateId>();
+            while (true)
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+                if (!visited.Add(current.Id))
+                {
+                    return Rejected(
+                        new TypeResolutionFailure.ForwarderCycle(),
+                        hops);
+                }
+
+                if (!_catalog.TryGetDeclaration(
+                        current.Id,
+                        request.Type,
+                        out TypeDeclarationResult? declaration))
+                {
+                    CandidateSessionResult sessionResult =
+                        _acquisition.OpenSession(current);
+                    if (sessionResult
+                        is CandidateSessionResult.Rejected sessionRejected)
+                    {
+                        return Rejected(
+                            new TypeResolutionFailure.CandidateOpenFailed(
+                                current.Assembly,
+                                sessionRejected.Failure),
+                            hops);
+                    }
+
+                    var ready = (CandidateSessionResult.Ready)sessionResult;
+                    declaration = ready.Session.ProbeDeclaration(request.Type);
+                    _catalog.AddDeclaration(
+                        current.Id,
+                        request.Type,
+                        declaration);
+                }
+
+                switch (declaration)
+                {
+                    case TypeDeclarationResult.Defined defined:
+                        AssemblyInventorySnapshot inventory =
+                            _inventories[current.Id];
+                        var key = new ResolvedTypeDefinitionKey(
+                            _acquisition.CatalogId,
+                            _generation,
+                            current.Id,
+                            defined.Definition);
+                        var address = new MetadataTypeDefinitionAddress(
+                            inventory.ModuleVersionId,
+                            defined.Definition);
+                        return new TypeResolutionOutcome.Resolved(
+                            new ResolvedTypeDefinition(
+                                key,
+                                address,
+                                current,
+                                request.Type),
+                            hops.ToImmutable());
+
+                    case TypeDeclarationResult.Missing:
+                        return new TypeResolutionOutcome.NotFound(
+                            current,
+                            hops.ToImmutable());
+
+                    case TypeDeclarationResult.Ambiguous ambiguous:
+                        return new TypeResolutionOutcome.Ambiguous(
+                            new TypeResolutionAmbiguity.TypeDeclaration(
+                                current,
+                                request.Type,
+                                ambiguous.Candidates),
+                            hops.ToImmutable());
+
+                    case TypeDeclarationResult.Rejected rejected:
+                        return Rejected(
+                            new TypeResolutionFailure.DeclarationRejected(
+                                rejected.Rejection),
+                            hops);
+
+                    case TypeDeclarationResult.ExportedFromModule module:
+                        return Rejected(
+                            new TypeResolutionFailure.UnsupportedModuleExport(
+                                module.Module),
+                            hops);
+
+                    case TypeDeclarationResult.Forwarded forwarded:
+                        scope = TightenScope(scope, forwarded.Target);
+                        hops.Add(
+                            new TypeForwardingHop(
+                                current,
+                                forwarded.Declarations,
+                                forwarded.Target,
+                                scope));
+                        if (hops.Count > _maxForwarderHops)
+                        {
+                            return Rejected(
+                                new TypeResolutionFailure.HopBudgetExceeded(
+                                    _maxForwarderHops),
+                                hops);
+                        }
+
+                        if (!TrySelect(
+                                AssemblyBindingTarget.Reference(
+                                    forwarded.Target),
+                                AssemblyBindingOrigin.FromAssembly(
+                                    current.Assembly),
+                                scope,
+                                hops,
+                                out current!,
+                                out TypeResolutionOutcome? forwardedOutcome))
+                        {
+                            return forwardedOutcome!;
+                        }
+                        break;
+
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown type-declaration result.");
+                }
+            }
+        }
+
+        bool TrySelect(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope,
+            ImmutableArray<TypeForwardingHop>.Builder hops,
+            out ResolvedAssemblyCandidate? candidate,
+            out TypeResolutionOutcome? outcome)
+        {
+            candidate = null;
+            outcome = null;
+            if (!TryBindingKey(
+                    target,
+                    origin,
+                    scope,
+                    out BindingKey key,
+                    out TypeResolutionFailure? keyFailure))
+            {
+                outcome = Rejected(keyFailure!, hops);
+                return false;
+            }
+
+            CachedBindingEvaluation evaluation = EvaluateBinding(
+                key,
+                new AssemblyBindingRequest(target, origin, scope));
+            switch (evaluation.Outcome)
+            {
+                case AssemblyBindingOutcome.Resolved resolved:
+                    candidate = resolved.Candidate;
+                    return true;
+                case AssemblyBindingOutcome.Missing:
+                    outcome = new TypeResolutionOutcome.UnboundBinding(
+                        target,
+                        origin,
+                        scope,
+                        hops.ToImmutable());
+                    return false;
+                case AssemblyBindingOutcome.Unavailable unavailable:
+                    if (evaluation.OpenFailure is { } openFailure)
+                    {
+                        outcome = Rejected(
+                            CandidateFailure(
+                                evaluation.Assembly!,
+                                openFailure,
+                                _maxCandidates),
+                            hops);
+                    }
+                    else
+                    {
+                        outcome = new TypeResolutionOutcome.Unavailable(
+                            target,
+                            origin,
+                            scope,
+                            unavailable.Failure,
+                            hops.ToImmutable());
+                    }
+                    return false;
+                case AssemblyBindingOutcome.Ambiguous ambiguous:
+                    outcome = new TypeResolutionOutcome.Ambiguous(
+                        new TypeResolutionAmbiguity.AssemblyBinding(
+                            target,
+                            origin,
+                            scope,
+                            ambiguous.Candidates),
+                        hops.ToImmutable());
+                    return false;
+                case AssemblyBindingOutcome.Rejected rejected:
+                    outcome = Rejected(
+                        new TypeResolutionFailure.InvalidBindingPolicy(
+                            rejected.Failure),
+                        hops);
+                    return false;
+                default:
+                    throw new InvalidOperationException(
+                        "Discovery produced an invalid binding outcome.");
+            }
+        }
+
+        CachedBindingEvaluation EvaluateBinding(
+            BindingKey key,
+            AssemblyBindingRequest request)
+        {
+            if (_bindings.TryGetValue(
+                    key,
+                    out CachedBindingEvaluation? cached))
+                return cached;
+            if (_catalog.TryGetBinding(
+                    _policyVersion,
+                    key,
+                    out cached))
+            {
+                _bindings.Add(key, cached!);
+                return cached!;
+            }
+
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (!HasPolicyVersion())
+                return CacheInvalidBinding(key);
+            AssemblyBindingSelection? selection = _policy.Select(request);
+            if (selection is null || !HasPolicyVersion())
+                return CacheInvalidBinding(key);
+
+            CachedBindingEvaluation evaluation = selection switch
+            {
+                AssemblyBindingSelection.Selected selected =>
+                    SelectOne(selected.Assembly),
+                AssemblyBindingSelection.Missing =>
+                    new(new AssemblyBindingOutcome.Missing()),
+                AssemblyBindingSelection.Unavailable unavailable =>
+                    new(
+                        new AssemblyBindingOutcome.Unavailable(
+                            unavailable.Failure)),
+                AssemblyBindingSelection.Ambiguous ambiguous =>
+                    SelectMany(ambiguous.Assemblies),
+                AssemblyBindingSelection.Rejected rejected =>
+                    new(
+                        new AssemblyBindingOutcome.Rejected(
+                            rejected.Failure)),
+                _ => InvalidBinding(),
+            };
+            _bindings.Add(key, evaluation);
+            _catalog.AddBinding(_policyVersion, key, evaluation);
+            return evaluation;
+        }
+
+        CachedBindingEvaluation CacheInvalidBinding(BindingKey key)
+        {
+            CachedBindingEvaluation evaluation = InvalidBinding();
+            _bindings.Add(key, evaluation);
+            _catalog.AddBinding(_policyVersion, key, evaluation);
+            return evaluation;
+        }
+
+        CachedBindingEvaluation SelectOne(ResolvedAssemblyReference assembly)
+        {
+            Register(assembly);
+            if (_candidates.TryGetValue(
+                    assembly.Registration,
+                    out ResolvedAssemblyCandidate? candidate))
+            {
+                return new(
+                    new AssemblyBindingOutcome.Resolved(candidate));
+            }
+
+            CandidateOpenFailure failure =
+                _registrationFailures[assembly.Registration];
+            return new(
+                new AssemblyBindingOutcome.Unavailable(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.CandidateUnavailable)),
+                assembly,
+                failure);
+        }
+
+        CachedBindingEvaluation SelectMany(
+            ImmutableArray<ResolvedAssemblyReference> assemblies)
+        {
+            var candidates =
+                ImmutableArray.CreateBuilder<ResolvedAssemblyCandidate>();
+            var seen = new HashSet<AssemblyCandidateId>();
+            ResolvedAssemblyReference? unavailableAssembly = null;
+            CandidateOpenFailure? unavailableFailure = null;
+            foreach (ResolvedAssemblyReference assembly in assemblies)
+            {
+                Register(assembly);
+                if (_registrationFailures.TryGetValue(
+                        assembly.Registration,
+                        out CandidateOpenFailure? failure))
+                {
+                    unavailableAssembly ??= assembly;
+                    unavailableFailure ??= failure;
+                    continue;
+                }
+
+                ResolvedAssemblyCandidate candidate =
+                    _candidates[assembly.Registration];
+                if (seen.Add(candidate.Id))
+                    candidates.Add(candidate);
+            }
+
+            if (candidates.Count > 1)
+            {
+                return new(
+                    new AssemblyBindingOutcome.Ambiguous(
+                        candidates.ToImmutable()));
+            }
+
+            return unavailableFailure is not null
+                ? new(
+                    new AssemblyBindingOutcome.Unavailable(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                    unavailableAssembly,
+                    unavailableFailure)
+                : InvalidBinding();
+        }
+
+        static CachedBindingEvaluation InvalidBinding() =>
+            new(
+                new AssemblyBindingOutcome.Rejected(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)));
+
+        bool TryBindingKey(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope,
+            out BindingKey key,
+            out TypeResolutionFailure? failure) =>
+            TryCreateBindingKey(
+                _candidates,
+                target,
+                origin,
+                scope,
+                out key,
+                out failure);
+
+        bool TryCandidate(
+            AssemblyAcquisitionRegistration registration,
+            out ResolvedAssemblyCandidate candidate,
+            out TypeResolutionFailure? failure)
+        {
+            candidate = null!;
+            if (_candidates.TryGetValue(
+                    registration,
+                    out ResolvedAssemblyCandidate? found)
+                && found is not null)
+            {
+                candidate = found;
+                failure = null;
+                return true;
+            }
+
+            if (_registrationFailures.TryGetValue(
+                    registration,
+                    out CandidateOpenFailure? openFailure))
+            {
+                failure = CandidateFailure(
+                    _descriptors[registration],
+                    openFailure,
+                    _maxCandidates);
+                return false;
+            }
+
+            failure =
+                new TypeResolutionFailure.UnregisteredAssembly(registration);
+            candidate = null!;
+            return false;
+        }
+
+        bool HasPolicyVersion() =>
+            ReferenceEquals(_policyVersion, _policy.Version);
+
+        void EnsurePolicyVersion()
+        {
+            if (!HasPolicyVersion())
+            {
+                throw new InvalidOperationException(
+                    "The binding policy changed version during discovery.");
+            }
+        }
+
+        static TypeResolutionFailure CandidateFailure(
+            ResolvedAssemblyReference assembly,
+            CandidateOpenFailure failure,
+            int maxCandidates) =>
+            failure.Kind == CandidateOpenFailureKind.ResourceBudget
+                ? new TypeResolutionFailure.DiscoveryBudgetExceeded(
+                    maxCandidates)
+                : new TypeResolutionFailure.CandidateOpenFailed(
+                    assembly,
+                    failure);
+
+        static AssemblyResolutionScope TightenScope(
+            AssemblyResolutionScope current,
+            AssemblyReferenceIdentity target) =>
+            current == AssemblyResolutionScope.Platform
+                || PlatformKeys.IsPlatform(target.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : AssemblyResolutionScope.Any;
+
+        static TypeResolutionOutcome.Rejected Rejected(
+            TypeResolutionFailure failure,
+            ImmutableArray<TypeForwardingHop>.Builder? hops = null) =>
+            new(
+                failure,
+                hops?.ToImmutable()
+                    ?? ImmutableArray<TypeForwardingHop>.Empty);
+
+        TypeResolutionOutcome Reproject(TypeResolutionOutcome outcome)
+        {
+            if (outcome is not TypeResolutionOutcome.Resolved resolved)
+                return outcome;
+
+            ResolvedTypeDefinition definition = resolved.Definition;
+            var key = new ResolvedTypeDefinitionKey(
+                _acquisition.CatalogId,
+                _generation,
+                definition.Assembly.Id,
+                definition.Address.Definition);
+            return new TypeResolutionOutcome.Resolved(
+                new ResolvedTypeDefinition(
+                    key,
+                    definition.Address,
+                    definition.Assembly,
+                    definition.Type),
+                resolved.Hops);
+        }
+    }
+}
