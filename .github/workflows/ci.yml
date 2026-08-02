@@ -7,10 +7,14 @@ on:
   # A PR retargeted from `main` onto a long-lived feature branch silently stops
   # matching `[main]`, so it reports no checks rather than failing ones -- and
   # once `ci-required` is a required check, "no checks reported" is
-  # indistinguishable at a glance from "not run yet". `feature/**` keeps the
-  # lower half of a stack covered while its base is still in review.
+  # indistinguishable at a glance from "not run yet".
+  #
+  # The list must therefore cover every prefix a *base* can have, which is every
+  # prefix a branch can have, since any branch under review can be stacked on.
+  # `feature/**` alone left `fix/**` uncovered, and that is not a hypothetical
+  # gap: #3684 opened onto `fix/3628-...` and reported no checks at all.
   pull_request:
-    branches: [main, 'feature/**']
+    branches: [main, 'feature/**', 'fix/**']
 
 env:
   DOTNET_NOLOGO: true

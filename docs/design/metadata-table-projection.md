@@ -847,12 +847,17 @@ channel the check just closed.
 ### Status
 
 The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
-implemented, with their gates named above. The identifier allow lists, the
-trust and rendering axes, `--survey`, the visual-encoding spelling and its
-decoder, and the failure-message rule are the **target model** and are not yet
-implemented; today the projector neutralizes control characters unconditionally
-and continues, and nothing validates an identifier's grammar at all. See the
-threat model's open work.
+implemented, with their gates named above. So are the visual-encoding spelling
+(#3636, extended to Unicode general categories in #3628), the failure-message
+rule, and both the trust and rendering axes, which `mdi` exposes as
+`--show-untrusted-text` and `--dangerously-print-raw`.
+
+The identifier allow lists and `--survey` remain the **target model**: nothing
+validates an identifier's grammar, and refusal stops at the first violation
+rather than surveying them all. The projector itself still encodes and
+continues by default — the axes are a property of the command line, not of the
+library, because containment is a guarantee every caller gets while refusing is
+a policy only a caller can choose. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 
@@ -985,6 +990,22 @@ for artifact-derived text to be its own type that a renderer cannot accept as a
 raw `string` — the shape `HardenedJson` already uses, where the guarantee comes
 from choosing the type rather than from remembering the call. Auditing then
 becomes a search for a type rather than an argument about coverage.
+
+That durable fix shipped in #3687: `HeapReference.Text`/`.Preview`,
+`HandleRef.Display`, `MetadataImageOverview.MetadataVersion` and
+`Malformed.Detail` are `InertString`, and there is no conversion admitting a
+`string` into any of them. The enforcement is the compiler rather than a gate.
+
+It also decides where the rendering axis can act. Because the model cannot hold
+untreated text, `--dangerously-print-raw` cannot be served by carrying a second
+raw copy through the projection; raw output is produced at the sink by running
+the encoder backwards, which the encoding supports by construction — it is
+lossless and invertible, and a literal backslash is always rewritten so the
+inverse is unique. The trust axis is unaffected and still acts upstream, inside
+`ContainCellText`, because refusal asks about the raw text and must therefore
+see it before anything is spelled. That is why `ContainCellText` still takes a
+`string` while returning an `InertString`: the parameter is the last place the
+untreated value legitimately exists.
 
 That is also why the property needs its own gate rather than a comment.
 `MdiContainmentTests` splices a payload spanning all three control ranges the

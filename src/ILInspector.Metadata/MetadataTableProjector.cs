@@ -1082,9 +1082,14 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetString(handle);
-            InertString text = ContainCellText(raw, options.MaxStringChars);
+            int offset = HeapOffset(handle);
+            InertString text = ContainCellText(
+                raw,
+                options.MaxStringChars,
+                options.UntrustedText,
+                TextOrigin.At(HeapKind.String, offset));
             return new MetadataValue.HeapReference(
-                HeapKind.String, HeapOffset(handle), raw.Length, text, text, text.IsTruncated);
+                HeapKind.String, offset, raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -1100,9 +1105,14 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetUserString(handle);
-            InertString text = ContainCellText(raw, options.MaxStringChars);
+            int offset = MetadataTokens.GetHeapOffset(handle);
+            InertString text = ContainCellText(
+                raw,
+                options.MaxStringChars,
+                options.UntrustedText,
+                TextOrigin.At(HeapKind.UserString, offset));
             return new MetadataValue.HeapReference(
-                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, text.IsTruncated);
+                HeapKind.UserString, offset, raw.Length, text, text, text.IsTruncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -1214,7 +1224,11 @@ public static class MetadataTableProjector
             string? resolved = ResolveHandleDisplay(reader, handle);
             InertString? display = resolved is null
                 ? null
-                : ContainCellText(resolved, options.MaxStringChars);
+                : ContainCellText(
+                    resolved,
+                    options.MaxStringChars,
+                    options.UntrustedText,
+                    TextOrigin.Named("a resolved handle display"));
 
             return new MetadataValue.Handle(new HandleRef(table, rid, token, display));
         }
@@ -1328,21 +1342,27 @@ public static class MetadataTableProjector
         => new MetadataValue.Flags(raw, decoded);
 
     /// <summary>
-    /// Contains a decoded heap string for rendering and bounds the EMITTED text to
+    /// Applies <paramref name="mode"/> to a decoded heap string and bounds the EMITTED text to
     /// <paramref name="maxChars"/> characters.
     /// <para>
-    /// Every non-graphic scalar is spelled rather than emitted, by Unicode general
-    /// category (<c>Cc</c>, <c>Cf</c>, <c>Cs</c>, <c>Zl</c>, <c>Zp</c>) rather than by a
-    /// hand-written range. Category is what makes this correct where the range this
-    /// replaced was not: <c>U+202E</c> is <c>Cf</c> and <c>U+2028</c>/<c>U+2029</c> are
-    /// <c>Zl</c>/<c>Zp</c>, so none of them is below <c>U+0020</c> and all three reached
-    /// the terminal raw (issue #3628).
+    /// Under <see cref="UntrustedTextMode.Contain"/> and <see cref="UntrustedTextMode.Refuse"/>,
+    /// every non-graphic scalar is spelled rather than emitted, by Unicode general category
+    /// (<c>Cc</c>, <c>Cf</c>, <c>Cs</c>, <c>Zl</c>, <c>Zp</c>) rather than by a hand-written
+    /// range. Category is what makes this correct where the range this replaced was not:
+    /// <c>U+202E</c> is <c>Cf</c> and <c>U+2028</c>/<c>U+2029</c> are <c>Zl</c>/<c>Zp</c>, so
+    /// none of them is below <c>U+0020</c> and all three reached the terminal raw (issue #3628).
+    /// </para>
+    /// <para>
+    /// Refusal is checked against the raw text, before encoding, because the question it asks is
+    /// about the artifact rather than about the rendering. When it passes, the value renders
+    /// exactly as <see cref="UntrustedTextMode.Contain"/> would, so the two modes differ only in
+    /// whether they can fail.
     /// </para>
     /// <para>
     /// Internal rather than private because the image overview
-    /// (<see cref="MetadataImageInspector"/>) reports an artifact-derived string of its
-    /// own — the metadata root's version stamp — and must contain it with this same
-    /// primitive rather than a parallel one.
+    /// (<see cref="MetadataImageInspector"/>) reports an artifact-derived string of its own —
+    /// the metadata root's version stamp — and must apply this same treatment rather than a
+    /// parallel one.
     /// </para>
     /// </summary>
     /// <returns>
@@ -1351,10 +1371,27 @@ public static class MetadataTableProjector
     /// is the point: the pair travels together into the projection, and only a sink that
     /// has decided how to mark a partial value takes it apart.
     /// </returns>
+    /// <exception cref="UntrustedTextException">
+    /// <paramref name="mode"/> is <see cref="UntrustedTextMode.Refuse"/> and the text carries a
+    /// scalar the policy does not permit.
+    /// </exception>
     // The budget goes in as configured: a negative one is read as zero rather than
     // refused, so clamping here would be a line that never changes an answer.
-    internal static InertString ContainCellText(string value, int maxChars)
-        => new(TextPolicy.Field, value, maxChars);
+    internal static InertString ContainCellText(
+        string value,
+        int maxChars,
+        UntrustedTextMode mode = UntrustedTextMode.Contain,
+        TextOrigin origin = default)
+    {
+        if (mode is UntrustedTextMode.Refuse
+            && !InertString.IsPermitted(TextPolicy.Field, value, out ScalarViolation? violation))
+        {
+            throw new UntrustedTextException(
+                origin, violation.Value.Index, violation.Value.Scalar, violation.Value.Category);
+        }
+
+        return new InertString(TextPolicy.Field, value, maxChars);
+    }
 
     readonly record struct TableSpec(
         TableIndex Index,

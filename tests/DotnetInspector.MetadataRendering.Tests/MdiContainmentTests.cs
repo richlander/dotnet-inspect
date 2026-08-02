@@ -241,18 +241,7 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
         }
     }
 
-    /// <summary>
-    /// The categories that carry no glyph of their own: controls, formatting
-    /// characters (which includes every bidi override), unpaired surrogates, and
-    /// the line and paragraph separators.
-    /// </summary>
-    static bool IsNonGraphic(Rune rune)
-        => Rune.GetUnicodeCategory(rune)
-            is UnicodeCategory.Control
-            or UnicodeCategory.Format
-            or UnicodeCategory.Surrogate
-            or UnicodeCategory.LineSeparator
-            or UnicodeCategory.ParagraphSeparator;
+    static bool IsNonGraphic(Rune rune) => HostileAssemblyFixture.IsNonGraphic(rune);
 }
 
 /// <summary>
@@ -316,6 +305,25 @@ public sealed class HostileAssemblyFixture : IDisposable
         0x07,
     ];
 
+    /// <summary>
+    /// The categories that carry no glyph of their own: controls, formatting
+    /// characters (which includes every bidi override), unpaired surrogates, and
+    /// the line and paragraph separators.
+    /// <para>
+    /// Defined once, here beside the payload, and shared by every gate over it.
+    /// A second copy would be a second oracle, and the failure this whole corpus
+    /// exists to prevent was two definitions of "dangerous" agreeing with each
+    /// other instead of with Unicode.
+    /// </para>
+    /// </summary>
+    public static bool IsNonGraphic(Rune rune)
+        => Rune.GetUnicodeCategory(rune)
+            is UnicodeCategory.Control
+            or UnicodeCategory.Format
+            or UnicodeCategory.Surrogate
+            or UnicodeCategory.LineSeparator
+            or UnicodeCategory.ParagraphSeparator;
+
     /// <summary>How each scalar in <see cref="Payload"/> must appear once contained.</summary>
     public static readonly string[] NeutralizedForms =
         [@"\^[", @"\^G", @"\^?", @"\u009F", @"\u202E", @"\u2028", @"\u200B", @"\U000E0074"];
@@ -338,6 +346,21 @@ public sealed class HostileAssemblyFixture : IDisposable
     /// <c>Payload.Length</c> so the two cannot drift apart.
     /// </summary>
     static readonly string CanaryTail = CanaryName[(NamePayloadOffset + Payload.Length)..];
+
+    /// <summary>
+    /// The head of the canary name the splice leaves untouched, which is the only
+    /// graphic text guaranteed to survive every budget wide enough to show the row
+    /// at all. Locating the payload cell by this keeps the lookup independent of the
+    /// escaping under test, for the same reason <see cref="CanaryTail"/> exists.
+    /// <para>
+    /// It must come from the canary rather than be spelled again: an anchor that
+    /// merely <em>looks</em> distinctive can match innocent metadata elsewhere in
+    /// this assembly and silently address the wrong cell, which reduces a
+    /// comparison between the two renderings to a comparison of plain ASCII with
+    /// itself.
+    /// </para>
+    /// </summary>
+    public static string CanaryPrefix { get; } = CanaryName[..NamePayloadOffset];
 
     public HostileAssemblyFixture()
     {
