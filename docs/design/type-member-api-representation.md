@@ -92,9 +92,10 @@ identity is required. The round-trip design calls that pairing
 
 ### Structured forwarding currencies
 
-The first Metadata delivery slice implements the single-image declaration
-currencies. The Analysis provenance and cross-assembly resolution currencies
-remain proposed until later delivery slices implement them.
+The first two Metadata delivery slices implement the single-image declaration
+and acquisition currencies. The Analysis provenance and cross-assembly
+resolution currencies remain proposed until later delivery slices implement
+them.
 
 #### Proposed `ILInspector.Analysis` forwarding provenance
 
@@ -111,12 +112,22 @@ remain proposed until later delivery slices implement them.
 | `TypeDeclarationResult` and `TypeDeclarationCandidate` | One exact name in one readable image | Whether the image defines, forwards, misses, ambiguously declares, exports from a module, or rejects the name | Opening another assembly or resolving a target |
 | `ModuleFileReference` | One copied `File` row | Which module file an exported declaration names, including metadata and hash evidence | Module acquisition or readability |
 
+#### Current `ILInspector.Metadata` acquisition
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `AssemblyAcquisitionRegistration` | One acquisition-owner selection | Which repeated selections are the same registered acquisition | Artifact equality, persistence, or descriptor reconstruction |
+| `ResolvedAssemblyReference` | One registered acquisition | How to open the selected image and which identity and provenance evidence its owner supplied | Catalog membership or successful readability |
+| `AssemblyResolutionProvenance` | One registered acquisition | Whether package, platform, project, or local ownership selected the image | Candidate identity or binding policy |
+| `AssemblyCatalogId` | One inspection catalog | Which local key space owns candidates | Stable identity across catalogs or processes |
+| `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory and session state the catalog owns | Durable artifact identity outside the catalog |
+| `AssemblyInventorySnapshot` | One inventoried candidate | The copied assembly identity, MVID, references, forwarder targets, and image size | A live reader, declaration answer, or cross-assembly binding |
+
 #### Proposed `ILInspector.Metadata` cross-assembly resolution
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
-| `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory/session state the catalog owns | Session ownership or durable identity outside the catalog |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
 | `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |

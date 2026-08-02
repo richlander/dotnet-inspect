@@ -4374,7 +4374,12 @@ static class FidelityCheck
                     builder.Add(reference);
                     if (TryReadAssemblyIdentity(fullPath) is { } identity)
                         resolvedReferences.Add(new CompilerReference(
-                            new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), provenance?.ToString() ?? "CompilerReference"),
+                            ResolvedAssemblyReference.Create(
+                                identity,
+                                fullPath,
+                                () => File.OpenRead(fullPath),
+                                AssemblyResolutionProvenance.Local(
+                                    provenance?.ToString() ?? "CompilerReference")),
                             PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
                                 or AssemblyDependencyProvenance.SharedFramework));
                 }
