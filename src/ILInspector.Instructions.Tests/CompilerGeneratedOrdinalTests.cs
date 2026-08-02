@@ -1195,9 +1195,8 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The type side of <see cref="MembersDifferingOnlyInAGenericConstraint_DoNotFold"/>.
-    /// The two paths reach the refusal through different call sites — the type loop and the
-    /// key-prefix fallback — so one passing does not imply the other.
+    /// The type side of <see cref="MembersDifferingOnlyInAGenericConstraint_DoNotFold"/>,
+    /// gating the constraint refusal in <c>TypeKeyPrefix</c>.
     /// </summary>
     [Fact]
     public void TypesDifferingOnlyInAGenericConstraint_DoNotFold()
@@ -1211,6 +1210,33 @@ public class CompilerGeneratedOrdinalTests
             newTypeConstraints: [GenericParameterAttributes.NotNullableValueTypeConstraint]);
 
         Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// A local function is never itself generic, so a constraint on the type that
+    /// <em>declares</em> it is invisible to a check that reads only the method's own
+    /// generic parameters. Two local functions whose declaring types differ only in a
+    /// constraint must still not fold.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that makes the refusal in <c>TypeKeyPrefix</c> load-bearing rather
+    /// than redundant with the method-loop check: the members here have arity 0, so the
+    /// method check cannot see anything, and only the declaring chain carries the
+    /// difference. Removing the <c>TypeKeyPrefix</c> refusal fails this and nothing else.
+    /// </remarks>
+    [Fact]
+    public void LocalFunctionsInsideDifferentlyConstrainedTypes_DoNotFold()
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|1_0")],
+            declaringTypeConstraint: GenericParameterAttributes.ReferenceTypeConstraint)));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [Generated("<M>g__L|2_0")],
+            declaringTypeConstraint: GenericParameterAttributes.NotNullableValueTypeConstraint)));
+
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
     }
 
     /// <summary>
@@ -1449,7 +1475,8 @@ public class CompilerGeneratedOrdinalTests
         string localAttributeNamespace = "System.Runtime.CompilerServices",
         string localAttributeName = "CompilerGeneratedAttribute",
         int[]? generatedTypeArities = null,
-        GenericParameterAttributes[]? generatedTypeConstraints = null)
+        GenericParameterAttributes[]? generatedTypeConstraints = null,
+        GenericParameterAttributes? declaringTypeConstraint = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1505,7 +1532,7 @@ public class CompilerGeneratedOrdinalTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
+        var declaringTypeHandle = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
             default,
             metadata.GetOrAddString(typeName),
@@ -1520,6 +1547,11 @@ public class CompilerGeneratedOrdinalTests
         // MethodDef interleave under TypeOrMethodDef exactly as they do for
         // CustomAttribute, so declaration order is not sorted order.
         var genericParameters = new List<(EntityHandle Owner, int Index, GenericParameterAttributes Constraint, string? ConstraintType)>();
+
+        // The type that declares the members. A local function is never itself generic,
+        // so a constraint here is only reachable through the declaring chain.
+        if (declaringTypeConstraint is { } declaringConstraint)
+            genericParameters.Add((declaringTypeHandle, 0, declaringConstraint, null));
         string[] extraTypes = generatedTypes ?? [];
         var generatedTypeHandles = new List<TypeDefinitionHandle>();
         for (int i = 0; i < extraTypes.Length; i++)

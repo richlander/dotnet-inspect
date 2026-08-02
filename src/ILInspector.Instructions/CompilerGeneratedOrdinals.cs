@@ -552,7 +552,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 if (typeKeyPrefix is null)
                     continue;
 
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, type.GetGenericParameters()) is { } elidedType)
+                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type) is { } elidedType)
                 {
                     typeNames[typeHandle] = elidedType;
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
@@ -561,7 +561,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method, method.GetGenericParameters()) is not { } elided)
+                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method) is not { } elided)
+                        continue;
+
+                    // A generic method's own constraints; the declaring chain's are
+                    // refused in TypeKeyPrefix. Splitting the two keeps either check
+                    // observable when the other is removed.
+                    if (HasConstrainedGenericParameters(reader, method.GetGenericParameters()))
                         continue;
 
                     methodNames[methodHandle] = elided;
@@ -638,9 +644,22 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             for (int i = 0; i < consumed; i++)
             {
                 var type = reader.GetTypeDefinition(chain[i]);
+
+                // A generic constraint anywhere in the declaring chain distinguishes the
+                // members below it, and neither this key nor the rendered operand carries
+                // it: the operand spells a call target as `C::<M>g__L|#_0()`, which names
+                // the declaring type but none of its constraints. A local function is not
+                // itself generic, so checking only the member's own generic parameters
+                // leaves it folding across a `where T : class` / `where T : struct`
+                // difference on the type that declares it. Refusing the whole prefix
+                // refuses the type and every method keyed beneath it in one place.
+                // Gated by LocalFunctionsInsideDifferentlyConstrainedTypes_DoNotFold.
+                if (HasConstrainedGenericParameters(reader, type.GetGenericParameters()))
+                    return null;
+
                 string name = typeNames.TryGetValue(chain[i], out var elided)
                     ? elided
-                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, type.GetGenericParameters())
+                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type)
                         ?? reader.GetString(type.Name);
 
                 if (i == 0)
@@ -662,14 +681,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             MetadataReader reader,
             string name,
             CustomAttributeHandleCollection attributes,
-            GeneratedNameKind kind,
-            GenericParameterHandleCollection genericParameters)
+            GeneratedNameKind kind)
         {
             if (TryElideOrdinal(name, kind) is not { } elided)
                 return null;
-            if (!HasCompilerGeneratedAttribute(reader, attributes))
-                return null;
-            return HasConstrainedGenericParameters(reader, genericParameters) ? null : elided;
+            return HasCompilerGeneratedAttribute(reader, attributes) ? elided : null;
         }
 
         /// <summary>
@@ -690,17 +706,18 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// <para>
         /// This declines the fold rather than extending the key, because enumerating
         /// discriminators by hand is what left arity, the instance bit and the module
-        /// scope out of it in turn. The closed answer is to key on a purpose-built
-        /// structural identity (<c>ILInspector.Metadata.MethodStructuralSignature</c>);
-        /// until then, refusing the candidate is fail-closed and costs nothing
+        /// scope out of it in turn (#3681). Refusing is fail-closed and costs nothing
         /// measurable — the fidelity corpus retires the same 68 rows with and without
         /// this check.
         /// </para>
         /// <para>
-        /// Gated by <c>MembersDifferingOnlyInAGenericConstraint_DoNotFold</c> and
-        /// <c>TypesDifferingOnlyInAGenericConstraint_DoNotFold</c>; a candidate with
-        /// unconstrained generic parameters must still fold, which
-        /// <c>UnconstrainedGenericMembers_StillFold</c> holds.
+        /// It has exactly two callers, owning disjoint halves of the question, so that
+        /// neither can mask the other's removal: <see cref="TypeKeyPrefix"/> asks it of
+        /// every type in a declaring chain, and the method loop asks it of a method's
+        /// own generic parameters. A local function is not itself generic, so the method
+        /// check alone would leave it folding across a constraint difference on the type
+        /// that declares it; a generated type reaches only the chain check, because a
+        /// null prefix skips the type before its name is ever considered.
         /// </para>
         /// </remarks>
         static bool HasConstrainedGenericParameters(
