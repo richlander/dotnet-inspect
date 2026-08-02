@@ -864,6 +864,35 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
         if (entry is DirectoryInfo child)
         {
             ReconcilePool(child.FullName, recorded, removed);
+
+            // A directory is a pool entry too. The pool's shape is
+            // `<rank>-<id>/<version>/`, so a skeleton left where a package used to be
+            // reads, to anything enumerating the pool by directory, as a package that
+            // shipped nothing -- which is precisely the state a recorded-only pool is
+            // supposed to make unrepresentable. Removing the files inside it and leaving
+            // it standing reconciles the bytes and not the shape.
+            //
+            // Checked after the recursion, so a directory holding nothing but unrecorded
+            // files leaves with them, and asked of the child by its parent rather than of
+            // itself, so the pool root -- which this walk is entered on, and which the
+            // sweep owns and must keep -- is never a candidate for removal.
+            //
+            // `Delete()` without recursion on purpose: it throws if the directory turned
+            // out not to be empty, which is a failure to reconcile and is reported as one,
+            // rather than a silent recursive delete of whatever raced in.
+            //
+            // Not passed to `Record`, unlike every other removal here. That record exists
+            // so that content this step destroys is visible to whoever reads the manifest
+            // -- a leak it would otherwise quietly tidy away cannot then pass for a clean
+            // pool. An empty directory has no content to destroy, and the sweep creates
+            // and abandons these itself whenever a package is refused or fails to copy, so
+            // reporting them would put an entry in `RemovedFromPool` for every such run
+            // and dilute exactly the signal it is kept for. The shape is instead held by
+            // the pool being equal to its record, which is a property of the whole pool
+            // rather than of one run's removals.
+            if (!child.EnumerateFileSystemInfos().Any())
+                child.Delete();
+
             continue;
         }
 

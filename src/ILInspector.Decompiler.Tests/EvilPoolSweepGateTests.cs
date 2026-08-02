@@ -1146,6 +1146,14 @@ public class EvilPoolSweepGateTests
         if (OperatingSystem.IsWindows())
             return;
 
+        // The directory may be gone: reconciliation removes an empty pool entry, and a
+        // directory made unwritable to fail a copy is exactly one that ends the run empty.
+        // Removing it needs write permission on its parent, not on itself, so the mode this
+        // undoes does not prevent it. Teardown, not a result -- a case that cares whether
+        // the directory survived says so itself.
+        if (!Directory.Exists(directory))
+            return;
+
         File.SetUnixFileMode(
             directory,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -1715,6 +1723,37 @@ public class EvilPoolSweepGateTests
                     .Order(StringComparer.Ordinal)];
 
             Assert.Equal(expected, present);
+
+            // Directories, not only files. This assertion read the pool with
+            // `Directory.GetFiles` alone for its whole life, so it could not see a pool
+            // entry that holds nothing -- and reconciliation, which descended into a
+            // directory but never removed one, left a `<rank>-<id>/<version>/` skeleton
+            // standing wherever a package was refused, failed to copy, or was pooled by an
+            // earlier run and not this one. To anything enumerating the pool by directory
+            // that skeleton is a package that shipped nothing, which is the state a
+            // recorded-only pool is supposed to make unrepresentable; the central check
+            // that the pool equals its record was structurally unable to say so.
+            //
+            // The expectation is derived from the record rather than composed here: the
+            // directories a pool may contain are exactly the ancestors of the files the
+            // sweep says it pooled. A test that instead named the directories it expected
+            // would be agreeing with itself, which is how three separate cases in this
+            // file came to gate nothing.
+            string[] presentDirectories =
+                [.. Directory.GetDirectories(OutputDirectory, "*", SearchOption.AllDirectories)
+                    .Order(StringComparer.Ordinal)];
+            var expectedDirectories = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string pooled in expected)
+            {
+                for (string? at = Path.GetDirectoryName(pooled);
+                    at is not null && at.Length > OutputDirectory.Length;
+                    at = Path.GetDirectoryName(at))
+                {
+                    expectedDirectories.Add(at);
+                }
+            }
+
+            Assert.Equal<IEnumerable<string>>(expectedDirectories, presentDirectories);
 
             var manifest = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
             Assert.Null(manifest["Unreconciled"]?.GetValue<string>());
