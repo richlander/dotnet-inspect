@@ -194,7 +194,23 @@ the shipped CLI) is the worked example, and
 `docs/decompiler-correctness-pipeline.md` owns its host contract, its structural
 and semantic levels, and what to do when a fixture trips one.
 
-Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
+Some tests use external tools as independent oracles and **skip** when those
+tools are absent: `ilasm`/`ildasm` (CLI and decompiler suites) and `mdv`
+(the metadata projection oracle). A machine without them reports a green run
+that proved less than it appears to, so restore them before trusting a clean
+result:
+
+```bash
+eng/restore-iltools.sh --mdv   # prints the directories to add to PATH
+export PATH="$(eng/restore-iltools.sh --mdv | tr '\n' ':')$PATH"
+```
+
+The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
+`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke it rather than
+duplicating the restore. Those workflow steps are `continue-on-error`, so an
+acquisition failure in CI degrades to skips rather than a red run — check the
+step's log before reading a green decompiler or IL-diff leg as proof.
+
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `ILInspector.Decompiler.Tests` composes `Speed` and `Area` traits and offers a

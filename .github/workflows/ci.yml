@@ -381,26 +381,7 @@ jobs:
       - name: Install ilasm/ildasm
         continue-on-error: true
         shell: bash
-        run: |
-          RID=${{ matrix.rid }}
-          VERSION=11.0.0-preview.1.26104.118
-          PACKAGES_DIR=$(mktemp -d)
-          PROJ_DIR=$(mktemp -d)
-          cat > "$PROJ_DIR/iltools.csproj" <<EOF
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
-            <ItemGroup>
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
-            </ItemGroup>
-          </Project>
-          EOF
-          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
-          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
-          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
-          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
-          echo "$ILASM_DIR" >> "$GITHUB_PATH"
-          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
