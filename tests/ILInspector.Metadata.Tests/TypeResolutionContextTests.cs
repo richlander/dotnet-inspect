@@ -565,6 +565,53 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void ProjectionFailure_TracksEachGenerationsOriginState()
+    {
+        ResolvedAssemblyReference owner = ResolvedAssemblyReference.Create(
+            Identity("Owner"),
+            path: null,
+            openRead: () => throw new IOException("unreadable"),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromReference(
+                Identity("Target"),
+                AssemblyBindingOrigin.FromAssembly(owner),
+                AssemblyResolutionScope.Any,
+                TypeName());
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException("Must not be called."));
+
+        using (var absentFirst = new TypeResolutionCatalog())
+        {
+            using TypeResolutionContext absentContext =
+                absentFirst.CreateContext(policy, [], [request]);
+            using TypeResolutionContext failedContext =
+                absentFirst.CreateContext(policy, [owner], [request]);
+
+            Assert.IsType<TypeResolutionFailure.UnregisteredAssembly>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    absentContext.Resolve(request)).Failure);
+            Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    failedContext.Resolve(request)).Failure);
+        }
+
+        using var failedFirst = new TypeResolutionCatalog();
+        using TypeResolutionContext failed =
+            failedFirst.CreateContext(policy, [owner], [request]);
+        using TypeResolutionContext absent =
+            failedFirst.CreateContext(policy, [], [request]);
+
+        Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                failed.Resolve(request)).Failure);
+        Assert.IsType<TypeResolutionFailure.UnregisteredAssembly>(
+            Assert.IsType<TypeResolutionOutcome.Rejected>(
+                absent.Resolve(request)).Failure);
+        Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
     public void CandidateBudgetRejectedOrigin_IsNotExpansionRequired()
     {
         ResolvedAssemblyReference first =

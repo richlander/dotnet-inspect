@@ -831,21 +831,9 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 ManifestRequestKey manifestKey =
                     ManifestRequestKey.From(request);
-                if (_catalog.TryGetResolution(
-                        _policyVersion,
-                        manifestKey,
-                        out TypeResolutionOutcome? cachedFailure))
-                {
-                    _projectionFailures.TryAdd(
-                        manifestKey,
-                        cachedFailure!);
-                }
-                else
-                {
-                    _projectionFailures.TryAdd(
-                        manifestKey,
-                        projectionFailure!);
-                }
+                _projectionFailures.TryAdd(
+                    manifestKey,
+                    projectionFailure!);
                 return;
             }
 
@@ -1004,16 +992,6 @@ public sealed class TypeResolutionContext : IDisposable
                     pair.Key,
                     pair.Value);
             }
-            foreach (
-                KeyValuePair<ManifestRequestKey, TypeResolutionOutcome> pair
-                in _projectionFailures)
-            {
-                _catalog.PromoteResolution(
-                    _policyVersion,
-                    pair.Key,
-                    pair.Value);
-            }
-
             return new TypeResolutionContext(
                 _catalog,
                 _ownsCatalog,
