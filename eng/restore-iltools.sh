@@ -15,13 +15,16 @@
 # output can be consumed directly:
 #
 #   CI:     eng/restore-iltools.sh >> "$GITHUB_PATH"
-#   local:  iltools="$(eng/restore-iltools.sh --mdv)"
-#           export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
+#   local:  iltools="$(eng/restore-iltools.sh --mdv)" && [ -n "$iltools" ] &&
+#               export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
 #
-# Assign first and export second: `export PATH="$(...)"` would report export's
-# exit status, so a failed restore would look like success and leave the caller
-# running tests whose oracles silently skip -- the exact failure this script
-# exists to prevent.
+# The local form is chained deliberately. `export PATH="$(...)"` reports
+# export's exit status rather than the script's, so a failed restore would look
+# like success and leave the caller running tests whose oracles silently skip --
+# the exact failure this script exists to prevent. Splitting the assignment out
+# is not enough on its own: outside `set -e` a failed assignment does not stop
+# the next command, and empty output would prepend an empty PATH entry, which
+# means the current directory. `&&` plus the -n guard covers both.
 #
 # Packages land in artifacts/iltools (gitignored), so a re-run is a no-op.
 set -euo pipefail
@@ -90,11 +93,18 @@ packages_dir="$root/artifacts/iltools/packages"
 # separator and splits every directory into "C" and "/src/repo/...". Emit MSYS
 # form (/c/src/repo) where cygpath exists; elsewhere this is a no-op.
 emit_path() {
+    local emitted
     if [ -n "$cygpath" ]; then
-        "$cygpath" -u "$1"
+        emitted="$("$cygpath" -u "$1")"
     else
-        printf '%s\n' "$1"
+        emitted="$1"
     fi
+
+    # Never emit a blank line. A consumer joining these with ':' would turn one
+    # into an empty PATH entry, which means the current directory -- a silent
+    # correctness and safety hazard rather than a visible failure.
+    [ -n "$emitted" ] || { echo "error: refusing to emit an empty path for '$1'." >&2; exit 1; }
+    printf '%s\n' "$emitted"
 }
 
 cygpath="$(command -v cygpath 2> /dev/null || true)"
