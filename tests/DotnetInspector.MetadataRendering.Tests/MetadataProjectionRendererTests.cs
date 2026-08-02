@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.MetadataRendering.Tests;
 
@@ -12,6 +13,14 @@ namespace DotnetInspector.MetadataRendering.Tests;
 /// </summary>
 public class MetadataProjectionRendererTests
 {
+
+    /// <summary>
+    /// Builds fixture cell text through the projector's own containment, so a fixture
+    /// can never assert on a spelling the product would not produce — and cannot
+    /// fabricate a value that claims to be truncated without having been cut.
+    /// </summary>
+    static InertString Cell(string value, int maxChars = int.MaxValue)
+        => MetadataTableProjector.ContainCellText(value, maxChars);
     static string Render(MetadataTableProjection projection, MetadataTableFormat format = MetadataTableFormat.Markdown)
     {
         var writer = new StringWriter();
@@ -42,7 +51,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Name", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.String, 10, 6, "System", "System", Truncated: false));
+            new MetadataValue.HeapReference(HeapKind.String, 10, 6, Cell("System"), Cell("System"), Truncated: false));
 
         var markdown = Render(projection);
 
@@ -61,7 +70,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Extends", MetadataColumnKind.Handle),
-            new MetadataValue.Malformed("Handle 0x02000099 targets TypeDef row 153, outside [1, 40]."));
+            new MetadataValue.Malformed(Cell("Handle 0x02000099 targets TypeDef row 153, outside [1, 40].")));
 
         var markdown = Render(projection);
 
@@ -75,7 +84,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Name", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.String, 0, 100, "abc", "abc", Truncated: true));
+            new MetadataValue.HeapReference(HeapKind.String, 0, 100, Cell("abc"), Cell("abc"), Truncated: true));
 
         Assert.Contains("abc\u2026", Render(projection));
     }
@@ -86,7 +95,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Signature", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.Blob, 0, 3, Text: null, "0A1B2C", Truncated: false));
+            new MetadataValue.HeapReference(HeapKind.Blob, 0, 3, Text: null, Cell("0A1B2C"), Truncated: false));
 
         Assert.Contains("0A1B2C", Render(projection));
     }
@@ -97,7 +106,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Extends", MetadataColumnKind.Handle),
-            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 5, 0x01000005, "System.Object")));
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 5, 0x01000005, Cell("System.Object"))));
 
         Assert.Contains("TypeRef[5] (System.Object)", Render(projection));
     }
@@ -119,7 +128,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Extends", MetadataColumnKind.Handle),
-            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, "Sys", DisplayTruncated: true)));
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, Cell("System.Object", 3))));
 
         Assert.Contains("TypeRef[19] (Sys\u2026)", Render(projection));
     }
@@ -132,7 +141,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Extends", MetadataColumnKind.Handle),
-            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, "", DisplayTruncated: true)));
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, Cell("System.Object", 0))));
 
         Assert.Contains("TypeRef[19] (\u2026)", Render(projection));
     }
@@ -143,7 +152,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Extends", MetadataColumnKind.Handle),
-            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, Display: null, DisplayTruncated: false)));
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, Display: null)));
 
         var markdown = Render(projection);
 
@@ -179,7 +188,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Name", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.String, 0, 6, "System", "System", Truncated: false),
+            new MetadataValue.HeapReference(HeapKind.String, 0, 6, Cell("System"), Cell("System"), Truncated: false),
             truncation: new MetadataTableTruncation(1, 40),
             rowCount: 40);
 
@@ -192,7 +201,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Name", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.String, 0, 6, "System", "System", Truncated: false));
+            new MetadataValue.HeapReference(HeapKind.String, 0, 6, Cell("System"), Cell("System"), Truncated: false));
 
         var tsv = Render(projection, MetadataTableFormat.Tsv);
 
@@ -211,7 +220,7 @@ public class MetadataProjectionRendererTests
         var projection = OneCell(
             "TypeDef",
             Column("Name", MetadataColumnKind.Heap),
-            new MetadataValue.HeapReference(HeapKind.String, 0, 6, "System", "System", Truncated: false));
+            new MetadataValue.HeapReference(HeapKind.String, 0, 6, Cell("System"), Cell("System"), Truncated: false));
 
         var jsonl = Render(projection, MetadataTableFormat.Jsonl);
 

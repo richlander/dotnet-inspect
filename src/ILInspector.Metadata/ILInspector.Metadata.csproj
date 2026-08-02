@@ -16,6 +16,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.MetadataRendering.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +25,7 @@
     <Compile Include="..\ILInspector.CSharp\CSharpKeywords.cs" Link="CSharpKeywords.cs" />
     <Compile Include="..\ILInspector.CSharp\CSharpIdentifierCore.cs" Link="CSharpIdentifierCore.cs" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
     <ProjectReference Include="..\SourceLinkFetch\SourceLinkFetch.csproj" />

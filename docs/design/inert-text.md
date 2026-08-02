@@ -235,6 +235,104 @@ text. Establishing that list is a prerequisite for the guarantee, not a detail
 of it — a chokepoint you have not finished enumerating is a chokepoint you
 cannot claim.
 
+## Carrying a contained value to the sink
+
+Containing text at the boundary answers *whether* a value was treated. It does
+not, on its own, get the value to the printer intact. The metadata table
+projection is the worked example, and it started out doing this:
+
+```csharp
+internal static string ContainCellText(string value, int maxChars, out bool truncated)
+{
+    var contained = new InertString(TextPolicy.Field, value, maxChars);
+    truncated = contained.IsTruncated;
+    return contained.ToString();
+}
+```
+
+That takes an `InertString` apart one line after building it, and it is worth
+being precise about the cost, because "it still returns treated text" is true and
+is not the point.
+
+**The type stops guarding the moment it is unwrapped.** A `string` field cannot
+say whether it was treated, so every later edit that assigns to it is
+unconstrained, and the only way to audit the field is to re-trace its producers.
+Carrying `InertString` instead makes that a compiler question: there is no
+conversion into the type that does not apply a policy, so a field of that type
+has no untreated inhabitants.
+
+**Splitting the pair invites the halves to disagree.** Truncation is not
+decoration on the text, it is the difference between a prefix and a whole value,
+and a sink that loses it renders a clipped name as though it were complete. Two
+fields can drift; one value cannot. `HandleRef` carried a `Display` and a
+`DisplayTruncated` that could be set independently — and a test constructed
+`Display: "", DisplayTruncated: true`, a state the projector cannot produce.
+Once `Display` is an `InertString`, that fixture has to be written as bounding
+real text to a real budget, because a value that was never cut cannot claim it
+was.
+
+So the rule is: **contain once, carry the contained value, and un-pair only at
+the sink.** The producer names the policy and nothing else; the sink decides what
+a partial value looks like, because notation is the sink's business and no
+producer should be guessing at an ellipsis.
+
+```csharp
+internal static InertString ContainCellText(string value, int maxChars)
+    => new(TextPolicy.Field, value, maxChars);
+```
+
+```csharp
+InertString text = ContainCellText(raw, options.MaxStringChars);
+return new MetadataValue.HeapReference(
+    HeapKind.String, HeapOffset(handle), raw.Length, text, text, text.IsTruncated);
+```
+
+### A partiality flag survives only where the text cannot know
+
+The tempting next step is to delete every truncation field and read
+`IsTruncated` off the text. That is right wherever the character budget is the
+only way a value can become partial, which is why `HandleRef.DisplayTruncated`
+and `MetadataImageOverview.MetadataVersionTruncated` are gone.
+
+It is wrong for `HeapReference`. A Blob preview is bounded by a **byte** budget,
+upstream of any text at all:
+
+```csharp
+int take = Math.Min(length, Math.Max(0, options.MaxPreviewBytes));
+byte[] bytes = blobReader.ReadBytes(take);
+```
+
+The hex that follows is a *complete* spelling of the bytes that were read, so its
+`IsTruncated` is `false` for a blob that lost most of its content. Deriving the
+flag there would report those blobs as whole. `HeapReference.Truncated` therefore
+stays a stored field meaning "this projected value is not the whole value", with
+two causes feeding it and only one of them visible in the text.
+
+The general form: a length or a flag is only meaningful in the units that
+produced it. `InertString` refuses to remember a source *length* for the same
+reason — re-spelling under a stricter policy makes text longer, so a length
+carried across a re-encode is compared against a different unit.
+
+### What this buys, and what still carries `string`
+
+Every field of the metadata projection that can hold artifact-derived text is
+now `InertString`: `HeapReference.Text` and `.Preview`, `HandleRef.Display`,
+`MetadataImageOverview.MetadataVersion`, and `Malformed.Detail`. The last one is
+included because it splices a third party's exception message into a diagnostic
+about an image that has already proved malformed; whether SRM ever puts artifact
+bytes into a message is not a property this repository can pin, and typing the
+field means it does not have to.
+
+`Scalar.Display` and `Flags.Decoded` remain `string` on purpose. They hold
+formatted numbers and BCL enum names — `0x{rva:X8}`, `TypeCode.Boolean` — and
+never heap content, so containing them would add ceremony without removing a
+hazard.
+
+The gate for "no untreated metadata text reaches a sink" is therefore the
+compiler: there is no conversion that would let a `string` into any of those
+fields. That is a stronger enforcement than a test, and it is the reason to
+prefer carrying the type over re-checking the text.
+
 ## Holding a value is not the same as being able to reverse it
 
 A type answers what a *sink* accepts. It does not answer what a *file* can do,

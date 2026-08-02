@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -13,7 +15,7 @@ namespace DotnetInspector.MetadataRendering.Tests;
 /// control characters into. Nothing references it at runtime; its whole
 /// contribution is the name recorded in metadata.
 /// </summary>
-internal sealed class TerminalEscapeCanaryPlaceholder;
+internal sealed class TerminalEscapeCanaryPlaceholderForContainmentGate;
 
 /// <summary>
 /// The gate behind the containment property that
@@ -77,7 +79,10 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
             new StringWriter());
 
         Assert.Equal(0, code);
-        AssertContained(output.ToString(), $"{format} table rendering");
+        AssertContained(
+            output.ToString(),
+            HostileAssemblyFixture.NeutralizedForms,
+            $"{format} table rendering");
     }
 
     /// <summary>
@@ -100,7 +105,10 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
             new StringWriter());
 
         Assert.Equal(0, code);
-        AssertContained(output.ToString(), $"{format} heap rendering");
+        AssertContained(
+            output.ToString(),
+            HostileAssemblyFixture.NeutralizedForms,
+            $"{format} heap rendering");
     }
 
     /// <summary>
@@ -120,7 +128,10 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
             new StringWriter());
 
         Assert.Equal(0, code);
-        AssertContained(output.ToString(), $"{format} overview rendering");
+        AssertContained(
+            output.ToString(),
+            HostileAssemblyFixture.VersionNeutralizedForms,
+            $"{format} overview rendering");
     }
 
     /// <summary>
@@ -160,47 +171,88 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
     {
         byte[] patched = File.ReadAllBytes(fixture.Path);
         byte[] original = File.ReadAllBytes(typeof(MdiContainmentTests).Assembly.Location);
-        int length = HostileAssemblyFixture.Payload.Length;
 
-        foreach (int site in new[] { fixture.NameSpliceOffset, fixture.VersionSpliceOffset })
+        (int Site, byte[] Payload)[] splices =
+        [
+            (fixture.NameSpliceOffset, HostileAssemblyFixture.Payload),
+            (fixture.VersionSpliceOffset, HostileAssemblyFixture.VersionPayload),
+        ];
+
+        foreach ((int site, byte[] payload) in splices)
         {
-            Assert.Equal(HostileAssemblyFixture.Payload, patched[site..(site + length)]);
-            Assert.NotEqual(HostileAssemblyFixture.Payload, original[site..(site + length)]);
+            int length = payload.Length;
+            Assert.Equal(payload, patched[site..(site + length)]);
+            Assert.NotEqual(payload, original[site..(site + length)]);
         }
     }
 
-    static void AssertContained(string text, string what)
+    static void AssertContained(string text, string[] expectedForms, string what)
     {
         AssertNoRawControlCharacters(text, what);
 
-        foreach (string form in HostileAssemblyFixture.NeutralizedForms)
+        foreach (string form in expectedForms)
             Assert.Contains(form, text, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Rejects any control character other than the three the formats themselves
+    /// Rejects any non-graphic scalar other than the three the formats themselves
     /// use structurally (tab separates TSV columns; CR and LF end lines).
-    /// Excluding those three is safe because the projector escapes tab, CR, and
-    /// LF when they arrive in content, so a surviving one can only be a separator
-    /// the renderer emitted.
+    /// Excluding those three is safe because the projector contains tab, CR and LF
+    /// when they arrive in content, so a surviving one can only be a separator the
+    /// renderer emitted.
+    /// <para>
+    /// Classification is by Unicode general category, and iteration is over
+    /// scalars rather than <c>char</c>s, because both choices are load bearing.
+    /// The earlier version of this helper open-coded the C0/DEL/C1 ranges and said
+    /// it "mirrors <c>MetadataTableProjector.IsControl</c>" — so it accepted every
+    /// character that predicate accepted, including the bidi overrides of issue
+    /// #3628, and an oracle that agrees with the code under test cannot fail when
+    /// that code is wrong. Iterating <c>char</c>s has the same shape of blind spot
+    /// for a different reason: a supplementary scalar arrives as two surrogates,
+    /// neither of which carries the category of the scalar they spell.
+    /// </para>
     /// </summary>
     static void AssertNoRawControlCharacters(string text, string what)
     {
-        for (int i = 0; i < text.Length; i++)
+        var remaining = text.AsSpan();
+        int index = 0;
+
+        while (!remaining.IsEmpty)
         {
-            char c = text[i];
-            if (c is '\n' or '\r' or '\t')
-                continue;
+            OperationStatus status = Rune.DecodeFromUtf16(remaining, out Rune rune, out int consumed);
 
-            // Mirrors MetadataTableProjector.IsControl: C0, DEL, and C1.
-            if (c >= ' ' && c != '\x7f' && !(c >= '\x80' && c <= '\x9f'))
-                continue;
+            if (status is not OperationStatus.Done)
+            {
+                Assert.Fail(
+                    $"{what} emitted an unpaired surrogate at index {index}, which is " +
+                    "not text a terminal can render and must have been contained.");
+            }
 
-            Assert.Fail(
-                $"{what} emitted raw control character U+{(int)c:X4} at index {i}, " +
-                "which a terminal would interpret rather than display.");
+            if (rune.Value is not ('\n' or '\r' or '\t') && IsNonGraphic(rune))
+            {
+                Assert.Fail(
+                    $"{what} emitted raw scalar U+{rune.Value:X4} " +
+                    $"({Rune.GetUnicodeCategory(rune)}) at index {index}, which a terminal " +
+                    "would interpret, or a reader misread, rather than display.");
+            }
+
+            remaining = remaining[consumed..];
+            index += consumed;
         }
     }
+
+    /// <summary>
+    /// The categories that carry no glyph of their own: controls, formatting
+    /// characters (which includes every bidi override), unpaired surrogates, and
+    /// the line and paragraph separators.
+    /// </summary>
+    static bool IsNonGraphic(Rune rune)
+        => Rune.GetUnicodeCategory(rune)
+            is UnicodeCategory.Control
+            or UnicodeCategory.Format
+            or UnicodeCategory.Surrogate
+            or UnicodeCategory.LineSeparator
+            or UnicodeCategory.ParagraphSeparator;
 }
 
 /// <summary>
@@ -219,16 +271,22 @@ public sealed class MdiContainmentTests(HostileAssemblyFixture fixture)
 public sealed class HostileAssemblyFixture : IDisposable
 {
     /// <summary>
-    /// The hostile bytes, as they sit in a UTF-8 <c>#Strings</c> entry:
-    /// <c>ESC [ 3 1 m</c> (a real "set foreground red" CSI sequence, so emitting
-    /// it raw would actually reprogram a terminal rather than merely look
-    /// suspicious), then BEL, then DEL, then the two UTF-8 bytes for U+009F.
+    /// The hostile bytes spliced into the canary type name, as they sit in a
+    /// UTF-8 <c>#Strings</c> entry: <c>ESC [ 3 1 m</c> (a real "set foreground
+    /// red" CSI sequence, so emitting it raw would actually reprogram a terminal
+    /// rather than merely look suspicious), BEL, DEL, U+009F, then U+202E, U+2028,
+    /// U+200B and U+E0074.
     /// <para>
-    /// The payload spans all three ranges <c>MetadataTableProjector.IsControl</c>
-    /// recognizes — C0, DEL, and C1 — because a single ESC would let a regression
-    /// that narrowed containment to ESC alone pass the whole gate while leaving
-    /// every other terminal control raw. Review demonstrated exactly that
-    /// mutation surviving an ESC-only fixture.
+    /// The alphabet deliberately reaches <em>outside</em> any one predicate's
+    /// notion of "control". Until issue #3628 this payload stopped at U+009F,
+    /// matching the C0/DEL/C1 ranges the projector's own <c>IsControl</c>
+    /// recognized — and the assertion helper mirrored that same range. Payload,
+    /// assertion and predicate therefore agreed with each other, so the gate could
+    /// only ever confirm the predicate, never challenge it. The four scalars added
+    /// here are the ones that agreement hid: a bidi override (the Trojan Source
+    /// character this corpus is named for), a line separator, a zero-width space,
+    /// and a supplementary tag character that no <c>char</c>-based predicate can
+    /// see at all, because it is a surrogate pair rather than a single code unit.
     /// </para>
     /// </summary>
     public static readonly byte[] Payload =
@@ -237,13 +295,36 @@ public sealed class HostileAssemblyFixture : IDisposable
         0x07,
         0x7F,
         0xC2, 0x9F,
+        0xE2, 0x80, 0xAE, // U+202E RIGHT-TO-LEFT OVERRIDE (Cf)
+        0xE2, 0x80, 0xA8, // U+2028 LINE SEPARATOR (Zl)
+        0xE2, 0x80, 0x8B, // U+200B ZERO WIDTH SPACE (Cf)
+        0xF3, 0xA0, 0x81, 0xB4, // U+E0074 TAG LATIN SMALL LETTER T (Cf, supplementary)
     ];
 
-    /// <summary>How each control in <see cref="Payload"/> must appear once contained.</summary>
-    public static readonly string[] NeutralizedForms =
-        [@"\u001B", @"\u0007", @"\u007F", @"\u009F"];
+    /// <summary>
+    /// The bytes spliced into the metadata version stamp. Shorter than
+    /// <see cref="Payload"/> because the stamp is only ten bytes
+    /// (<c>v4.0.30319</c>) and the splice is length preserving, which leaves nine
+    /// after the leading <c>v</c>. It still carries a real CSI sequence and a bidi
+    /// override, so this route is challenged past C0 as well; the fuller alphabet
+    /// rides on the type name.
+    /// </summary>
+    public static readonly byte[] VersionPayload =
+    [
+        0x1B, (byte)'[', (byte)'3', (byte)'1', (byte)'m',
+        0xE2, 0x80, 0xAE, // U+202E
+        0x07,
+    ];
 
-    const string CanaryName = nameof(TerminalEscapeCanaryPlaceholder);
+    /// <summary>How each scalar in <see cref="Payload"/> must appear once contained.</summary>
+    public static readonly string[] NeutralizedForms =
+        [@"\^[", @"\^G", @"\^?", @"\u009F", @"\u202E", @"\u2028", @"\u200B", @"\U000E0074"];
+
+    /// <summary>How each scalar in <see cref="VersionPayload"/> must appear once contained.</summary>
+    public static readonly string[] VersionNeutralizedForms =
+        [@"\^[", @"\u202E", @"\^G"];
+
+    const string CanaryName = nameof(TerminalEscapeCanaryPlaceholderForContainmentGate);
 
     /// <summary>Offset into <see cref="CanaryName"/> where the payload is spliced.</summary>
     const int NamePayloadOffset = 8;
@@ -264,9 +345,13 @@ public sealed class HostileAssemblyFixture : IDisposable
         byte[] bytes = File.ReadAllBytes(source);
 
         NameSpliceOffset = Splice(
-            bytes, Encoding.ASCII.GetBytes(CanaryName), NamePayloadOffset, "canary type name");
+            bytes, Encoding.ASCII.GetBytes(CanaryName), NamePayloadOffset, Payload, "canary type name");
         VersionSpliceOffset = Splice(
-            bytes, Encoding.ASCII.GetBytes(ReadMetadataVersion(source)), 1, "metadata version stamp");
+            bytes,
+            Encoding.ASCII.GetBytes(ReadMetadataVersion(source)),
+            1,
+            VersionPayload,
+            "metadata version stamp");
 
         Path = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
@@ -323,7 +408,7 @@ public sealed class HostileAssemblyFixture : IDisposable
                 foreach (var cell in row.Cells)
                 {
                     if (cell is MetadataValue.HeapReference { Heap: HeapKind.String, Text: { } text } heap
-                        && text.Contains(CanaryTail, StringComparison.Ordinal))
+                        && text.ToString().Contains(CanaryTail, StringComparison.Ordinal))
                     {
                         return (row.RowId, heap.Offset);
                     }
@@ -340,13 +425,13 @@ public sealed class HostileAssemblyFixture : IDisposable
     /// <paramref name="at"/> with the payload, returning the absolute offset
     /// written so the fixture test can verify that exact range.
     /// </summary>
-    static int Splice(byte[] bytes, byte[] within, int at, string what)
+    static int Splice(byte[] bytes, byte[] within, int at, byte[] payload, string what)
     {
-        if (within.Length < at + Payload.Length)
+        if (within.Length < at + payload.Length)
         {
             throw new InvalidOperationException(
                 $"The {what} is too short ({within.Length} bytes) to carry the " +
-                $"{Payload.Length}-byte payload at offset {at}.");
+                $"{payload.Length}-byte payload at offset {at}.");
         }
 
         int index = bytes.AsSpan().IndexOf(within);
@@ -356,7 +441,7 @@ public sealed class HostileAssemblyFixture : IDisposable
                 $"The {what} was not found; the containment fixture cannot be built.");
         }
 
-        Payload.CopyTo(bytes, index + at);
+        payload.CopyTo(bytes, index + at);
         return index + at;
     }
 
