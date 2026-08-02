@@ -39,6 +39,17 @@
   `Size`, worth a measured 6-7% on real commands for about 9% more binary size
   (#3675).
 
+### Metadata text containment
+
+- Contains metadata cell text by Unicode general category rather than by a
+  hand-written character range, closing a gap where bidi overrides, line and
+  paragraph separators, zero-width and other format characters, and every
+  supplementary scalar reached the terminal raw from the `mdi` table, heap and
+  overview views (#3628, part of #3635). Control characters that were already
+  contained keep the same meaning but change spelling, from `\u001B` to caret
+  notation `\^[`; the quote is no longer escaped, because cells are not quote
+  wrapped in any rendered format.
+
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,

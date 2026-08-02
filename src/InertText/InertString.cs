@@ -83,6 +83,13 @@ public readonly struct InertString : IEquatable<InertString>
     // to empty; a reflection test fails any public member that reads around it.
     private readonly string? _text;
 
+    // Whether bounding dropped anything on the way to this value. A fact rather than the length
+    // it was bounded from, because a length is only meaningful within one encoding: the same
+    // value re-spelled under a stricter policy grows, so a length carried across EnsurePermitted
+    // would be compared against text measured in different units and could report a truncated
+    // value as whole. The fact survives re-spelling; a length does not.
+    private readonly bool _truncated;
+
     /// <summary>
     /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, yielding a value
     /// that can be carried to a sink.
@@ -99,13 +106,36 @@ public readonly struct InertString : IEquatable<InertString>
     /// <param name="value">The untreated text.</param>
     public InertString(TextPolicy policy, string value) => this = VisualEncoder.Encode(policy, value);
 
+    /// <summary>
+    /// Encodes <paramref name="value"/> and bounds it to <paramref name="maxLength"/> encoded
+    /// characters, without dividing a spelling.
+    /// </summary>
+    /// <remarks>
+    /// The sink-facing form: a cell, a column or a record field knows its own width, and this
+    /// lets it say so once rather than encode and then bound as two steps whose intermediate
+    /// value it must remember to keep.
+    ///
+    /// That remembering is the reason this overload carries <see cref="IsTruncated"/>. Bounding
+    /// as a separate call leaves the caller holding both values, so it can answer "was anything
+    /// dropped" by comparing them; bounding here does not, and the comparison a caller reaches
+    /// for instead — encoded length against the raw input's — is wrong in the direction that
+    /// matters, because spelling a scalar makes the text longer. A hostile value clipped
+    /// mid-spelling would report as complete.
+    /// </remarks>
+    /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
+    /// <param name="value">The untreated text.</param>
+    /// <param name="maxLength">The largest encoded length the sink can accept.</param>
+    public InertString(TextPolicy policy, string value, int maxLength)
+        => this = VisualEncoder.Encode(policy, value).Truncate(maxLength);
+
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
     // invariant. Internal because composition needs it: Join and the interpolation handler
     // build their result piecewise and would otherwise have to re-encode an encoded string.
-    internal InertString(string text, VisualForm forms)
+    internal InertString(string text, VisualForm forms, bool truncated = false)
     {
         _text = text;
         Forms = forms;
+        _truncated = truncated;
     }
 
     /// <summary>The text, with the zero value read as empty.</summary>
@@ -146,6 +176,26 @@ public readonly struct InertString : IEquatable<InertString>
 
     /// <summary>Whether this value carries no text.</summary>
     public bool IsEmpty => Text.Length == 0;
+
+    /// <summary>Whether anything this value was made from was dropped to fit a budget.</summary>
+    /// <remarks>
+    /// This records that a cut happened, not how much was lost, and the difference is what makes
+    /// it survivable. A length is only meaningful inside one encoding: the same value re-spelled
+    /// under a stricter policy grows, so a remembered length compared against re-spelled text
+    /// can call a truncated value whole. Ten line feeds cut from eleven characters under
+    /// <see cref="TextPolicy.Prose"/> re-spell to thirty under <see cref="TextPolicy.Field"/>,
+    /// and thirty is not less than eleven.
+    ///
+    /// Every operation that builds a value from one carrying this therefore carries it too —
+    /// <see cref="Bound"/> or-s it with the cut it just made, and <see cref="EnsurePermitted"/>,
+    /// <see cref="Join"/> and the interpolation handler propagate it — so a composed or
+    /// re-spelled value cannot claim to be whole when part of it is missing.
+    ///
+    /// It is state the text does not determine, so two values can carry identical text and
+    /// disagree here. <see cref="Equals(InertString)"/> therefore compares it, so that values
+    /// which compare equal also render the same.
+    /// </remarks>
+    public bool IsTruncated => _truncated;
 
     /// <summary>The number of characters in the encoded text.</summary>
     /// <remarks>
@@ -256,9 +306,13 @@ public readonly struct InertString : IEquatable<InertString>
 
         // An unbounded request keeps this value rather than rebuilding an identical one, so the
         // common case of a budget nobody is near costs nothing.
-        return from == 0 && to == text.Length
-            ? this
-            : new InertString(text[from..to], forms);
+        if (from == 0 && to == text.Length)
+            return this;
+
+        // Reaching here means the window is a proper subset, so this cut dropped something.
+        // Or-ing with what the value already carried is why truncating an already-truncated
+        // value cannot report the second cut as the only one.
+        return new InertString(text[from..to], forms, true);
     }
 
     /// <summary>
@@ -311,6 +365,12 @@ public readonly struct InertString : IEquatable<InertString>
         VisualForm forms = VisualForm.None;
         bool first = true;
 
+        // A join whose parts were clipped is missing text, so the result cannot claim to be
+        // whole. The flag says something was dropped, not where, which is imprecise for a part
+        // cut out of the middle -- but the alternative is a composed value asserting it is
+        // complete when it is not, and in a hardening library the safe error is over-marking.
+        bool truncated = false;
+
         foreach (InertString value in values)
         {
             // The separator's spellings are folded in only when one is actually emitted, so a
@@ -324,10 +384,11 @@ public readonly struct InertString : IEquatable<InertString>
             InertString conformed = value.EnsurePermitted(policy);
             builder.Append(conformed.ToString());
             forms |= conformed.Forms;
+            truncated |= conformed.IsTruncated;
             first = false;
         }
 
-        return new InertString(builder.ToString(), forms);
+        return new InertString(builder.ToString(), forms, truncated);
     }
 
     /// <summary>Names the spellings this value contains, one line each.</summary>
@@ -443,7 +504,16 @@ public readonly struct InertString : IEquatable<InertString>
         // unrelated inputs converged. The fallback remains so the failure mode is over-encoding
         // rather than a leak, but it is unreachable, not load-bearing.
         string original = VisualEncoder.TryDecode(text, out string? decoded) ? decoded : text;
-        return VisualEncoder.Encode(policy, original);
+        InertString respelled = VisualEncoder.Encode(policy, original);
+
+        // Re-spelling answers "how is this written here", not "is this the whole value", so a
+        // value that arrived clipped is still clipped afterwards. Carrying the fact is what
+        // makes this survivable: the encoded length it was cut from measures the old spelling,
+        // and re-spelling under a stricter policy makes the text longer, so a length compared
+        // across the two can call a truncated value whole.
+        return _truncated
+            ? new InertString(respelled.Text, respelled.Forms, truncated: true)
+            : respelled;
     }
 
     /// <inheritdoc/>
@@ -451,19 +521,25 @@ public readonly struct InertString : IEquatable<InertString>
     /// Reads through <see cref="Text"/> rather than the field, so the zero value and
     /// <c>Encode("")</c> compare equal. Comparing <c>_text</c> directly is the defect this
     /// replaced: <see langword="null"/> and <c>""</c> are not ordinally equal.
+    ///
+    /// <see cref="IsTruncated"/> participates because a sink renders a bounded value with a
+    /// mark the whole value does not carry, so two values that disagree there are not
+    /// substitutable even when their text matches. <see cref="Forms"/> is excluded instead, and
+    /// safely: it is a function of the text, so equal text already implies equal forms.
     /// </remarks>
-    public bool Equals(InertString other) => string.Equals(Text, other.Text, StringComparison.Ordinal);
+    public bool Equals(InertString other) =>
+        string.Equals(Text, other.Text, StringComparison.Ordinal) && IsTruncated == other.IsTruncated;
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is InertString other && Equals(other);
 
     /// <inheritdoc/>
-    public override int GetHashCode() => Text.GetHashCode(StringComparison.Ordinal);
+    public override int GetHashCode() => HashCode.Combine(Text.GetHashCode(StringComparison.Ordinal), IsTruncated);
 
-    /// <summary>Compares two values by their encoded text.</summary>
+    /// <summary>Compares two values by their encoded text and whether either was bounded.</summary>
     public static bool operator ==(InertString left, InertString right) => left.Equals(right);
 
-    /// <summary>Compares two values by their encoded text.</summary>
+    /// <summary>Compares two values by their encoded text and whether either was bounded.</summary>
     public static bool operator !=(InertString left, InertString right) => !left.Equals(right);
 }
 
@@ -483,6 +559,7 @@ public ref struct InertStringHandler
     private readonly TextPolicy _policy;
     private readonly StringBuilder _builder;
     private VisualForm _forms;
+    private bool _truncated;
 
     /// <summary>Called by the compiler for an interpolated string argument.</summary>
     /// <param name="literalLength">The total length of the literal parts.</param>
@@ -561,6 +638,10 @@ public ref struct InertStringHandler
         InertString conformed = value.EnsurePermitted(_policy);
         _builder.Append(conformed.ToString());
         _forms |= conformed.Forms;
+
+        // Splicing a clipped value into a message leaves the message missing that text, so the
+        // result carries the fact for the same reason Join does.
+        _truncated |= conformed.IsTruncated;
     }
 
     /// <summary>
@@ -578,7 +659,7 @@ public ref struct InertStringHandler
             AppendFormatted(inert);
     }
 
-    internal InertString ToInertString() => new(_builder.ToString(), _forms);
+    internal InertString ToInertString() => new(_builder.ToString(), _forms, _truncated);
 
     private void Append(string? value)
     {

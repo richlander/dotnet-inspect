@@ -50,7 +50,7 @@ public static class MetadataImageInspector
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
-        string version = MetadataTableProjector.NeutralizeControls(
+        string version = MetadataTableProjector.ContainCellText(
             reader.MetadataVersion, MetadataVersionBudget, out bool versionTruncated);
 
         return new MetadataImageOverview(

@@ -432,34 +432,34 @@ public class MetadataTableProjectionTests
     }
 
     [Fact]
-    public void EscapeText_KeepsSurrogatePairsAtomicAndEscapesLoneSurrogates()
+    public void ContainCellText_KeepsSurrogatePairsAtomicAndContainsLoneSurrogates()
     {
         // The budget is measured in UTF-16 code units, but a supplementary scalar
         // is two of them; truncation must never retain a lone high surrogate, and
-        // an unpaired surrogate must be escaped rather than emitted raw.
-        var escape = typeof(MetadataTableProjector).GetMethod(
-            "EscapeText",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-
+        // an unpaired surrogate must be contained rather than emitted raw.
+        //
+        // Called directly rather than by reflection. When this reflected on the
+        // method by name, renaming it produced a NullReferenceException inside the
+        // test instead of a build error, which reports a rename as a mysterious
+        // failure rather than as the trivially fixable thing it is.
         const string emoji = "\U0001F600"; // one scalar, two UTF-16 code units
 
         // Budget 2: 'A' fits (1); the pair needs 2 more and is dropped as a unit.
-        var dropped = new object?[] { "A" + emoji, 2, null };
-        var droppedText = (string)escape.Invoke(null, dropped)!;
+        string droppedText = MetadataTableProjector.ContainCellText(
+            "A" + emoji, 2, out bool droppedTruncated);
         Assert.Equal("A", droppedText);
-        Assert.True((bool)dropped[2]!);
+        Assert.True(droppedTruncated);
         Assert.DoesNotContain(droppedText, char.IsSurrogate);
 
         // Budget 3: 'A' plus the atomic pair fit exactly; nothing is truncated.
-        var kept = new object?[] { "A" + emoji, 3, null };
-        var keptText = (string)escape.Invoke(null, kept)!;
+        string keptText = MetadataTableProjector.ContainCellText(
+            "A" + emoji, 3, out bool keptTruncated);
         Assert.Equal("A" + emoji, keptText);
-        Assert.False((bool)kept[2]!);
+        Assert.False(keptTruncated);
 
-        // A lone (unpaired) surrogate is escaped, never emitted as raw text.
-        var lone = new object?[] { "\uD83D", 10, null };
-        var loneText = (string)escape.Invoke(null, lone)!;
-        Assert.Equal("\\uD83D", loneText);
+        // A lone (unpaired) surrogate is contained, never emitted as raw text.
+        string loneText = MetadataTableProjector.ContainCellText("\uD83D", 10, out _);
+        Assert.Equal(@"\uD83D", loneText);
         Assert.DoesNotContain(loneText, char.IsSurrogate);
     }
 
