@@ -714,6 +714,11 @@ public class ApiCommand
     /// name from a known field that happens to hold no value: <c>-S "API Info" --fields Version</c>
     /// against a local .dll renders nothing because that assembly has no version, and <c>Version</c>
     /// is a perfectly valid field that <c>-D "API Info"</c> advertises.</item>
+    /// <item>The name must resolve as the KIND being projected. "Valid somewhere in the document"
+    /// is too weak on its own: <c>Type</c> is a column of the <c>Classes</c> table and is a field
+    /// nowhere, so <c>-S "API Info" --fields Type</c> would be validated by an unrelated section's
+    /// column and print nothing at exit 0 -- the success-shaped empty output this gate exists to
+    /// prevent.</item>
     /// </list>
     ///
     /// The name check is deliberately a NARROWING condition on an already-empty render, never a
@@ -733,23 +738,38 @@ public class ApiCommand
         if (names is not { Length: > 0 })
             return true;
 
-        // Resolved against EVERY section the schema knows, not just the selected ones. A
-        // document-level field belongs to no section in particular -- `Version` is advertised
-        // under `API Info` but survives whichever section is selected -- so checking only the
-        // selection reports it unresolved. That blind spot is normally unreachable because the
-        // document fields keep the render non-empty, but filtering the selected table to zero
-        // rows (`-t "NoSuchType*" -S Classes --fields Version`) empties the render and exposes
-        // it. Widening to all sections costs only the ability to fail a name that is valid
-        // somewhere else in the same document, which is the conservative direction: this gate
-        // exists to catch names that exist NOWHERE.
+        // Resolved by KIND across EVERY section, not against the selected sections. Two
+        // independent corrections are folded in here, and dropping either one reopens a real
+        // false positive found in review:
+        //
+        // Across all sections, because a document-level field belongs to no section in
+        // particular -- `Version` is advertised under `API Info` but survives whichever section
+        // is selected -- so checking only the selection reports it unresolved. That is normally
+        // unreachable because the document fields keep the render non-empty, but filtering the
+        // selected table to zero rows (`-t "NoSuchType*" -S Classes --fields Version`) empties
+        // the render and exposes it.
+        //
+        // By kind, because "valid somewhere" is too weak on its own: `Type` is a Classes COLUMN
+        // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
+        // unrelated section's column and silently succeed while printing nothing. `--fields` can
+        // only be satisfied by a field and `--columns` only by a column.
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
         var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var section in schema.SectionNames)
         {
-            var unresolved = new HashSet<string>(
-                schema.ValidateProjection(section, names).Unresolved, StringComparer.OrdinalIgnoreCase);
-            if (names.Any(name => !unresolved.Contains(name)))
-                return true;
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                known.Add(item.Name);
+                known.Add(item.StableName);
+            }
         }
+
+        if (names.Any(known.Contains))
+            return true;
 
         var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
         CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");

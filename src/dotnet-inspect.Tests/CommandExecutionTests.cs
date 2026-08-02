@@ -3472,6 +3472,40 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// A name that exists in the document but never as the KIND being projected. `Type` is a
+    /// column of the Classes table and is a field nowhere, so `--fields Type` can no more be
+    /// satisfied than a name that appears nowhere at all. Found by GPT-5.6: resolving projected
+    /// names across every section without also matching the kind let an unrelated section's
+    /// column validate the projection, and the command printed nothing and exited 0 -- the exact
+    /// success-shaped empty output this gate exists to prevent.
+    /// </summary>
+    [Theory]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--plaintext")]
+    [InlineData("--count")]
+    public async Task Type_Listing_ProjectionMatchingTheWrongKind_FailsLikeAnUnknownName(string format)
+    {
+        // System.Net.Http rather than the test assembly: the point is that `Type` resolves as a
+        // Classes COLUMN, so the target must have classes for the mismatch to be the only reason
+        // the name fails.
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "--platform", "System.Net.Http", "-S", "API Info", "--fields", "Type", format, "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Type", error, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, output.Trim());
+
+        // The companion: the same name against the kind it actually is must still render, so the
+        // rule is "wrong kind", not "this name is banned".
+        var (okExit, okOutput, _) = await RunAppAsync(
+            ["type", "--platform", "System.Net.Http", "-S", "Classes", "--columns", "Type", "--tsv", "--tips", "q"]);
+
+        Assert.Equal(0, okExit);
+        Assert.Contains("System.Net.Http.HttpClient", okOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The other two ways an empty render is an honest answer rather than a failed projection.
     /// Both were real false positives of an earlier form of the gate, and neither can be seen by
     /// looking at the rendered bytes alone -- which is exactly why the gate needs the two
