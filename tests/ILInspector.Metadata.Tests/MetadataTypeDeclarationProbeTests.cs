@@ -153,6 +153,27 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Probe_DoesNotMatchCloseNestedDefinitionNames()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle outer =
+                AddTypeDefinition(metadata, TypeAttributes.Public, "N", "Outer`1");
+            TypeDefinitionHandle inner = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Leaf");
+            metadata.AddNestedType(inner, outer);
+        });
+
+        AssertMissing(image.Reader, Name("Other", "Outer`1", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Other`1", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Outer`2", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Leaf"));
+    }
+
+    [Fact]
     public void Probe_ReturnsTopLevelForwarder()
     {
         using MetadataImage image = BuildMetadata(metadata =>
@@ -206,6 +227,32 @@ public class MetadataTypeDeclarationProbeTests
         Assert.Equal(
             [MetadataTokens.GetToken(outer), MetadataTokens.GetToken(inner)],
             forwarded.Declarations.Select(token => token.Value));
+    }
+
+    [Fact]
+    public void Probe_DoesNotMatchCloseNestedForwarderNames()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle target = AddAssemblyReference(metadata, "Target");
+            ExportedTypeHandle outer = metadata.AddExportedType(
+                TypeAttributes.Public | Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Outer`1"),
+                target,
+                typeDefinitionId: 0);
+            metadata.AddExportedType(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Leaf"),
+                outer,
+                typeDefinitionId: 0);
+        });
+
+        AssertMissing(image.Reader, Name("Other", "Outer`1", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Other`1", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Outer`2", "Leaf"));
+        AssertMissing(image.Reader, Name("N", "Leaf"));
     }
 
     [Fact]
@@ -392,17 +439,18 @@ public class MetadataTypeDeclarationProbeTests
         var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
             MetadataTypeDeclarationProbe.Probe(
                 image.Reader,
-                Name("N", "Unrelated")));
+                Name("N", "First")));
 
         Assert.Equal(RelationshipTraversalRejectionKind.Cycle, rejected.Rejection.RelationshipKind);
     }
 
     [Fact]
-    public void Probe_RejectsEmptyMetadataNameSegment()
+    public void StructuredNameReader_RejectsEmptyExportedTypeName()
     {
+        ExportedTypeHandle exported = default;
         using MetadataImage image = BuildMetadata(metadata =>
         {
-            metadata.AddExportedType(
+            exported = metadata.AddExportedType(
                 Forwarder,
                 metadata.GetOrAddString("N"),
                 name: default,
@@ -410,22 +458,21 @@ public class MetadataTypeDeclarationProbeTests
                 typeDefinitionId: 0);
         });
 
-        var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
-            MetadataTypeDeclarationProbe.Probe(
-                image.Reader,
-                Name("N", "Unrelated")));
+        var rejected = Assert.IsType<MetadataTypeDefinitionNameReadResult.Rejected>(
+            MetadataTypeDefinitionNameReader.Read(image.Reader, exported));
 
         Assert.Equal(
             MetadataTypeNameFailureMechanism.Metadata,
-            rejected.Rejection.Mechanism);
+            rejected.Failure.Mechanism);
     }
 
     [Fact]
-    public void Probe_RejectsEmptyTypeDefinitionName()
+    public void StructuredNameReader_RejectsEmptyTypeDefinitionName()
     {
+        TypeDefinitionHandle definition = default;
         using MetadataImage image = BuildMetadata(metadata =>
         {
-            metadata.AddTypeDefinition(
+            definition = metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("N"),
                 name: default,
@@ -434,14 +481,12 @@ public class MetadataTypeDeclarationProbeTests
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
         });
 
-        var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
-            MetadataTypeDeclarationProbe.Probe(
-                image.Reader,
-                Name("N", "Unrelated")));
+        var rejected = Assert.IsType<MetadataTypeDefinitionNameReadResult.Rejected>(
+            MetadataTypeDefinitionNameReader.Read(image.Reader, definition));
 
         Assert.Equal(
             MetadataTypeNameFailureMechanism.Metadata,
-            rejected.Rejection.Mechanism);
+            rejected.Failure.Mechanism);
     }
 
     [Fact]
@@ -488,7 +533,7 @@ public class MetadataTypeDeclarationProbeTests
         var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
             MetadataTypeDeclarationProbe.Probe(
                 image.Reader,
-                Name("N", "Unrelated")));
+                Name("N", "Type1")));
 
         Assert.Equal(
             RelationshipTraversalRejectionKind.NodeBudget,
@@ -496,6 +541,103 @@ public class MetadataTypeDeclarationProbeTests
         Assert.Equal(
             MetadataSafetyPolicy.MaxRelationshipNodes,
             rejected.Rejection.ConsumedNodes);
+    }
+
+    [Fact]
+    public void Probe_SkipsUnrelatedMalformedRelationship()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(metadata, TypeAttributes.Public, "N", "ValidType");
+            metadata.AddExportedType(
+                Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("First"),
+                MetadataTokens.ExportedTypeHandle(2),
+                typeDefinitionId: 0);
+            metadata.AddExportedType(
+                Forwarder,
+                default,
+                metadata.GetOrAddString("Second"),
+                MetadataTokens.ExportedTypeHandle(1),
+                typeDefinitionId: 0);
+        });
+
+        Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "ValidType")));
+    }
+
+    [Fact]
+    public void Probe_RejectsSameLeafMalformedRelationshipBesideDefinition()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(metadata, TypeAttributes.Public, "N", "First");
+            metadata.AddExportedType(
+                Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("First"),
+                MetadataTokens.ExportedTypeHandle(2),
+                typeDefinitionId: 0);
+            metadata.AddExportedType(
+                Forwarder,
+                default,
+                metadata.GetOrAddString("Second"),
+                MetadataTokens.ExportedTypeHandle(1),
+                typeDefinitionId: 0);
+        });
+
+        var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "First")));
+
+        Assert.Equal(
+            RelationshipTraversalRejectionKind.Cycle,
+            rejected.Rejection.RelationshipKind);
+    }
+
+    [Fact]
+    public void Probe_AbsentNameAllocationDoesNotScaleWithRowCount()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < 1_000; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    $"Type{i}");
+            }
+        });
+        MetadataTypeDefinitionName missing = Name("N", "Missing");
+
+        MetadataTypeDeclarationProbe.Probe(image.Reader, missing);
+        const int iterations = 20;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < iterations; i++)
+            MetadataTypeDeclarationProbe.Probe(image.Reader, missing);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, iterations * 2_048);
+    }
+
+    [Fact]
+    public void MaterializedTokens_RejectRowsOutsideSuppliedReader()
+    {
+        using MetadataImage image = BuildMetadata(_ => { });
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TypeDefinitionToken.FromHandle(
+                image.Reader,
+                MetadataTokens.TypeDefinitionHandle(2)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ExportedTypeToken.FromHandle(
+                image.Reader,
+                MetadataTokens.ExportedTypeHandle(1)));
     }
 
     [Fact]
@@ -557,6 +699,12 @@ public class MetadataTypeDeclarationProbeTests
             MetadataTypeDefinitionName.Create(@namespace, [.. segments]));
         return valid.Name;
     }
+
+    static void AssertMissing(
+        MetadataReader reader,
+        MetadataTypeDefinitionName name) =>
+        Assert.IsType<TypeDeclarationResult.Missing>(
+            MetadataTypeDeclarationProbe.Probe(reader, name));
 
     static TypeDefinitionHandle AddTypeDefinition(
         MetadataBuilder metadata,

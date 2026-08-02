@@ -19,14 +19,15 @@ public static class MetadataTypeDeclarationProbe
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
-            MetadataTypeDefinitionNameReadResult read =
-                MetadataTypeDefinitionNameReader.Read(reader, handle);
-            if (read is MetadataTypeDefinitionNameReadResult.Rejected rejected)
-                return new TypeDeclarationResult.Rejected(rejected.Failure);
-
-            var definitionName =
-                ((MetadataTypeDefinitionNameReadResult.Read)read).Name;
-            if (definitionName == name)
+            MetadataTypeDefinitionNameMatch match =
+                MetadataTypeDefinitionNameReader.Matches(
+                    reader,
+                    handle,
+                    name,
+                    out MetadataTypeNameFailure? failure);
+            if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                return new TypeDeclarationResult.Rejected(failure!);
+            if (match == MetadataTypeDefinitionNameMatch.Match)
             {
                 candidates.Add(
                     new PendingValue(
@@ -37,18 +38,18 @@ public static class MetadataTypeDeclarationProbe
 
         foreach (ExportedTypeHandle handle in reader.ExportedTypes)
         {
-            MetadataTypeDefinitionNameReadResult read =
-                MetadataTypeDefinitionNameReader.Read(reader, handle);
-            if (read is MetadataTypeDefinitionNameReadResult.Rejected rejected)
-                return new TypeDeclarationResult.Rejected(rejected.Failure);
-
-            var exportedName =
-                ((MetadataTypeDefinitionNameReadResult.Read)read).Name;
-            if (exportedName != name)
+            MetadataTypeDefinitionNameMatch match =
+                MetadataTypeDefinitionNameReader.Matches(
+                    reader,
+                    handle,
+                    name,
+                    out MetadataTypeNameFailure? failure);
+            if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                return new TypeDeclarationResult.Rejected(failure!);
+            if (match == MetadataTypeDefinitionNameMatch.NoMatch)
                 continue;
 
             TypeDeclarationCandidate? candidate;
-            MetadataTypeNameFailure? failure;
             if (!TryReadExportedCandidate(
                     reader,
                     handle,

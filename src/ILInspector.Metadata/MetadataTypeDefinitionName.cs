@@ -144,82 +144,264 @@ internal abstract record MetadataTypeDefinitionNameReadResult
         MetadataTypeDefinitionNameReadResult;
 }
 
+internal enum MetadataTypeDefinitionNameMatch
+{
+    NoMatch,
+    Match,
+    Rejected,
+}
+
 internal static class MetadataTypeDefinitionNameReader
 {
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        TypeDefinitionHandle handle) =>
-        ReadChain(
-            reader,
-            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
-            current =>
-            {
-                TypeDefinition definition = reader.GetTypeDefinition(current);
-                return (definition.Namespace, definition.Name);
-            },
-            static current => current);
-
-    internal static MetadataTypeDefinitionNameReadResult Read(
-        MetadataReader reader,
-        TypeReferenceHandle handle) =>
-        ReadChain(
-            reader,
-            MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
-            current =>
-            {
-                TypeReference reference = reader.GetTypeReference(current);
-                return (reference.Namespace, reference.Name);
-            },
-            static current => current);
-
-    internal static MetadataTypeDefinitionNameReadResult Read(
-        MetadataReader reader,
-        ExportedTypeHandle handle) =>
-        ReadChain(
-            reader,
-            MetadataRelationshipTraversal.WalkExportedTypeImplementationChain(reader, handle),
-            current =>
-            {
-                ExportedType exported = reader.GetExportedType(current);
-                return (exported.Namespace, exported.Name);
-            },
-            static current => current);
-
-    static MetadataTypeDefinitionNameReadResult ReadChain<THandle>(
-        MetadataReader reader,
-        RelationshipTraversalResult<RelationshipChain<THandle>> traversal,
-        Func<THandle, (StringHandle Namespace, StringHandle Name)> getName,
-        Func<THandle, EntityHandle> getSubject)
-        where THandle : struct
+        TypeDefinitionHandle handle)
     {
-        if (traversal is RelationshipTraversalResult<RelationshipChain<THandle>>.Rejected rejected)
+        Span<TypeDefinitionHandle> rootToLeaf =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
         {
-            return new MetadataTypeDefinitionNameReadResult.Rejected(
-                MetadataTypeNameFailure.From(rejected.Rejection));
+            return RejectedTraversal(rejection!);
         }
 
-        RelationshipChain<THandle> chain =
-            ((RelationshipTraversalResult<RelationshipChain<THandle>>.Completed)traversal).Value;
-        var segments = ImmutableArray.CreateBuilder<string>(chain.Handles.Length);
-        string? @namespace = null;
+        return ReadChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes]);
+    }
 
-        for (int i = 0; i < chain.Handles.Length; i++)
+    internal static MetadataTypeDefinitionNameMatch Matches(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure)
+    {
+        if (!LeafMatches<TypeDefinitionHandle, TypeDefinitionNameRow>(
+                reader,
+                handle,
+                name,
+                out MetadataTypeDefinitionNameMatch leafResult,
+                out failure))
         {
-            THandle handle = chain.Handles[i];
+            return leafResult;
+        }
+
+        Span<TypeDefinitionHandle> rootToLeaf =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
+        {
+            failure = MetadataTypeNameFailure.From(rejection!);
+            return MetadataTypeDefinitionNameMatch.Rejected;
+        }
+
+        return MatchChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes],
+            name,
+            out failure);
+    }
+
+    internal static MetadataTypeDefinitionNameMatch Matches(
+        MetadataReader reader,
+        ExportedTypeHandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure)
+    {
+        if (!LeafMatches<ExportedTypeHandle, ExportedTypeNameRow>(
+                reader,
+                handle,
+                name,
+                out MetadataTypeDefinitionNameMatch leafResult,
+                out failure))
+        {
+            return leafResult;
+        }
+
+        Span<ExportedTypeHandle> rootToLeaf =
+            stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkExportedTypeImplementationChain(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
+        {
+            failure = MetadataTypeNameFailure.From(rejection!);
+            return MetadataTypeDefinitionNameMatch.Rejected;
+        }
+
+        return MatchChain<ExportedTypeHandle, ExportedTypeNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes],
+            name,
+            out failure);
+    }
+
+    static bool LeafMatches<THandle, TRow>(
+        MetadataReader reader,
+        THandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeDefinitionNameMatch result,
+        out MetadataTypeNameFailure? failure)
+        where THandle : struct
+        where TRow : struct, IMetadataTypeNameRow<THandle>
+    {
+        failure = null;
+        try
+        {
+            var (_, leafName) = TRow.GetName(reader, handle);
+            if (!reader.StringComparer.Equals(leafName, name.Segments[^1]))
+            {
+                result = MetadataTypeDefinitionNameMatch.NoMatch;
+                return false;
+            }
+
+            result = MetadataTypeDefinitionNameMatch.Match;
+            return true;
+        }
+        catch (BadImageFormatException ex)
+        {
+            failure = RelationshipFailure(ex, TRow.ToEntity(handle), consumedNodes: 1);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            failure = RelationshipFailure(ex, TRow.ToEntity(handle), consumedNodes: 1);
+        }
+
+        result = MetadataTypeDefinitionNameMatch.Rejected;
+        return false;
+    }
+
+    static MetadataTypeDefinitionNameMatch MatchChain<THandle, TRow>(
+        MetadataReader reader,
+        ReadOnlySpan<THandle> rootToLeaf,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure)
+        where THandle : struct
+        where TRow : struct, IMetadataTypeNameRow<THandle>
+    {
+        failure = null;
+        if (rootToLeaf.Length != name.Segments.Length)
+            return MetadataTypeDefinitionNameMatch.NoMatch;
+
+        for (int i = 0; i < rootToLeaf.Length; i++)
+        {
             try
             {
-                var (namespaceHandle, nameHandle) = getName(handle);
+                var (namespaceHandle, nameHandle) =
+                    TRow.GetName(reader, rootToLeaf[i]);
+                if (i == 0
+                    && !reader.StringComparer.Equals(namespaceHandle, name.Namespace))
+                {
+                    return MetadataTypeDefinitionNameMatch.NoMatch;
+                }
+
+                if (!reader.StringComparer.Equals(nameHandle, name.Segments[i]))
+                    return MetadataTypeDefinitionNameMatch.NoMatch;
+            }
+            catch (BadImageFormatException ex)
+            {
+                failure = RelationshipFailure(
+                    ex,
+                    TRow.ToEntity(rootToLeaf[i]),
+                    i + 1);
+                return MetadataTypeDefinitionNameMatch.Rejected;
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                failure = RelationshipFailure(
+                    ex,
+                    TRow.ToEntity(rootToLeaf[i]),
+                    i + 1);
+                return MetadataTypeDefinitionNameMatch.Rejected;
+            }
+        }
+
+        return MetadataTypeDefinitionNameMatch.Match;
+    }
+
+    internal static MetadataTypeDefinitionNameReadResult Read(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        Span<TypeReferenceHandle> rootToLeaf =
+            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
+        {
+            return RejectedTraversal(rejection!);
+        }
+
+        return ReadChain<TypeReferenceHandle, TypeReferenceNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes]);
+    }
+
+    internal static MetadataTypeDefinitionNameReadResult Read(
+        MetadataReader reader,
+        ExportedTypeHandle handle)
+    {
+        Span<ExportedTypeHandle> rootToLeaf =
+            stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkExportedTypeImplementationChain(
+                reader,
+                handle,
+                rootToLeaf,
+                out int consumedNodes,
+                out _,
+                out RelationshipTraversalRejection? rejection))
+        {
+            return RejectedTraversal(rejection!);
+        }
+
+        return ReadChain<ExportedTypeHandle, ExportedTypeNameRow>(
+            reader,
+            rootToLeaf[..consumedNodes]);
+    }
+
+    static MetadataTypeDefinitionNameReadResult ReadChain<THandle, TRow>(
+        MetadataReader reader,
+        ReadOnlySpan<THandle> rootToLeaf)
+        where THandle : struct
+        where TRow : struct, IMetadataTypeNameRow<THandle>
+    {
+        var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
+        string? @namespace = null;
+
+        for (int i = 0; i < rootToLeaf.Length; i++)
+        {
+            THandle handle = rootToLeaf[i];
+            try
+            {
+                var (namespaceHandle, nameHandle) = TRow.GetName(reader, handle);
                 if (i == 0)
                     @namespace = reader.GetString(namespaceHandle);
                 segments.Add(reader.GetString(nameHandle));
             }
             catch (BadImageFormatException ex)
             {
-                return Malformed(ex, getSubject(handle), i + 1);
+                return Malformed(ex, TRow.ToEntity(handle), i + 1);
             }
             catch (ArgumentOutOfRangeException ex)
             {
-                return Malformed(ex, getSubject(handle), i + 1);
+                return Malformed(ex, TRow.ToEntity(handle), i + 1);
             }
         }
 
@@ -230,23 +412,86 @@ internal static class MetadataTypeDefinitionNameReader
 
         MetadataTypeNameRejection invalid =
             ((MetadataTypeDefinitionNameResult.Rejected)created).Rejection;
-        EntityHandle subject = getSubject(
-            chain.Handles[invalid.SegmentIndex ?? 0]);
+        EntityHandle subject =
+            TRow.ToEntity(rootToLeaf[invalid.SegmentIndex ?? 0]);
         return new MetadataTypeDefinitionNameReadResult.Rejected(
             MetadataTypeNameFailure.Malformed(
                 subject,
                 $"Invalid structured metadata type name: {invalid.Kind}."));
     }
 
+    static MetadataTypeDefinitionNameReadResult RejectedTraversal(
+        RelationshipTraversalRejection rejection) =>
+        new MetadataTypeDefinitionNameReadResult.Rejected(
+            MetadataTypeNameFailure.From(rejection));
+
     static MetadataTypeDefinitionNameReadResult Malformed(
         Exception exception,
         EntityHandle subject,
         int consumedNodes) =>
         new MetadataTypeDefinitionNameReadResult.Rejected(
-            MetadataTypeNameFailure.From(
-                new RelationshipTraversalRejection(
-                    RelationshipTraversalRejectionKind.MalformedMetadata,
-                    exception.Message,
-                    subject,
-                    consumedNodes)));
+            RelationshipFailure(exception, subject, consumedNodes));
+
+    static MetadataTypeNameFailure RelationshipFailure(
+        Exception exception,
+        EntityHandle subject,
+        int consumedNodes) =>
+        MetadataTypeNameFailure.From(
+            new RelationshipTraversalRejection(
+                RelationshipTraversalRejectionKind.MalformedMetadata,
+                exception.Message,
+                subject,
+                consumedNodes));
+
+    interface IMetadataTypeNameRow<THandle>
+        where THandle : struct
+    {
+        static abstract (StringHandle Namespace, StringHandle Name) GetName(
+            MetadataReader reader,
+            THandle handle);
+
+        static abstract EntityHandle ToEntity(THandle handle);
+    }
+
+    readonly struct TypeDefinitionNameRow :
+        IMetadataTypeNameRow<TypeDefinitionHandle>
+    {
+        public static (StringHandle Namespace, StringHandle Name) GetName(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            return (definition.Namespace, definition.Name);
+        }
+
+        public static EntityHandle ToEntity(TypeDefinitionHandle handle) => handle;
+    }
+
+    readonly struct ExportedTypeNameRow :
+        IMetadataTypeNameRow<ExportedTypeHandle>
+    {
+        public static (StringHandle Namespace, StringHandle Name) GetName(
+            MetadataReader reader,
+            ExportedTypeHandle handle)
+        {
+            ExportedType exported = reader.GetExportedType(handle);
+            return (exported.Namespace, exported.Name);
+        }
+
+        public static EntityHandle ToEntity(ExportedTypeHandle handle) => handle;
+    }
+
+    readonly struct TypeReferenceNameRow :
+        IMetadataTypeNameRow<TypeReferenceHandle>
+    {
+        public static (StringHandle Namespace, StringHandle Name) GetName(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            TypeReference reference = reader.GetTypeReference(handle);
+            return (reference.Namespace, reference.Name);
+        }
+
+        public static EntityHandle ToEntity(TypeReferenceHandle handle) => handle;
+    }
 }

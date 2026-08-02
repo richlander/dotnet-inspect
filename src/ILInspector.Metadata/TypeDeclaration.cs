@@ -15,9 +15,14 @@ public readonly record struct TypeDefinitionToken
         MetadataReader reader,
         TypeDefinitionHandle handle)
     {
-        if (handle.IsNil)
-            throw new ArgumentException("A TypeDef token cannot be nil.", nameof(handle));
-        reader.GetTypeDefinition(handle);
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row <= 0 || row > reader.GetTableRowCount(TableIndex.TypeDef))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(handle),
+                "A TypeDef token must identify a row in the supplied reader.");
+        }
+
         return new TypeDefinitionToken(MetadataTokens.GetToken(handle));
     }
 }
@@ -33,9 +38,14 @@ public readonly record struct ExportedTypeToken
         MetadataReader reader,
         ExportedTypeHandle handle)
     {
-        if (handle.IsNil)
-            throw new ArgumentException("An ExportedType token cannot be nil.", nameof(handle));
-        reader.GetExportedType(handle);
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row <= 0 || row > reader.GetTableRowCount(TableIndex.ExportedType))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(handle),
+                "An ExportedType token must identify a row in the supplied reader.");
+        }
+
         return new ExportedTypeToken(MetadataTokens.GetToken(handle));
     }
 }
