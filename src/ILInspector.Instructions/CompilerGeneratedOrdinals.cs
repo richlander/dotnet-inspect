@@ -14,8 +14,9 @@ namespace ILInspector.Instructions;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Roslyn names a local function <c>&lt;M&gt;g__L|N_K</c> and an iterator or async
-/// state machine <c>&lt;M&gt;d__N</c>, where <c>N</c> is the ordinal of a member of the
+/// Roslyn names a local function <c>&lt;M&gt;g__L|N_K</c>, a lambda
+/// <c>&lt;M&gt;b__N_K</c>, and an iterator or async state machine
+/// <c>&lt;M&gt;d__N</c>, where <c>N</c> is the ordinal of a member of the
 /// containing type. Because <c>N</c> counts members — fields and properties and nested
 /// types included — any change to the containing type's member population renumbers it.
 /// A comparison that reconstructs one side's type from a different member population
@@ -49,7 +50,11 @@ namespace ILInspector.Instructions;
 /// The mangled forms are unspellable in C# but not in IL, so an untrusted assembly can
 /// declare a type literally named <c>&lt;Foo&gt;d__5</c>; without the attribute check such
 /// a type would be folded together with an unrelated one. Local-function methods and
-/// state-machine and display-class types all carry the attribute. The method-side rule is
+/// state-machine and display-class types carry the attribute directly. Lambda methods
+/// do not: Roslyn marks their containing <c>&lt;&gt;c</c> and leaves them unmarked, so
+/// eligibility accepts a member whose <em>declaring type</em> carries the attribute —
+/// see <c>TryEligibleName</c>, whose remarks give the measurement and the two controls
+/// that hold both directions of it. The method-side rule is
 /// enforced by <c>NameShapeAlone_DoesNotFold</c>, which declares a <em>method</em> with a
 /// hand-written mangled name and no attribute and asserts it keeps its ordinal;
 /// <c>TypeNameShapeAlone_DoesNotFold</c> asserts the same outcome for a type, though it
@@ -81,9 +86,14 @@ namespace ILInspector.Instructions;
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
-/// they carry no containing-method name, so <c>N</c> is their only discriminator and
-/// folding it would merge unrelated closures.
-/// Enforced by <c>AnonymousShapes_NeverFold</c> and <c>LambdaShape_IsOutOfScope</c>.
+/// they carry no containing-method name, so <c>N</c> is their only discriminator and an
+/// ordinal-free key would collide across unrelated closures. Note this is a statement
+/// about the <em>key</em>, not about safety — a colliding key is ambiguous and therefore
+/// refused, so the cost is a missed fold. The lambda form <c>&lt;M&gt;b__N_K</c> is not
+/// anonymous in this sense and <em>is</em> owned: it carries its containing method's
+/// name, so its ordinal-free key discriminates exactly as the local-function form's does.
+/// Enforced by <c>AnonymousShapes_NeverFold</c>, with <c>LambdaShape_Folds</c> pinning
+/// the distinction from the other side.
 /// </para>
 /// <para>
 /// <b>Known gap — generic declaring types do not fold.</b> The correspondence is keyed on
@@ -595,15 +605,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
                 }
 
-                // Read once per type rather than per member: a generated type's members
-                // are unmarked and inherit this, and the attribute walk is the expensive
-                // half of eligibility.
-                bool typeIsGenerated = HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
+                // Computed on demand and reused, not per member and not per type. Only a
+                // name that could be owned needs it, so an assembly carrying a malformed
+                // attribute row on a type this index would otherwise never inspect keeps
+                // folding rather than failing the whole index closed.
+                bool? typeIsGenerated = null;
 
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method, declaringTypeIsGenerated: typeIsGenerated) is not { } elided)
+                    string methodName = reader.GetString(method.Name);
+                    if (TryElideOrdinal(methodName, GeneratedNameKind.Method) is null)
+                        continue;
+
+                    typeIsGenerated ??= HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
+                    if (TryEligibleName(reader, methodName, method.GetCustomAttributes(), GeneratedNameKind.Method, declaringTypeIsGenerated: typeIsGenerated.Value) is not { } elided)
                         continue;
 
                     // A generic method's own constraints; the declaring chain's are
