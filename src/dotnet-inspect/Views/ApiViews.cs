@@ -522,6 +522,35 @@ public class TypeInfoSection
 }
 
 /// <summary>
+/// View model for the API surface identity fact table.
+/// </summary>
+/// <remarks>
+/// The row set is structurally fixed: every property here is a fact *about* the surface being
+/// listed rather than an entry *from* it, so the section is the same size whether the match is two
+/// types or twenty thousand. The three counts are counts, not enumerations — each contributes
+/// exactly one row no matter how large it gets. That is what makes this the bare <c>-S</c>
+/// candidate for the type-listing view. Adding a property whose count of rows depends on the
+/// assembly or the match would break that contract.
+/// </remarks>
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ApiInfoSection
+{
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; init; }
+
+    public int? Types { get; init; }
+    public int? Methods { get; init; }
+    public int? Properties { get; init; }
+    public string? Version { get; init; }
+
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; init; }
+
+    public string? Source { get; init; }
+}
+
+/// <summary>
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
@@ -540,6 +569,16 @@ public class CliApiSurface
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
+
+    /// <summary>
+    /// API surface identity fact table. Unlike every other section on this view, the row set does
+    /// not grow with the assembly or the match: it answers "what am I listing" rather than listing
+    /// the matched types, so it is the same shape for a two-type match and for all of
+    /// <c>System.Private.CoreLib</c>.
+    /// </summary>
+    [MarkoutSection(Name = "API Info")]
+    [JsonIgnore]
+    public ApiInfoSection? ApiInfo { get; set; }
 
     // Type forwarders (edge case: types == 0 with forwarders)
     [MarkoutSection(Name = "Type Forwarders")]
@@ -938,6 +977,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiSurfaceTableRow))]
 [MarkoutContext(typeof(SampleRow))]
 [MarkoutContext(typeof(ApiInspectionFailureRow))]
+[MarkoutContext(typeof(ApiInfoSection))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
 }

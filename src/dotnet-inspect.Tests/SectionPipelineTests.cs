@@ -3045,7 +3045,7 @@ public class SectionPipelineTests
     public void ApiTypePipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        Assert.Equal(5, pipeline.AllSectionNames.Length);
+        Assert.Equal(6, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -3054,6 +3054,7 @@ public class SectionPipelineTests
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
+        Assert.Contains(SectionNames.ApiInfo, names);
         Assert.Contains("Classes", names);
         Assert.Contains("Structs", names);
         Assert.Contains("Interfaces", names);

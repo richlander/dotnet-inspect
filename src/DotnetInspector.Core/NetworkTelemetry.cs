@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
+using InertText;
 
 namespace DotnetInspector.Core;
 
@@ -205,7 +206,7 @@ public static class NetworkTelemetry
 
 public sealed record NetworkRequestObservation(
     string Method,
-    string? Url,
+    InertString? Url,
     string? Scheme,
     string? Host,
     string ClientKind,
@@ -243,8 +244,8 @@ public sealed record NetworkRequestObservation(
             ["dotnet_inspect.network.policy.allowed"] = IsAllowedByPolicy
         };
 
-        if (Url != null)
-            tags["url.full"] = Url;
+        if (Url is { } url)
+            tags["url.full"] = url.ToString();
         if (Scheme != null)
             tags["url.scheme"] = Scheme;
         if (Host != null)
@@ -257,13 +258,13 @@ public sealed record NetworkRequestObservation(
         return tags;
     }
 
-    internal static string? RedactUrl(Uri? uri)
+    internal static InertString? RedactUrl(Uri? uri)
     {
         if (uri == null)
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return RedactRelativeUrl(uri.ToString());
+            return new InertString(TextPolicy.Field, RedactRelativeUrl(uri.ToString()));
 
         var builder = new UriBuilder(uri)
         {
@@ -272,29 +273,58 @@ public sealed record NetworkRequestObservation(
         };
 
         builder.Query = RedactQuery(builder.Query);
-        return builder.Uri.ToString();
+        builder.Path = RedactPath(builder.Path);
+
+        // Redaction removes the secrets; this removes the ability to act on the terminal that
+        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
+        // though this were already handled, but it passes Cf straight through — so a bidi
+        // override in a source URL survives into a failure message and reorders it.
+        return new InertString(TextPolicy.Field, builder.Uri.ToString());
     }
 
-    internal static string RedactSensitiveUrlText(string value)
+    internal static InertString RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? value;
+            return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);
 
         if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return RedactRelativeUrl(relative.ToString());
+            return new InertString(TextPolicy.Field, RedactRelativeUrl(relative.ToString()));
 
-        return value;
+        return new InertString(TextPolicy.Field, value);
     }
 
     private static string RedactRelativeUrl(string url)
     {
         var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
         if (queryIndex < 0)
-            return url;
+            return RedactPath(url);
 
         var path = url[..queryIndex];
         var query = url[queryIndex..];
-        return $"{path}?{RedactQuery(query)}";
+        return $"{RedactPath(path)}?{RedactQuery(query)}";
+    }
+
+    // Some feeds carry the credential in the path rather than the query. MyGet publishes
+    // service index URLs shaped like https://host/F/<feed>/auth/<token>/api/v3/index.json,
+    // so the segment following an "auth" segment is a secret. Only that segment is removed:
+    // the rest of the path is the feed's identity (an Azure DevOps organization, project and
+    // feed all live in the path) and is exactly what a reader needs to tell sources apart.
+    private static string RedactPath(string path)
+    {
+        if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
+            return path;
+
+        var segments = path.Split('/');
+        for (var i = 1; i < segments.Length; i++)
+        {
+            if (segments[i].Length > 0
+                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
+            {
+                segments[i] = "REDACTED";
+            }
+        }
+
+        return string.Join('/', segments);
     }
 
     private static string RedactQuery(string query)
@@ -319,15 +349,28 @@ public sealed record NetworkRequestObservation(
         return string.Join('&', parts);
     }
 
+    // Matched on fragments rather than whole names: the same secret travels under
+    // access_token, accessToken, apiKey, x-api-key and personalAccessToken depending on the
+    // feed, and an exact-name list silently passes every spelling it has not met yet.
+    private static readonly string[] SensitiveNameFragments =
+        ["token", "key", "secret", "password", "credential", "auth", "sig"];
+
     private static bool IsSensitiveQueryName(string name)
-        => name.Equals("access_token", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("api_key", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("apikey", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("code", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("password", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("sig", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("signature", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("token", StringComparison.OrdinalIgnoreCase);
+    {
+        if (name.Equals("code", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var normalized = name.Replace("_", "", StringComparison.Ordinal)
+                             .Replace("-", "", StringComparison.Ordinal);
+
+        foreach (var fragment in SensitiveNameFragments)
+        {
+            if (normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 public static class CacheTelemetry
@@ -381,7 +424,7 @@ public static class CacheTelemetry
 
 public sealed record CacheObservation(
     string Category,
-    string Key,
+    InertString Key,
     CacheAccessResult Result,
     NetworkTrafficKind TrafficKind,
     string? RequestWhat,
@@ -405,7 +448,7 @@ public sealed record CacheObservation(
         var tags = new ActivityTagsCollection
         {
            ["dotnet_inspect.cache.category"] = Category,
-           ["dotnet_inspect.cache.key"] = Key,
+           ["dotnet_inspect.cache.key"] = Key.ToString(),
            ["dotnet_inspect.cache.result"] = Result.ToTelemetryName(),
            ["dotnet_inspect.network.kind"] = TrafficKind.ToTelemetryName()
         };

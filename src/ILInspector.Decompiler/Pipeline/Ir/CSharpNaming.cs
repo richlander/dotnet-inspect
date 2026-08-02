@@ -49,20 +49,41 @@ internal static class CSharpNaming
         => CSharpIdentifier.ContainIdentifier(name);
 
     /// <summary>
-    /// The emittable C# spelling of a call/method-group target name: the source
-    /// name (a <c>&gt;g__</c> local function decodes to its source spelling; any
-    /// other name is unchanged), routed through <see cref="SafeIdentifier"/> so a
-    /// reserved keyword is <c>@</c>-escaped and — the fallback that keeps output
-    /// parseable — an unspellable compiler-generated name a raising pass left
-    /// standing (a lambda body method <c>&lt;M&gt;b__N_M</c>, a
-    /// <c>&lt;Clone&gt;$</c>) is sanitized into a legal identifier rather than
-    /// leaked raw. This never emits a raw <c>&lt;&gt;</c> name; for names that are
-    /// already valid identifiers it is identical to <see cref="EscapeIdentifier"/>.
-    /// The method's fidelity is still degraded by the spellability check on the
-    /// unchanged IR name, so honest failure remains visible.
+    /// The emittable C# spelling of a call/method-group target name, routed through
+    /// <see cref="SafeIdentifier"/> so a reserved keyword is <c>@</c>-escaped and an
+    /// unspellable compiler-generated name is sanitized into a legal identifier
+    /// rather than leaked raw. This never emits a raw <c>&lt;&gt;</c> name; for names
+    /// that are already valid identifiers it is identical to
+    /// <see cref="EscapeIdentifier"/>.
     /// </summary>
     public static string SourceMethodName(string metadataName)
         => SafeIdentifier(MethodName(metadataName));
+
+    /// <summary>
+    /// The emittable C# spelling of a call/method-group target, using the callee's
+    /// typed identity rather than its name alone so that a local function
+    /// <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> declined
+    /// to raise is not spelled with a source name that appears nowhere in the output.
+    /// </summary>
+    /// <remarks>
+    /// Decoding <c>&lt;Enclosing&gt;g__Name|N_M</c> to <c>Name</c> is only sound when
+    /// the raise SUCCEEDED, and that is not knowable from the name: before
+    /// <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> runs, every
+    /// local-function call site is still a <see cref="Call"/> carrying the mangled name.
+    /// A raised call site is rewritten to a <see cref="LocalFunctionInvocation"/> and
+    /// never reaches here; a DECLINED one is stamped
+    /// <see cref="MethodRef.LocalFunctionRaise"/> by the pass itself — the only
+    /// component that knows. Spelling a declined call <c>Name(...)</c> emits a call to a
+    /// method declared nowhere (CS0103) while looking like ordinary recovered C# (#3631),
+    /// so a declined callee is sanitized instead, keeping the compiler-generated identity
+    /// visible exactly as an unraised lambda body method <c>&lt;M&gt;b__N_M</c> already is.
+    /// <see cref="ILInspector.Decompiler.Pipeline.CSharpSpellability"/> reads the same
+    /// stamp and degrades the method to <see cref="DecompilationFidelity.Partial"/>.
+    /// </remarks>
+    public static string SourceMethodName(MethodRef method)
+        => method.LocalFunctionRaise == LocalFunctionRaiseState.Declined
+            ? SafeIdentifier(method.Name)
+            : SourceMethodName(method.Name);
 
     public static string TypeNameSegment(string metadataName)
         => SafeIdentifier(StripArity(metadataName));

@@ -60,6 +60,8 @@
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />
+    <Project Path="src/InertText.Tests/InertText.Tests.csproj" />
+    <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
@@ -81,6 +83,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
+    <Project Path="tools/AotProbe/AotProbe.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />

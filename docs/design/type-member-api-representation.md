@@ -12,12 +12,156 @@ each elsewhere, and which alternatives were rejected and why.
 ## The one-paragraph answer
 
 There is no single representation, and there is deliberately no single canonical
-spelling. A type is a *structured value* inside a layer and a *string* only when
-it escapes one. Identity is not one key but several **projections**, each with
-its own erasure policy, because the same type must spell differently for a
-correspondence digest than for an XML-documentation lookup. Pick the projection
-that matches your question, and never recover a structural fact by pattern-matching
-a display string.
+spelling. A type or member is a *structured value* inside its owning operation;
+some product boundaries intentionally materialize a string, while others return
+typed descriptors, anchors, addresses, or resolved definitions. Identity is not
+one key but several **projections**, each with its own scope and erasure policy,
+because "look this name up," "compare these signature shapes," "locate this
+metadata row," and "prove these references denote one definition" are different
+questions. Pick the currency that matches the question, and never recover a
+structural fact by pattern-matching a display string.
+
+## Currency map
+
+**Currency** means a value that one owner accepts as authoritative for one
+operation. It does not mean a repository-wide interchange type. A value becomes
+unsafe when it crosses into a question whose discriminators it does not carry.
+
+There is no `MetadataTypeDefinition` type in the current product or the
+structured forwarding design. The similarly named proposed types are
+deliberately separate:
+
+- `MetadataTypeDefinitionName` is an exact Metadata **lookup name**:
+  namespace plus root-to-leaf metadata-name segments. It has no assembly,
+  signature shape, display policy, token, or correspondence claim.
+- `ResolvedTypeDefinition` is the successful cross-assembly **resolution payload**:
+  resolved assembly candidate, exact lookup name, durable address, and opaque
+  catalog-local key. `TypeResolutionOutcome.Resolved` carries that payload plus
+  the ordered forwarding-hop evidence.
+
+The map is grouped by library so ownership is visible in the structure instead
+of repeated in every row.
+
+### Current product currencies
+
+#### Reader-local SRM
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeDefinitionHandle`, `TypeReferenceHandle`, `MemberReferenceHandle`, and other SRM handles | One live `MetadataReader` | Which row to read and which validated relationship to follow | Cross-reader identity, persistence, or display |
+
+#### `ILInspector.MetadataPrimitives`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
+| `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
+
+#### `ILInspector.Metadata`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| Raw MethodDef token | One independently known physical module | Which MethodDef row to address | Assembly identity or durable location by itself |
+| `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
+| `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
+| `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
+
+#### `ILInspector.Analysis`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeRef` | Analysis evidence and caches | Structural IL/signature shape, call matching, and Analysis trust evidence | Exact forwarded-definition correspondence or compile-back fidelity |
+| `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
+
+#### `ILInspector.Decompiler`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `Pipeline.TypeRef` | One imported pipeline/body | Symbolic body/codegen shape, function pointers, and the supported function-pointer modifier subset | Arbitrary declaration modifiers, Analysis identity, catalog correspondence, or API persistence |
+
+#### `ILInspector.Research`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `ResearchSubjectKey` identity projection | Cross-producer body composition | Which subjects join by `(Kind, Id)` through Research's identity comparer | Default record equality/hash or the `Display`, `TypeName`, and `MemberName` presentation fields |
+
+`MemberAnchor` is interpreted beside physical module scope when exact physical
+identity is required. The round-trip design calls that pairing
+`ModuleIdentity`; current product code has `MemberAnchor` and the tools-specific
+`RoundTripModuleIdentity`, not a shared product type named `ModuleIdentity`.
+
+### Structured forwarding currencies
+
+The first Metadata delivery slice implements the single-image declaration
+currencies. The Analysis provenance and cross-assembly resolution currencies
+remain proposed until later delivery slices implement them.
+
+#### Proposed `ILInspector.Analysis` forwarding provenance
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
+
+#### Current `ILInspector.Metadata` single-image declaration
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeDefinitionToken`, `ExportedTypeToken` | One readable candidate's manifest module | Which validated metadata row the candidate contains | Definition correspondence or a live metadata handle |
+| `MetadataTypeDefinitionName` | Reader-independent lookup value | Which exact `TypeDef` / `ExportedType` name to probe, including nesting and arity | Assembly selection, signature shape, CLI selection, display, or universal identity |
+| `TypeDeclarationResult` and `TypeDeclarationCandidate` | One exact name in one readable image | Whether the image defines, forwards, misses, ambiguously declares, exports from a module, or rejects the name | Opening another assembly or resolving a target |
+| `ModuleFileReference` | One copied `File` row | Which module file an exported declaration names, including metadata and hash evidence | Module acquisition or readability |
+
+#### Proposed `ILInspector.Metadata` cross-assembly resolution
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
+| `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory/session state the catalog owns | Session ownership or durable identity outside the catalog |
+| `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
+| `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
+| `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
+| `ResolvedTypeDefinitionKey` | One frozen catalog generation | What the catalog may compare for exact definition correspondence | Hashing, sorting, cross-catalog comparison, or durable storage |
+| `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
+| `MetadataTypeDefinitionAddress` | MVID plus validated TypeDef token | Where to re-locate a definition after reopening the module | Proof that two artifacts correspond |
+| `DefinitionJoinToken` | One frozen catalog generation | Hashable exact-or-indeterminate definition class for graph joins | Display, persistence, or reconstruction from addresses |
+
+The table separates four axes that are often collapsed:
+
+1. **Lookup** — `MetadataTypeDefinitionName` asks whether one image declares a
+   name.
+2. **Shape** — a layer-local `TypeRef` describes signature or codegen structure.
+3. **Definition correspondence** — `ResolvedTypeDefinitionKey` plus the catalog
+   proves same, different, indeterminate duplicate, incomparable catalogs, or a
+   stale generation.
+4. **Durable location** — `MetadataTypeDefinitionAddress` says where a row can
+   be revalidated; it does not prove correspondence.
+
+Member currency has the same separation: selector in, anchor out, module scope
+beside the anchor, and producer-native body identity retained for body evidence.
+
+### Conversion ownership
+
+Conversions are operations with an owner, not implicit casts:
+
+| From | To | Owner and rule |
+| --- | --- | --- |
+| TypeDef handle | `TypeDefinitionToken` or `MetadataTypeDefinitionAddress` | Metadata validates table, row bounds, candidate/module, and MVID before materializing |
+| ExportedType handle | `ExportedTypeToken` | Metadata validates the row and bounded relationship traversal; an exported row cannot become a TypeDef address |
+| MethodDef handle | `MetadataMethodAddress` | MetadataPrimitives captures the physical module MVID; every consumer revalidates MVID and row bounds before dereferencing |
+| Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
+| Decoded Analysis type reference | `ResolvableTypeReference` | Analysis retains `TypeReferenceOrigin` beside the exact lookup name; origin is not inferred from `TypeRef.Assembly` |
+| Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
+| `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
+| `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
+| `ResolvedTypeDefinitionKey` | `DefinitionJoinToken` | Only the issuing catalog projects a hashable graph currency |
+| `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
+| `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
+| `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
+
+No generic converter should turn one `TypeRef` into the other, an address into
+correspondence, a display string into identity, or a `MemberAnchor` into body
+identity without the owning resolver and scope.
 
 ## Motivating scenarios
 
@@ -26,21 +170,25 @@ Find your question here; the shape census below says what to use.
 | # | Question | Kind | Answer |
 | --- | --- | --- | --- |
 | 1 | "Cheap predicate over types, before expensive work." | Selection | Cheapest available spelling; guard for zero matches ([#3504](https://github.com/richlander/dotnet-inspect/issues/3504)) |
-| 2 | "Name a type in a result that outlives the `MetadataReader`." | Materialization | Resolved `TypeRef` or string — never a handle |
-| 3 | "Compare two types for equality across assemblies or versions." | Structural identity | `TypeRef` (the layer's own) |
-| 4 | "Show a type to a human or an agent." | Display | `TypeNode.Render()` |
-| 5 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
-| 6 | "Round-trip a type through compile-back." | Fidelity | A shape that preserves `fnptr`/`modreq`/`modopt` |
-| 7 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
+| 2 | "Look up this exact metadata type name in one image." | Lookup | `MetadataTypeDefinitionName` |
+| 3 | "Return a definition reached through forwarders." | Resolution | `TypeResolutionOutcome.Resolved`, carrying `ResolvedTypeDefinition` plus hops |
+| 4 | "Prove two resolved references denote one definition." | Correspondence | Catalog comparison over `ResolvedTypeDefinitionKey` |
+| 5 | "Re-locate a definition after reopening its module." | Durable location | `MetadataTypeDefinitionAddress`, followed by MVID/token validation |
+| 6 | "Compare two signature shapes inside Analysis or Decompiler." | Structural shape | That layer's own `TypeRef` |
+| 7 | "Show a type to a human or an agent." | Display | `TypeNode.Render()` or the owning output projection |
+| 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
+| 9 | "Round-trip a declaration plus its body through compile-back." | Fidelity | Metadata/CSharp typed shell and printer for the declaration; Decompiler body production for supported body/codegen shapes |
+| 10 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
 
-Scenarios 1 and 2 are the ones most often conflated. They are the **input** and
-**output** sides of one operation and want different shapes: selection may be
-approximate on the admit side but must be loud about matching nothing;
-materialization must be durable and exact. The member layer models this split
-correctly — `MemberTargetSelector` in, `MemberAnchor` out. **The type layer has
-only the output half**, spelled as a bare string. That asymmetry is the single
-most common source of confusion in this area and is the open question recorded at
-the end of this document.
+Scenarios 1 through 5 are the ones most often conflated. Selection, lookup,
+resolution, correspondence, and durable location want different shapes:
+selection may be approximate on the admit side but must be loud about matching
+nothing; lookup names must be exact but are not identity; resolution must retain
+candidate and hop evidence; correspondence remains catalog-owned; and durable
+addresses must be revalidated. The member layer models its own split correctly
+— `MemberTargetSelector` in, `MemberAnchor` out. The type command still lacks a
+typed user-facing selector, but that is separate from Metadata's exact lookup
+and resolution currencies.
 
 ## The rule that generates most of the others
 
@@ -81,7 +229,7 @@ emits two spellings:
 | Method | Line | Spelling | Example |
 | --- | --- | --- | --- |
 | `Render()` | `:41` | Display, presentation-refined | `(int count, string name)`, `dynamic`, `string?` |
-| `RenderCanonical()` | `:50` | Structural, name- and presentation-insensitive | `System.ValueTuple<int, string>`, `object`, `string` |
+| `RenderCanonical()` | `:50` | Tuple-canonical identity seam; every non-tuple facet is unchanged | `System.ValueTuple<int, string>`, `dynamic`, `string?` |
 
 **`TypeNode` is `internal`**, visible only to `dotnet-inspect.Tests` and
 `ILInspector.Metadata.Tests` (`src/ILInspector.Metadata/ILInspector.Metadata.csproj:17-18`). This is the
@@ -112,8 +260,12 @@ consumers may use which: Analysis's decoder resolves function pointers and
 custom modifiers to `Unsupported` —
 `src/ILInspector.Analysis/TypeRefDecoder.cs:232` returns
 `TypeRef.Unsupported("function pointer")` and `:233-234` returns
-`TypeRef.Unsupported($"custom modifier (…)")` — while the Decompiler's carries
-`FunctionPointer` as a first-class kind and a `TypeRefCustomModifier`.
+`TypeRef.Unsupported($"custom modifier (…)")`. The Decompiler carries
+`FunctionPointer` as a first-class kind and has `TypeRefCustomModifier` storage,
+but its decoder sees through ordinary declaration-site modifiers. It retains
+only the focused modifier subset needed for supported function-pointer
+semantics (`InAttribute`, `OutAttribute`, `IsReadOnlyAttribute`,
+`RequiresLocationAttribute`, and `CallConvSuppressGCTransition`).
 
 That difference is not cosmetic. `docs/design/type-spelling-identity-display.md`
 records it as a blocking round-2 review finding:
@@ -123,11 +275,14 @@ records it as a blocking round-2 review finding:
 > (`TypeRefDecoder` → `Unsupported`) — precisely the `fnptr`/`modreq`/`modopt`
 > shapes this design's pin **must** preserve.
 
-**Consequence for consumers:** any compile-back, fidelity, or round-trip path is
-*about* preserving `fnptr`/`modreq`/`modopt`, so Analysis's `TypeRef` is
-disqualified there — it would be lossy exactly where such a consumer is most
-sensitive. Reaching for "the typed one" without checking which one is a real
-hazard, and grepping `TypeRef` lands on three unrelated declarations.
+That quote states the larger design requirement and correctly disqualifies
+Analysis's `TypeRef`; it does not establish that the current Decompiler
+`TypeRef` preserves every declaration modifier. **Consequence for consumers:**
+no current `TypeRef` is the complete declaration round-trip currency.
+Metadata/CSharp own the typed declaration shell and printer; Decompiler owns
+supported member-body production and body/codegen shapes. Reaching for "the
+typed one" without checking the operation is a real hazard, and grepping
+`TypeRef` lands on three unrelated declarations.
 
 A third, unrelated `sealed record TypeRef(string FullName, string Namespace,
 string SimpleName)` is private to
@@ -369,6 +524,7 @@ This document is the map. Each document below keeps its own mechanics.
 | `il-diff-canonicalization.md` | IL operation canonicalization; why raw tokens and `IL_####` offsets are not durable identity |
 | `csharp-member-recompilation.md` | Round-trip scope selection; `ModuleIdentity` (name + MVID) as the scope a member anchor is interpreted within |
 | `source-finding-producers.md` | Source-document identity vs member-source identity; token-scoped PDB lookup instead of overload ordinals |
+| `type-forwarding-resolution.md` | Metadata lookup names, reference provenance, catalog-local definition correspondence, and forwarder resolution; these are not display spellings or CLI selectors |
 
 ## Open questions
 

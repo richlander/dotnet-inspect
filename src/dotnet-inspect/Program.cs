@@ -295,6 +295,15 @@ try
 
     return exitCode;
 }
+catch (NuGetFetch.UnsupportedSourceException ex)
+{
+    // Sources arrive from nuget.config as well as from options, so only resolution sees all of
+    // them, and resolution runs after parsing. The option validators catch the common case
+    // early with the same message; this reports the rest as the same clean error rather than
+    // the stack trace the generic handler below would print.
+    CommandError.Write(ex);
+    return 1;
+}
 catch (OperationCanceledException)
 {
     return 1;
