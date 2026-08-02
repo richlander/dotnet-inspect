@@ -15,14 +15,16 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Two different rules are in play, and the difference is deliberate rather than accidental:
-/// resolving a single latest version takes the first source that has the package, while listing
-/// versions aggregates across every source. Source order is therefore the control a caller uses
-/// to say which feed wins, which is what <c>--source</c> is for.
+/// One rule governs every path: the answer is aggregated across all configured sources. Listing
+/// returns the union, and resolving a single latest version returns the highest version any source
+/// carries. Source order does not decide either answer.
 /// </para>
 /// <para>
-/// The practical consequence, pinned below, is that a source appended after nuget.org cannot
-/// change the answer to <c>--latest-version</c> for a package that also exists on nuget.org.
+/// Ordering was previously precedence for <c>--latest-version</c> alone, which meant a feed
+/// appended after nuget.org could not raise the answer for a package nuget.org also carried. That
+/// silently hid exactly what a private feed exists to publish, and it disagreed with both
+/// <c>--versions</c> and wildcard resolution in this same file. NuGet has no such rule either:
+/// source order is not precedence there, which is what package source mapping is for.
 /// </para>
 /// </remarks>
 [Collection(CoreCacheCollection.Name)]
@@ -42,29 +44,89 @@ public class SourcePrecedenceTests : IDisposable
     public void Dispose() => CoreCache.Clear(VersionCacheCategory);
 
     [Fact]
-    public async Task GetLatestVersion_TakesFirstSourceWithPackage_NotHighestVersion()
+    public async Task GetLatestVersion_TakesHighestVersionAcrossSources_NotFirstSource()
     {
-        // Feed A carries an older version than feed B. First-with-package wins, so the
-        // lower version is the correct answer when feed A is listed first.
+        // Feed A carries an older version than feed B. Listing feed A first must not cap the
+        // answer at what feed A knows; the higher version on feed B is still the latest.
         var handler = CreateHandler(feedAVersions: ["0.31.0", "0.32.0"], feedBVersions: ["0.32.0", "0.32.99"]);
         using var client = new HttpClient(handler);
 
         string? version = await PackageExtractor.GetLatestVersionAsync(
             client, "Markout", [FeedA(), FeedB()], log: null, skipCache: true);
 
-        Assert.Equal("0.32.0", version);
+        Assert.Equal("0.32.99", version);
     }
 
     [Fact]
-    public async Task GetLatestVersion_SourceOrderDeterminesResult()
+    public async Task GetLatestVersion_IsOrderIndependent()
     {
         var handler = CreateHandler(feedAVersions: ["0.31.0", "0.32.0"], feedBVersions: ["0.32.0", "0.32.99"]);
         using var client = new HttpClient(handler);
 
-        string? version = await PackageExtractor.GetLatestVersionAsync(
+        string? forward = await PackageExtractor.GetLatestVersionAsync(
+            client, "Markout", [FeedA(), FeedB()], log: null, skipCache: true);
+        string? reversed = await PackageExtractor.GetLatestVersionAsync(
             client, "Markout", [FeedB(), FeedA()], log: null, skipCache: true);
 
+        Assert.Equal("0.32.99", forward);
+        Assert.Equal(forward, reversed);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_LowerVersionOnLaterSourceDoesNotWin()
+    {
+        // The reverse of the ordering case: the highest version is on the FIRST feed, so a later
+        // feed carrying only older versions must not pull the answer back down.
+        var handler = CreateHandler(feedAVersions: ["0.32.99"], feedBVersions: ["0.31.0", "0.32.0"]);
+        using var client = new HttpClient(handler);
+
+        string? version = await PackageExtractor.GetLatestVersionAsync(
+            client, "Markout", [FeedA(), FeedB()], log: null, skipCache: true);
+
         Assert.Equal("0.32.99", version);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_ComparesBySemanticOrderNotStringOrder()
+    {
+        // "0.9.0" sorts after "0.10.0" as text but before it as a version. Pinned so the
+        // comparison cannot regress to an ordinal string compare.
+        var handler = CreateHandler(feedAVersions: ["0.9.0"], feedBVersions: ["0.10.0"]);
+        using var client = new HttpClient(handler);
+
+        string? version = await PackageExtractor.GetLatestVersionAsync(
+            client, "Markout", [FeedA(), FeedB()], log: null, skipCache: true);
+
+        Assert.Equal("0.10.0", version);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_CachedNuGetOrgAnswerDoesNotSuppressHigherFeedVersion()
+    {
+        // The version cache only ever holds nuget.org's own latest. Serving that hit as the final
+        // answer would let a cached public version outrank a higher one on a private feed, so the
+        // hit must stand in for nuget.org alone while the remaining sources are still consulted.
+        using var client = new HttpClient(new NuGetOrgPlusPrivateHandler(
+            packageId: "cachedpkg",
+            nugetOrgRegistry: [("1.0.0", true)],
+            privateVersions: ["2.0.0"]));
+
+        var sources = new List<NuGetSource>
+        {
+            new("nuget.org", "https://api.nuget.org/v3/index.json"),
+            FeedB(),
+        };
+
+        // Populate the cache the way a previous invocation would have.
+        string? first = await PackageExtractor.GetLatestVersionAsync(
+            client, "CachedPkg", sources, log: null, skipCache: false);
+        Assert.Equal("2.0.0", first);
+        Assert.Equal("1.0.0", CoreCache.TryGet(VersionCacheCategory, "cachedpkg", TimeSpan.FromHours(1), extension: "txt"));
+
+        string? second = await PackageExtractor.GetLatestVersionAsync(
+            client, "CachedPkg", sources, log: null, skipCache: false);
+
+        Assert.Equal("2.0.0", second);
     }
 
     [Fact]

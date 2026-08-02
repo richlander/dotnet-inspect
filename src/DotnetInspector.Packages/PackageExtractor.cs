@@ -707,38 +707,70 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         string cacheKey = includePrerelease ? $"{normalizedName}-prerelease" : normalizedName;
 
-        // Cache nuget.org results even when additional custom sources are configured.
+        // Cache nuget.org results even when additional custom sources are configured. The cached
+        // value is nuget.org's own latest, not the overall answer: only nuget.org results are ever
+        // written here, so a hit lets that one source be answered without a request while the
+        // remaining sources are still consulted.
         bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
+        string? cachedNuGetOrgVersion = null;
         if (canCache)
         {
-            string? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
             {
-                cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
+                cachedNuGetOrgVersion = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
             }
-            if (cached != null)
-            {
-                log?.Invoke($"Using cached version: {cached}");
-                return cached;
-            }
+            if (cachedNuGetOrgVersion != null)
+                log?.Invoke($"Using cached version: {cachedNuGetOrgVersion}");
         }
+
+        // Every source is consulted and the highest version wins. Source order does not decide the
+        // answer: a feed carries the versions nuget.org does not have, and those are usually the
+        // higher ones, so stopping at the first source that happened to know the package would hide
+        // them whenever nuget.org is listed first -- which is the usual way to write a nuget.config.
+        // This matches GetVersionsAsync and ResolveVersionPatternAsync, which already aggregate, and
+        // it matches NuGet itself, where source order is not precedence (that is what package source
+        // mapping is for).
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestOriginal = null;
 
         foreach (var source in sources)
         {
-            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
-            if (version != null)
+            string? version;
+            if (source.IsNuGetOrg && cachedNuGetOrgVersion != null)
             {
-                if (canCache && source.IsNuGetOrg)
+                version = cachedNuGetOrgVersion;
+            }
+            else
+            {
+                version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
+                if (version != null && canCache && source.IsNuGetOrg)
                 {
                     using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
                     CoreCache.Set(VersionCacheCategory, cacheKey, version, extension: "txt");
                 }
-                return version;
+            }
+
+            if (version == null)
+                continue;
+
+            if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+            {
+                if (best == null || parsed > best)
+                {
+                    best = parsed;
+                    bestOriginal = version;
+                }
+            }
+            else if (bestOriginal == null)
+            {
+                // Unparseable version strings cannot be ordered; keep the first as a last resort so
+                // an odd feed still yields an answer rather than none.
+                bestOriginal = version;
             }
         }
 
-        return null;
+        return bestOriginal;
     }
 
     /// <summary>
