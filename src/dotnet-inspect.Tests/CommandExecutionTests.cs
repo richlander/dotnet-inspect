@@ -3979,10 +3979,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSource_PropertyAccessorOrdinals_ResolveGetterAndSetterSeparately()
+    public async Task Member_OriginalSource_PropertyAccessorOrdinals_BothRenderTheWholeProperty()
     {
         // Ordinal 1 addresses the getter and 2 the setter, matching the accessor addressing the
-        // body sections use, so each renders its own authored accessor source (#3278).
+        // body sections use (#3278), and both resolve. Each renders the *whole property* rather
+        // than its own accessor: a property split at an accessor boundary is not a C# declaration
+        // and never parses, so the accessor-scoped slice was a fragment by construction. Authored
+        // source is now located by declaration, and the declaration containing either accessor is
+        // the property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
             "MaxDepth:1", "-S", "Original Source", "--tips", "q");
@@ -3991,7 +3995,7 @@ public partial class CommandExecutionTests
         Assert.Empty(getterError);
         Assert.Contains("## Original Source", getterOutput);
         Assert.Contains("get => _maxDepth;", getterOutput);
-        Assert.DoesNotContain("_maxDepth = value;", getterOutput);
+        Assert.Contains("_maxDepth = value;", getterOutput);
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
@@ -4001,6 +4005,12 @@ public partial class CommandExecutionTests
         Assert.Empty(setterError);
         Assert.Contains("## Original Source", setterOutput);
         Assert.Contains("_maxDepth = value;", setterOutput);
+        Assert.Contains("get => _maxDepth;", setterOutput);
+
+        // Addressing either accessor of one property is addressing one declaration, so the two
+        // answers agree. That is the claim; asserting only that each contains its own accessor
+        // would pass just as well if one of them silently returned something else.
+        Assert.Equal(getterOutput, setterOutput);
     }
 
     [Fact]
