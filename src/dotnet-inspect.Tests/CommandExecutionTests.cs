@@ -3354,10 +3354,10 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("Library: System.Text.Json.dll |", output, StringComparison.Ordinal);
         }
 
-        // The carve-out, pinned so it cannot be quietly re-emptied: these scalars are the document
-        // fields --fields names, so suppressing them unconditionally turns an explicit projection
-        // into the Classes table with no title. Naming the fields opts out of the default view's
-        // suppression, and the projection still narrows to exactly what was named.
+        // The carve-out, pinned so it cannot be quietly re-emptied: markout renders the document
+        // title alongside these scalars, so once a projection is active and no scalar survives it
+        // drops the H1 too. Suppressing them unconditionally therefore cost the projection BOTH
+        // its target and its title.
         var (fieldsExit, fieldsOutput, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "--fields", "Types", "--tips", "q");
 
@@ -3366,13 +3366,57 @@ public partial class CommandExecutionTests
         Assert.Contains("Types: 89", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
-        // ...but -S still wins, because there the section is already carrying the same facts.
+        // --columns is the same surface and was the case the first fix missed: it does not filter
+        // document fields at all, so the title vanished while the projected table rendered fine.
+        var (columnsExit, columnsOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "1", "--tips", "q");
+
+        Assert.Equal(0, columnsExit);
+        Assert.Contains("# System.Text.Json", columnsOutput, StringComparison.Ordinal);
+        Assert.Contains("Library: System.Text.Json.dll |", columnsOutput, StringComparison.Ordinal);
+
+        // ...but at quiet, -S still wins: there the section is already carrying the same facts.
         var (bothExit, bothOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--fields", "Types", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
         Assert.Contains("| Types | 89 |", bothOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("\nTypes: 89", bothOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An unmatched <c>--fields</c>/<c>--columns</c> name with a section selected must fail by
+    /// name, not render nothing and exit 0. Bare <c>-S</c> now always selects a section here, and
+    /// <c>API Info</c> is a two-column fact table, so an unmatched field emptied it completely --
+    /// and markout drops the document title once a projection leaves no renderable field, so the
+    /// output was not thin but ENTIRELY empty with a success exit code. This pins the pre-render
+    /// check that the single-type path and the package path already had. See #3651.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Classes")]
+    public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing(string? sectionName)
+    {
+        string[] select = sectionName == null ? ["-S"] : ["-S", sectionName];
+
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", .. select, "--fields", "NoSuchField", "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
+
+        // Names what it wants rather than checking "something was printed": the defect this pins
+        // produced empty stdout, so any assertion satisfied by stderr alone would have passed on
+        // the broken build too.
+        Assert.DoesNotContain("| Type | Members |", output, StringComparison.Ordinal);
+
+        // Non-vacuity: the same projection with a REAL name must still succeed, or this theory
+        // would pass on a build that rejected every projection.
+        var (okExit, okOutput, _) = await RunAppAsync(
+            ["type", "--platform", "System.Text.Json", .. select, "--fields", sectionName == null ? "Types" : "Type", "--tips", "q"]);
+
+        Assert.Equal(0, okExit);
+        Assert.NotEqual(string.Empty, okOutput.Trim());
     }
 
     [Theory]
@@ -3531,21 +3575,20 @@ public partial class CommandExecutionTests
         // it. The bar is parity with the per-kind sections beside it, which is what this compares:
         // whatever the listing view says about an unmatched projection, the fact table says too.
         //
-        // Each flag is exercised ALONE. Supplying --fields and --columns together is the one
-        // combination where the two sides still diverge: the fact table reports the field Note
-        // and exits 0 where the per-kind section reports the column Error and exits 1, because
-        // markout skips the column-match check once a field filter has emptied the row set. That
-        // is markout-side projection behavior on a two-column fact table rather than routing, and
-        // everywhere else it is masked by the pre-render validation the listing view lacks
-        // (#3651). Pinning it here as expected would freeze a defect, so it is left unpinned and
-        // recorded on the issue instead.
+        // The parity is now at the STRONGER level the single-type path always had. The listing
+        // view gained the pre-render ValidateProjection it was missing (#3651), so both sides
+        // reject by name and exit 1 instead of reporting a Note and exiting 0. The messages are
+        // compared by shape rather than by string because each correctly names its own section.
         var (kindExit, _, kindErr) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv", flag, "Nonexistent", "--tips", "q");
         var (factExit, _, factErr) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", flag, "Nonexistent", "--tips", "q");
 
         Assert.Equal(kindExit, factExit);
-        Assert.Equal(kindErr.Trim(), factErr.Trim());
+        Assert.Equal(1, factExit);
+        Assert.Equal(
+            kindErr.Replace("Classes", "<section>", StringComparison.Ordinal).Trim(),
+            factErr.Replace(SectionNames.ApiInfo, "<section>", StringComparison.Ordinal).Trim());
 
         // Non-vacuity: the reference side must actually diagnose the bad projection BY NAME.
         // Asserting only that the combined output is non-empty would pass on the class rows the
@@ -3553,6 +3596,24 @@ public partial class CommandExecutionTests
         // could vanish and this test would still be green. That is the same empty-set-reads-as-
         // success shape the test exists to catch, so the assertion has to name what it wants.
         Assert.Contains("Nonexistent", kindErr, StringComparison.Ordinal);
+
+        // The combination that used to diverge -- the fact table reporting a field Note and exit 0
+        // where the per-kind section reported a column Error and exit 1, because markout skips the
+        // column-match check once a field filter has emptied the row set -- no longer can: the
+        // pre-render check runs before markout sees either projection. Pinned because it is the
+        // second symptom recorded on #3651, and a regression would silently reopen it.
+        var (bothKindExit, _, bothKindErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv",
+            "--fields", "Nonexistent", "--columns", "AlsoNonexistent", "--tips", "q");
+        var (bothFactExit, _, bothFactErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv",
+            "--fields", "Nonexistent", "--columns", "AlsoNonexistent", "--tips", "q");
+
+        Assert.Equal(1, bothKindExit);
+        Assert.Equal(1, bothFactExit);
+        Assert.Equal(
+            bothKindErr.Replace("Classes", "<section>", StringComparison.Ordinal).Trim(),
+            bothFactErr.Replace(SectionNames.ApiInfo, "<section>", StringComparison.Ordinal).Trim());
     }
 
     [Fact]

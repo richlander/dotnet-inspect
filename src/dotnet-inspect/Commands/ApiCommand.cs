@@ -626,6 +626,22 @@ public class ApiCommand
 
         var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
 
+        // Pre-render: validate --columns/--fields against the schema when a section is selected,
+        // mirroring TypeCommand's single-type path and the package path. Without it an unmatched
+        // name silently removes every row and the command exits 0 having printed nothing -- and
+        // bare -S now always selects a section here, so `-S --fields Bogus` landed exactly there.
+        // markout drops the document title too once a projection leaves no renderable field, so
+        // the output was not merely thin but completely empty. See #3651.
+        if (IsColumnProjectionRequested(options)
+            && !options.JsonOutput
+            && !options.Count
+            && options.IncludeSections is { Count: > 0 })
+        {
+            var projectionSchema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+            if (!ProjectionDiagnostics.ValidateProjection(projectionSchema, options.IncludeSections, options.Fields, options.Columns))
+                return 1;
+        }
+
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);

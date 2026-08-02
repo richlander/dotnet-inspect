@@ -51,15 +51,16 @@ public static class ApiOutputFormatter
         // what bare -S started doing once it began selecting API Info. Quiet keeps the line because
         // at quiet there are no sections to carry it. See #3547.
         //
-        // --fields is the exception, and it is not a special case for its own sake: these scalars
-        // are the document fields that flag NAMES, so emptying them unconditionally would turn
-        // `--fields Types` from an answer into the Classes table with no title -- a projection
-        // surface silently losing its target. Suppressing the line is a decision about the DEFAULT
-        // view, so a caller who names the fields explicitly opts out of it. -S is excluded because
-        // there the section is already carrying the same facts.
-        var sectionsSelected = options.IncludeSections is { Count: > 0 };
-        var showCompactFields = !sectionsSelected
-            && (options.Verbosity == Verbosity.Quiet || options.Fields is { Length: > 0 });
+        // An active --fields/--columns projection is the exception, and not as a special case for
+        // its own sake: markout renders the document title alongside these scalars, so once a
+        // projection is active and no scalar survives it drops the H1 as well. Emptying them
+        // therefore did not merely hide a line -- it turned `--fields Types` into the Classes table
+        // with no title, and `--columns Type` into a headless table. Suppressing the line is a
+        // decision about the DEFAULT view, so a caller who names fields or columns opts out of it.
+        var projectionActive = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+        var showCompactFields = options.Verbosity == Verbosity.Quiet
+            ? options.IncludeSections is not { Count: > 0 }
+            : projectionActive;
 
         var view = new CliApiSurface
         {
