@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Packages;
+using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -393,6 +394,112 @@ public class NuGetSearchSourcesTests
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData("https://user:t0ken@private.example/v3/index.json", "t0ken")]
+    [InlineData("https://:t0ken@private.example/v3/index.json", "t0ken")]
+    [InlineData("https://alice@private.example/v3/index.json", "alice")]
+    public void IsSupportedSource_CredentialsInUrl_ReportsWithoutEchoingTheCredential(
+        string url, string secret)
+    {
+        // NuGet never sends URL userinfo, so this authenticates against nothing and would
+        // otherwise surface as a bare 401 that reads like a wrong credential rather than an
+        // unused one.
+        Assert.False(SourceResolver.IsSupportedSource(url, out InertString? problem));
+
+        Assert.NotNull(problem);
+        string text = problem.Value.ToString();
+        Assert.Contains("<user>:<password>", text, StringComparison.Ordinal);
+
+        // The problem text is printed, so it must not carry the credential it is rejecting.
+        Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
+
+        // It still has to say which source was rejected.
+        Assert.Contains("private.example", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSources_CredentialsInConfiguredSource_IsRejected()
+    {
+        // The option validators only see --source and --add-source. A source declared in a
+        // nuget.config reaches a feed without passing either, so rejecting it has to happen
+        // where every source is resolved, not where two of them are parsed.
+        string path = Path.Combine(Path.GetTempPath(), $"nuget-{Guid.NewGuid():N}.config");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://alice:t0ken@private.example/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        try
+        {
+            var ex = Assert.Throws<UnsupportedSourceException>(
+                () => SourceResolver.ResolveSources(configPath: path));
+
+            Assert.Contains("<user>:<password>", ex.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("t0ken", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void IsSupportedSource_RejectionMessage_CarriesNoControlCharacters()
+    {
+        // The message goes to stderr, and the URL in it can come from a nuget.config in a
+        // repository the user only cloned, so it is untrusted text on a terminal path. The
+        // rebuild through UriBuilder percent-encodes control characters, which is what keeps an
+        // escape sequence in a source URL from reaching the terminal. That is a property of Uri
+        // normalization rather than of this code, so it is pinned here: losing it would put a
+        // live ESC on stderr with nothing else to catch it.
+        string esc = "\u001b[31mPWNED\u001b[0m";
+
+        Assert.False(SourceResolver.IsSupportedSource(
+            $"https://alice:t0ken@evil.example/{esc}/index.json?x={esc}", out InertString? problem));
+
+        Assert.NotNull(problem);
+        string text = problem.Value.ToString();
+        Assert.DoesNotContain(text, c => char.IsControl(c));
+        Assert.DoesNotContain("\u001b", text, StringComparison.Ordinal);
+
+        // Still identifies the source, and still without the credential.
+        Assert.Contains("evil.example", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("t0ken", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsSupportedSource_IsTheNonThrowingHalfOfThrowIfUnsupported()
+    {
+        // The pair has to agree, or a caller that asks first still gets thrown at.
+        const string bad = "https://alice:t0ken@private.example/v3/index.json";
+        const string good = "https://private.example/v3/index.json";
+
+        Assert.False(SourceResolver.IsSupportedSource(bad));
+        Assert.Throws<UnsupportedSourceException>(
+            () => UnsupportedSourceException.ThrowIfUnsupported(bad));
+
+        Assert.True(SourceResolver.IsSupportedSource(good));
+        UnsupportedSourceException.ThrowIfUnsupported(good);
+    }
+
+    [Theory]
+    [InlineData("https://api.nuget.org/v3/index.json")]
+    [InlineData("https://pkgs.dev.azure.com/org/proj/_packaging/feed/nuget/v3/index.json")]
+    [InlineData("https://private.example/v3/index.json?access_token=t0ken")]
+    [InlineData("/tmp/local/folder")]
+    public void IsSupportedSource_SourceWithoutEmbeddedCredentials_IsAccepted(string url)
+    {
+        // A token in the query is a shape some feeds really use, so it must not be rejected
+        // here; only userinfo is unsupported.
+        Assert.True(SourceResolver.IsSupportedSource(url, out InertString? problem));
+        Assert.Null(problem);
     }
 
     [Fact]

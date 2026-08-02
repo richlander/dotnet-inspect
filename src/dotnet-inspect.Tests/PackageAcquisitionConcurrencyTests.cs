@@ -690,6 +690,127 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Empty(Directory.GetDirectories(parent, ".*.tmp-*"));
     }
 
+    [Fact]
+    public async Task ExtractPackageAsync_OneSourceRefusesAndAnotherAnswers_SucceedsWithoutBlamingTheRefusal()
+    {
+        const string PackageName = "gamma.available";
+        const string Version = "1.0.0";
+        var sources = new NuGetSourceOptions
+        {
+            Sources =
+            [
+                "https://refusing.example/v3/index.json",
+                "https://serving.example/v3/index.json",
+            ],
+        };
+
+        // A recorded failure is advisory, not fatal. Configuring a private feed that 401s
+        // alongside a public one that answers is the ordinary case, so a refusal from one
+        // source must not fail, or annotate, a lookup another source satisfied.
+        var handler = new RefusesOnePackageHandler(
+            PackageName,
+            CreatePackageArchive(PackageName, Version));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+            client,
+            PackageName,
+            sourceOptions: sources,
+            version: Version);
+
+        Assert.True(outcome.IsSuccess);
+        Assert.Null(outcome.ErrorMessage);
+        Assert.Equal(PackageName, outcome.Result!.PackageName);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_RedirectTargetMissingDoesNotBlameTheWrappersRefusedSource()
+    {
+        const string WrapperPackage = "alpha.wrapper";
+        const string TargetPackage = "beta.payload";
+        const string Version = "1.0.0";
+        var sources = new NuGetSourceOptions
+        {
+            Sources =
+            [
+                "https://refusing.example/v3/index.json",
+                "https://serving.example/v3/index.json",
+            ],
+        };
+
+        // refusing.example rejects the wrapper but answers a plain 404 for the redirect target,
+        // so the only recorded refusal belongs to hop 1. If the collector spans the whole
+        // redirect traversal, hop 2 inherits it and blames a source that never refused it.
+        var handler = new RefusesOnePackageHandler(
+            WrapperPackage,
+            CreateToolWrapperArchive(
+                WrapperPackage,
+                Version,
+                redirectPackageName: TargetPackage));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+            client,
+            WrapperPackage,
+            sourceOptions: sources,
+            version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.DoesNotContain("refusing.example", outcome.ErrorMessage!, StringComparison.Ordinal);
+        Assert.DoesNotContain(WrapperPackage, outcome.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(TargetPackage, outcome.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class RefusesOnePackageHandler(
+        string refusedPackageId,
+        byte[] refusedPackageArchive) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            HttpResponseMessage response;
+
+            if (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""
+                        {"version":"3.0.0","resources":[
+                        {"@id":"https://{{uri.Host}}/v3/flat2/","@type":"PackageBaseAddress/3.0.0"}]}
+                        """),
+                };
+            }
+            else
+            {
+                bool isRefusedPackage = uri.AbsoluteUri.Contains(
+                    refusedPackageId, StringComparison.OrdinalIgnoreCase);
+
+                if (uri.Host.Equals("refusing.example", StringComparison.OrdinalIgnoreCase))
+                {
+                    response = new HttpResponseMessage(
+                        isRefusedPackage ? HttpStatusCode.Unauthorized : HttpStatusCode.NotFound);
+                }
+                else if (isRefusedPackage)
+                {
+                    response = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(refusedPackageArchive),
+                    };
+                }
+                else
+                {
+                    response = new HttpResponseMessage(HttpStatusCode.NotFound);
+                }
+            }
+
+            response.RequestMessage = request;
+            response.Content ??= new StringContent(string.Empty);
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class GatedPackageHandler(byte[] response)
         : HttpMessageHandler
     {

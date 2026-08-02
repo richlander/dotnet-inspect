@@ -16,4 +16,8 @@
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InertText\InertText.csproj" />
+  </ItemGroup>
 </Project>

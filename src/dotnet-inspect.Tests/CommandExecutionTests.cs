@@ -1547,6 +1547,9 @@ public partial class CommandExecutionTests
         // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
         // for free; a dedicated flag has to be copied deliberately, and omitting it silently
         // downgrades the shim from the bare-select preset to the default tree view.
+        //
+        // The shim rebuilds a TypeOptions, so it renders whatever `type` renders for bare -S: that
+        // is now the fixed overview. What this test pins is that the flag survives the copy at all.
         var options = new ApiOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -1558,7 +1561,7 @@ public partial class CommandExecutionTests
             () => ApiCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Method Groups", output, StringComparison.Ordinal);
+        Assert.Contains("## Type Info", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3185,6 +3188,345 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Type Parameters | T |", output);
     }
+
+    /// <summary>
+    /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
+    /// depend on which type is being viewed. It used to render the Info set - the per-kind member
+    /// tables - so its size tracked the type, from one section for an enum to seven for
+    /// System.String. Type Info is the only Fixed, network-free section on this pipeline.
+    /// </summary>
+    [Theory]
+    [InlineData("System.String")]
+    [InlineData("System.DayOfWeek")]
+    [InlineData("System.Int32")]
+    [InlineData("System.Span`1")]
+    [InlineData("System.Exception")]
+    public async Task Type_BareSelect_RendersOnlyTheFixedOverview(string typeName)
+    {
+        var (exit, output, _) = await RunAppAsync("type", typeName, "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var sections = SectionHeadings(output);
+        Assert.Equal([SectionNames.TypeInfo], sections);
+    }
+
+    /// <summary>
+    /// The point of the fixed overview is that its size is a property of the command, not of the
+    /// target. A 250-member class and an 8-member enum must produce the same section set, and
+    /// neither may run long. Before this, System.String rendered 125 lines and System.DayOfWeek 13.
+    /// </summary>
+    [Fact]
+    public async Task Type_BareSelect_DoesNotGrowWithTheType()
+    {
+        var (largeExit, large, _) = await RunAppAsync("type", "System.String", "-S", "--tips", "q");
+        var (smallExit, small, _) = await RunAppAsync("type", "System.DayOfWeek", "-S", "--tips", "q");
+
+        Assert.Equal(0, largeExit);
+        Assert.Equal(0, smallExit);
+        Assert.Equal(SectionHeadings(large), SectionHeadings(small));
+
+        // Bounded in rows, not merely in section count: Type Info emits at most one row per
+        // declared property, so the whole overview stays within a small constant.
+        int largeRows = large.Split('\n').Count(line => line.TrimStart().StartsWith('|'));
+        Assert.InRange(largeRows, 1, DeclaredTypeInfoLabels().Count + 2);
+    }
+
+    /// <summary>
+    /// Explicit selection still wins over the bare marker, and still reaches sections that are not
+    /// in the fixed overview.
+    /// </summary>
+    [Fact]
+    public async Task Type_ExplicitSelect_StillReachesGrowingSections()
+    {
+        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(["Fields"], SectionHeadings(output));
+    }
+
+    /// <summary>
+    /// Type listing has no Fixed section - every section it offers is a per-kind member table that
+    /// grows with the assembly - so bare <c>-S</c> there keeps rendering the Info set. This pins the
+    /// boundary of the change rather than leaving it to inference.
+    /// </summary>
+    [Fact]
+    public async Task Type_Listing_BareSelect_IsUnchangedAndFallsThroughToTheLadder()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Private.CoreLib", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        // The type-listing pipeline publishes NO Info sections, so its bare -S resolves to an empty
+        // include set and IsRequested falls through to the verbosity ladder. That is how this view
+        // has always worked; slice 4c added a Fixed section to this pipeline but deliberately did
+        // NOT wire bare -S to it, so this behavior is still unchanged. The FixedOverviewSectionNames
+        // pin below is what fails when slice 4d does the wiring, forcing that decision to be made
+        // explicitly instead of silently changing which sections bare -S renders.
+        var sections = SectionHeadings(output);
+        var listPipeline = ApiTypeSectionDescriptors.CreatePipeline();
+
+        Assert.Empty(listPipeline.InfoSectionNames);
+        Assert.Equal([SectionNames.ApiInfo], listPipeline.FixedOverviewSectionNames);
+        Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.DoesNotContain(SectionNames.ApiInfo, sections);
+        Assert.Contains("Classes", sections);
+    }
+
+    [Theory]
+    [InlineData("System.Private.CoreLib")]
+    [InlineData("System.Text.Json")]
+    public async Task Type_Listing_ApiInfo_IsExplicitOnlyAndStaysOffEveryDefaultView(string library)
+    {
+        // The section is a promotion of the inline identity line into a selectable section, not a
+        // second copy of it in the default view. ExplicitOnly is what keeps it off the ladder; this
+        // pins that across the whole ladder rather than at one verbosity, because this pipeline is
+        // not a curated catalog and its ladder selects by POSITION -- and the descriptor sits in
+        // first position, which is exactly where a missing ExplicitOnly would surface.
+        foreach (var verbosity in new[] { "-v:q", "-v:m", "-v:n", "-v:d" })
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "type", "--platform", library, verbosity, "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain(SectionNames.ApiInfo, SectionHeadings(output));
+        }
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_RestatesTheInlineIdentityLineExactly()
+    {
+        // ApiOutputFormatter populates the section from the same fields as the inline line and
+        // claims in a comment that the two can never disagree. This is the gate for that claim: a
+        // reader who selects the section and a reader who reads the line must get the same answers.
+        // Without it, the two could drift to different sources and every other test here would
+        // still pass.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var inline = output.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inlineFields = inline
+            .Split('|')
+            .Select(part => part.Trim().Split(':', 2))
+            .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.Ordinal);
+
+        var rows = output.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Where(l => l.StartsWith("| ", StringComparison.Ordinal))
+            .Select(l => l.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()).ToArray())
+            .Where(cells => cells.Length == 2 && cells[0] != "Field" && !cells[0].StartsWith('-'))
+            .ToDictionary(cells => cells[0], cells => cells[1], StringComparer.Ordinal);
+
+        Assert.NotEmpty(rows);
+        Assert.Equal(inlineFields.Count, rows.Count);
+        foreach (var (field, value) in inlineFields)
+            Assert.Equal(value, rows[field]);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_DoesNotGrowWithTheAssembly()
+    {
+        // Bounded means the row set does not depend on the target. CoreLib lists 1353 types and
+        // System.Text.Json lists 89; the three counts are counts rather than enumerations, so each
+        // contributes exactly one row at either size. A future field that enumerated anything would
+        // fail here rather than quietly making the overview unbounded.
+        var (bigExit, big, _) = await RunAppAsync(
+            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo, "--tips", "q");
+        var (smallExit, small, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+
+        Assert.Equal(0, bigExit);
+        Assert.Equal(0, smallExit);
+
+        static int SectionLines(string output) => output.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Count(l => l.Trim().Length > 0);
+
+        Assert.Equal(SectionLines(small), SectionLines(big));
+        Assert.True(SectionLines(big) > 1, "Section rendered no rows, so the comparison is vacuous.");
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_ProjectsTheSameRowsInEveryMachineMode()
+    {
+        // The listing tabular view filters by mapping section names to type KINDS, so a selection
+        // it cannot map leaves the filter empty -- and an empty filter means "no filter", which
+        // emitted every type in the assembly under --tsv/--jsonl while the markdown rendering and
+        // --count of the same invocation answered the question that was actually asked. Three
+        // renderers disagreeing about one -S is the failure this pins, and it is invisible to any
+        // test that only checks markdown.
+        var (mdExit, markdown, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+        var (tsvExit, tsv, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", "--tips", "q");
+        var (jsonlExit, jsonl, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl", "--tips", "q");
+        var (countExit, count, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count", "--tips", "q");
+
+        Assert.Equal(0, mdExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonlExit);
+        Assert.Equal(0, countExit);
+
+        var tsvLines = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("field\tvalue", tsvLines[0]);
+
+        // The wrong answer was type rows, so name it: this must never be the surface projection.
+        Assert.DoesNotContain("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
+
+        // Machine modes carry no prose: the inline identity line is a document-level field, and
+        // serializing the whole view rather than the section leaked it into --tsv output.
+        Assert.DoesNotContain("Library:", tsv, StringComparison.Ordinal);
+
+        var markdownRows = markdown.Split('\n')
+            .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Count(l => l.StartsWith("| ", StringComparison.Ordinal) && !l.Contains("---", StringComparison.Ordinal))
+            - 1; // header row
+
+        var jsonlRows = jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        Assert.Equal(markdownRows, tsvLines.Length - 1);
+        Assert.Equal(markdownRows, jsonlRows);
+        Assert.Equal(markdownRows.ToString(), count.Trim());
+    }
+
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData("Structs")]
+    public async Task Type_Listing_KindSections_StillProjectTypeRows(string section)
+    {
+        // Negative case for the fact-table routing above: it is scoped to one section name, so the
+        // per-kind tables must keep their existing surface projection. A predicate that widened to
+        // "any single section" would silently convert these to field/value rows.
+        var (exit, tsv, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", section, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task Type_Listing_ApiInfo_ReportsUnmatchedProjectionsLikeTheRestOfTheView(string flag)
+    {
+        // The first version of the fact-table routing wrote straight to the console and returned,
+        // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
+        // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
+        // fix, reintroduced one layer down, and no assertion about correct projections could see
+        // it. The bar is parity with the per-kind sections beside it, which is what this compares:
+        // whatever the listing view says about an unmatched projection, the fact table says too.
+        //
+        // Each flag is exercised ALONE. Supplying --fields and --columns together is the one
+        // combination where the two sides still diverge: the fact table reports the field Note
+        // and exits 0 where the per-kind section reports the column Error and exits 1, because
+        // markout skips the column-match check once a field filter has emptied the row set. That
+        // is markout-side projection behavior on a two-column fact table rather than routing, and
+        // everywhere else it is masked by the pre-render validation the listing view lacks
+        // (#3651). Pinning it here as expected would freeze a defect, so it is left unpinned and
+        // recorded on the issue instead.
+        var (kindExit, _, kindErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", "Classes", "--tsv", flag, "Nonexistent", "--tips", "q");
+        var (factExit, _, factErr) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", flag, "Nonexistent", "--tips", "q");
+
+        Assert.Equal(kindExit, factExit);
+        Assert.Equal(kindErr.Trim(), factErr.Trim());
+
+        // Non-vacuity: the reference side must actually diagnose the bad projection BY NAME.
+        // Asserting only that the combined output is non-empty would pass on the class rows the
+        // reference side prints on stdout regardless -- 54 lines of them -- so both diagnostics
+        // could vanish and this test would still be green. That is the same empty-set-reads-as-
+        // success shape the test exists to catch, so the assertion has to name what it wants.
+        Assert.Contains("Nonexistent", kindErr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_ApiInfo_IsAdvertisedByDiscovery()    {
+        // The discovery manifest is a second renderer fed by the option-filtered view, so a section
+        // that renders under -S but never appears under -D is undiscoverable in practice.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Type_FixedOverview_IsExactlyTypeInfo()
+    {
+        // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
+        // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
+        // rejects, so without this pin a future descriptor change could make bare -S error while the
+        // output tests kept passing for the wrong reason.
+        var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
+
+        Assert.Equal([SectionNames.TypeInfo], fixedOverview);
+    }
+
+    [Theory]
+    [InlineData(true, new string[0], new string[0], true)]
+    [InlineData(true, new string[0], new[] { "Type Info" }, false)]
+    [InlineData(false, new string[0], new string[0], false)]
+    [InlineData(true, new[] { "Fields" }, new string[0], false)]
+    public void BareSelect_WithNoOverviewSections_IsRejected(
+        bool selectDefault, string[] select, string[] overview, bool expected)
+    {
+        // An empty overview set must not reach SelectResolver: it hands back an empty-but-non-null
+        // include set, which IsRequested reads as "no filter" and answers with the full verbosity
+        // ladder -- more output than asked for, exit 0, no diagnostic. Explicit -S values are a
+        // legitimate fallback, so they must not trip the guard.
+        var options = new TypeOptions
+        {
+            TypeName = "System.String",
+            SelectDefault = selectDefault,
+            Select = select.Length == 0 ? null : select
+        };
+
+        Assert.Equal(expected, ApiCommand.HasNoBareSelectOverview(options, overview));
+    }
+
+    [Fact]
+    public async Task Type_BareSelect_StaysBoundedAtWorstCaseArity()
+    {
+        // The bounded claim is about how many LINES the overview has, not how wide they are.
+        // Func`17 is the worst arity in the platform, and its `Type Parameters` cell reaches ~492
+        // characters -- one row, rendered identically by explicit `-S "Type Info"` on main, so it
+        // is a property of the section rather than of this selection change. See #3616.
+        var (exit, output, _) = await RunAppAsync("type", "System.Func`17", "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal([SectionNames.TypeInfo], SectionHeadings(output));
+        Assert.True(output.Split('\n').Length <= 16, $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
+    }
+
+    [Fact]
+    public async Task Member_BareSelect_KeepsTheInfoSet()
+    {
+        // `type` and `member` share ApiCommand's preamble and both run in singleTypeMode, so the
+        // fixed overview is scoped by the options record rather than by that flag. This is the
+        // negative case for that discriminator: `member` is a separate command with its own
+        // overview and converts on its own PR, so it must not pick up Type Info here. See #3547.
+        var (exit, output, _) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
+            "-S", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var sections = SectionHeadings(output);
+        Assert.DoesNotContain(SectionNames.TypeInfo, sections);
+        Assert.NotEmpty(sections);
+    }
+
+    private static List<string> SectionHeadings(string output) =>
+        [.. output.Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..].Trim())];
 
     private static List<string> ParseFirstColumn(string output, string headerLabel)
     {
@@ -5754,15 +6096,43 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
 
         var lines = output.ReplaceLineEndings("\n").Split('\n');
+        int narrowed = 0;
+        int examined = 0;
         foreach (int i in Enumerable.Range(0, lines.Length)
             .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal)))
         {
             string statement = lines[i - 1];
             Assert.StartsWith("//", lines[i], StringComparison.Ordinal);
-            Assert.Equal(
-                statement.Length - statement.AsSpan().TrimStart().Length,
-                lines[i].IndexOf('^'));
+
+            int caretStart = lines[i].IndexOf('^');
+            int caretLength = lines[i].AsSpan(caretStart).IndexOfAnyExcept('^');
+            caretLength = caretLength < 0 ? lines[i].Length - caretStart : caretLength;
+            examined++;
+
+            // The underline is contained in the statement it points at. This is
+            // the whole placement contract: an expression-narrowed caret and a
+            // statement-wide fallback both satisfy it, and a caret drawn left of
+            // the code or running off its end does not.
+            int statementStart = statement.Length - statement.AsSpan().TrimStart().Length;
+            int statementEnd = statement.AsSpan().TrimEnd().Length;
+            Assert.InRange(caretStart, statementStart, statementEnd);
+            Assert.InRange(caretStart + caretLength, caretStart + 1, statementEnd);
+
+            // ...and it lands on printed characters, not on the whitespace
+            // between them. Trimming the extent is what makes this hold.
+            Assert.False(char.IsWhiteSpace(statement[caretStart]));
+            Assert.False(char.IsWhiteSpace(statement[caretStart + caretLength - 1]));
+
+            if (caretLength < statementEnd - statementStart)
+                narrowed++;
         }
+
+        // Non-vacuity. Every assertion above is also satisfied by a caret that
+        // spans the whole statement, which is what this view rendered before
+        // extents existed, so the gate has to insist that narrowing actually
+        // happened on every one of these cases.
+        Assert.True(examined > 0, "no caret lines were examined");
+        Assert.Equal(examined, narrowed);
     }
 
     [Fact]
@@ -5799,6 +6169,8 @@ public partial class CommandExecutionTests
             caretIndexes.Select(i => lines[i].IndexOf('^')).Distinct().Count() >= 2,
             "the two carets must sit at different columns");
 
+        var underlined = new List<string>();
+
         foreach (int i in caretIndexes)
         {
             string line = lines[i];
@@ -5807,16 +6179,82 @@ public partial class CommandExecutionTests
             // comments, and it sits on the member declaration column.
             Assert.StartsWith("//", line, StringComparison.Ordinal);
 
-            // Carets point at the statement on the preceding line, exactly.
+            // The caret names the expression the fact is about, not the
+            // statement containing it. Pinning the underlined text rather than a
+            // width is what makes this a placement gate: `new()` and
+            // `new object()` are the allocations the alloc.new facts report, and
+            // both sit mid-statement, so an off-by-anything reads as other text.
             string statement = lines[i - 1];
-            Assert.Equal(
-                statement.Length - statement.AsSpan().TrimStart().Length,
-                line.IndexOf('^'));
-            Assert.Equal(statement.Trim().Length, line.Count(c => c == '^'));
+            int caretStart = line.IndexOf('^');
+            int caretLength = line.AsSpan(caretStart).IndexOfAnyExcept('^');
+            caretLength = caretLength < 0 ? line.Length - caretStart : caretLength;
+            Assert.InRange(caretStart + caretLength, 0, statement.Length);
+            underlined.Add(statement.Substring(caretStart, caretLength));
         }
+
+        // Pump allocates a List<object> at the body's base column and an object
+        // inside the loop; each is strictly inside its statement.
+        Assert.Equal(["new object()", "new()"], underlined.Order().ToArray());
 
         // The hoist marker is an internal layout signal; it must never survive
         // into rendered output, where it would print as a control character.
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_FocusStacksACaretPerExtentWhenFactsOnALineDisagree()
+    {
+        // The density case, reproduced from System.Tuple`8.Equals: four facts
+        // land on one line at distinct offsets, so no single expression is true
+        // of all of them. This used to render one statement-wide underline with
+        // four unattributable details beneath it. Each extent now gets its own
+        // numbered caret, so a reader can tell which box is which.
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        var caretIndexes = Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains('^', StringComparison.Ordinal))
+            .ToList();
+
+        // Still one caret row: all four extents are disjoint and short enough to
+        // pack onto a single line. That is the 89.5% case among the 2,842 lines
+        // of System.Private.CoreLib that stack, as the annotated-source view
+        // prints it, summed over the five focus families and counted after the
+        // focus filter that --focus applies.
+        int i = Assert.Single(caretIndexes);
+        string caretRow = lines[i];
+        string statement = lines[i - 1];
+
+        // Every caret points at the boxed argument it is about. This is the
+        // assertion the old statement-wide underline could not make.
+        var underlined = new List<string>();
+        for (int c = 0; c < caretRow.Length; c++)
+        {
+            if (caretRow[c] != '^' || (c > 0 && caretRow[c - 1] == '^'))
+                continue;
+            int width = caretRow.AsSpan(c).IndexOfAnyExcept('^');
+            width = width < 0 ? caretRow.Length - c : width;
+            underlined.Add(statement.Substring(c, width));
+        }
+
+        Assert.Equal(["a1", "a2", "a3", "a4"], underlined.ToArray());
+
+        // The statement-wide underline is precisely what must no longer appear.
+        int statementStart = statement.Length - statement.AsSpan().TrimStart().Length;
+        Assert.NotEqual(statementStart, caretRow.IndexOf('^'));
+        Assert.NotEqual(statement.Trim().Length, caretRow.Count(c => c == '^'));
+
+        // Each caret carries a number, and each number has its own detail rows,
+        // so all four boxes stay distinguishable rather than merged away.
+        foreach (var (number, parameter) in ((int, string)[])[(1, "T1"), (2, "T2"), (3, "T3"), (4, "T4")])
+        {
+            Assert.Contains($"{number}.^", caretRow, StringComparison.Ordinal);
+            Assert.Contains(lines, l => l.Contains($"{number}. alloc.box({parameter};", StringComparison.Ordinal));
+        }
+
         Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
     }
 
@@ -13662,6 +14100,15 @@ public sealed class CommandCaretGestureFixture
     }
 
     public string Make() => new object().ToString() ?? "";
+
+    // Four boxes on one line, at four distinct IL offsets: the shape that makes
+    // a line's facts disagree about what to underline. System.Tuple`8.Equals is
+    // the extreme of it in the wild, with 16 facts on one line.
+    public static bool DenseBoxes<T1, T2, T3, T4>(
+        EqualityComparer<object> comparer, T1 a1, T2 a2, T3 a3, T4 a4,
+        object b1, object b2, object b3, object b4)
+        => comparer.Equals(a1, b1) && comparer.Equals(a2, b2)
+            && comparer.Equals(a3, b3) && comparer.Equals(a4, b4);
 }
 
 public sealed class CommandInitializerOnlyFixture

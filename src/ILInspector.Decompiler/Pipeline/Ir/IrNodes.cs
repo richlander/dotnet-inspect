@@ -30,6 +30,34 @@ public readonly record struct ParameterDefault(bool HasDefault, object? Value);
 public enum AccessorKind { Unknown, None, PropertyGet, PropertySet, EventAdd, EventRemove }
 
 /// <summary>A materialized method reference — callee identity with symbolic types, no metadata handles.</summary>
+/// <summary>
+/// What <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> decided
+/// about a reference to a compiler-synthesized local-function method. Only that pass can
+/// answer this: before it runs, a local function that WILL be raised carries exactly the
+/// same <c>&lt;Enclosing&gt;g__Name|N_M</c> name as one that will not, so the name shape
+/// is not a discriminator (#3631).
+/// </summary>
+public enum LocalFunctionRaiseState
+{
+    /// <summary>The pass has not run, or this is not a local-function reference.</summary>
+    None,
+
+    /// <summary>
+    /// Raised: a <c>Name(...)</c> declaration IS emitted in the host body, so the source
+    /// spelling resolves. A reference must be spelled <c>Name</c> UNQUALIFIED — the
+    /// declaration is a local function, not a member of the declaring type, so the
+    /// <c>Type.Name</c> spelling a static method group would otherwise take is CS0117.
+    /// </summary>
+    Raised,
+
+    /// <summary>
+    /// Declined: no declaration is emitted, so the source spelling resolves to nothing.
+    /// The reference is sanitized to keep the compiler-generated identity visible, and
+    /// fidelity degrades to <see cref="DecompilationFidelity.Partial"/>.
+    /// </summary>
+    Declined,
+}
+
 public sealed record MethodRef(
     TypeRef DeclaringType,
     string Name,
@@ -37,6 +65,21 @@ public sealed record MethodRef(
     ImmutableArray<TypeRef> ParameterTypes,
     bool HasThis)
 {
+    /// <summary>
+    /// What <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> decided
+    /// about this reference to a compiler-synthesized local function. That pass is the
+    /// only component that can answer it: the mangled name alone cannot, because before
+    /// the pass runs every local-function reference still carries that name. Consumers
+    /// that must not present a source spelling with no matching declaration — the printer
+    /// via <see cref="CSharpNaming.SourceMethodName(MethodRef)"/> and
+    /// <c>CSharpPrinter</c>'s method-group paths, and fidelity via
+    /// <see cref="ILInspector.Decompiler.Pipeline.CSharpSpellability"/> — read this rather
+    /// than re-deriving it from display text (#3631). Left
+    /// <see cref="LocalFunctionRaiseState.None"/> on IR that has not been through the
+    /// pass, where the question is genuinely unanswerable.
+    /// </summary>
+    public LocalFunctionRaiseState LocalFunctionRaise { get; init; }
+
     /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
@@ -2028,8 +2071,16 @@ public sealed class Call : IrExpression
             AddChild(argument);
     }
 
-    public MethodRef Callee { get; }
+    public MethodRef Callee { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <summary>
+    /// Stamps <see cref="MethodRef.LocalFunctionRaise"/> on this call's callee.
+    /// Only <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> may
+    /// call this, once it has run and left the call unraised.
+    /// </summary>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Callee = Callee with { LocalFunctionRaise = state };
 
     /// <summary>The constrained. prefix type for constrained callvirt; null otherwise.</summary>
     public TypeRef? ConstrainedTo { get; init; }
@@ -2785,8 +2836,12 @@ public sealed class LoadFunctionPointer : IrExpression
             AddChild(instance);
     }
 
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
 
     /// <summary>The receiver dispatched on for ldvirtftn; null for ldftn.</summary>
     public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
@@ -2821,8 +2876,13 @@ public sealed class AddressOfMethod : IrExpression
         FunctionPointerType = functionPointerType;
     }
 
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public TypeRef? FunctionPointerType { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
+
     public override TypeRef? ResultType
         => FunctionPointerType ?? TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
     public override IEnumerable<TypeRef> DirectTypes
@@ -2854,8 +2914,13 @@ public sealed class DelegateCreation : IrExpression
     }
 
     public TypeRef DelegateType { get; }
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
+
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => DelegateType;
     public override IEnumerable<TypeRef> DirectTypes

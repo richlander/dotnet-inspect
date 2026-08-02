@@ -87,9 +87,20 @@ public static class NuGetSourceResolver
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
         // reaches this point — and SourceResolver then finds no packageSources and substitutes
         // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
-        if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+        try
         {
-            return $"NuGet config file '{configFile}' declares no usable package sources.";
+            if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+            {
+                return $"NuGet config file '{configFile}' declares no usable package sources.";
+            }
+        }
+        catch (UnsupportedSourceException ex)
+        {
+            // Resolution rejects a source the config declares. That rejection is a throw because
+            // it guards every path that reaches a feed, most of which are far past parsing; here,
+            // where the config is only being inspected, it converts back to the returned string
+            // this method promises so the CLI reports it as an option error.
+            return ex.Message;
         }
 
         return null;
