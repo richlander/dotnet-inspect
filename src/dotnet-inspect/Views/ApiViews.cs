@@ -560,9 +560,9 @@ public class CliApiSurface
     [MarkoutIgnore] public string? Description { get; set; }
 
     [MarkoutSkipNull] public string? Library { get; set; }
-    public int Types { get; set; }
-    public int Methods { get; set; }
-    public int Properties { get; set; }
+    [MarkoutSkipNull] public int? Types { get; set; }
+    [MarkoutSkipNull] public int? Methods { get; set; }
+    [MarkoutSkipNull] public int? Properties { get; set; }
     [MarkoutSkipNull] public string? Source { get; set; }
     [MarkoutSkipNull] public string? Version { get; set; }
 

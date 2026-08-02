@@ -69,6 +69,45 @@ public class ApiCommand
             && options.Select is not { Length: > 0 }
             && bareSelectSections.Length == 0;
 
+    /// <summary>
+    /// Re-resolves <c>-S</c> against the type-listing pipeline for a query that entered the
+    /// preamble as a single-type request but renders a listing.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RunPreamble"/> picks its pipeline from the argument shape, so a dotted prefix
+    /// that fails to resolve to a type validated its sections against the single-type pipeline
+    /// while <see cref="TypeCommand"/> goes on to render a listing. The two disagree about every
+    /// name: <c>-D</c> advertises <c>Classes</c> and <c>Structs</c>, and <c>-S Classes</c> is
+    /// rejected. Returns <c>null</c> when resolution failed and the caller should stop with an
+    /// error.
+    /// </remarks>
+    internal static TypeOptions? ReresolveSectionsForListing(TypeOptions options)
+    {
+        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var bareSelectSections = typePipeline.FixedOverviewSectionNames;
+
+        if (HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return null;
+        }
+
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            typePipeline.SelectableSectionNames,
+            bareSelectSections,
+            typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selectResult))
+            return null;
+
+        return selectResult.Sections != null
+            ? options with { IncludeSections = selectResult.Sections }
+            : options;
+    }
+
     // ===== Shared Preamble =====
 
     internal record PreambleResult(
@@ -123,13 +162,20 @@ public class ApiCommand
         //
         // Two neighbours are deliberately left alone. `member` shares this preamble but is a
         // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. Type *listing* has no Fixed section to offer - every section it
-        // publishes is a per-kind member table that grows with the assembly - and in fact publishes
-        // no Info preset either, so its bare -S has always resolved to an empty set and fallen
-        // through to the verbosity ladder. That is pre-existing behavior, preserved here. See #3547.
-        var usesFixedOverview = singleTypeMode && options is TypeOptions;
+        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
+        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
+        // convert. See #3547.
+        //
+        // Type listing joins here as of this slice. It previously had no Fixed section to offer --
+        // every section it published was a per-kind member table that grows with the assembly -- so
+        // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
+        // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
+        // mean the same thing here that it means everywhere else.
+        var usesFixedOverview = options is TypeOptions;
         var bareSelectSections = usesFixedOverview
-            ? memberPipeline.FixedOverviewSectionNames
+            ? singleTypeMode
+                ? memberPipeline.FixedOverviewSectionNames
+                : typePipeline.FixedOverviewSectionNames
             : singleTypeMode
                 ? memberPipeline.InfoSectionNames
                 : typePipeline.InfoSectionNames;
@@ -139,10 +185,6 @@ public class ApiCommand
         // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
         // for a bounded overview into the widest output the command has, with the scanner
         // backpressure -S exists to apply switched off.
-        //
-        // Scoped to the fixed-overview path on purpose. Type listing reaches that same empty-set
-        // fallthrough today and depends on it, so guarding every path would turn a working command
-        // into an error. Slice 4c gives listing a Fixed section and can then adopt this guard.
         if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
@@ -589,6 +631,8 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(markdown, options))
+                return 1;
             markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
@@ -607,6 +651,8 @@ public class ApiCommand
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
                 ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                if (!TryReportEmptyProjection(factRows, options))
+                    return 1;
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return 0;
             }
@@ -617,6 +663,8 @@ public class ApiCommand
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+            if (!TryReportEmptyProjection(rendered, options))
+                return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
@@ -624,16 +672,122 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             if (options.PlainText)
             {
-                MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                // Buffered rather than written straight to the console so the empty-render gate
+                // can see the result. Writing directly is what let an emptying projection print
+                // nothing and exit 0 here while every sibling path reported it.
+                var plain = new StringWriter();
+                MarkoutSerializer.Serialize(view, plain, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                var plainText = plain.ToString();
+                if (!TryReportEmptyProjection(plainText, options))
+                    return 1;
+                Console.Out.Write(plainText);
             }
             else
             {
-                OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                    MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions), options.Rows);
+                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                if (!TryReportEmptyProjection(markdown, options))
+                    return 1;
+                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
             }
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
+    /// nothing. Returns false when the caller should stop.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for "a projection that matches nothing must not look like success".
+    /// <see cref="CommandExecutionTests.Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing"/>
+    /// is the non-vacuity test: it fails if this check stops firing, and
+    /// <c>Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate</c> is the companion that
+    /// fails if it starts firing too widely. Both conditions below are load-bearing and each was
+    /// added because its absence produced a real false positive:
+    ///
+    /// <list type="number">
+    /// <item>A projection must actually be active. An empty render with no <c>--fields</c> or
+    /// <c>--columns</c> is an honest empty answer -- <c>-S Interfaces</c> against a library that
+    /// has no interfaces -- and reporting it as failure would turn a valid zero-row query into an
+    /// error, and only in some output formats.</item>
+    /// <item>Every projected name must resolve nowhere. Emptiness alone cannot tell an unknown
+    /// name from a known field that happens to hold no value: <c>-S "API Info" --fields Version</c>
+    /// against a local .dll renders nothing because that assembly has no version, and <c>Version</c>
+    /// is a perfectly valid field that <c>-D "API Info"</c> advertises.</item>
+    /// <item>The name must resolve as the KIND being projected. "Valid somewhere in the document"
+    /// is too weak on its own: <c>Type</c> is a column of the <c>Classes</c> table and is a field
+    /// nowhere, so <c>-S "API Info" --fields Type</c> would be validated by an unrelated section's
+    /// column and print nothing at exit 0 -- the success-shaped empty output this gate exists to
+    /// prevent.</item>
+    /// </list>
+    ///
+    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
+    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
+    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
+    /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
+    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
+    /// emptiness first puts the schema's blind spots out of reach.
+    /// </remarks>
+    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(rendered))
+            return true;
+
+        var names = options.Fields ?? options.Columns;
+        if (names is not { Length: > 0 })
+            return true;
+
+        // Resolved by KIND across EVERY section, not against the selected sections. Two
+        // independent corrections are folded in here, and dropping either one reopens a real
+        // false positive found in review:
+        //
+        // Across all sections, because a document-level field belongs to no section in
+        // particular -- `Version` is advertised under `API Info` but survives whichever section
+        // is selected -- so checking only the selection reports it unresolved. That is normally
+        // unreachable because the document fields keep the render non-empty, but filtering the
+        // selected table to zero rows (`-t "NoSuchType*" -S Classes --fields Version`) empties
+        // the render and exposes it.
+        //
+        // By kind, because "valid somewhere" is too weak on its own: `Type` is a Classes COLUMN
+        // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
+        // unrelated section's column and silently succeed while printing nothing. `--fields` can
+        // only be satisfied by a field and `--columns` only by a column.
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
+        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        var candidates = new List<string>();
+        foreach (var section in schema.SectionNames)
+        {
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Name only, never StableName. The stable name is the schema's internal
+                // identifier and markout does not project by it -- `--fields Assembly`, the
+                // stable name of `Library`, renders nothing on base and on head. Accepting it
+                // here would let a name the user cannot actually project by satisfy the gate
+                // (found by MAI-Code). Of the whole schema only `Library`/`Assembly`,
+                // `TFM`/`Tfm`, and `Target Library`/`TargetLibrary` differ at all.
+                candidates.Add(item.Name);
+            }
+        }
+
+        // Matched by markout's own projection matcher rather than by set membership, because
+        // projection names may be wildcards: `--fields "Ver*"` legitimately selects `Version`,
+        // and an exact comparison rejects it (found by GPT-5.6). Collecting the wanted-kind
+        // names into a throwaway single-section schema is what lets markout answer "does this
+        // pattern match anything of this kind" -- reimplementing the glob here would be a second
+        // matcher that could drift from the one that actually performs the projection.
+        const string ProbeSection = "probe";
+        var probe = new DocumentSchema().Add(ProbeSection, wantedKind, [.. candidates]);
+        if (probe.ValidateProjection(ProbeSection, names).Resolved.Length > 0)
+            return true;
+
+        var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
+        CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");
+        return false;
     }
 
     // ===== Method Source Resolution =====
