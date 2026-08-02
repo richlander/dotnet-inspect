@@ -53,18 +53,17 @@ store anywhere:
 - script: dotnet-inspect package MyCompany.Widgets
 ```
 
-Elsewhere, set the token in the environment. For feeds in one Azure DevOps organization:
-
-```bash
-export ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES="https://pkgs.dev.azure.com/<org>/"
-export ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN="$TOKEN"
-```
-
-For any other feed, including one in a different organization:
+Elsewhere, supply the token through `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`, the
+documented mechanism for unattended agents outside Azure DevOps Pipelines. It takes the feed's
+index URL as it appears in your `nuget.config`, so one form covers Azure Artifacts and every
+other feed the provider serves:
 
 ```bash
 export ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS='{"endpointCredentials":[{"endpoint":"https://example.com/index.json","username":"unused","password":"'"$TOKEN"'"}]}'
 ```
+
+The username is not used by Azure DevOps. Any token the feed accepts works as the password,
+including a Microsoft Entra access token where personal access tokens are disabled.
 
 To authenticate as a service principal with a certificate — no interactive session, and every
 NuGet tool on the machine picks it up from the same place:

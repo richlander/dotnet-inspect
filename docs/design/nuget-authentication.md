@@ -191,7 +191,6 @@ The flows, distinguished by what supplies the secret:
 | --- | --- | --- |
 | `nuget.config` credential | the config file; no provider runs at all | yes |
 | Pipeline build identity | `ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES` and `..._ACCESSTOKEN`, set by `NuGetAuthenticate@1` | yes |
-| Pre-minted token, supplied by hand | the same two variables, exported by a script | yes |
 | External feed endpoints | `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`: endpoint, username, password | yes |
 | Service principal and certificate | `ARTIFACTS_CREDENTIALPROVIDER_FEED_ENDPOINTS`: `clientId` plus `clientCertificateSubjectName` or `clientCertificateFilePath` | yes |
 | Silent | the MSAL token cache, populated by an earlier sign-in | only if warm |
@@ -206,8 +205,10 @@ Three consequences are worth stating plainly:
 - **In an Azure DevOps pipeline there is no secret to configure.** `NuGetAuthenticate@1` installs
   the provider onto the agent for that run and points it at the build service identity, scoped by
   **URL prefix** — a semicolon-separated host list, not a feed list. A feed outside those prefixes
-  falls through to the next provider, which is why a feed in another organization needs the
-  external-endpoints variable instead.
+  falls through to the next provider. The two build-provider variables can be exported by hand and
+  the provider honors them, but the provider's own documentation describes them only as the task's
+  mechanism; `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS` is what it directs unattended
+  callers outside Azure DevOps Pipelines to use.
 - **`az login` does not help.** There is no Azure CLI credential provider, and the two token
   caches are unrelated. A token from `az account get-access-token` has to be handed over
   explicitly, either through the build-provider variables or as a `ClearTextPassword`.
