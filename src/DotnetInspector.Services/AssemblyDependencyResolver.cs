@@ -1,6 +1,5 @@
 using System.Buffers;
-using System.Reflection.Metadata;
-using System.Security.Cryptography;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
@@ -54,6 +53,10 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
 public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 {
     readonly AssemblyDependencyResolutionOptions _options;
+    readonly ConcurrentDictionary<
+        string,
+        Lazy<ResolvedAssemblyReference?>> _descriptors =
+            new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
 
@@ -165,17 +168,19 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
             bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
                 && _options.AllowPlatformAssemblyVersionRollForward;
-            if (!MatchesIdentity(identity, dependency.Path, allowVersionRollForward))
-                continue;
-
-            if (TryReadIdentity(dependency.Path) is not { } selectedIdentity)
-                continue;
-
-            return ResolvedAssemblyReference.Create(
-                selectedIdentity,
+            ResolvedAssemblyReference? selected = Descriptor(
                 dependency.Path,
-                () => File.OpenRead(dependency.Path),
                 ResolutionProvenance(dependency));
+            if (selected is null
+                || !MatchesIdentity(
+                    identity,
+                    selected.Identity,
+                    allowVersionRollForward))
+            {
+                continue;
+            }
+
+            return selected;
         }
 
         // The target may reference an older platform contract than the running
@@ -188,22 +193,22 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
                 identity.Name,
                 useRuntimeAssemblies: _options.PreferImplementationAssemblies);
-            if (path is not null && MatchesIdentity(
-                identity,
-                path,
-                _options.AllowPlatformAssemblyVersionRollForward))
+            if (path is not null)
             {
-                if (TryReadIdentity(path) is not { } selectedIdentity)
-                    return null;
-
-                return ResolvedAssemblyReference.Create(
-                    selectedIdentity,
+                ResolvedAssemblyReference? selected = Descriptor(
                     path,
-                    () => File.OpenRead(path),
                     AssemblyResolutionProvenance.Platform(
                         framework ?? "InstalledPlatform",
                         frameworkVersion: null,
                         AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
+                if (selected is not null
+                    && MatchesIdentity(
+                        identity,
+                        selected.Identity,
+                        _options.AllowPlatformAssemblyVersionRollForward))
+                {
+                    return selected;
+                }
             }
         }
 
@@ -234,11 +239,29 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 dependency.Provenance.ToString()),
         };
 
+    ResolvedAssemblyReference? Descriptor(
+        string path,
+        AssemblyResolutionProvenance provenance) =>
+        _descriptors.GetOrAdd(
+            path,
+            static (path, provenance) =>
+                new Lazy<ResolvedAssemblyReference?>(
+                    () => ResolvedAssemblyReference.TryCreateFromPath(
+                        path,
+                        provenance,
+                        out ResolvedAssemblyReference? reference)
+                            ? reference
+                            : null,
+                    LazyThreadSafetyMode.ExecutionAndPublication),
+            provenance).Value;
+
     static bool MatchesIdentity(
         AssemblyReferenceIdentity expected,
-        string path,
+        AssemblyReferenceIdentity actual,
         bool allowVersionRollForward = false)
     {
+        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
+            return false;
         if (expected.Version is null
             && string.IsNullOrEmpty(expected.Culture)
             && string.IsNullOrEmpty(expected.PublicKeyToken))
@@ -246,12 +269,6 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             return true;
         }
 
-        var actual = TryReadIdentity(path);
-        if (actual is null)
-            return false;
-
-        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
-            return false;
         if (expected.Version is not null
             && actual.Version != expected.Version
             && (!allowVersionRollForward || actual.Version < expected.Version))
@@ -776,39 +793,6 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         if (NuGetPackageContext(path, packageRoots) is { } context)
             return (context.PackageId, context.PackageVersion);
         return (null, null);
-    }
-
-    static AssemblyReferenceIdentity? TryReadIdentity(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!pe.HasMetadata)
-                return null;
-            var reader = pe.GetMetadataReader();
-            if (!reader.IsAssembly)
-                return null;
-            var assembly = reader.GetAssemblyDefinition();
-            return new AssemblyReferenceIdentity(
-                reader.GetString(assembly.Name),
-                assembly.Version,
-                string.IsNullOrWhiteSpace(reader.GetString(assembly.Culture)) ? null : reader.GetString(assembly.Culture),
-                assembly.PublicKey.IsNil ? null : PublicKeyToken(reader.GetBlobBytes(assembly.PublicKey)));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
-        {
-            return null;
-        }
-    }
-
-    static string PublicKeyToken(byte[] publicKey)
-    {
-        var hash = SHA1.HashData(publicKey);
-        Span<byte> token = stackalloc byte[8];
-        for (int i = 0; i < token.Length; i++)
-            token[i] = hash[hash.Length - 1 - i];
-        return Convert.ToHexString(token).ToLowerInvariant();
     }
 
     readonly record struct NuGetFramework(string Family, int Major, int Minor)

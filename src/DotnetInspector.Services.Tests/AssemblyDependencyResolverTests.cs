@@ -15,11 +15,20 @@ public class AssemblyDependencyResolverTests
             AllowPlatformAssemblyVersionRollForward = true,
         });
 
+        var requested = new AssemblyReferenceIdentity(
+            current.Name!,
+            new Version(1, 0, 0, 0),
+            null,
+            token);
         var resolved = resolver.Resolve(
-            new AssemblyReferenceIdentity(current.Name!, new Version(1, 0, 0, 0), null, token),
+            requested,
+            AssemblyResolutionScope.Platform);
+        var repeated = resolver.Resolve(
+            requested,
             AssemblyResolutionScope.Platform);
 
         Assert.NotNull(resolved);
+        Assert.Same(resolved, repeated);
         Assert.Equal(current.Name + ".dll", Path.GetFileName(resolved.Path));
 
         var future = resolver.Resolve(

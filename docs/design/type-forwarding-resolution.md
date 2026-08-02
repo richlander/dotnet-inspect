@@ -1534,6 +1534,10 @@ later body/declaration consumer may open one durable
 `AssemblyInspectionSession`; the snapshot prevents decoding identity,
 references, or forwarding inventory again.
 
+Inventory stores distinct semantic `AssemblyRef` and forwarding-target
+identities in first-seen order. Repeated metadata rows and repeated forwarders
+to one target do not amplify the retained adjacency graph.
+
 Slice 2a evolves durable sessions to construct `PEReader` with
 `PEStreamOptions.PrefetchEntireImage` and close the source stream immediately
 after construction. The catalog may retain prefetched image memory, but holds

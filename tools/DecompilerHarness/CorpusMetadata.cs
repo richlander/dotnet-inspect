@@ -1,7 +1,8 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
-using System.Reflection;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -47,6 +48,10 @@ static class CorpusMetadata
         IReadOnlyList<AssemblyDependencyResolver> dependencyResolvers,
         IReadOnlyDictionary<string, string> platformAssemblies) : IAssemblyReferenceResolver
     {
+        readonly ConcurrentDictionary<
+            (string Path, string Provenance),
+            Lazy<ResolvedAssemblyReference?>> _assemblies = [];
+
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
             if (scope == AssemblyResolutionScope.Platform)
@@ -55,11 +60,17 @@ static class CorpusMetadata
                 {
                     string candidate = Path.Combine(directory!, identity.Name + ".dll");
                     if (File.Exists(candidate) && IsTrustedPlatformAssembly(candidate))
-                        return FromPath(identity, candidate, "CorpusPlatformSibling");
+                    {
+                        if (FromPath(candidate, "CorpusPlatformSibling")
+                            is { } resolved)
+                        {
+                            return resolved;
+                        }
+                    }
                 }
 
                 return platformAssemblies.TryGetValue(identity.Name, out var platformPath)
-                    ? FromPath(identity, platformPath, "TrustedPlatformAssembly")
+                    ? FromPath(platformPath, "TrustedPlatformAssembly")
                     : null;
             }
 
@@ -67,7 +78,10 @@ static class CorpusMetadata
             {
                 string candidate = Path.Combine(directory!, identity.Name + ".dll");
                 if (File.Exists(candidate))
-                    return FromPath(identity, candidate, "CorpusSibling");
+                {
+                    if (FromPath(candidate, "CorpusSibling") is { } resolved)
+                        return resolved;
+                }
             }
 
             foreach (var resolver in dependencyResolvers)
@@ -76,10 +90,17 @@ static class CorpusMetadata
             return null;
         }
 
-        static ResolvedAssemblyReference FromPath(AssemblyReferenceIdentity identity, string path, string provenance)
-            => ResolvedAssemblyReference.CreateFromPath(
-                path,
-                AssemblyResolutionProvenance.Local(provenance));
+        ResolvedAssemblyReference? FromPath(string path, string provenance) =>
+            _assemblies.GetOrAdd(
+                (path, provenance),
+                static key => new Lazy<ResolvedAssemblyReference?>(
+                    () => ResolvedAssemblyReference.TryCreateFromPath(
+                        key.Path,
+                        AssemblyResolutionProvenance.Local(key.Provenance),
+                        out ResolvedAssemblyReference? reference)
+                            ? reference
+                            : null,
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     static IReadOnlyDictionary<string, string> TrustedPlatformAssemblies()

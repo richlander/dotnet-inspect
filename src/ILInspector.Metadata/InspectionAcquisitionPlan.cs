@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
@@ -225,11 +226,23 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
             var references =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
+            var seenReferences = new HashSet<AssemblyReferenceIdentity>();
+            var referencesByRow = new AssemblyReferenceIdentity[
+                reader.GetTableRowCount(TableIndex.AssemblyRef)];
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
-                references.Add(AssemblyReferenceIdentity.From(reader, handle));
+            {
+                AssemblyReferenceIdentity reference =
+                    AssemblyReferenceIdentity.From(reader, handle);
+                referencesByRow[MetadataTokens.GetRowNumber(handle) - 1] =
+                    reference;
+                if (seenReferences.Add(reference))
+                    references.Add(reference);
+            }
 
             var forwarderTargets =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
+            var seenForwarderTargets =
+                new HashSet<AssemblyReferenceIdentity>();
             Span<ExportedTypeHandle> rootToLeaf =
                 stackalloc ExportedTypeHandle[
                     MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -258,10 +271,13 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                             "An AssemblyRef-terminated ExportedType chain is not a forwarder.");
                     }
 
-                    forwarderTargets.Add(
-                        AssemblyReferenceIdentity.From(
-                            reader,
-                            (AssemblyReferenceHandle)terminal));
+                    int targetIndex =
+                        MetadataTokens.GetRowNumber(
+                            (AssemblyReferenceHandle)terminal) - 1;
+                    AssemblyReferenceIdentity target =
+                        referencesByRow[targetIndex];
+                    if (seenForwarderTargets.Add(target))
+                        forwarderTargets.Add(target);
                 }
                 else if (terminal.Kind != HandleKind.AssemblyFile)
                 {
@@ -317,6 +333,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         try
         {
             Stream? stream = OpenSource(entry.Candidate.Assembly);
+            AssemblyInspectionSession? session = null;
             try
             {
                 long imageSize = ReadRemainingLength(stream);
@@ -330,8 +347,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 reservedBytes = imageSize;
                 Stream sessionSource = stream;
                 stream = null;
-                AssemblyInspectionSession session =
-                    AssemblyInspectionSession.OpenPrefetched(sessionSource);
+                session = AssemblyInspectionSession.OpenPrefetched(sessionSource);
                 var inventory =
                     (CandidateRegistrationResult.Ready)entry.Inventory.Value;
                 if (!session.HasMetadata
@@ -341,7 +357,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     || session.ModuleVersionId()
                         != inventory.Inventory.ModuleVersionId)
                 {
-                    session.Dispose();
                     ReleaseImage(reservedBytes);
                     return new CandidateSessionResult.Rejected(
                         new CandidateOpenFailure(
@@ -349,10 +364,13 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                             "The opened image does not match the inventoried candidate."));
                 }
 
-                return new CandidateSessionResult.Ready(session);
+                var ready = new CandidateSessionResult.Ready(session);
+                session = null;
+                return ready;
             }
             finally
             {
+                session?.Dispose();
                 stream?.Dispose();
             }
         }

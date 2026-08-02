@@ -83,9 +83,14 @@ public static class TypeForwardResolver
         string assemblyPath, string fullTypeName, IAssemblyReferenceResolver resolver,
         int maxHops = DefaultMaxHops, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
     {
-        var start = ResolvedAssemblyReference.CreateFromPath(
-            assemblyPath,
-            AssemblyResolutionProvenance.Local("StartAssembly"));
+        if (!ResolvedAssemblyReference.TryCreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"),
+                out ResolvedAssemblyReference? start))
+        {
+            return null;
+        }
+
         return LocateType(start, fullTypeName, resolver, maxHops, scope);
     }
 

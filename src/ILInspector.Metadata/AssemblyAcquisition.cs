@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -180,6 +181,29 @@ public sealed class ResolvedAssemblyReference
             fullPath,
             () => File.OpenRead(fullPath),
             provenance);
+    }
+
+    public static bool TryCreateFromPath(
+        string path,
+        AssemblyResolutionProvenance provenance,
+        [NotNullWhen(true)] out ResolvedAssemblyReference? reference)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        try
+        {
+            reference = CreateFromPath(path, provenance);
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            reference = null;
+            return false;
+        }
     }
 
     public AssemblyAcquisitionRegistration Registration { get; }

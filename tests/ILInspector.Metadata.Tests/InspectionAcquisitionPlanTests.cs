@@ -66,6 +66,30 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void TryCreateFromPath_UnreadableOrInvalidImage_ReturnsFalse()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.dll");
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.False(ResolvedAssemblyReference.TryCreateFromPath(
+                missing,
+                AssemblyResolutionProvenance.Local("test"),
+                out _));
+            Assert.False(ResolvedAssemblyReference.TryCreateFromPath(
+                invalid,
+                AssemblyResolutionProvenance.Local("test"),
+                out _));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
     public void Register_SameDescriptor_IsOneCandidateAndOneInventoryRead()
     {
         byte[] image = SelfBytes();
@@ -128,6 +152,24 @@ public class InspectionAcquisitionPlanTests
             ReadModuleVersionId(image),
             ready.Inventory.ModuleVersionId);
         Assert.Equal(image.LongLength, ready.Inventory.ImageSize);
+    }
+
+    [Fact]
+    public void Inventory_DeduplicatesRepeatedForwarderTargets()
+    {
+        byte[] image = BuildValidForwarderImage(
+            forwarderCount: 1_000,
+            assemblyReferenceCount: 1_000);
+        using var plan = new InspectionAcquisitionPlan();
+
+        var ready = Assert.IsType<CandidateRegistrationResult.Ready>(
+            plan.Register(Descriptor(ReadIdentity(image), () => image)));
+
+        Assert.Single(ready.Inventory.AssemblyReferences);
+        Assert.Single(ready.Inventory.ForwarderTargets);
+        Assert.Equal(
+            ready.Inventory.AssemblyReferences[0],
+            ready.Inventory.ForwarderTargets[0]);
     }
 
     [Fact]
@@ -428,6 +470,28 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Session_WhenPostOpenIdentityReadThrows_ReleasesImage()
+    {
+        byte[] inventoried = BuildValidForwarderImage();
+        byte[] changed = BuildModuleImage();
+        int opens = 0;
+        using var plan = new InspectionAcquisitionPlan();
+        var descriptor = Descriptor(
+            ReadIdentity(inventoried),
+            () => Interlocked.Increment(ref opens) == 1
+                ? inventoried
+                : changed);
+        var registration = Assert.IsType<CandidateRegistrationResult.Ready>(
+            plan.Register(descriptor));
+
+        var rejected = Assert.IsType<CandidateSessionResult.Rejected>(
+            plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(CandidateOpenFailureKind.InvalidImage, rejected.Failure.Kind);
+        Assert.Equal(0, plan.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task Session_ConcurrentRequestsShareOneOpen()
     {
         byte[] image = SelfBytes();
@@ -585,10 +649,18 @@ public class InspectionAcquisitionPlanTests
     static byte[] BuildInvalidForwarderImage() =>
         BuildForwarderImage(TypeAttributes.Public);
 
-    static byte[] BuildValidForwarderImage() =>
-        BuildForwarderImage(TypeAttributes.Public | Forwarder);
+    static byte[] BuildValidForwarderImage(
+        int forwarderCount = 1,
+        int assemblyReferenceCount = 1) =>
+        BuildForwarderImage(
+            TypeAttributes.Public | Forwarder,
+            forwarderCount,
+            assemblyReferenceCount);
 
-    static byte[] BuildForwarderImage(TypeAttributes attributes)
+    static byte[] BuildForwarderImage(
+        TypeAttributes attributes,
+        int forwarderCount = 1,
+        int assemblyReferenceCount = 1)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -618,13 +690,51 @@ public class InspectionAcquisitionPlanTests
             publicKeyOrToken: default,
             flags: default,
             hashValue: default);
-        metadata.AddExportedType(
-            attributes,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Type"),
-            target,
-            typeDefinitionId: 0);
+        for (int i = 1; i < assemblyReferenceCount; i++)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        }
 
+        for (int i = 0; i < forwarderCount; i++)
+        {
+            metadata.AddExportedType(
+                attributes,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(i == 0 ? "Type" : $"Type{i}"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Changed.netmodule"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),

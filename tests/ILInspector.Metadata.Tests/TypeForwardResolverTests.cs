@@ -70,6 +70,30 @@ public class TypeForwardResolverTests
     }
 
     [Fact]
+    public void LocateType_MissingOrInvalidStartingImage_ReturnsNull()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.dll");
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.Null(TypeForwardResolver.LocateType(
+                missing,
+                "N.Type",
+                new NullResolver()));
+            Assert.Null(TypeForwardResolver.LocateType(
+                invalid,
+                "N.Type",
+                new NullResolver()));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
     public void LocateType_SelfLoop_Terminates()
     {
         // A locator that always points back at the facade would loop forever
