@@ -68,6 +68,26 @@ public static class BodySlicer
 
         var methodLines = lines[from..to];
 
+        // The declaration's first line may carry text that is not part of the declaration: a block
+        // comment that opened above and closes here, or the terminator of the declaration that
+        // ended here. Emitting it produces text that does not parse -- a stray "*/" is the shape
+        // adversarial review found on the backward scan. The scanner emits code tokens only, so
+        // the first token on that line is where the declaration starts and everything before it is
+        // not code once comments and directives are excluded. Keep the line's original leading
+        // whitespace and drop only the non-code text between it and that token, so the declaration
+        // stays aligned with its siblings and the dedent below still measures its own indent.
+        var firstCode = ScanTokens(lines).FirstOrDefault(t =>
+            t.Line >= from && t.Kind is not (ScanTokenKind.Comment or ScanTokenKind.Directive));
+        if (firstCode.Line == from && firstCode.Column > 0)
+        {
+            var head = methodLines[0];
+            if (head.AsSpan(0, Math.Min(firstCode.Column, head.Length)).TrimStart().Length > 0)
+            {
+                int indent = head.Length - head.TrimStart().Length;
+                methodLines[0] = head[..indent] + head[firstCode.Column..];
+            }
+        }
+
         int minIndent = methodLines
             .Where(l => l.TrimStart().Length > 0)
             .Select(l => l.Length - l.TrimStart().Length)

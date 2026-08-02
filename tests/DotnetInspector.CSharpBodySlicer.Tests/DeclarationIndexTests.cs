@@ -151,6 +151,12 @@ public class DeclarationIndexTests
         Assert.True(offenders.Count == 0, string.Join("\n", offenders.Take(20)));
     }
 
+    /// <summary>
+    /// Containment runs from the signature, not the body, so a line selects the declaration a
+    /// reader would say it belongs to. Line 8 is <c>Deep</c>'s signature: it is inside
+    /// <c>Inner</c>'s body but not inside <c>Deep</c>'s, so body-only containment answered
+    /// <c>Inner</c> — the enclosing type — for a line that plainly declares a method.
+    /// </summary>
     [Fact]
     public void FindByLine_ReturnsTheInnermostDeclarationCoveringThatLine()
     {
@@ -170,15 +176,84 @@ public class DeclarationIndexTests
             }
             """);
 
-        var deep = index.FindByLine(9);
-        Assert.NotNull(deep);
-        Assert.Equal(DeclarationKind.Method, deep.Kind);
-        Assert.Equal("Deep", deep.Name);
+        // Inside the body.
+        var body = index.FindByLine(10);
+        Assert.NotNull(body);
+        Assert.Equal(DeclarationKind.Method, body.Kind);
+        Assert.Equal("Deep", body.Name);
 
-        var inner = index.FindByLine(8);
+        // On the signature. Body-only containment answered "Inner" here.
+        var signature = index.FindByLine(8);
+        Assert.NotNull(signature);
+        Assert.Equal(DeclarationKind.Method, signature.Kind);
+        Assert.Equal("Deep", signature.Name);
+
+        // A line belonging to no member still resolves to the innermost type that owns it, so
+        // widening containment did not make every line answer with a member.
+        var inner = index.FindByLine(7);
         Assert.NotNull(inner);
         Assert.Equal(DeclarationKind.Class, inner.Kind);
         Assert.Equal("Inner", inner.Name);
+
+        var outer = index.FindByLine(4);
+        Assert.NotNull(outer);
+        Assert.Equal("Before", outer.Name);
+    }
+
+    /// <summary>
+    /// The reason containment starts at the signature. A constructor's first sequence point lands
+    /// on its declaration line rather than inside its body — the compiler attributes parameter
+    /// capture and any base-initializer there — so body-only containment fell through to the
+    /// enclosing type and named the type header as the constructor's source.
+    /// <para>
+    /// Measured over this repository's own assemblies and PDBs, that was 104 of 4,098 authored
+    /// members: every constructor whose signature spans lines, and every static constructor
+    /// synthesized from field initializers. That figure is an ungated point-in-time measurement;
+    /// what is gated here is the selection itself.
+    /// </para>
+    /// <para>
+    /// Both halves matter. The constructor's own signature line must select the constructor, and
+    /// the type's header line must still select the type — a selector that simply preferred the
+    /// deepest row overlapping anything would satisfy the first and break the second.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConstructorsSignatureLine_SelectsTheConstructorNotTheType()
+    {
+        var index = DeclarationIndex.Build("""
+            public class C
+            {
+                private readonly int _x;
+
+                private C(
+                    int x,
+                    int y)
+                {
+                    _x = x + y;
+                }
+            }
+            """);
+
+        var ctor = Assert.Single(index.Declarations, d => d.Kind == DeclarationKind.Constructor);
+        Assert.Equal(5, ctor.SignatureStartLine);
+        Assert.Equal(8, ctor.BodyStartLine);
+
+        // The PDB reports line 5 for this constructor: its signature, three lines above its body.
+        var found = index.FindByLine(5);
+        Assert.NotNull(found);
+        Assert.Equal(DeclarationKind.Constructor, found.Kind);
+        Assert.Equal("C", found.Name);
+
+        // Still selects the constructor from inside the parameter list and from inside the body.
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(6)?.Kind);
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(9)?.Kind);
+
+        // The type's own header still selects the type, not the constructor below it.
+        Assert.Equal(DeclarationKind.Class, index.FindByLine(1)?.Kind);
+
+        // A field's line selects the field, which is what a static constructor synthesized from
+        // field initializers reports its sequence point against.
+        Assert.Equal(DeclarationKind.Field, index.FindByLine(3)?.Kind);
     }
 
     /// <summary>

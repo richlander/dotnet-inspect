@@ -430,12 +430,21 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
-    /// A block-bodied property's accessor has no declaration of its own to walk back to, so the
-    /// slice starts at the property. It stops before the sibling accessor: accessors resolve
-    /// separately, so the getter's source must not take in the setter's body.
+    /// A block-bodied property's accessor has no declaration of its own, so its sequence points
+    /// select the property — and the whole property is what gets sliced.
+    /// <para>
+    /// The backward scan used to stop before the sibling accessor, on the reasoning that accessors
+    /// resolve separately and the getter's source must not take in the setter's body. That produced
+    /// <c>"public string? Tfm\n{\n    get =&gt; _override ?? Compute();"</c>: a property with an
+    /// unclosed brace and a missing setter, which is not a declaration at all. Splitting a property
+    /// at an accessor boundary cannot yield valid C#, so the choice is between a fragment and the
+    /// enclosing declaration, and only one of those is something a reader can be shown. This is one
+    /// of the 17 under-captures the parse-validity gate measured, all of which are now gone; see
+    /// <see cref="AuthoredSourceValidityTests"/>.
+    /// </para>
     /// </summary>
     [Fact]
-    public void BlockBodiedPropertyAccessor_WalksBackwardToPropertyDeclaration()
+    public void BlockBodiedPropertyAccessor_SlicesTheWholeProperty()
     {
         var source = Lines(
             "class C",                                      // 1
@@ -444,14 +453,18 @@ public class ExtractMethodBodyTests
             "    {",                                        // 4
             "        get => _override ?? Compute();",        // 5  <- StartLine/EndLine
             "        set => _override = value;",             // 6
-            "    }",                                        // 7
+            "    }",                                         // 7
             "}");                                           // 8
 
         var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
 
         Assert.Equal(
-            "public string? Tfm\n{\n    get => _override ?? Compute();",
+            "public string? Tfm\n{\n    get => _override ?? Compute();\n    set => _override = value;\n}",
             body);
+
+        // The setter selects the same declaration: one property, one slice, whichever accessor
+        // the PDB happened to report.
+        Assert.Equal(body, BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: "set_Tfm"));
     }
 
     [Fact]
@@ -1056,8 +1069,14 @@ public class ExtractMethodBodyTests
         Assert.Equal("public int Target() => 0;", body);
     }
 
+    /// <summary>
+    /// The sequence-point range may extend past the declaration onto a trailing comment. The slice
+    /// is the declaration's own span, so the comment is not part of it — a comment below a member
+    /// is the file's, or the next member's leading trivia, never a tail of the member above.
+    /// The backward-scanning slicer returned the range it was handed and included the comment.
+    /// </summary>
     [Fact]
-    public void CommentOnlyLineBelowDeclaration_DoesNotEraseTheTerminator()
+    public void CommentOnlyLineBelowDeclaration_IsNotPartOfTheMember()
     {
         var source = Lines(
             "class C",                                      // 1
@@ -1068,7 +1087,7 @@ public class ExtractMethodBodyTests
 
         var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
-        Assert.Equal("public int Target() => 0;\n// trailing note", body);
+        Assert.Equal("public int Target() => 0;", body);
     }
 
     /// <summary>
@@ -1104,13 +1123,19 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
-    /// A line that closes a literal carried in from above and then declares a sibling accessor
-    /// is a declaration from the point the literal ends. Asking only whether the line *began*
-    /// inside a literal suppressed the question on exactly the line that answers it, and the
-    /// getter's slice then swallowed the setter (adversarial review, GPT).
+    /// A line that closes a verbatim literal carried in from above and then declares a sibling
+    /// accessor is a declaration from the point the literal ends. Asking only whether the line
+    /// <i>began</i> inside a literal suppressed the question on exactly the line that answers it,
+    /// and the getter's slice then ran on past the property (adversarial review, GPT).
+    /// <para>
+    /// The slice is now the whole property, so "swallowing the sibling accessor" is no longer a
+    /// failure mode — a property's accessors are inside it by definition. The lexical question the
+    /// fixture was built for survives, and is what is gated here: the carried literal must not hide
+    /// the brace that closes the property, or the slice runs on into the enclosing type.
+    /// </para>
     /// </summary>
     [Fact]
-    public void AccessorClosingACarriedLiteral_DoesNotSwallowTheSiblingAccessor()
+    public void AccessorClosingACarriedLiteral_StillEndsAtThePropertysBrace()
     {
         var source = string.Join('\n',
             "class C",
@@ -1128,7 +1153,16 @@ public class ExtractMethodBodyTests
         var body = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
         Assert.NotNull(body);
-        Assert.DoesNotContain("set {", body);
+        Assert.StartsWith("    public string P", body);
+
+        // Not dedented, and correctly so: the literal's continuation line starts at column 0, so
+        // the common indent is 0 and removing four columns would corrupt the string's contents.
+        Assert.Contains("\n\" set { _v = value; }\n", body);
+
+        // Ends at the property's own closing brace: the enclosing type is not in the slice.
+        Assert.DoesNotContain("class C", body);
+        Assert.EndsWith("}", body);
+        Assert.Equal(8, body.Split('\n').Length);
     }
 
 
@@ -1203,15 +1237,18 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
-    /// A body whose braces never close runs the forward brace-recovery scan to the end of the
-    /// file. The scan's limit is clamped to the file length rather than to the scan budget,
-    /// because a member that begins within the budget of the last line makes the unclamped
-    /// limit larger than the file. Without the clamp the loop reads past the last line and
-    /// throws, which no other test reaches: every unbalanced fixture elsewhere either closes
-    /// its braces or sits far enough from EOF (adversarial review, Gemini).
+    /// A body whose braces never close leaves every open row's span a guess, so the index withholds
+    /// it and there is nothing to slice.
+    /// <para>
+    /// The backward-scanning slicer returned <c>"void M()\n{\n    if (x)\n    {"</c> here — a
+    /// truncated fragment that does not parse, presented as the member's source. Absent source is
+    /// the correct answer for a file the scan could not measure: a truncated file must not be
+    /// mistaken for a measured span. The clamp the old scan needed (its forward limit could exceed
+    /// the file length and read past the last line) has no counterpart here, because no scan runs.
+    /// </para>
     /// </summary>
     [Fact]
-    public void UnbalancedBodyAtEndOfFile_StopsAtTheLastLineRatherThanReadingPastIt()
+    public void UnbalancedBodyAtEndOfFile_ReportsAbsentRatherThanATruncatedFragment()
     {
         var source = string.Join('\n',
             "class C",
@@ -1221,8 +1258,23 @@ public class ExtractMethodBodyTests
             "        if (x)",
             "        {") + "\n";
 
-        var body = BodySlicer.ExtractMethodBody(source, 5, 6, "M");
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
 
-        Assert.Equal("void M()\n{\n    if (x)\n    {", body);
+        // The same member in a file that closes its braces does slice, so absence is caused by the
+        // unbalanced file and not by the fixture's shape.
+        var closed = string.Join('\n',
+            "class C",
+            "{",
+            "    void M()",
+            "    {",
+            "        if (x)",
+            "        {",
+            "        }",
+            "    }",
+            "}") + "\n";
+
+        Assert.Equal(
+            "void M()\n{\n    if (x)\n    {\n    }\n}",
+            BodySlicer.ExtractMethodBody(closed, 5, 6, "M"));
     }
 }
