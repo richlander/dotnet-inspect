@@ -256,7 +256,7 @@ public static class AnnotationAnchor
     /// corpus shares an offset with a printed <c>__exception</c>, which is
     /// excluded because it is the same shape, not because it was observed.
     /// </remarks>
-    static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
+    internal static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
     {
         var narrowest = new Dictionary<int, IrNode>();
         var widths = new Dictionary<int, int>();
@@ -309,10 +309,12 @@ public static class AnnotationAnchor
     /// 107 <c>LoadIndirect</c>, 75 <c>Convert</c>, 42 <c>Binary</c>, 14
     /// <c>Constant</c>, 11 <c>LoadField</c>, 5 <c>LoadStackSlot</c> and three
     /// singletons. That is the population this recovers, and it is counted per
-    /// distinct (function, offset) pair: one offset is typically carried by
-    /// several unprinted owners — 1,858 of the 1,907 are — so a count of
-    /// matching nodes visited would be more than twice as large and would not
-    /// describe anything the renderer produces.
+    /// distinct (function, offset) pair. A count of matching nodes
+    /// <em>visited</em> is 4,262, more than twice as large, and describes
+    /// nothing the renderer produces: statement subtrees overlap, so the same
+    /// owner node is reached more than once (2,567 revisits), and separately
+    /// 66 offsets carry more than one distinct unprinted owner. Either way the
+    /// renderer draws one extent per offset, so the offset is the unit.
     /// </para>
     /// <para>
     /// Descent only, never ascent. A printed <em>ancestor</em> is available for
@@ -327,7 +329,7 @@ public static class AnnotationAnchor
     /// anchor to printed nodes walks no extra tree.
     /// </para>
     /// </remarks>
-    static Dictionary<int, IrNode> AdoptedPrintedByOffset(
+    internal static Dictionary<int, IrNode> AdoptedPrintedByOffset(
         IReadOnlyList<IAnnotation> annotations,
         List<StatementSpan> statements,
         PrintedRangeMap printedRanges,
@@ -362,16 +364,17 @@ public static class AnnotationAnchor
                     || !printedRanges.TryGetRange(inner, out var innerRange))
                     continue;
                 // One offset can be carried by several unprinted owners naming
-                // different places: 1,858 of the 1,907 offsets adoption resolves
-                // have more than one owner, and on 66 of them the owners pick
-                // different nodes -- every one a group of `Box` nodes over
-                // different locals of equal width. No choice among those is more
-                // correct than another, so the requirement is only that it be a
-                // function of the ranges rather than of the walk: leftmost, and
-                // narrowest where two start together. On this corpus that agrees
-                // with what the unarbitrated walk already produced on all 66, so
-                // this changes no rendered output here; it exists so that the
-                // choice cannot move when traversal order does.
+                // different places. That is rare but never benign: of the 1,907
+                // offsets adoption resolves, 66 carry more than one distinct
+                // unprinted owner, and on every one of those 66 the owners pick
+                // different nodes -- each a group of `Box` nodes over different
+                // locals of equal width. No choice among them is more correct
+                // than another, so the requirement is only that it be a function
+                // of the ranges rather than of the walk: leftmost, and narrowest
+                // where two start together. On this corpus that agrees with what
+                // the unarbitrated walk already produced on all 66, so it changes
+                // no rendered output here; it exists so the choice cannot move
+                // when traversal order does.
                 if (chosen.TryGetValue(offset, out var best)
                     && (best.Start < innerRange.Start.Value
                         || (best.Start == innerRange.Start.Value
