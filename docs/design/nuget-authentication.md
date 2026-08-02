@@ -68,77 +68,34 @@ or from the user-level config. Parsing lives in
 Note that the `%TOKEN%` placeholder above is *not* expanded — see the next section. It is
 written that way only to keep a secret out of the example.
 
-## Credential forms that are silently ignored
+## Supported credential forms
 
-A `nuget.config` can carry a credential in several forms. This tool parses one of them. The rest
-are read past without a word — no warning, no error — so someone whose credential works for
-`dotnet restore` can get an authentication failure here with nothing pointing at the cause.
-
-NuGet's own guidance in
+Two forms are supported: a credential provider, and `Username` with `ClearTextPassword` in
+`nuget.config`. NuGet's guidance in
 [Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#security-best-practices-for-managing-credentials)
-ranks those forms from most to least secure. Lining that ranking up against what this tool honors
-is the clearest statement of the gap:
+ranks the available forms from most to least secure. The two supported here are that ranking's
+first and last:
 
-| NuGet's rank | Mechanism | Supported here |
+| NuGet's rank | Mechanism | Supported |
 | --- | --- | --- |
-| 1, "highly recommended" | Credential provider | **Yes** — see [Credential providers](#credential-providers). |
-| 2 | Encrypted `<Password>` in `nuget.config` | **No** — only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
-| 3 | `%VAR%` macros in `nuget.config` | **No** — values are taken verbatim, so the placeholder is sent as the password. |
-| 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
-| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
+| 1, "highly recommended" | Credential provider | Yes — see [Credential providers](#credential-providers). |
+| 2 | Encrypted `<Password>` in `nuget.config` | No. `dotnet nuget add source --password` writes this form by default on Windows. |
+| 3 | `%VAR%` macros in `nuget.config` | No. Values are taken verbatim, so the placeholder itself is sent as the password. |
+| 4 | `NuGetPackageSourceCredentials_<name>` | No. The environment is not consulted for credentials. |
+| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | Yes. |
 
-The two supported mechanisms are the ranking's top and bottom. Rank 1 is the most secure where
-it is available; rank 5 is available everywhere. Ranks 2 through 4 remain unsupported, and are
-still dropped in silence.
+Rank 5 is supported because many feeds offer nothing else. Only three credential providers exist
+in the ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of which is Visual
+Studio-only. GitHub Packages, GitLab, Artifactory, Nexus, ProGet, Cloudsmith and Artifact
+Registry all authenticate with a token in `nuget.config`.
 
-### Why clear text is still supported
+Two forms absent from NuGet's list are also unsupported: a `ClearTextPassword` with no
+`Username`, since both halves are required even though Azure DevOps ignores the username, and
+userinfo in the source URL (`******host/...`), which is never turned into a header.
 
-The table invites the conclusion that `ClearTextPassword` should be dropped in favour of
-requiring a credential provider. It is worth recording why that has not been done: NuGet's
-ranking is security guidance, not availability guidance.
-
-NuGet's [list of credential providers](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#list-of-credential-providers)
-names three in the entire ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of
-which is Visual Studio-only and so does not apply to a CLI. Other feeds authenticate by putting
-a token in `nuget.config`:
-
-| Feed | If rank 5 were dropped |
-| --- | --- |
-| Azure Artifacts | Works — a cross-platform provider exists. |
-| AWS CodeArtifact | Mixed. Works with the provider; not with `aws codeartifact login`, which writes a plaintext token into the user-level `nuget.config` on Linux and macOS. |
-| GitHub Packages | Unsupported. PAT-only, no provider, and the documented setup command is `dotnet nuget add source --username U --password T --store-password-in-clear-text`. |
-| GitLab, Artifactory, Nexus, ProGet, Cloudsmith, Artifact Registry | Unsupported. No NuGet credential providers exist. |
-
-The mechanism NuGet ranks last is therefore the one with the widest reach, and for GitHub
-Packages it is the only documented option.
-
-The gap this document describes is not that rank 5 is supported. It is that rank 5 was, until
-recently, the only supported mechanism, and that a dropped credential cannot be told apart from
-a missing package. Credential provider support addresses the first point for Azure Artifacts and
-AWS CodeArtifact. It does not help GitHub Packages, where better diagnosis is the only remedy.
-
-Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
-and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
-though Azure DevOps ignores the username), and userinfo in the source URL
-(`https://user:pass@host/...`, which is never turned into a header).
-
-Every one of these is dropped without a diagnostic, so a source configured through an
-unsupported mechanism is read as though no credential were supplied at all.
-
-What that then looks like has changed. A source that answers 401 or 403 is now reported as
-unreadable rather than as a missing package, naming the source, the status, and the phase:
-
-```console
-$ dotnet-inspect package Markout --source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json
-Error: Package 'markout' could not be resolved because a source requires credentials.
-  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json — HTTP 401 Unauthorized while reading the service index
-The package may exist; the source was not readable. Supply credentials for this source and retry.
-```
-
-A genuine 404 still reports as *not found*, because that is the one status that means the
-package is actually absent. The remaining gap is narrower than it was: the credential is still
-dropped silently, but the resulting failure is no longer indistinguishable from a typo in the
-package name.
+A credential in an unsupported form is treated as though no credential were supplied. The form
+itself draws no diagnostic; what surfaces is the feed's response to an unauthenticated request,
+described under [Reporting an unreadable source](#reporting-an-unreadable-source).
 
 ## Credential providers
 
