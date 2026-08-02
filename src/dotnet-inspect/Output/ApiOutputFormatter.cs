@@ -45,21 +45,29 @@ public static class ApiOutputFormatter
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
+        // The compact fields list is the whole of the -v:q view, and only that. Everywhere else the
+        // same facts are available as the bounded API Info section, so carrying them as a document
+        // scalar too would print identity twice on any view that shows both -- which is exactly
+        // what bare -S started doing once it began selecting API Info. Quiet keeps the line because
+        // at quiet there are no sections to carry it. See #3547.
+        var showCompactFields = options.Verbosity == Verbosity.Quiet
+            && options.IncludeSections is not { Count: > 0 };
+
         var view = new CliApiSurface
         {
             Name = api.Name,
-            Library = api.Library,
-            Types = api.PublicTypeCount,
-            Methods = api.PublicMethodCount,
-            Properties = api.PublicPropertyCount,
-            Source = api.Source,
-            Version = api.Version,
-            Tfm = api.Tfm,
+            Library = showCompactFields ? api.Library : null,
+            Types = showCompactFields ? api.PublicTypeCount : null,
+            Methods = showCompactFields ? api.PublicMethodCount : null,
+            Properties = showCompactFields ? api.PublicPropertyCount : null,
+            Source = showCompactFields ? api.Source : null,
+            Version = showCompactFields ? api.Version : null,
+            Tfm = showCompactFields ? api.Tfm : null,
 
-            // Deliberately the same values the inline identity line above carries, not a second
-            // spelling of them: this section is a promotion of that line into a selectable fixed
-            // section, so a reader who selects it and a reader who reads the line must not see two
-            // different answers to the same question.
+            // Deliberately the same values the compact fields list carries, not a second spelling
+            // of them: this section is a promotion of that line into a selectable fixed section, so
+            // a reader who selects it and a reader who reads the line must not see two different
+            // answers to the same question.
             ApiInfo = new ApiInfoSection
             {
                 Assembly = api.Library,

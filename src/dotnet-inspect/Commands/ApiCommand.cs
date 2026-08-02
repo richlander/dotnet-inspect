@@ -123,13 +123,20 @@ public class ApiCommand
         //
         // Two neighbours are deliberately left alone. `member` shares this preamble but is a
         // different command with its own overview (decompiled source, signature, learn order), so it
-        // is converted on its own. Type *listing* has no Fixed section to offer - every section it
-        // publishes is a per-kind member table that grows with the assembly - and in fact publishes
-        // no Info preset either, so its bare -S has always resolved to an empty set and fallen
-        // through to the verbosity ladder. That is pre-existing behavior, preserved here. See #3547.
-        var usesFixedOverview = singleTypeMode && options is TypeOptions;
+        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
+        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
+        // convert. See #3547.
+        //
+        // Type listing joins here as of this slice. It previously had no Fixed section to offer --
+        // every section it published was a per-kind member table that grows with the assembly -- so
+        // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
+        // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
+        // mean the same thing here that it means everywhere else.
+        var usesFixedOverview = options is TypeOptions;
         var bareSelectSections = usesFixedOverview
-            ? memberPipeline.FixedOverviewSectionNames
+            ? singleTypeMode
+                ? memberPipeline.FixedOverviewSectionNames
+                : typePipeline.FixedOverviewSectionNames
             : singleTypeMode
                 ? memberPipeline.InfoSectionNames
                 : typePipeline.InfoSectionNames;
@@ -139,10 +146,6 @@ public class ApiCommand
         // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
         // for a bounded overview into the widest output the command has, with the scanner
         // backpressure -S exists to apply switched off.
-        //
-        // Scoped to the fixed-overview path on purpose. Type listing reaches that same empty-set
-        // fallthrough today and depends on it, so guarding every path would turn a working command
-        // into an error. Slice 4c gives listing a Fixed section and can then adopt this guard.
         if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(

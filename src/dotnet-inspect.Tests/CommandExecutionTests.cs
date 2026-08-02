@@ -1508,7 +1508,17 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
         Assert.Contains("# System.Text", output);
-        Assert.Contains("Source: Platform", output);
+
+        // Platform provenance moved off the default view: the compact fields list is now the -v:q
+        // view only, and this browse path floors verbosity at Minimal, so it never renders that
+        // line at all. The same fact is carried by the bounded API Info section, which is where the
+        // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
+        // lives rather than dropped.
+        var (factExit, factOutput, _) = await RunAppAsync(
+            "System.Text", "--tips", "q", "-n", "12", "-S", SectionNames.ApiInfo);
+
+        Assert.Equal(0, factExit);
+        Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3246,32 +3256,68 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Type listing has no Fixed section - every section it offers is a per-kind member table that
-    /// grows with the assembly - so bare <c>-S</c> there keeps rendering the Info set. This pins the
-    /// boundary of the change rather than leaving it to inference.
+    /// Bare <c>-S</c> on the type listing renders exactly the fixed, bounded overview and nothing
+    /// else. Before this it resolved to an empty include set, which <c>IsRequested</c> read as "no
+    /// filter" and fell through to the verbosity ladder -- so the one flag meant to apply
+    /// backpressure printed all five per-kind tables, every one of which grows with the assembly.
     /// </summary>
-    [Fact]
-    public async Task Type_Listing_BareSelect_IsUnchangedAndFallsThroughToTheLadder()
+    [Theory]
+    [InlineData("System.Private.CoreLib")]
+    [InlineData("System.Text.Json")]
+    public async Task Type_Listing_BareSelect_RendersOnlyTheFixedOverview(string library)
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Private.CoreLib", "-S", "--tips", "q");
+            "type", "--platform", library, "-S", "--tips", "q");
 
         Assert.Equal(0, exit);
 
-        // The type-listing pipeline publishes NO Info sections, so its bare -S resolves to an empty
-        // include set and IsRequested falls through to the verbosity ladder. That is how this view
-        // has always worked; slice 4c added a Fixed section to this pipeline but deliberately did
-        // NOT wire bare -S to it, so this behavior is still unchanged. The FixedOverviewSectionNames
-        // pin below is what fails when slice 4d does the wiring, forcing that decision to be made
-        // explicitly instead of silently changing which sections bare -S renders.
-        var sections = SectionHeadings(output);
+        // Asserted against the pipeline rather than against a literal, so that a section added to
+        // the fixed overview later is covered here without editing this test -- and so that a
+        // section wrongly classified as Fixed shows up as a diff here rather than silently
+        // enlarging what bare -S prints.
         var listPipeline = ApiTypeSectionDescriptors.CreatePipeline();
-
-        Assert.Empty(listPipeline.InfoSectionNames);
         Assert.Equal([SectionNames.ApiInfo], listPipeline.FixedOverviewSectionNames);
-        Assert.DoesNotContain(SectionNames.TypeInfo, sections);
-        Assert.DoesNotContain(SectionNames.ApiInfo, sections);
-        Assert.Contains("Classes", sections);
+        Assert.Equal(listPipeline.FixedOverviewSectionNames, SectionHeadings(output));
+
+        // The growing tables are the point: naming them individually is what makes this a gate
+        // against the fall-through returning, rather than a restatement of the line above.
+        foreach (var kind in new[] { "Classes", "Structs", "Interfaces", "Enums", "Delegates" })
+            Assert.DoesNotContain(kind, SectionHeadings(output));
+    }
+
+    /// <summary>
+    /// The compact fields list is the whole of the <c>-v:q</c> view and appears nowhere else. Every
+    /// other view can reach the same facts through the bounded API Info section, so carrying them
+    /// as a document scalar as well printed identity twice on any view that showed both.
+    /// </summary>
+    [Fact]
+    public async Task Type_Listing_CompactFields_AppearAtQuietAndNowhereElse()
+    {
+        string[][] withoutTheLine =
+        [
+            ["-v:m"], ["-v:n"], ["-v:d"], ["--all"], ["-S"], ["-S", "Classes"], ["-S", SectionNames.ApiInfo]
+        ];
+
+        var (quietExit, quietOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:q", "--tips", "q");
+
+        Assert.Equal(0, quietExit);
+
+        // Non-vacuity, and the reason this is not just a DoesNotContain sweep: if the line stopped
+        // rendering everywhere, every assertion below would still pass. The quiet view has to keep
+        // it, and keep every field of it, or the facts become unreachable at quiet entirely.
+        var line = quietOutput.Split('\n').Single(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        foreach (var field in new[] { "Library", "Types", "Methods", "Properties", "Source", "Version", "TFM" })
+            Assert.Contains(field + ":", line, StringComparison.Ordinal);
+
+        foreach (var args in withoutTheLine)
+        {
+            var (exit, output, _) = await RunAppAsync(
+                ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Library: System.Text.Json.dll |", output, StringComparison.Ordinal);
+        }
     }
 
     [Theory]
@@ -3297,17 +3343,26 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Type_Listing_ApiInfo_RestatesTheInlineIdentityLineExactly()
     {
-        // ApiOutputFormatter populates the section from the same fields as the inline line and
-        // claims in a comment that the two can never disagree. This is the gate for that claim: a
-        // reader who selects the section and a reader who reads the line must get the same answers.
-        // Without it, the two could drift to different sources and every other test here would
-        // still pass.
+        // ApiOutputFormatter populates the section from the same fields as the compact fields list
+        // and claims in a comment that the two can never disagree. This is the gate for that claim:
+        // a reader who selects the section and a reader who reads the line must get the same
+        // answers. Without it, the two could drift to different sources and every other test here
+        // would still pass.
+        //
+        // The two now come from two invocations, because the compact fields list is the -v:q view
+        // and the section is what -S selects; they no longer appear together. That makes this a
+        // stronger claim than before, not a weaker one -- it pins agreement across the two views a
+        // reader actually chooses between, rather than agreement within one rendering.
+        var (quietExit, quietOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:q", "--tips", "q");
         var (exit, output, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
 
+        Assert.Equal(0, quietExit);
         Assert.Equal(0, exit);
+        Assert.DoesNotContain("Library:", output, StringComparison.Ordinal);
 
-        var inline = output.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inline = quietOutput.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
         var inlineFields = inline
             .Split('|')
             .Select(part => part.Trim().Split(':', 2))
