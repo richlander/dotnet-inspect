@@ -2363,6 +2363,165 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The tenth way. A branch can carry a complete declaration of its own, whose <c>=</c> is an
+    /// ordinary same-section initializer, while the branch beside it carries a bare tail that binds
+    /// to the row ABOVE the group. Roslyn ends <c>P</c> at line 3 with <c>X</c> and at line 9
+    /// without it, both with zero errors, so no single span is right.
+    ///
+    /// The point of this test is the FIRST <c>=</c>: it belongs to <c>Q</c> and disqualifies
+    /// itself, and a search that stopped there never examined the <c>= 1</c> behind it. The
+    /// builder therefore takes the first <c>=</c> that qualifies, not the first that exists.
+    /// Neutralize that by restoring the <c>break</c> on the first <c>=</c> and this fails, as do
+    /// all five <see cref="ConditionalRecoveryFuzzTests"/> seeds. Found by adversarial review
+    /// round 8 (GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void AnInitializerMaskedByAnotherBranchsInitializer_LosesTheDeclarationBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; }
+            #if X
+                int Q = 0
+            #else
+                = 1
+            #endif
+                ;
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.False(p.SpanKnown, "P ends on line 3 with X and line 9 without it");
+    }
+
+    /// <summary>
+    /// The mirror of the shape above, with the reaching-back tail spelled first and the branch
+    /// carrying its own complete declaration second.
+    ///
+    /// This shape passes BEFORE the round-8 fix as well: round 7 already handled a bare tail at
+    /// <c>pending[0]</c>, and each of these two sources contains exactly one QUALIFYING <c>=</c>,
+    /// so taking the first or the last is indistinguishable here. It is therefore coverage of the
+    /// mirror ordering, not a gate on the round-8 change -- the gate is the test above, and
+    /// <see cref="ConditionalRecoveryFuzzTests"/> generates both orderings.
+    /// </summary>
+    [Fact]
+    public void AnInitializerMaskingAnotherBranchsInitializer_LosesTheDeclarationBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; }
+            #if X
+                = 1
+            #else
+                int Q = 0
+            #endif
+                ;
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.False(p.SpanKnown, "P ends on line 9 with X and line 3 without it");
+    }
+
+    /// <summary>
+    /// The over-refusal guard for the pair above. Both branches carry a complete declaration with
+    /// its own initializer, so nothing reaches back and <c>P</c> keeps its vouch. Without this,
+    /// "refuse whenever a group contains an <c>=</c>" would pass both tests above and cost the
+    /// corpus every conditionally-declared field.
+    /// </summary>
+    [Fact]
+    public void TwoBranchesWithTheirOwnInitializers_StillVouchForTheDeclarationBeforeThem()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                int P { get; }
+            #if X
+                int Q = 0;
+            #else
+                int R = 1;
+            #endif
+            }
+            """);
+
+        var p = Assert.Single(index.Declarations, s => s.Name == "P");
+        Assert.True(p.SpanKnown, "neither branch's initializer reaches past its own section");
+    }
+
+    /// <summary>
+    /// The eleventh way. An enum member's initializer reaches back exactly as a field's does, but
+    /// an enum member is terminated by <c>,</c> or <c>}</c> and so never passes through the
+    /// <c>;</c> path that refuses it. Roslyn ends <c>A</c> at line 2 with <c>X</c> and line 6
+    /// without it, both with zero errors, and the product had already emitted and vouched
+    /// <c>A</c> at the branch-local <c>,</c> before the <c>=</c> was ever read.
+    ///
+    /// Neutralize either <c>ReachingBackEquals</c> call in the enum paths and this fails. Found by
+    /// adversarial review round 8 (Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void AnEnumInitializerReachingBackThroughAGroup_LosesTheMemberBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            enum E {
+                A
+            #if X
+                , B
+            #endif
+                = 1
+            }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.False(a.SpanKnown, "A ends on line 2 with X and line 6 without it");
+    }
+
+    /// <summary>
+    /// The same reaching-back enum initializer, but terminated by a following <c>,</c> rather than
+    /// by the enum's closing brace, so it pins the comma path rather than the brace path.
+    /// </summary>
+    [Fact]
+    public void AnEnumInitializerReachingBackBeforeAnotherMember_LosesTheMemberBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            enum E {
+                A
+            #if X
+                , B
+            #endif
+                = 1, C
+            }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.False(a.SpanKnown, "A absorbs the line-6 initializer when X is undefined");
+    }
+
+    /// <summary>
+    /// The over-refusal guard for the two enum tests above, and the reason they test for a
+    /// reaching-back <c>=</c> rather than simply for a conditional comma. Here the group carries a
+    /// member and its comma but no initializer reaches back, so every build ends <c>A</c> on
+    /// line 2 and the vouch stands. Refusing on the conditional comma alone would pass both tests
+    /// above while costing the corpus every conditionally-extended enum.
+    /// </summary>
+    [Fact]
+    public void AConditionalEnumMemberWithNoInitializer_StillVouchesForTheMemberBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            enum E {
+                A
+            #if X
+                , B
+            #endif
+            }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.True(a.SpanKnown, "A ends on line 2 in both builds");
+    }
+
+    /// <summary>
     /// A trivia poison that crosses no branch is spent once the declaration that raised it ends,
     /// and <c>ResetHeader</c> discharging it is what keeps the rest of the file vouched. With
     /// <c>X</c> the comment documents <c>s</c>; without <c>X</c> neither exists, so <c>Tail</c>

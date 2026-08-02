@@ -12,9 +12,14 @@
 // file's header before trusting a zero -- in particular what "fair case" excludes, and why a clean
 // run is evidence rather than proof.
 //
-// CI runs five fixed seeds at 4,000 cases as a time budget. Use this to sweep a fresh seed, to
+// CI runs five fixed seeds at 5,000 cases as a time budget. Use this to sweep a fresh seed, to
 // reproduce a reported flag exactly, or to run the 20,000-case sweeps that justified the round-6
 // fix (140,000 cases over seven seeds, 0 flags, against 3,146 flags on seed 12345 before it).
+//
+// A clean sweep is worth exactly as much as the generator's reach. Rounds 7 and 8 both found
+// defects this fuzzer could not spell -- round 7 because every group sat at file scope, round 8
+// because both branches of a group always carried the same grammar. Before citing a zero, read
+// what the generator can actually emit.
 
 using DotnetInspector.CSharpBodySlicer.Tests;
 

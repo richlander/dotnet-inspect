@@ -163,11 +163,19 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// enforces the property across sites is not a citation but the differential:
 /// <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> compares every vouched row
 /// against Roslyn under four symbol configurations and fails on any row whose lines move between
-/// two builds that both compile, which is the property this paragraph asserts. The per-site gates
+/// two builds that both compile, which is the property this paragraph asserts. It answers only
+/// half the question, because it compares the builds against each other and never reads the
+/// product's own numbers;
+/// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
+/// the other half, and covers rows that exist in a single build, which the first cannot see.
+/// Both are only as good as the generator's reach, which rounds 7 and 8 each falsified, so read
+/// that file's header before reading a clean run as proof. The per-site gates
 /// remain as regression pins:
 /// <c>AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt</c> and
 /// <c>AnInitializerConsumedByAnotherBranch_LosesTheDeclarationBeforeIt</c> for the two round-7
-/// shapes, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// shapes, <c>AnInitializerMaskedByAnotherBranchsInitializer_LosesTheDeclarationBeforeIt</c> and
+/// <c>AnEnumInitializerReachingBackThroughAGroup_LosesTheMemberBeforeIt</c> for the round-8 pair,
+/// <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
 /// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
 /// Recovery after a balanced group is
 /// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over

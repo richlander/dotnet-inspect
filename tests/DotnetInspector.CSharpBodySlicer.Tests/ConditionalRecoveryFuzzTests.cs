@@ -93,13 +93,38 @@ public class ConditionalRecoveryFuzzTests
     /// the seventh and eighth ways a vouched span can be wrong, at 3,146 flags against the
     /// pre-fix build on seed 12345 alone (adversarial review round 6, Claude Opus 4.8); widened in
     /// round 7, it flags the ninth way unaided and kills two guards in EmitBodiless that the
-    /// round-6 generator could not reach at all.
+    /// round-6 generator could not reach at all; widened again in round 8 for asymmetric branches
+    /// and conditional enum members, where it flags the tenth and eleventh ways.
     /// </summary>
     [Theory]
     [MemberData(nameof(Seeds))]
     public void NoVouchedRowMovesBetweenBuilds(int seed)
     {
         var (fair, flagged, report) = Run(seed, 5000);
+
+        Assert.True(fair > 2000, $"only {fair} fair cases; the generator or the fair-case gate has drifted");
+        Assert.True(flagged == 0, report);
+    }
+
+    /// <summary>
+    /// The companion gate, and a strictly different question.
+    /// <see cref="NoVouchedRowMovesBetweenBuilds"/> compares the BUILDS against each other and so
+    /// only ever asks whether a vouched row is ambiguous; it never reads the product's own line
+    /// numbers, and it says nothing at all about a row that exists in just one build, because
+    /// there is then no second build to disagree with. This asks the other half: that the numbers
+    /// the product reports are the numbers Roslyn reports, for every vouched row, in every build
+    /// where that row exists.
+    ///
+    /// Adversarial review round 8 (Gemini 3.1 Pro) found the gap -- the pairwise loop skips any
+    /// row matched in fewer than two configurations, so an existentially branch-dependent row was
+    /// never checked by anything. Running the product comparison in CI rather than only from
+    /// eng/conditional-recovery-fuzz.cs closes it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Seeds))]
+    public void EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn(int seed)
+    {
+        var (fair, flagged, report) = Run(seed, 5000, "product");
 
         Assert.True(fair > 2000, $"only {fair} fair cases; the generator or the fair-case gate has drifted");
         Assert.True(flagged == 0, report);
@@ -408,7 +433,24 @@ public class ConditionalRecoveryFuzzTests
             lines.Add("#endif");
         }
 
-        int pick = rnd.Next(inType ? 14 : 4);
+        // Every shape above pairs a branch with ITSELF: Group spells one body and, when it adds an
+        // "#else", spells the same body again with the names changed. That symmetry is a structural
+        // limit, not a stylistic one -- the shapes where the two branches carry DIFFERENT grammar
+        // are unreachable, and adversarial review round 8 (GPT-5.6 Sol) found the tenth way living
+        // in exactly that gap. Group2 spells the branches independently so they can.
+        void Group2(string[] then, string[] els)
+        {
+            lines.Add($"#if {sym}");
+            foreach (var b in then) lines.Add(b);
+            lines.Add("#else");
+            foreach (var b in els) lines.Add(b);
+            lines.Add("#endif");
+        }
+
+        // Cases 16-18 are enum shapes, and an enum is legal at both scopes, so the non-member
+        // pick is remapped onto them rather than leaving them reachable only inside a type.
+        int pick = rnd.Next(inType ? 20 : 7);
+        if (!inType && pick >= 4) pick += 12;
         switch (pick)
         {
             case 0:
@@ -487,6 +529,57 @@ public class ConditionalRecoveryFuzzTests
                 lines.Add("#else");
                 lines.Add("    ;");
                 lines.Add("#endif");
+                return;
+            case 13:
+                // The tenth way: one branch carries a complete declaration whose "=" is ordinary,
+                // the other carries a bare tail that binds to the row ABOVE the group. The two "="
+                // tokens are what makes it interesting -- the first one masks the second.
+                lines.Add($"    int Pt{a} {{ get; }}");
+                Group2([$"    int Qt{a} = 0"], ["    = 1"]);
+                lines.Add("    ;");
+                return;
+            case 14:
+                // Same masking, but the reaching-back tail comes FIRST, so a search that takes the
+                // last qualifying "=" rather than the first is wrong in the mirror direction.
+                lines.Add($"    int Pu{a} {{ get; }}");
+                Group2(["    = 1"], [$"    int Qu{a} = 0"]);
+                lines.Add("    ;");
+                return;
+            case 15:
+                // Asymmetric branches that are NOT an initializer at all: a declaration on one
+                // side against a bare continuation of the header on the other.
+                lines.Add($"    int Pv{a}");
+                Group2([$"    {{ get; }} int Qv{a} {{ get; }}"], ["    { get; }"]);
+                return;
+            case 16:
+                // The eleventh way: an enum member's initializer reaching back through a group.
+                // An enum member is terminated by "," or "}", never ";", so this shape cannot be
+                // reached through the field and property paths above no matter how they are
+                // widened. Here the enum's closing brace is the terminator.
+                lines.Add($"enum Ea{a} {{");
+                lines.Add($"    Am{a}");
+                Group($"    , Bm{a}");
+                lines.Add("    = 1");
+                lines.Add("}");
+                return;
+            case 17:
+                // The same, terminated by the comma before a following member rather than by the
+                // enum's closing brace, so both enum emit sites are exercised.
+                lines.Add($"enum Eb{a} {{");
+                lines.Add($"    An{a}");
+                Group($"    , Bn{a}");
+                lines.Add($"    = 1, Cn{a}");
+                lines.Add("}");
+                return;
+            case 18:
+                // The benign counterpart: a conditional member and its comma, but no initializer
+                // reaching back. Every build ends the first member on the same line, so a rule
+                // that refused on the conditional comma alone would show up here as lost recall
+                // rather than as a flag.
+                lines.Add($"enum Ec{a} {{");
+                lines.Add($"    Ao{a}");
+                Group($"    , Bo{a}");
+                lines.Add("}");
                 return;
             default:
                 lines.Add($"    [System.Obsolete]");

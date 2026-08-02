@@ -235,6 +235,64 @@ internal static class DeclarationIndexBuilder
             });
         }
 
+        // The index in "pending" of the first "=" that could be an initializer tail reaching BACK
+        // through a conditional group, or -1 when there is none.
+        //
+        // An "=" reaches back when every token before it belongs to some OTHER branch, because
+        // then there is a build in which none of those tokens exist and the "=" is the first thing
+        // after whatever preceded the group. The FIRST "=" is not necessarily that one: a branch
+        // can carry a complete declaration whose "=" is ordinary while the branch beside it carries
+        // the bare tail, as in
+        //
+        //     int P { get; }
+        //     #if X
+        //         int Q = 0
+        //     #else
+        //         = 1
+        //     #endif
+        //         ;
+        //
+        // where "int Q = 0" masks the "= 1" that still binds to P when X is undefined. So this
+        // takes the first "=" that QUALIFIES, not the first that exists. Found by adversarial
+        // review round 8 (GPT-5.6 Sol).
+        //
+        // In code with no conditionals every token shares one section, so the only "=" that can
+        // qualify is one at position zero -- an ordinary "{ get; } = value;" tail. Nothing else is
+        // reachable, which is why this costs the corpus nothing.
+        int ReachingBackEquals()
+        {
+            for (int i = 0; i < pending.Count; i++)
+            {
+                if (pending[i].Kind != ScanTokenKind.Punctuator || Text(pending[i]) != "=")
+                    continue;
+
+                bool reachesBack = true;
+                for (int j = 0; j < i; j++)
+                {
+                    if (pending[j].Section == pending[i].Section)
+                    {
+                        reachesBack = false;
+                        break;
+                    }
+                }
+
+                if (reachesBack) return i;
+            }
+
+            return -1;
+        }
+
+        // Revokes the vouch for every row that an initializer tail could have bound to instead:
+        // the run of siblings under one parent ending at the last block this group closed, or at
+        // the most recent row when the group already consumed it.
+        void RefuseSiblingsAnInitializerCouldReach()
+        {
+            int parent = lastClosed >= 0 ? rows[lastClosed].ParentIndex : EnclosingIndex();
+            for (int i = lastClosed >= 0 ? lastClosed : rows.Count - 1; i >= 0; i--)
+                if (rows[i].ParentIndex == parent)
+                    rows[i].SpanKnown = false;
+        }
+
         foreach (var tok in tokens)
         {
             if (!tok.DepthKnown)
@@ -505,8 +563,27 @@ internal static class DeclarationIndexBuilder
                 }
 
                 // An enum's last member needs no trailing comma, so the closing brace terminates it.
+                //
+                // The eleventh way: an enum member's initializer can reach back exactly as a
+                // field's can, but it is terminated by "," or "}" and so never passes through the
+                // ";" path that refuses it. In
+                //
+                //     enum E {
+                //         A
+                //     #if X
+                //         , B
+                //     #endif
+                //         = 1
+                //     }
+                //
+                // the "= 1" belongs to B with X and to A without it, so A ends on line 2 or line 6.
+                // A was already emitted and vouched at the branch-local "," by the time the "="
+                // was read. Found by adversarial review round 8 (Gemini 3.1 Pro).
                 if (Enclosing() is { Kind: DeclarationKind.Enum } && pending.Count > 0)
                 {
+                    if (ReachingBackEquals() >= 0)
+                        RefuseSiblingsAnInitializerCouldReach();
+
                     var (ek, en) = Classify(pending, Enclosing(), opensBody: false, Text);
                     if (ek is not null)
                         EmitBodiless(pending[^1], DeclarationKind.EnumMember, en, bodyStart: -1);
@@ -591,25 +668,28 @@ internal static class DeclarationIndexBuilder
                 // where "public" and "= 1;" never coexist in a build. The "=" starts its own run
                 // whenever everything before it belongs to some other branch, so that -- not
                 // position zero -- is the test.
-                int eq = -1;
-                for (int i = 0; i < pending.Count; i++)
-                {
-                    if (pending[i].Kind == ScanTokenKind.Punctuator && Text(pending[i]) == "=")
-                    {
-                        eq = i;
-                        break;
-                    }
-                }
+                // The FIRST "=" is not necessarily the one that reaches back. A branch can carry a
+                // complete declaration of its own whose "=" is ordinary, while the branch beside it
+                // carries the bare tail:
+                //
+                //     class C {
+                //         int P { get; }
+                //     #if X
+                //         int Q = 0
+                //     #else
+                //         = 1
+                //     #endif
+                //         ;
+                //     }
+                //
+                // "int Q = 0" makes the first "=" a same-section initializer, but the "= 1" behind
+                // it still binds to P when X is undefined, so P ends on line 3 or line 9 depending
+                // on the build. Stopping at the first "=" hid that, so the search takes the first
+                // "=" that QUALIFIES rather than the first that exists. Found by adversarial review
+                // round 8 (GPT-5.6 Sol).
+                int eq = ReachingBackEquals();
 
                 bool initializerTail = eq >= 0;
-                for (int i = 0; i < eq; i++)
-                {
-                    if (pending[i].Section == pending[eq].Section)
-                    {
-                        initializerTail = false;
-                        break;
-                    }
-                }
 
                 if (initializerTail)
                 {
@@ -619,10 +699,7 @@ internal static class DeclarationIndexBuilder
 
                     if (!oneBranch)
                     {
-                        int parent = lastClosed >= 0 ? rows[lastClosed].ParentIndex : EnclosingIndex();
-                        for (int i = lastClosed >= 0 ? lastClosed : rows.Count - 1; i >= 0; i--)
-                            if (rows[i].ParentIndex == parent)
-                                rows[i].SpanKnown = false;
+                        RefuseSiblingsAnInitializerCouldReach();
                     }
 
                     if (lastClosed >= 0 && eq == 0)
@@ -693,6 +770,11 @@ internal static class DeclarationIndexBuilder
 
             if (text == "," && Enclosing() is { Kind: DeclarationKind.Enum } && pending.Count > 0)
             {
+                // The same reaching-back initializer, terminated by the comma that separates this
+                // member from the next rather than by the enum's closing brace. See the "}" path.
+                if (ReachingBackEquals() >= 0)
+                    RefuseSiblingsAnInitializerCouldReach();
+
                 var (_, name) = Classify(pending, Enclosing(), opensBody: false, Text);
                 EmitBodiless(pending[^1], DeclarationKind.EnumMember, name, bodyStart: -1);
                 EndDeclaration(tok);
