@@ -124,6 +124,11 @@ jobs:
               eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
+              # The test lane is what actually runs this script (the
+              # `Install ilasm/ildasm` step), so it is the only thing that can
+              # catch a break in it. Without this, a PR touching only the
+              # script skips that lane and `ci-required` passes on a `skipped`.
+              eng/restore-iltools.sh) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.

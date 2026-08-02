@@ -201,9 +201,14 @@ that proved less than it appears to, so restore them before trusting a clean
 result:
 
 ```bash
-eng/restore-iltools.sh --mdv   # prints the directories to add to PATH
-export PATH="$(eng/restore-iltools.sh --mdv | tr '\n' ':')$PATH"
+iltools="$(eng/restore-iltools.sh --mdv)"
+export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
 ```
+
+Assign first and export second. `export PATH="$(eng/restore-iltools.sh ...)"`
+reports `export`'s exit status, not the script's, so a failed restore would
+look like success and leave you running tests whose oracles silently skip --
+the exact failure the script exists to prevent.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
 `ci.yml`, `deep-inspect.yml`, and `release.yml` invoke it rather than

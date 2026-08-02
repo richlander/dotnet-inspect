@@ -15,7 +15,13 @@
 # output can be consumed directly:
 #
 #   CI:     eng/restore-iltools.sh >> "$GITHUB_PATH"
-#   local:  export PATH="$(eng/restore-iltools.sh --mdv | tr '\n' ':')$PATH"
+#   local:  iltools="$(eng/restore-iltools.sh --mdv)"
+#           export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
+#
+# Assign first and export second: `export PATH="$(...)"` would report export's
+# exit status, so a failed restore would look like success and leave the caller
+# running tests whose oracles silently skip -- the exact failure this script
+# exists to prevent.
 #
 # Packages land in artifacts/iltools (gitignored), so a re-run is a no-op.
 set -euo pipefail
@@ -78,6 +84,21 @@ fi
 root="$(git rev-parse --show-toplevel)"
 packages_dir="$root/artifacts/iltools/packages"
 
+# On Git Bash, `git rev-parse --show-toplevel` reports a Windows path
+# (C:/src/repo). Emitting that verbatim would break the documented
+# newline-to-colon PATH assembly, because the drive colon reads as a PATH
+# separator and splits every directory into "C" and "/src/repo/...". Emit MSYS
+# form (/c/src/repo) where cygpath exists; elsewhere this is a no-op.
+emit_path() {
+    if [ -n "$cygpath" ]; then
+        "$cygpath" -u "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+cygpath="$(command -v cygpath 2> /dev/null || true)"
+
 # The package payload's extension follows the RID being restored, not the host:
 # restoring win-x64 from Linux still yields ilasm.exe.
 case "$rid" in
@@ -119,8 +140,8 @@ for tool in "$ilasm_dir/ilasm$tool_ext" "$ildasm_dir/ildasm$tool_ext"; do
     [ -x "$tool" ] || { echo "error: expected an executable at $tool after restore." >&2; exit 1; }
 done
 
-echo "$ilasm_dir"
-echo "$ildasm_dir"
+emit_path "$ilasm_dir"
+emit_path "$ildasm_dir"
 
 if [ "$want_mdv" -eq 1 ]; then
     # `dotnet tool install --global` installs under $DOTNET_CLI_HOME/.dotnet/tools,
@@ -139,5 +160,5 @@ if [ "$want_mdv" -eq 1 ]; then
         echo "error: expected an executable at $tools_dir/mdv after install." >&2
         exit 1
     fi
-    echo "$tools_dir"
+    emit_path "$tools_dir"
 fi
