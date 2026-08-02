@@ -248,6 +248,59 @@ public class NuGetApiTests
     }
 
     [Fact]
+    public async Task GetSearchResponseAsync_StringSerialisedCounts_Parse()
+    {
+        // Azure DevOps proved a feed will spell a count as a string. Dropping totalHits
+        // from the model answered that field and only that field; totalDownloads and
+        // versions[].downloads are still counts, and both are Int64 -- the width most
+        // often serialised as a string to keep it out of a JavaScript double. A feed
+        // spelling either that way used to fail the whole document, taking every result
+        // with it. Issue #3417.
+        string json = """
+        {
+            "data": [
+                {
+                    "id": "Contoso.Internal",
+                    "version": "1.2.3",
+                    "totalDownloads": "9007199254740993",
+                    "versions": [{"version": "1.2.3", "downloads": "42"}]
+                }
+            ],
+            "totalHits": "0"
+        }
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        SearchResult hit = Assert.Single(result.Data);
+
+        // Larger than 2^53, so this also pins that the value survives as an Int64 rather
+        // than going through a double on the way in -- which is the reason a feed spells
+        // it as a string in the first place.
+        Assert.Equal(9007199254740993, hit.TotalDownloads);
+        Assert.Equal(42, Assert.Single(hit.Versions!).Downloads);
+    }
+
+    [Fact]
+    public async Task GetSearchResponseAsync_NumericCounts_StillParse()
+    {
+        // The other direction: nuget.org sends counts as numbers, and tolerating the
+        // string spelling must not cost that.
+        string json = """
+        {"data":[{"id":"Newtonsoft.Json","version":"13.0.3","totalDownloads":5000000,
+          "versions":[{"version":"13.0.3","downloads":7}]}]}
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var result = await NuGetApi.GetSearchResponseAsync(stream, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        SearchResult hit = Assert.Single(result.Data);
+        Assert.Equal(5000000, hit.TotalDownloads);
+        Assert.Equal(7, Assert.Single(hit.Versions!).Downloads);
+    }
+
+    [Fact]
     public async Task GetVersionIndexAsync_MalformedJson_ReturnsNull()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{broken"));
