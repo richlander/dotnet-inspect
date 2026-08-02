@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -170,20 +171,32 @@ public abstract record MetadataValue
     public sealed record Flags(long Raw, string Decoded) : MetadataValue;
 
     /// <summary>
-    /// A reference into a metadata heap. <see cref="Text"/> is the decoded,
-    /// control-escaped string for the String/Guid heaps (safe to render as data:
-    /// terminal control sequences are neutralized); it is null for the Blob heap,
-    /// whose <see cref="Preview"/> carries a bounded hex dump. <see cref="Length"/>
-    /// is the full decoded size; <see cref="Truncated"/> is true when the bounded
-    /// preview stopped short of it, so a preview is never mistaken for the whole
-    /// value. The complete heap value remains addressable via <see cref="Offset"/>.
+    /// A reference into a metadata heap. <see cref="Text"/> is the decoded value for
+    /// the String/Guid heaps and is null for the Blob heap, whose <see cref="Preview"/>
+    /// carries a bounded hex dump instead. <see cref="Length"/> is the full decoded
+    /// size, and the complete heap value remains addressable via <see cref="Offset"/>.
     /// </summary>
+    /// <remarks>
+    /// The text is carried as <see cref="InertString"/> rather than <see cref="string"/>
+    /// so that a sink cannot be handed an untreated heap value by accident: there is no
+    /// conversion into this type that does not apply a policy, so the containment is a
+    /// fact about the type rather than a discipline every call site has to keep.
+    /// <para>
+    /// <see cref="Truncated"/> is stored rather than read from <see cref="Text"/> because
+    /// partiality here has two causes and only one of them is visible in the text. A
+    /// String heap value is bounded by a character budget, which <see cref="Text"/> knows
+    /// about. A Blob preview is bounded by a <em>byte</em> budget upstream of any text at
+    /// all, and the hex it produces is a complete spelling of the bytes that were read —
+    /// so <c>Preview.IsTruncated</c> is false for a blob that lost most of its content.
+    /// Deriving this flag would report those blobs as whole.
+    /// </para>
+    /// </remarks>
     public sealed record HeapReference(
         HeapKind Heap,
         int Offset,
         int Length,
-        string? Text,
-        string Preview,
+        InertString? Text,
+        InertString Preview,
         bool Truncated) : MetadataValue;
 
     /// <summary>A single resolvable index into another table.</summary>
@@ -196,7 +209,14 @@ public abstract record MetadataValue
     /// A cell that could not be trusted: SRM rejected the value or a handle was
     /// malformed. Never a success-shaped empty value.
     /// </summary>
-    public sealed record Malformed(string Detail) : MetadataValue;
+    /// <remarks>
+    /// The detail is contained for the same reason the cell values are, and the case for
+    /// it is stronger rather than weaker: it is produced only while describing an image
+    /// that has already proved malformed, and it splices in a third party's exception
+    /// message. Whether SRM ever puts artifact bytes in one is not a property this
+    /// repository can pin, so the type answers it instead of an assumption.
+    /// </remarks>
+    public sealed record Malformed(InertString Detail) : MetadataValue;
 }
 
 /// <summary>The metadata heaps a <see cref="MetadataValue.HeapReference"/> can point at.</summary>
@@ -215,14 +235,13 @@ public enum HeapKind
 /// </summary>
 public sealed record HandleRef
 {
-    public HandleRef(TableIndex TargetTable, int TargetRowId, int Token, string? Display = null, bool DisplayTruncated = false)
+    public HandleRef(TableIndex TargetTable, int TargetRowId, int Token, InertString? Display = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(TargetRowId);
         this.TargetTable = TargetTable;
         this.TargetRowId = TargetRowId;
         this.Token = Token;
         this.Display = Display;
-        this.DisplayTruncated = DisplayTruncated;
     }
 
     /// <summary>The table the edge points into.</summary>
@@ -234,14 +253,17 @@ public sealed record HandleRef
     /// <summary>The full metadata token of the target.</summary>
     public int Token { get; }
 
-    /// <summary>Best-effort display text for the target, or null when unavailable.</summary>
-    public string? Display { get; }
-
     /// <summary>
-    /// True when <see cref="Display"/> was bounded by the projection's string
-    /// budget, so the retained text is a prefix rather than the full name.
+    /// Best-effort display text for the target, or null when unavailable.
     /// </summary>
-    public bool DisplayTruncated { get; }
+    /// <remarks>
+    /// Unlike <see cref="MetadataValue.HeapReference"/>, this carries no separate
+    /// truncation flag: display text has exactly one way of becoming partial — the
+    /// projection's character budget — and <see cref="InertString.IsTruncated"/>
+    /// already records it. Storing a second copy would only create the opportunity
+    /// for the two to disagree.
+    /// </remarks>
+    public InertString? Display { get; }
 }
 
 /// <summary>

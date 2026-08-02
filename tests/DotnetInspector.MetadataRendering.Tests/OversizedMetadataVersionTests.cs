@@ -48,7 +48,7 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
 
         Assert.NotNull(overview);
         Assert.True(
-            overview.MetadataVersionTruncated,
+            overview.MetadataVersion.IsTruncated,
             "A stamp too long to neutralize within the budget must be reported as truncated.");
         Assert.Equal(OversizedVersionFixture.Budget, overview.MetadataVersion.Length);
     }
@@ -88,8 +88,8 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         var overview = MetadataImageInspector.Describe(peReader);
 
         Assert.NotNull(overview);
-        Assert.False(overview.MetadataVersionTruncated);
-        Assert.DoesNotContain('…', overview.MetadataVersion);
+        Assert.False(overview.MetadataVersion.IsTruncated);
+        Assert.DoesNotContain('…', overview.MetadataVersion.ToString());
     }
 
     /// <summary>

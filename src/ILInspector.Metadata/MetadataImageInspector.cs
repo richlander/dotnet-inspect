@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -50,8 +51,8 @@ public static class MetadataImageInspector
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
-        string version = MetadataTableProjector.ContainCellText(
-            reader.MetadataVersion, MetadataVersionBudget, out bool versionTruncated);
+        InertString version = MetadataTableProjector.ContainCellText(
+            reader.MetadataVersion, MetadataVersionBudget);
 
         return new MetadataImageOverview(
             version,
@@ -61,8 +62,7 @@ public static class MetadataImageInspector
             headers.MetadataSize,
             DescribeHeaps(reader),
             DescribeTables(reader),
-            DescribeHeaders(headers),
-            versionTruncated);
+            DescribeHeaders(headers));
     }
 
     /// <summary>

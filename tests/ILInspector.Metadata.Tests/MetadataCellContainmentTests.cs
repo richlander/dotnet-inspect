@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using InertText;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -32,7 +33,7 @@ public class MetadataCellContainmentTests
     /// some fixture happens to hold.
     /// </summary>
     static string Contain(string value, int maxChars = 4096)
-        => MetadataTableProjector.ContainCellText(value, maxChars, out _);
+        => MetadataTableProjector.ContainCellText(value, maxChars).ToString();
 
     /// <summary>
     /// The categories a scalar must not reach a sink in, and why each one matters.
@@ -166,11 +167,13 @@ public class MetadataCellContainmentTests
     public void ATruncatedCellNeverStrandsAPartialSpelling()
     {
         const string raw = "ab\u202Ecd\u2028ef";
-        int whole = MetadataTableProjector.ContainCellText(raw, int.MaxValue, out _).Length;
+        int whole = MetadataTableProjector.ContainCellText(raw, int.MaxValue).Length;
 
         for (int budget = 0; budget <= 32; budget++)
         {
-            string emitted = MetadataTableProjector.ContainCellText(raw, budget, out bool truncated);
+            InertString contained = MetadataTableProjector.ContainCellText(raw, budget);
+            string emitted = contained.ToString();
+            bool truncated = contained.IsTruncated;
 
             Assert.True(emitted.Length <= budget, $"Budget {budget} emitted {emitted.Length} chars.");
             Assert.DoesNotContain('\u202E', emitted);
