@@ -58,6 +58,16 @@ internal static class DeclarationIndexBuilder
         var scopes = new List<int>();
         var pending = new List<ScanToken>();
         int triviaStart = -1;
+
+        // Trivia opens a row's span, so a branch-dependent trivia start is a branch-dependent
+        // span. Comment and attribute-list tokens never reach `pending`, so neither `SpanKnown`
+        // expression would otherwise consult them, and a doc comment or attribute list written
+        // inside a conditional group would silently contribute one branch's start line to a row
+        // the scan vouches for (adversarial review round 2, GPT-5.6 Sol). Only the token that
+        // *opens* the trivia matters: a later comment inside a group cannot move the recorded
+        // start, and every line it occupies already falls inside the row's range.
+        bool triviaKnown = true;
+        bool attributeStartKnown = true;
         int lastClosed = -1;
         bool inAttribute = false;
         int attributeDepth = 0;
@@ -68,6 +78,7 @@ internal static class DeclarationIndexBuilder
         var attributeLists = new List<LineRange>();
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
+        int namespaceScopeLostFrom = -1;
         bool inBlockComment = false;
         int commentOpenLine = 0;
 
@@ -83,6 +94,7 @@ internal static class DeclarationIndexBuilder
         {
             pending.Clear();
             triviaStart = -1;
+            triviaKnown = true;
             attributeLists.Clear();
         }
 
@@ -109,7 +121,7 @@ internal static class DeclarationIndexBuilder
                 EndLine = terminator.Line + 1,
                 ParentIndex = EnclosingIndex(),
                 AttributeLists = [.. attributeLists],
-                SpanKnown = terminator.DepthKnown && pending.All(t => t.DepthKnown),
+                SpanKnown = terminator.DepthKnown && triviaKnown && pending.All(t => t.DepthKnown),
             });
         }
 
@@ -153,7 +165,10 @@ internal static class DeclarationIndexBuilder
                 // line that ended the previous declaration trails that declaration rather than
                 // opening this one.
                 if (pending.Count == 0 && !inAttribute && triviaStart < 0 && commentOpenLine > lastTerminatorLine)
+                {
                     triviaStart = commentOpenLine;
+                    triviaKnown = tok.DepthKnown;
+                }
                 continue;
             }
 
@@ -195,13 +210,17 @@ internal static class DeclarationIndexBuilder
                         // the next declaration's trivia -- "[assembly: X] // note" is a comment
                         // about the attribute.
                         triviaStart = -1;
+                        triviaKnown = true;
                         lastTerminatorLine = tok.Line + 1;
                     }
                     else
                     {
                         attributeLists.Add(list);
                         if (triviaStart < 0)
+                        {
                             triviaStart = attributeStart;
+                            triviaKnown = attributeStartKnown;
+                        }
                     }
                 }
                 else if (attributeDepth == 1)
@@ -238,6 +257,7 @@ internal static class DeclarationIndexBuilder
                 inAttribute = true;
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
+                attributeStartKnown = tok.DepthKnown;
                 attributeWords = 0;
                 // unitTarget needs no reset: the first word of every list assigns it, and it is
                 // read only after that assignment. An explicit one here would be a dead store that
@@ -286,7 +306,7 @@ internal static class DeclarationIndexBuilder
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
                         AttributeLists = [.. attributeLists],
-                        SpanKnown = tok.DepthKnown && pending.All(t => t.DepthKnown),
+                        SpanKnown = tok.DepthKnown && triviaKnown && pending.All(t => t.DepthKnown),
                     });
                     scopes.Add(rows.Count - 1);
                 }
@@ -390,6 +410,18 @@ internal static class DeclarationIndexBuilder
                             ns.EndLine = -1;
                             ns.ClosesAtEndOfFile = true;
                             scopes.Add(rows.Count - 1);
+
+                            // A file-scoped namespace is the one scope opener in C# that uses no
+                            // brace, so neither the balance rule nor the opening-depth floor can
+                            // see it: a group whose branches declare different file-scoped
+                            // namespaces opens and closes at the same depth and is judged
+                            // balanced, while the enclosing declaration of everything below the
+                            // #endif differs by branch. Its scope also runs to end of file, so no
+                            // #endif can repair it. Refuse the rest of the file (adversarial
+                            // review round 2, found independently by GPT-5.6 Sol and Gemini 3.1
+                            // Pro).
+                            if (!ns.SpanKnown && namespaceScopeLostFrom < 0)
+                                namespaceScopeLostFrom = rows.Count;
                         }
 
                         if (extra is not null)
@@ -412,6 +444,14 @@ internal static class DeclarationIndexBuilder
 
             pending.Add(tok);
         }
+
+        // A file-scoped namespace declared inside a conditional group scopes the rest of the file
+        // to a branch-dependent parent, and nothing below it can be vouched for. This runs before
+        // the end-of-file resolution below so that the namespace's own end, which is a maximum
+        // over the rows it encloses, is computed from rows already marked unknown.
+        if (namespaceScopeLostFrom >= 0)
+            for (int i = namespaceScopeLostFrom; i < rows.Count; i++)
+                rows[i].SpanKnown = false;
 
         // A file whose braces never close leaves rows open. Report the end as the last line rather
         // than -1, and mark the span unknown, so a caller cannot mistake a truncated file for a

@@ -160,7 +160,6 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// opening-depth floor is for — but no test asserts nesting correctness for a row the scan does
 /// vouch for beyond the corpus differentials above.
 /// </para>
-/// </para>
 /// </param>
 public sealed record DeclarationSpan(
     DeclarationKind Kind,

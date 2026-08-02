@@ -1059,7 +1059,12 @@ public static class BodySlicer
         /// </summary>
         private readonly List<Conditional> conditionals = [];
 
-        /// <summary>Set when a conditional group's branches did not balance. Never cleared.</summary>
+        /// <summary>
+        /// Set when a conditional group's branches did not balance. Never cleared, which is what
+        /// makes the loss survive any number of later balanced groups; gated by
+        /// <c>DeclarationIndexTests.AnUnbalancedConditional_StillLosesEveryLaterRow</c>, whose
+        /// third fixture closes a balanced group after the unbalanced one.
+        /// </summary>
         private bool conditionalDepthLost;
 
         /// <summary>
@@ -1124,7 +1129,10 @@ public static class BodySlicer
 
         /// <summary>
         /// Gives up on the depth for a conditional reason that no <c>#endif</c> can repair, which
-        /// is sticky exactly as an unbalanced group is.
+        /// is sticky exactly as an unbalanced group is because it sets the same field. Gated by
+        /// <c>DeclarationIndexTests.ADirectiveHiddenInsideACommentWithinAGroup_LosesTheDepth</c>
+        /// and <c>...ADirectiveHiddenInsideALiteralWithinAGroup_LosesTheDepth</c>, one per arm of
+        /// its only caller's condition.
         /// </summary>
         public void LoseConditionalDepth()
         {
@@ -1143,7 +1151,13 @@ public static class BodySlicer
         /// Ends the current branch at <c>#elif</c> or <c>#else</c> and returns the depth the next
         /// branch starts from. A branch that did not return to the group's opening depth makes the
         /// group unbalanced; the depth is reset either way, so one branch's braces are never
-        /// counted against the next.
+        /// counted against the next. That reset is <em>unverified and ungated</em>: it is an
+        /// equivalent mutation, because any branch whose depth deviates raises the unbalanced flag
+        /// in the same breath and the group is condemned either way. It is kept so that each
+        /// branch's check means what it says -- a branch measured against a previous branch's
+        /// leftovers is not a per-branch check -- not because an answer depends on it. The
+        /// unbalanced flag itself is gated by
+        /// <c>DeclarationIndexTests.ABranchThatDoesNotReturnToTheOpeningDepth_UnbalancesTheGroup</c>.
         /// </summary>
         public int NextBranch(int depth)
         {
@@ -1482,17 +1496,24 @@ public static class BodySlicer
         }
 
         // Preprocessor-disabled text is not lexed as code: inside a branch the compiler drops,
-        // "/*" opens no comment and a quote opens no string, but directives are still recognized
-        // and still nest. So a conditional directive sitting in what this scan believes is a
-        // comment or a literal is genuinely ambiguous -- if the surrounding text is disabled it is
-        // a directive, and skipping it makes a later #endif close the wrong group and restore
+        // "/*" opens no comment and a quote opens no string, but conditional directives are still
+        // recognized and still nest. So a conditional directive sitting in what this scan believes
+        // is a comment or a literal is genuinely ambiguous -- if the surrounding text is disabled
+        // it is a directive, and skipping it makes a later #endif close the wrong group and restore
         // knownness early, which is the one failure the index may not have. Refuse instead.
+        //
+        // Only conditional ones. A skipped section is the one place the compiler does not process
+        // #pragma, #region, #nullable or #line at all, so such a line inside a literal is text
+        // whichever way the branch falls: it cannot open, close or renumber a group. Refusing it
+        // would poison a file for a directive that changes nothing (adversarial review round 2,
+        // Gemini 3.1 Pro).
         //
         // Only while a group is open: outside one the text cannot be disabled, so "#if" inside a
         // comment is unambiguously prose, and this repository's own sources write it that way.
         if ((state.InBlockComment || state.InLiteral)
             && state.InConditional
-            && IsDirective(line, out _))
+            && IsDirective(line, out Conditional hidden)
+            && hidden != Conditional.None)
         {
             state.LoseConditionalDepth();
         }

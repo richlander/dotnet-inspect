@@ -1022,6 +1022,169 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The comment fixture above exercises only the <c>InBlockComment</c> half of that rule. A
+    /// directive hidden inside a <em>literal</em> is the same ambiguity -- in disabled text a quote
+    /// opens no string either -- and deleting just that arm silently restores the wrong-span defect
+    /// the rule exists to prevent (adversarial review round 2, GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void ADirectiveHiddenInsideALiteralWithinAGroup_LosesTheDepth()
+    {
+        var index = DeclarationIndex.Build(""""
+            #if OUTER
+            class A
+            {
+                string s = """
+                    #if INNER
+                    """;
+            }
+            #endif
+            class C { }
+            """");
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "a directive the scan could only skip by believing itself in a literal is ambiguous");
+    }
+
+    /// <summary>
+    /// A skipped section is the one place the compiler processes <em>only</em> conditional
+    /// directives: <c>#pragma</c>, <c>#region</c>, <c>#nullable</c> and <c>#line</c> are text
+    /// whichever way the branch falls, and cannot open, close or renumber a group. Refusing them
+    /// would poison a whole file for a directive that changes nothing, so the ambiguity rule tests
+    /// which directive it found rather than that it found one (adversarial review round 2,
+    /// Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void ANonConditionalDirectiveHiddenInsideALiteral_KeepsTheDepth()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+            #if DEBUG
+                string s = @"
+            #pragma warning disable
+                ";
+            #endif
+                void After() { }
+            }
+            """);
+
+        Assert.True(
+            Assert.Single(index.Declarations, s => s.Name == "After").SpanKnown,
+            "a #pragma inside a literal cannot change a group's structure in either build");
+    }
+
+    /// <summary>
+    /// Trivia opens a row's span, and <c>SpanKnown</c> is a claim about the row's lines. A doc
+    /// comment written inside a conditional group leads a declaration outside it with a
+    /// branch-dependent start line: below, the row's trivia is line 2 in one build and line 4 in
+    /// the other. Comment tokens never reach the pending-signature list, so neither
+    /// <c>SpanKnown</c> expression consulted them (adversarial review round 2, GPT-5.6 Sol).
+    /// </summary>
+    [Fact]
+    public void AConditionalDocComment_LosesTheRowItLeads()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            /// X docs
+            #else
+            /// Y docs
+            #endif
+            class C { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "the row's trivia starts on a line only one build compiles");
+
+        // A declaration with no scope of its own is emitted by a different site, with its own
+        // SpanKnown expression. Covering only the braced one left that site ungated: the mutation
+        // that drops the trivia term from it survived until this fixture existed.
+        var bodiless = DeclarationIndex.Build("""
+            class C
+            {
+            #if X
+                /// X docs
+            #else
+                /// Y docs
+            #endif
+                int F;
+            }
+            """);
+
+        Assert.False(
+            Assert.Single(bodiless.Declarations, s => s.Name == "F").SpanKnown,
+            "a field's trivia starts on a line only one build compiles");
+    }
+
+    /// <summary>
+    /// An attribute list is leading trivia too, and its tokens do not reach the pending-signature
+    /// list either, so it is the second door to the same defect as
+    /// <see cref="AConditionalDocComment_LosesTheRowItLeads"/>.
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeList_LosesTheRowItLeads()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            [Foo]
+            #endif
+            class C { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "C").SpanKnown,
+            "the row's trivia starts on a line only one build compiles");
+    }
+
+    /// <summary>
+    /// <para>
+    /// A file-scoped namespace is the one scope opener in C# that uses no brace, so neither the
+    /// balance rule nor the opening-depth floor can see it. A group whose branches declare
+    /// different file-scoped namespaces opens and closes at depth 0 and is judged balanced, while
+    /// the enclosing declaration of every row below the <c>#endif</c> differs by build -- and the
+    /// scope runs to end of file, so no <c>#endif</c> repairs it.
+    /// </para>
+    /// <para>
+    /// Found independently by both reviewers in round 2. This is the third distinct way branches
+    /// can agree on depth and disagree on meaning, after the comment-hidden directive and the
+    /// opening-depth floor, which is why the rule is stated as a refusal rather than as a depth
+    /// correction.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ConditionalFileScopedNamespaces_LoseEveryRowBelowThem()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            namespace B;
+            #else
+            namespace C;
+            #endif
+
+            class D { }
+            """);
+
+        Assert.False(
+            Assert.Single(index.Declarations, s => s.Name == "D").SpanKnown,
+            "D is in namespace B in one build and C in the other");
+
+        // An unconditional file-scoped namespace is the overwhelmingly common case and must keep
+        // vouching for what it encloses, including across a balanced group below it.
+        var plain = DeclarationIndex.Build("""
+            namespace B;
+
+            #if X
+            class Inner { }
+            #endif
+
+            class D { }
+            """);
+
+        Assert.True(Assert.Single(plain.Declarations, s => s.Name == "D").SpanKnown);
+    }
+
+    /// <summary>
     /// <para>
     /// Equal brace depth does not prove equal enclosing declaration. A branch that closes a brace
     /// its group did not open is closing a scope from outside the group, so the branches can agree
