@@ -95,7 +95,9 @@ public static class SourceResolver
             }
 
             // Space 2 & 3: dotnet-inspect cache + NuGet global cache
-            if (NuGetCache.TryGetLatestCachedVersion(candidate) != null)
+            if (NuGetCache.TryGetLatestCachedVersion(
+                    candidate,
+                    NuGetSourceResolver.ResolveSourceKeys(null)) != null)
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",

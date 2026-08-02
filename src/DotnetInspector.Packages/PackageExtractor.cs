@@ -282,6 +282,7 @@ public static class PackageExtractor
         IPackageContent? cached = s_packageStore.TryGetCached(
             normalizedName,
             normalizedVersion,
+            NuGetSourceResolver.SourceKeys(sources),
             log);
         if (cached != null)
         {
@@ -301,7 +302,7 @@ public static class PackageExtractor
             string nupkgPath = Path.Combine(
                 tempDir,
                 $"{packageName}.{version}.nupkg");
-            string? successfulSource = null;
+            NuGetSource? successfulSource = null;
 
             foreach (var source in sources)
             {
@@ -329,7 +330,7 @@ public static class PackageExtractor
                         .ConfigureAwait(false);
                     if (ok)
                     {
-                        successfulSource = source.Name;
+                        successfulSource = source;
                         break;
                     }
                 }
@@ -361,7 +362,7 @@ public static class PackageExtractor
                     $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            log?.Invoke($"Package downloaded successfully from {successfulSource}.");
+            log?.Invoke($"Package downloaded successfully from {successfulSource.Name}.");
 
             // Persist the downloaded nupkg through the package store. The
             // filesystem store extracts and transactionally commits it to the
@@ -373,6 +374,7 @@ public static class PackageExtractor
                 content = await s_packageStore.CommitAsync(
                     packageName,
                     version,
+                    NuGetCache.GetSourceKey(successfulSource.Url),
                     nupkgStream).ConfigureAwait(false);
             }
             log?.Invoke($"Cached to: {content.RootPath}");
@@ -492,7 +494,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         // Cache hit: read the nuspec straight from the already-extracted package.
-        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        var cachedPath = NuGetCache.TryGetCachedPackage(
+            normalizedName,
+            normalizedVersion,
+            NuGetSourceResolver.ResolveSourceKeys(sourceOptions));
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             var cachedNuspec = Directory

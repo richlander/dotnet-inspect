@@ -451,7 +451,9 @@ internal static class SourceEnricher
     /// Finds the latest cached version for a package by checking the cache directory.
     /// </summary>
     private static string? FindCachedPackageVersion(string packageName)
-        => NuGetCache.TryGetLatestCachedVersion(packageName);
+        => NuGetCache.TryGetLatestCachedVersion(
+            packageName,
+            NuGetSourceResolver.ResolveSourceKeys(null));
 
     /// <summary>
     /// Enriches multiple types from a single XML doc file (loaded once).

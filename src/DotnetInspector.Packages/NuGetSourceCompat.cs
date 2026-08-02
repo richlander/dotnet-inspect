@@ -26,6 +26,30 @@ public record NuGetSourceOptions
 /// </summary>
 public static class NuGetSourceResolver
 {
+    /// <summary>
+    /// Resolves sources and reduces them to the identities the package content
+    /// cache records, so a caller can ask the cache for content this
+    /// configuration is actually entitled to.
+    /// </summary>
+    public static IReadOnlyCollection<string> ResolveSourceKeys(
+        NuGetSourceOptions? options,
+        string? workingDirectory = null)
+        => SourceKeys(ResolveSources(options, workingDirectory));
+
+    /// <summary>
+    /// Reduces already-resolved sources to their cache identities.
+    /// </summary>
+    public static IReadOnlyCollection<string> SourceKeys(IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var source in sources)
+            keys.Add(NuGetCache.GetSourceKey(source.Url));
+
+        return keys;
+    }
+
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
     {
         options ??= NuGetSourceOptions.Default;

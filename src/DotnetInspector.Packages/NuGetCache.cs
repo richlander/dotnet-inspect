@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using DotnetInspector.Core;
 using NuGet.Versioning;
 
@@ -18,7 +20,7 @@ public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
 /// </summary>
 public static class NuGetCache
 {
-    private const string PackageContentCategory = "package-content-v2";
+    private const string PackageContentCategory = "package-content-v3";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
@@ -129,8 +131,17 @@ public static class NuGetCache
     /// </summary>
     /// <param name="packageName">The package name (case-insensitive)</param>
     /// <param name="version">The package version</param>
+    /// <param name="allowedSourceKeys">
+    /// Keys (per <see cref="GetSourceKey"/>) of the sources the caller is
+    /// currently configured to read from. Cached content committed by a source
+    /// outside this set is treated as a miss. Pass <see langword="null"/> only
+    /// for content that was never attributed to a source.
+    /// </param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
-    public static string? TryGetCachedPackage(string packageName, string version)
+    public static string? TryGetCachedPackage(
+        string packageName,
+        string version,
+        IReadOnlyCollection<string>? allowedSourceKeys)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -163,7 +174,8 @@ public static class NuGetCache
             if (IsCommittedPackageValid(
                 appPackageDir,
                 normalizedName,
-                normalizedVersion))
+                normalizedVersion,
+                allowedSourceKeys))
             {
                 InfoTracker.RecordCacheHit();
                 CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
@@ -198,11 +210,17 @@ public static class NuGetCache
     /// <param name="nupkgPath">Optional source archive to retain with the committed contents</param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The package version</param>
+    /// <param name="sourceKey">
+    /// Identity (per <see cref="GetSourceKey"/>) of the source that served
+    /// these bytes, recorded so a later read from a different source set does
+    /// not receive them.
+    /// </param>
     public static CommittedPackage CommitPackage(
         string extractedPath,
         string? nupkgPath,
         string packageName,
-        string version)
+        string version,
+        string sourceKey)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -222,7 +240,8 @@ public static class NuGetCache
         if (IsCommittedPackageValid(
             targetPath,
             normalizedName,
-            normalizedVersion))
+            normalizedVersion,
+            [sourceKey]))
         {
             return OpenCommittedPackage(
                 targetPath,
@@ -270,7 +289,8 @@ public static class NuGetCache
                 writer.Write(
                     GetCommitMarkerContent(
                         normalizedName,
-                        normalizedVersion));
+                        normalizedVersion,
+                        sourceKey));
             }
 
             try
@@ -280,7 +300,8 @@ public static class NuGetCache
             catch (IOException) when (IsCommittedPackageValid(
                 targetPath,
                 normalizedName,
-                normalizedVersion))
+                normalizedVersion,
+                [sourceKey]))
             {
                 return OpenCommittedPackage(
                     targetPath,
@@ -325,7 +346,9 @@ public static class NuGetCache
     /// Returns the newest cached version of a package from the NuGet or app cache.
     /// Pure disk I/O — never hits the network.
     /// </summary>
-    public static string? TryGetLatestCachedVersion(string packageName)
+    public static string? TryGetLatestCachedVersion(
+        string packageName,
+        IReadOnlyCollection<string>? allowedSourceKeys)
     {
         var normalizedName = packageName.ToLowerInvariant();
 
@@ -335,7 +358,7 @@ public static class NuGetCache
         bool IsAppCacheValid(string dir)
         {
             string version = Path.GetFileName(dir);
-            return IsCommittedPackageValid(dir, normalizedName, version);
+            return IsCommittedPackageValid(dir, normalizedName, version, allowedSourceKeys);
         }
         VersionDir? best = null;
 
@@ -402,18 +425,41 @@ public static class NuGetCache
     private static bool IsCommittedPackageValid(
         string cachedPath,
         string packageName,
-        string version)
+        string version,
+        IReadOnlyCollection<string>? allowedSourceKeys)
     {
         try
         {
             if (!IsCachedPackageValid(cachedPath))
                 return false;
 
-            return File.ReadAllText(
-                Path.Combine(cachedPath, CommitMarkerFileName))
-                .Equals(
-                    GetCommitMarkerContent(packageName, version),
+            var marker = File.ReadAllText(
+                Path.Combine(cachedPath, CommitMarkerFileName));
+
+            // A cache read happens before the tool knows which source would
+            // serve this package, so the question is not "does the marker name
+            // one source" but "is the source that wrote these bytes still one
+            // the caller is configured to read from". A marker naming a source
+            // outside that set is a miss, not a hit: those bytes were fetched
+            // under an authority the caller no longer claims.
+            if (allowedSourceKeys is null)
+            {
+                return marker.Equals(
+                    GetCommitMarkerContent(packageName, version, AnySourceKey),
                     StringComparison.Ordinal);
+            }
+
+            foreach (var sourceKey in allowedSourceKeys)
+            {
+                if (marker.Equals(
+                        GetCommitMarkerContent(packageName, version, sourceKey),
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (IOException)
         {
@@ -440,8 +486,38 @@ public static class NuGetCache
 
     private static string GetCommitMarkerContent(
         string packageName,
-        string version)
-        => $"{PackageContentCategory}:{packageName}@{version}";
+        string version,
+        string sourceKey)
+        => $"{PackageContentCategory}:{packageName}@{version}:{sourceKey}";
+
+    /// <summary>
+    /// Marker component used when a package was not acquired from a NuGet
+    /// source at all (a local <c>.nupkg</c> path, say). Such content is not
+    /// attributable to any feed, so it is only ever a hit for a caller that
+    /// also supplies no source set.
+    /// </summary>
+    private const string AnySourceKey = "local";
+
+    /// <summary>
+    /// Derives a stable, non-revealing identity for a NuGet source from its
+    /// URL. The URL itself is never written to the cache: a source URL can
+    /// carry userinfo credentials, and cache markers are world-readable files.
+    /// </summary>
+    /// <param name="sourceUrl">The source URL, or a local folder path.</param>
+    /// <returns>A short hex digest identifying the source.</returns>
+    public static string GetSourceKey(string? sourceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl))
+            return AnySourceKey;
+
+        // Normalize the spellings that denote the same feed: case, surrounding
+        // whitespace, and a trailing slash. Two configs that name one feed
+        // differently must share cached bytes, or the cache silently duplicates.
+        var normalized = sourceUrl.Trim().TrimEnd('/').ToLowerInvariant();
+
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexStringLower(digest.AsSpan(0, 8));
+    }
 
     private static void CopyDirectory(string sourceDir, string targetDir)
     {

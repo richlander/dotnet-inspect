@@ -20,7 +20,9 @@ public class PackageVersionTests
     {
         await EnsurePackageCached("System.CommandLine");
 
-        var cachedVersion = NuGetCache.TryGetLatestCachedVersion("System.CommandLine");
+        var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
+            "System.CommandLine",
+            NuGetSourceResolver.ResolveSourceKeys(null));
         Assert.NotNull(cachedVersion);
 
         var root = CommandLineBuilder.CreateRootCommand();

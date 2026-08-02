@@ -55,6 +55,15 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class EvilPoolSweepGateTests
 {
+    /// <summary>
+    /// Identity of the source these fixtures speak for. Cached content is scoped
+    /// to the source that committed it, so a test that seeds the cache by hand
+    /// must use the same source the code under test resolves — otherwise the
+    /// seeded entry is correctly invisible.
+    /// </summary>
+    private static readonly string TestSourceKey =
+        NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
     const string FixturePackage = "sweep.fixture";
     const string FixtureVersion = "1.0.0";
     const string FixtureTfm = "net8.0";
@@ -1145,7 +1154,7 @@ public class EvilPoolSweepGateTests
         /// <c>!IsSelected</c> arm has something to be about.
         /// </summary>
         void CommitWithoutLibrary(string package) =>
-            NuGetCache.CommitPackage(Stage(package), null, package, FixtureVersion);
+            NuGetCache.CommitPackage(Stage(package), null, package, FixtureVersion, TestSourceKey);
 
         /// <summary>
         /// Stages one synthetic package and commits it, answering with the path the product
@@ -1163,7 +1172,7 @@ public class EvilPoolSweepGateTests
             Directory.CreateDirectory(Path.Combine(staged, "lib", FixtureTfm));
             File.WriteAllBytes(Path.Combine(staged, "lib", FixtureTfm, assembly), bytes);
 
-            NuGetCache.CommitPackage(staged, null, package, FixtureVersion);
+            NuGetCache.CommitPackage(staged, null, package, FixtureVersion, TestSourceKey);
 
             string committed = Path.Combine(
                 NuGetCache.GetPackageCachePath(package, FixtureVersion),

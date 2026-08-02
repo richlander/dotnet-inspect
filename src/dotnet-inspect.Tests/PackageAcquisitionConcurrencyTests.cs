@@ -9,6 +9,15 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 {
+    /// <summary>
+    /// Identity of the source these fixtures speak for. Cached content is scoped
+    /// to the source that committed it, so a test that seeds the cache by hand
+    /// must use the same source the code under test resolves — otherwise the
+    /// seeded entry is correctly invisible.
+    /// </summary>
+    private static readonly string TestSourceKey =
+        NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
     private static readonly NuGetSourceOptions s_nugetOrgSource = new()
     {
         Sources = ["https://api.nuget.org/v3/index.json"],
@@ -90,7 +99,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.True(File.Exists(first.NupkgPath));
         Assert.Equal(
             first.ExtractPath,
-            NuGetCache.TryGetCachedPackage(packageName, Version));
+            NuGetCache.TryGetCachedPackage(packageName, Version, [TestSourceKey]));
         AssertNoStagingDirectories(packageName);
         AssertNoTemporaryDirectories(tempPrefix);
 
@@ -311,7 +320,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 sourceA,
                 nupkgPath: null,
                 packageName,
-                Version);
+                Version,
+                TestSourceKey);
         });
         Task<CommittedPackage> publishB = Task.Run(() =>
         {
@@ -321,7 +331,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 sourceB,
                 nupkgPath: null,
                 packageName,
-                Version);
+                Version,
+                TestSourceKey);
         });
 
         Assert.True(
@@ -358,7 +369,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 source,
                 nupkgPath: null,
                 packageName,
-                Version));
+                Version,
+                TestSourceKey));
 
         Assert.False(
             Directory.Exists(
@@ -386,7 +398,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 source,
                 nupkgPath: null,
                 packageName,
-                Version));
+                Version,
+                TestSourceKey));
 
         Assert.Equal("preserve", File.ReadAllText(existingFile));
         AssertNoStagingDirectories(packageName);
@@ -411,11 +424,12 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             source,
             nupkgPath: null,
             PackageName,
-            Version);
+            Version,
+            TestSourceKey);
 
         Assert.Equal(
             committed.ExtractPath,
-            NuGetCache.TryGetCachedPackage(PackageName, Version));
+            NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
     }
 
     [Fact]
@@ -438,7 +452,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             source,
             nupkgPath: null,
             PackageName,
-            Version);
+            Version,
+            TestSourceKey);
         using var client = new HttpClient(new FailingHandler());
 
         Task<string?>[] requests = Enumerable.Range(0, 16)
@@ -468,7 +483,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                     "System.Runtime.dll")));
         Assert.Equal(
             committed.ExtractPath,
-            NuGetCache.TryGetCachedPackage(PackageName, Version));
+            NuGetCache.TryGetCachedPackage(PackageName, Version, [TestSourceKey]));
         AssertNoPackStagingDirectories(PackageName);
     }
 
@@ -486,7 +501,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             source,
             nupkgPath: null,
             PackageName,
-            Version);
+            Version,
+            TestSourceKey);
         string packPath = Path.Combine(
             PlatformPackService.GetPacksCachePath()!,
             PackageName,
@@ -542,6 +558,109 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void TryGetCachedPackage_DoesNotServeContentCommittedByAnotherSource()
+    {
+        // A private feed's bytes must not answer a request made under a
+        // configuration that does not list that feed. The read happens before
+        // the tool knows which source would serve the package, so the cache is
+        // asked "is the committing source still one this caller reads from".
+        string packageName = $"crosssource.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
+        string publicFeedKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
+        string staged = CreateExtractedPackage(
+            Path.Combine(_testRoot, "cross-source-stage"),
+            packageName,
+            "private",
+            payloadCount: 1);
+        NuGetCache.CommitPackage(staged, nupkgPath: null, packageName, Version, privateFeedKey);
+
+        Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [publicFeedKey]));
+        Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, []));
+    }
+
+    [Fact]
+    public void TryGetCachedPackage_ServesContentWhenItsSourceIsStillConfigured()
+    {
+        // The converse of the cross-source miss. Without this, "scope the cache
+        // to its source" could be satisfied by never returning a hit at all,
+        // which would silently turn the cache off.
+        string packageName = $"samesource.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
+        string publicFeedKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
+        string staged = CreateExtractedPackage(
+            Path.Combine(_testRoot, "same-source-stage"),
+            packageName,
+            "private",
+            payloadCount: 1);
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            staged, nupkgPath: null, packageName, Version, privateFeedKey);
+
+        // Order matters: the committing source is not the first one offered.
+        Assert.Equal(
+            committed.ExtractPath,
+            NuGetCache.TryGetCachedPackage(packageName, Version, [publicFeedKey, privateFeedKey]));
+    }
+
+    [Fact]
+    public void TryGetLatestCachedVersion_IgnoresVersionsFromUnconfiguredSources()
+    {
+        string packageName = $"latestscope.test.{Guid.NewGuid():N}";
+        string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
+        string publicFeedKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
+        foreach (var (version, sourceKey) in
+            new[] { ("1.0.0", publicFeedKey), ("2.0.0", privateFeedKey) })
+        {
+            string staged = CreateExtractedPackage(
+                Path.Combine(_testRoot, $"latest-stage-{version}"),
+                packageName,
+                "payload",
+                payloadCount: 1);
+            NuGetCache.CommitPackage(staged, nupkgPath: null, packageName, version, sourceKey);
+        }
+
+        // 2.0.0 is newer but came from a feed this caller no longer reads.
+        Assert.Equal("1.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey]));
+        Assert.Equal("2.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey, privateFeedKey]));
+    }
+
+    [Theory]
+    [InlineData("https://pkgs.invalid/v3/index.json", "https://pkgs.invalid/v3/index.json/")]
+    [InlineData("https://pkgs.invalid/v3/index.json", "HTTPS://Pkgs.Invalid/V3/Index.json")]
+    [InlineData("https://pkgs.invalid/v3/index.json", "  https://pkgs.invalid/v3/index.json  ")]
+    public void GetSourceKey_TreatsSpellingsOfOneFeedAsOneSource(string left, string right)
+    {
+        // Two configs naming one feed differently must share cached bytes, or
+        // scoping silently degrades into duplicated downloads.
+        Assert.Equal(NuGetCache.GetSourceKey(left), NuGetCache.GetSourceKey(right));
+    }
+
+    [Fact]
+    public void GetSourceKey_DistinguishesDifferentFeeds()
+    {
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://pkgs.invalid/one/v3/index.json"),
+            NuGetCache.GetSourceKey("https://pkgs.invalid/two/v3/index.json"));
+    }
+
+    [Fact]
+    public void GetSourceKey_DoesNotRevealTheSourceUrl()
+    {
+        // Commit markers are world-readable files and a source URL can carry
+        // userinfo credentials, so the key must be a digest, not the URL.
+        const string Secret = "s3cret-token";
+        var key = NuGetCache.GetSourceKey($"https://user:{Secret}@pkgs.invalid/v3/index.json");
+
+        Assert.DoesNotContain(Secret, key, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pkgs.invalid", key, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("^[0-9a-f]{16}$", key);
+    }
+
+    [Fact]
     public void TryGetCachedPackage_DoesNotUseLegacyDirectCopyNamespace()
     {
         string packageName = $"legacy.test.{Guid.NewGuid():N}";
@@ -555,7 +674,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             "legacy",
             payloadCount: 1);
 
-        Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version));
+        Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [TestSourceKey]));
     }
 
     private static byte[] CreatePackageArchive(
