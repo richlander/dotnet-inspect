@@ -52,6 +52,25 @@ static class FidelityCheck
     /// and state-machine names embed an ordinal over the containing type's members, which
     /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
     /// operand differences between identical bodies.
+    /// <para>
+    /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
+    /// whole of what it protects: the equality rules also include how
+    /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
+    /// moving any flag. Nothing detects that — the guard compares versions, and the
+    /// version only moves when a human moves it. Treat a change to operand rendering as
+    /// a contract change and reason about it explicitly here.
+    /// </para>
+    /// <para>
+    /// #3491 is the first such change and deliberately does not bump: it added the
+    /// signature this-attributes to the rendered text (<c>SignatureThisPrefix</c>), which
+    /// only ever <em>appends</em> to an operand and so is monotone toward stricter — a
+    /// body that compared unequal before cannot compare equal after. Measured on the
+    /// pinned corpus, it moved nothing: <c>Area=Fidelity</c> is 68/0 before and after,
+    /// because the corpus carries no <c>EXPLICITTHIS</c> signature and no instance
+    /// function pointer. A v2 baseline therefore stays comparable to a v2 run. A renderer
+    /// change that is not monotone, or that moves a corpus number, does not get this
+    /// argument and must bump.
+    /// </para>
     /// </remarks>
     internal const int CurrentContractVersion = 2;
 

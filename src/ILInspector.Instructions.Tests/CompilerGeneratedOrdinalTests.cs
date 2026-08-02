@@ -1171,6 +1171,88 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
+    /// Two generated methods whose only difference is a generic-parameter constraint must
+    /// not fold. The key carries a name and an arity, and the rendered operand spells no
+    /// constraint, so folding would report <c>Exact</c> for a real difference.
+    /// </summary>
+    /// <remarks>
+    /// The arity is equal on both sides and the names differ only in the member ordinal,
+    /// which is exactly the shape the correspondence exists to fold; the constraint is the
+    /// single remaining discriminator. Held by <c>HasConstrainedGenericParameters</c>,
+    /// which declines the candidate outright rather than extending the key.
+    /// </remarks>
+    [Fact]
+    public void MembersDifferingOnlyInAGenericConstraint_DoNotFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|1_0", 1) with
+                { GenericConstraint = GenericParameterAttributes.ReferenceTypeConstraint }],
+            [GenericGenerated("<M>g__L|2_0", 1) with
+                { GenericConstraint = GenericParameterAttributes.NotNullableValueTypeConstraint }],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The type side of <see cref="MembersDifferingOnlyInAGenericConstraint_DoNotFold"/>.
+    /// The two paths reach the refusal through different call sites — the type loop and the
+    /// key-prefix fallback — so one passing does not imply the other.
+    /// </summary>
+    [Fact]
+    public void TypesDifferingOnlyInAGenericConstraint_DoNotFold()
+    {
+        var result = CompareTypes(
+            ["<M>d__3"],
+            ["<M>d__7"],
+            oldTypeArities: [1],
+            newTypeArities: [1],
+            oldTypeConstraints: [GenericParameterAttributes.ReferenceTypeConstraint],
+            newTypeConstraints: [GenericParameterAttributes.NotNullableValueTypeConstraint]);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
+    /// The constraint refusal must be narrow: a generated member with generic parameters
+    /// that carry no constraint still folds.
+    /// </summary>
+    /// <remarks>
+    /// Without this, widening <c>HasConstrainedGenericParameters</c> to "has any generic
+    /// parameter" — or to "always true" — would silently disable the feature for every
+    /// generic member while both refusal controls above still passed. This is the control
+    /// that makes those two mean something.
+    /// </remarks>
+    [Fact]
+    public void UnconstrainedGenericMembers_StillFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|1_0", 1)],
+            [GenericGenerated("<M>g__L|2_0", 1)],
+            Ordinals);
+
+        Assert.True(result.IsExact);
+    }
+
+    /// <summary>
+    /// A generic parameter carrying a <c>GenericParamConstraint</c> row rather than an
+    /// attribute flag is refused too. The two live in different tables, so a check that
+    /// read only <see cref="GenericParameter.Attributes"/> would pass every control above
+    /// while leaving type constraints — <c>where T : IDisposable</c>, the common case —
+    /// folding.
+    /// </summary>
+    [Fact]
+    public void MembersDifferingOnlyInATypeConstraintRow_DoNotFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|1_0", 1) with { GenericConstraintType = "System.IDisposable" }],
+            [GenericGenerated("<M>g__L|2_0", 1)],
+            Ordinals);
+
+        Assert.False(result.IsExact);
+    }
+
+    /// <summary>
     /// The fixture builder really attaches the requested generic parameters to the
     /// requested owners. Without this, a builder that silently emitted arity 0 everywhere
     /// would make both arity controls vacuous while still passing them — and passing their
@@ -1246,7 +1328,9 @@ public class CompilerGeneratedOrdinalTests
         int GenericArity = 0,
         bool SignatureDeclaresArity = true,
         byte SignatureHeader = 0x00,
-        byte[]? RawSignature = null);
+        byte[]? RawSignature = null,
+        GenericParameterAttributes GenericConstraint = GenericParameterAttributes.None,
+        string? GenericConstraintType = null);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -1299,14 +1383,16 @@ public class CompilerGeneratedOrdinalTests
         IlBodyDiffNormalization normalization = Ordinals,
         bool typesAttributed = true,
         int[]? oldTypeArities = null,
-        int[]? newTypeArities = null)
+        int[]? newTypeArities = null,
+        GenericParameterAttributes[]? oldTypeConstraints = null,
+        GenericParameterAttributes[]? newTypeConstraints = null)
     {
         using var oldPe = new PEReader(new MemoryStream(BuildImage(
             "Probe", [], generatedTypes: oldTypes, typesAttributed: typesAttributed,
-            generatedTypeArities: oldTypeArities)));
+            generatedTypeArities: oldTypeArities, generatedTypeConstraints: oldTypeConstraints)));
         using var newPe = new PEReader(new MemoryStream(BuildImage(
             "Probe", [], generatedTypes: newTypes, typesAttributed: typesAttributed,
-            generatedTypeArities: newTypeArities)));
+            generatedTypeArities: newTypeArities, generatedTypeConstraints: newTypeConstraints)));
         return Compare(oldPe, newPe, normalization);
     }
 
@@ -1362,7 +1448,8 @@ public class CompilerGeneratedOrdinalTests
         AttributeCtorSpelling ctorSpelling = AttributeCtorSpelling.TypeReference,
         string localAttributeNamespace = "System.Runtime.CompilerServices",
         string localAttributeName = "CompilerGeneratedAttribute",
-        int[]? generatedTypeArities = null)
+        int[]? generatedTypeArities = null,
+        GenericParameterAttributes[]? generatedTypeConstraints = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1432,7 +1519,7 @@ public class CompilerGeneratedOrdinalTests
         // owners are declared: the table is sorted by coded owner, and TypeDef and
         // MethodDef interleave under TypeOrMethodDef exactly as they do for
         // CustomAttribute, so declaration order is not sorted order.
-        var genericParameters = new List<(EntityHandle Owner, int Index)>();
+        var genericParameters = new List<(EntityHandle Owner, int Index, GenericParameterAttributes Constraint, string? ConstraintType)>();
         string[] extraTypes = generatedTypes ?? [];
         var generatedTypeHandles = new List<TypeDefinitionHandle>();
         for (int i = 0; i < extraTypes.Length; i++)
@@ -1445,9 +1532,12 @@ public class CompilerGeneratedOrdinalTests
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
 
-            int arity = generatedTypeArities is { } arities && i < arities.Length ? arities[i] : 0;
-            for (int g = 0; g < arity; g++)
-                genericParameters.Add((generatedTypeHandles[i], g));
+            int arity = generatedTypeArities is { } arities && i < arities.Length ? arities[i] : 0;            for (int g = 0; g < arity; g++)
+                genericParameters.Add((generatedTypeHandles[i], g,
+                    generatedTypeConstraints is { } typeConstraints && i < typeConstraints.Length
+                        ? typeConstraints[i]
+                        : GenericParameterAttributes.None,
+                    null));
         }
 
         // An assembly may define CompilerGeneratedAttribute itself — System.Private.CoreLib
@@ -1554,7 +1644,7 @@ public class CompilerGeneratedOrdinalTests
                 memberOffsets[i],
                 MetadataTokens.ParameterHandle(1));
             for (int g = 0; g < members[i].GenericArity; g++)
-                genericParameters.Add((handle, g));
+                genericParameters.Add((handle, g, members[i].GenericConstraint, members[i].GenericConstraintType));
 
             if (members[i].CompilerGenerated)
             {
@@ -1629,16 +1719,27 @@ public class CompilerGeneratedOrdinalTests
         // is (row << 1) | tag and the two kinds interleave: MethodDef row 2 codes to 5 and
         // sorts ahead of TypeDef row 5, which codes to 10. Sorting on the code rather than
         // emitting per owner is what keeps the table valid for an image that carries both.
-        foreach (var (owner, index) in genericParameters.OrderBy(CodedOwner).ThenBy(e => e.Index))
+        foreach (var (owner, index, constraint, constraintType) in genericParameters.OrderBy(CodedOwner).ThenBy(e => e.Index))
         {
-            metadata.AddGenericParameter(
+            var parameter = metadata.AddGenericParameter(
                 owner,
-                GenericParameterAttributes.None,
+                constraint,
                 metadata.GetOrAddString($"T{index}"),
                 index);
+
+            if (constraintType is { } constrained)
+            {
+                int split = constrained.LastIndexOf('.');
+                metadata.AddGenericParameterConstraint(
+                    parameter,
+                    metadata.AddTypeReference(
+                        corlib,
+                        metadata.GetOrAddString(constrained[..split]),
+                        metadata.GetOrAddString(constrained[(split + 1)..])));
+            }
         }
 
-        static int CodedOwner((EntityHandle Owner, int Index) entry)
+        static int CodedOwner((EntityHandle Owner, int Index, GenericParameterAttributes Constraint, string? ConstraintType) entry)
             => (MetadataTokens.GetRowNumber(entry.Owner) << 1)
                 | (entry.Owner.Kind == HandleKind.MethodDefinition ? 1 : 0);
 

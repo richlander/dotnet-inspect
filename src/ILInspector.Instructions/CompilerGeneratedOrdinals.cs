@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -551,7 +552,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 if (typeKeyPrefix is null)
                     continue;
 
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type) is { } elidedType)
+                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, type.GetGenericParameters()) is { } elidedType)
                 {
                     typeNames[typeHandle] = elidedType;
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
@@ -560,7 +561,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method) is not { } elided)
+                    if (TryEligibleName(reader, reader.GetString(method.Name), method.GetCustomAttributes(), GeneratedNameKind.Method, method.GetGenericParameters()) is not { } elided)
                         continue;
 
                     methodNames[methodHandle] = elided;
@@ -639,7 +640,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 var type = reader.GetTypeDefinition(chain[i]);
                 string name = typeNames.TryGetValue(chain[i], out var elided)
                     ? elided
-                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type)
+                    : TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, type.GetGenericParameters())
                         ?? reader.GetString(type.Name);
 
                 if (i == 0)
@@ -661,11 +662,60 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             MetadataReader reader,
             string name,
             CustomAttributeHandleCollection attributes,
-            GeneratedNameKind kind)
+            GeneratedNameKind kind,
+            GenericParameterHandleCollection genericParameters)
         {
             if (TryElideOrdinal(name, kind) is not { } elided)
                 return null;
-            return HasCompilerGeneratedAttribute(reader, attributes) ? elided : null;
+            if (!HasCompilerGeneratedAttribute(reader, attributes))
+                return null;
+            return HasConstrainedGenericParameters(reader, genericParameters) ? null : elided;
+        }
+
+        /// <summary>
+        /// Reports whether any generic parameter carries a constraint, either as a
+        /// <see cref="GenericParameterAttributes"/> flag or as a
+        /// <c>GenericParamConstraint</c> row.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Constraints distinguish two otherwise identical members, and neither the
+        /// correspondence key nor the rendered operand carries them: the key is a name
+        /// and an arity, and the operand spells a call target as
+        /// <c>call void C::&lt;M&gt;g__L|#_0`1()</c>, which has no syntax for
+        /// <c>where T : class</c>. Folding a <c>class</c>-constrained member onto a
+        /// <c>struct</c>-constrained one would therefore report <c>Exact</c> for a
+        /// genuine difference.
+        /// </para>
+        /// <para>
+        /// This declines the fold rather than extending the key, because enumerating
+        /// discriminators by hand is what left arity, the instance bit and the module
+        /// scope out of it in turn. The closed answer is to key on a purpose-built
+        /// structural identity (<c>ILInspector.Metadata.MethodStructuralSignature</c>);
+        /// until then, refusing the candidate is fail-closed and costs nothing
+        /// measurable — the fidelity corpus retires the same 68 rows with and without
+        /// this check.
+        /// </para>
+        /// <para>
+        /// Gated by <c>MembersDifferingOnlyInAGenericConstraint_DoNotFold</c> and
+        /// <c>TypesDifferingOnlyInAGenericConstraint_DoNotFold</c>; a candidate with
+        /// unconstrained generic parameters must still fold, which
+        /// <c>UnconstrainedGenericMembers_StillFold</c> holds.
+        /// </para>
+        /// </remarks>
+        static bool HasConstrainedGenericParameters(
+            MetadataReader reader,
+            GenericParameterHandleCollection genericParameters)
+        {
+            foreach (var handle in genericParameters)
+            {
+                var parameter = reader.GetGenericParameter(handle);
+                if (parameter.Attributes != GenericParameterAttributes.None)
+                    return true;
+                if (parameter.GetConstraints().Count > 0)
+                    return true;
+            }
+            return false;
         }
 
         static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
