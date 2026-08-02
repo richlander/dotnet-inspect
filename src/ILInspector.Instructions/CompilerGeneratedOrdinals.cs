@@ -609,6 +609,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 // name that could be owned needs it, so an assembly carrying a malformed
                 // attribute row on a type this index would otherwise never inspect keeps
                 // folding rather than failing the whole index closed.
+                //
+                // UNVERIFIED: no test gates that last sentence. Computing this eagerly
+                // instead passes the whole suite, so the narrower exposure is a property
+                // of the shape of this code and not something the suite would notice
+                // losing. Gating it needs a fixture whose only malformed row is a custom
+                // attribute on a type carrying no ordinal-bearing member name, which the
+                // image builder cannot currently express: it shares one attribute
+                // constructor across every attributed entity, so corrupting that
+                // constructor also breaks the members the fold is supposed to prove.
+                // Tracked by #3708. Until then, treat the on-demand read as an
+                // optimization whose stated safety benefit is reasoned, not measured.
                 bool? typeIsGenerated = null;
 
                 foreach (var methodHandle in type.GetMethods())
