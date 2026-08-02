@@ -119,6 +119,9 @@ jobs:
               # Left out of this list, a change to it ran neither this lane nor
               # the gates, and reported green over jobs that had skipped.
               eng/prepare-decompiler-package-sweep.cs) CODE=true ;;
+              # The script that runs the sweep to build the EVIL corpus. Missing from
+              # every arm here, so editing it ran no lane at all.
+              eng/prepare-evil-corpus.sh) CODE=true ;;
               # The pin the sweep reads, and what EvilPoolPinTests holds to the
               # sweep's own rules. Under docs/, which no arm here would catch.
               docs/data/nuget-top-packages.lock.json) CODE=true ;;
@@ -204,6 +207,13 @@ jobs:
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
               eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
               eng/prepare-decompiler-package-sweep.cs) DECOMPILER=true ;;
+              # The sweep builds the EVIL pool this gate is run over, and the pin decides
+              # which packages land in it, so both select the IL compared. Adding the
+              # sweep here without the pin left the pin able to change the corpus while
+              # skipping the gate that reads it.
+              eng/prepare-evil-corpus.sh) DECOMPILER=true ;;
+              docs/data/nuget-top-packages.lock.json) DECOMPILER=true ;;
+              docs/data/nuget-top-packages.json) DECOMPILER=true ;;
               *.md) ;;
               src/*) DECOMPILER=true ;;
               tests/*) DECOMPILER=true ;;

@@ -762,8 +762,9 @@ public class EvilPoolSweepGateTests
 
             // The reason, in the manifest rather than only on stderr: a consumer reading
             // the pool reads this file, and a pool that could not be reconciled is one its
-            // record misdescribes.
-            Assert.NotNull(world.ReportedManifest(sweep)["Unreconciled"]?.GetValue<string>());
+            // record misdescribes. Non-empty, not merely non-null -- measured, reporting
+            // an empty string satisfied a null check and told the consumer nothing.
+            Assert.NotEmpty(world.ReportedManifest(sweep)["Unreconciled"]!.GetValue<string>());
 
             // Exactly what left the pool, and nothing else. Both halves matter and each
             // fails on its own: a run that discards the removals it managed before the
@@ -826,9 +827,17 @@ public class EvilPoolSweepGateTests
 
         Assert.True(File.Exists(bystander), "the sweep deleted a file outside the output directory.");
         Assert.Equal(world.FixtureBytes, File.ReadAllBytes(bystander));
-        Assert.False(
-            File.Exists(Path.Combine(elsewhere, LeadAssembly)),
-            "the sweep pooled an assembly outside the output directory.");
+
+        // Held to the whole directory rather than to a path composed here. Naming the
+        // assembly's expected location gets that location wrong -- measured: an assertion
+        // on `elsewhere/Sweep.Lead.dll` passed while the sweep, with the refusal moved
+        // after the copies, wrote `elsewhere/001-sweep.lead/1.0.0/Sweep.Lead.dll`. A path
+        // this case builds itself is a second copy of the sweep's layout, and a wrong copy
+        // asserts nothing. What is actually meant is that nothing over there changed.
+        Assert.Equal<IEnumerable<string>>(
+            [bystander],
+            [.. Directory.GetFiles(elsewhere, "*", SearchOption.AllDirectories)
+                .Order(StringComparer.Ordinal)]);
     }
 
     /// <summary>
