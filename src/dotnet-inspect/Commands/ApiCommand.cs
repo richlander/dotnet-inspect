@@ -730,11 +730,20 @@ public class ApiCommand
             return true;
 
         var names = options.Fields ?? options.Columns;
-        if (names is not { Length: > 0 } || options.IncludeSections is not { Count: > 0 })
+        if (names is not { Length: > 0 })
             return true;
 
+        // Resolved against EVERY section the schema knows, not just the selected ones. A
+        // document-level field belongs to no section in particular -- `Version` is advertised
+        // under `API Info` but survives whichever section is selected -- so checking only the
+        // selection reports it unresolved. That blind spot is normally unreachable because the
+        // document fields keep the render non-empty, but filtering the selected table to zero
+        // rows (`-t "NoSuchType*" -S Classes --fields Version`) empties the render and exposes
+        // it. Widening to all sections costs only the ability to fail a name that is valid
+        // somewhere else in the same document, which is the conservative direction: this gate
+        // exists to catch names that exist NOWHERE.
         var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-        foreach (var section in options.IncludeSections)
+        foreach (var section in schema.SectionNames)
         {
             var unresolved = new HashSet<string>(
                 schema.ValidateProjection(section, names).Unresolved, StringComparer.OrdinalIgnoreCase);

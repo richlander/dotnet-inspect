@@ -3483,6 +3483,13 @@ public partial class CommandExecutionTests
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
+    // The same known field, but selected ALONGSIDE a section whose schema does not list it, with
+    // that section filtered to zero rows. `Version` is document-level, so it belongs to no
+    // section in particular; resolving it only against the SELECTED section reported it
+    // unresolved. Normally the document fields keep the render non-empty and hide that, which is
+    // why the zero-row filter is the load-bearing part of this case.
+    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--tsv" })]
+    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--jsonl" })]
     public async Task Type_Listing_EmptyResultWithoutAnUnmatchedName_StaysSuccessful(string[] args)
     {
         var (exit, _, error) = await RunAppAsync(
