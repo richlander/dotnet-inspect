@@ -9035,11 +9035,15 @@ public partial class CommandExecutionTests
     /// renders method, token, file, and line without SourceLink, dropping only the URL, so
     /// hinting there would misattribute an unrelated token or PDB failure to the environment —
     /// the very mistake this hint exists to prevent.
+    ///
+    /// The <c>SourceLink:</c> family is deliberately absent. Those sections sit behind the
+    /// <c>@SourceLink</c> category door, which <c>-D</c> reports as a category rather than
+    /// expanding, so this loop never selects one and a clause matching them would be
+    /// unreachable rather than protective.
     /// </remarks>
     private static bool IsSourceLinkBackedSection(string[] command, string section)
         => command.Contains(TestAssemblyPath, StringComparer.Ordinal)
-           && (section == SectionNames.SourceLocations
-               || section.StartsWith("SourceLink:", StringComparison.Ordinal));
+           && section == SectionNames.SourceLocations;
 
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
