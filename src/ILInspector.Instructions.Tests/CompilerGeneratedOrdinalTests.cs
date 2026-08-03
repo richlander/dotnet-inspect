@@ -1577,6 +1577,62 @@ public class CompilerGeneratedOrdinalTests
         }
         return names;
     }
+
+    /// <summary>
+    /// The declaring type's mark is per type, so a type that earns the mark must not lend
+    /// it to the next type indexed. <c>C</c> is marked and carries an unmarked
+    /// ordinal-bearing member, so the mark is computed and is <see langword="true"/> while
+    /// <c>C</c> is indexed; <c>Target</c> is unmarked and carries an unmarked
+    /// ordinal-bearing member, whose name must therefore stay out of the index.
+    /// <para>
+    /// This is the control for a hole
+    /// <see cref="MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead"/> cannot
+    /// see. That test catches hoisting the attribute <em>read</em>, but not hoisting the
+    /// cached variable out of the type loop: with the cache shared across types, the first
+    /// type resolves it and the malformed row is never reached, so that test still passes
+    /// while an unmarked type silently inherits a mark it did not earn. Found by
+    /// adversarial review, which is also where the shape of this fixture came from.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheDeclaringTypeMark_DoesNotCarryToTheNextType()
+    {
+        byte[] image = BuildImage(
+            "Probe",
+            [new Member("<A>b__1_0", CompilerGenerated: false)],
+            declaringTypeAttributed: true,
+            generatedTypes: ["Target"],
+            typesAttributed: false,
+            generatedTypeMethodNames: ["<M>b__3_0"]);
+
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+
+        // The fixture says what it claims: C marked and its member not, Target unmarked
+        // and its member not. Without this the assertions below could pass because the
+        // fixture never presented the case at all.
+        Assert.Equal("CompilerGeneratedAttribute", Assert.Single(ReadAttributeTypeNames(image, "C")));
+        Assert.Empty(ReadAttributeTypeNames(image, "Target"));
+        Assert.Equal("<M>b__3_0", Assert.Single(ReadMethodNames(image, "Target")));
+
+        var (side, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+
+        // C's member is eligible through C's mark, which is what puts a true into the
+        // cache in the first place. If this stops holding the test no longer exercises
+        // the leak it is named for.
+        Assert.True(side.TryGetMethodName(MethodNamed(reader, "<A>b__1_0"), out _));
+        Assert.False(side.TryGetMethodName(MethodNamed(reader, "<M>b__3_0"), out _));
+    }
+
+    static MethodDefinitionHandle MethodNamed(MetadataReader reader, string name)
+    {
+        foreach (var handle in reader.MethodDefinitions)
+        {
+            if (reader.GetString(reader.GetMethodDefinition(handle).Name) == name)
+                return handle;
+        }
+        throw new InvalidOperationException($"no method named {name}");
+    }
     readonly record struct Member(
         string Name,
         bool CompilerGenerated,
@@ -1712,7 +1768,8 @@ public class CompilerGeneratedOrdinalTests
         GenericParameterAttributes[]? generatedTypeConstraints = null,
         GenericParameterAttributes? declaringTypeConstraint = null,
         bool declaringTypeAttributed = false,
-        string? corruptAttributeOnType = null)
+        string? corruptAttributeOnType = null,
+        string[]? generatedTypeMethodNames = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1931,12 +1988,16 @@ public class CompilerGeneratedOrdinalTests
         // declaration order.
         foreach (var handle in generatedTypeHandles)
         {
+            int extraIndex = generatedTypeHandles.IndexOf(handle);
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("M"),
+                metadata.GetOrAddString(
+                    generatedTypeMethodNames is { } extraMethodNames && extraIndex < extraMethodNames.Length
+                        ? extraMethodNames[extraIndex]
+                        : "M"),
                 signature,
-                extraOffsets[generatedTypeHandles.IndexOf(handle)],
+                extraOffsets[extraIndex],
                 MetadataTokens.ParameterHandle(1));
         }
 

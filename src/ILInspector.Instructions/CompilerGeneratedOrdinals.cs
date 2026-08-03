@@ -605,12 +605,29 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Add(types, ambiguousTypes, typeKeyPrefix, typeHandle);
                 }
 
-                // Computed on demand and reused, not per member and not per type. Only a
-                // name that could be owned needs it, so an assembly carrying a malformed
-                // attribute row on a type this index would otherwise never inspect keeps
-                // folding rather than failing the whole index closed. Enforced by
-                // MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead, which
-                // fails if this read moves out of the loop or loses its guard.
+                // Computed on demand, and scoped to this type. Two separate properties,
+                // each with its own gate, because one tamper does not expose both:
+                //
+                //   On demand. Only a name that could be owned needs the declaring type's
+                //   mark, so an assembly carrying a malformed attribute row on a type this
+                //   index would otherwise never inspect keeps folding rather than failing
+                //   the whole index closed. Gated by
+                //   MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead, which
+                //   fails if the read becomes unconditional.
+                //
+                //   Per type. A type that earns the mark must not lend it to the next type
+                //   indexed, or an unmarked type's members inherit an ownership they did
+                //   not earn and fold. Gated by
+                //   TheDeclaringTypeMark_DoesNotCarryToTheNextType, which fails if this
+                //   declaration moves out of the type loop. The malformed-row test above
+                //   does not catch that: with the cache shared, the first type resolves it
+                //   and the malformed row is never reached.
+                //
+                // The ??= additionally avoids re-reading for a second eligible member on
+                // the same type. That part is an optimization only and nothing gates it:
+                // the read is pure over the same rows, so reading twice returns the same
+                // answer and throws in the same cases, and dropping the caching leaves the
+                // suite green. It is not load-bearing for either property above.
                 bool? typeIsGenerated = null;
 
                 foreach (var methodHandle in type.GetMethods())
