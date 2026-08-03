@@ -8972,12 +8972,13 @@ public partial class CommandExecutionTests
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     var selectionSucceeded = selectExit == 0
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
+                    var hint = IsSourceLinkBackedSection(section) ? TestAssemblySourceLink.FailureHint : string.Empty;
                     Assert.True(selectionSucceeded,
-                        $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
+                        $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}{hint}");
                     if (RequiresRealDataDiscoveryGuard(command))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
-                            $"{command[0]} -S '{section}' produced no data after being listed by -D.");
+                            $"{command[0]} -S '{section}' produced no data after being listed by -D.{hint}");
                         Assert.DoesNotContain("has no data", selectOutput, StringComparison.OrdinalIgnoreCase);
                         Assert.DoesNotContain("has no data", selectError, StringComparison.OrdinalIgnoreCase);
                     }
@@ -9017,6 +9018,16 @@ public partial class CommandExecutionTests
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
            && typeName == typeof(EmptyDiscoveryFixture).FullName;
+
+    /// <summary>
+    /// Sections whose rows come from the inspected assembly's SourceLink blob rather than from
+    /// metadata or PDB sequence points alone. Only these carry the
+    /// <see cref="TestAssemblySourceLink.FailureHint"/>, so a failure elsewhere is not
+    /// misattributed to the environment.
+    /// </summary>
+    private static bool IsSourceLinkBackedSection(string section)
+        => section is SectionNames.SourceLocations or SectionNames.ILOffset
+           || section.StartsWith("SourceLink:", StringComparison.Ordinal);
 
     [Fact]
     public async Task MemberDiscovery_MultiOverload_DoesNotListSingleOverloadSections()
