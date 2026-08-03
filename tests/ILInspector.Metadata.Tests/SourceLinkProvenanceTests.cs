@@ -740,8 +740,13 @@ public class SourceLinkProvenanceTests
     /// </para>
     /// <para>
     /// The second half is the non-vacuity, and the reason this is not simply "refuse a valueless
-    /// pair": a valueless parameter that is not a content selector says nothing about where the
-    /// wildcard lands, and refusing it would strand a correct map.
+    /// pair": a valueless parameter that is not the selector the wildcard sits in says nothing
+    /// about where that wildcard lands, and refusing it would strand a correct map. Measured
+    /// against the same endpoint, the asymmetry is real and this reader now matches it both ways:
+    /// <c>&amp;path&amp;path=/README.md</c> returns 425 bytes of root listing, because the empty
+    /// first pair binds and wins, while <c>&amp;scopePath&amp;path=/README.md</c> returns the
+    /// 985-byte file, because a valueless <c>scopePath</c> is ignored rather than pairing with
+    /// <c>path</c> — the pair is refused (400) only when both carry values.
     /// </para>
     /// </remarks>
     [Fact]
@@ -761,13 +766,16 @@ public class SourceLinkProvenanceTests
             Assert.False(shadowed.TryResolve("A.cs", out _));
         }
 
-        var unrelated = SLF.SourceLinkResolver.Parse(
-            "{\"documents\":{\"*\":\"" + Prefix + "&download&path=/*\"}}");
+        foreach (string valueless in new[] { "download", "scopePath" })
+        {
+            var unrelated = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&path=/*\"}}");
 
-        Assert.Empty(unrelated.RejectedKeys);
-        Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
-        Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
-        Assert.NotEqual(one.Url, two.Url);
+            Assert.Empty(unrelated.RejectedKeys);
+            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
     }
 
     /// <summary>
