@@ -23,6 +23,31 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Opens a session from a resolved assembly reference (path or stream opener).</summary>
     public static AssemblyInspectionSession Open(ResolvedAssemblyReference reference) => new(AssemblyImage.Open(reference));
 
+    internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
+        new(AssemblyImage.OpenPrefetched(stream));
+
+    /// <summary>
+    /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
+    /// one can reach the facets without opening the path a second time.
+    ///
+    /// Two opens of one path are only the same assembly by assumption. Anything that replaces the
+    /// file between them — a build, a package restore, a retargeted symlink — makes one inspection
+    /// report facts from two different assemblies with a zero exit code. Borrowing removes the
+    /// assumption rather than narrowing the window.
+    ///
+    /// The session does not own the image: disposing it leaves <paramref name="context"/> open.
+    /// Using it after <paramref name="context"/> is disposed throws
+    /// <see cref="ObjectDisposedException"/> — including from a <see cref="MethodBodySource"/>
+    /// obtained while the context was still alive, which would otherwise read unmapped memory and
+    /// take the process down with an <see cref="AccessViolationException"/>.
+    ///
+    /// Gated by <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>,
+    /// <c>BorrowedSession_DoesNotDisposeTheOwningContext</c>, and
+    /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
+    /// </summary>
+    public static AssemblyInspectionSession Borrow(PdbContext context)
+        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata => _image.HasMetadata;
 
@@ -154,8 +179,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// (including tables the projection does not model), and PE/CLI header
     /// facts. Null when the image carries no metadata.
     /// </summary>
-    public MetadataImageOverview? MetadataImage()
-        => MetadataImageInspector.Describe(_image.PEReader);
+    /// <param name="untrustedText">
+    /// What to do with the metadata root's version stamp, which is artifact-controlled text.
+    /// Defaults to containment, matching the projection.
+    /// </param>
+    public MetadataImageOverview? MetadataImage(
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
+        => MetadataImageInspector.Describe(_image.PEReader, untrustedText);
 
     /// <summary>
     /// One heap value read by address, independent of any row that references
@@ -168,6 +198,31 @@ public sealed class AssemblyInspectionSession : IDisposable
         int address,
         MetadataProjectionOptions? options = null)
         => MetadataTableProjector.ReadHeapValue(_image.PEReader, heap, address, options);
+
+    /// <summary>
+    /// The listable entries of one heap, with the limits of that listing attached — complete for
+    /// the GUID heap, the values projected rows reference for the string and blob heaps, and
+    /// nothing at all for the user-string heap, which no table column points into. The result
+    /// carries its own <see cref="MetadataHeapEntrySet.Coverage"/> so a bounded or partial listing
+    /// is never read as a whole heap. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataHeapEntrySet? MetadataHeapEntries(
+        HeapKind heap,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ReadHeapEntries(_image.PEReader, heap, options);
+
+    internal AssemblyReferenceIdentity AssemblyIdentity() =>
+        AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
+
+    internal Guid ModuleVersionId()
+    {
+        var reader = _image.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
+
+    internal TypeDeclarationResult ProbeDeclaration(
+        MetadataTypeDefinitionName name) =>
+        MetadataTypeDeclarationProbe.Probe(_image.GetMetadataReader(), name);
 
     public void Dispose() => _image.Dispose();
 }

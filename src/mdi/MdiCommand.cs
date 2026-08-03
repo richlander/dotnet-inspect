@@ -16,10 +16,19 @@ namespace Mdi;
 public static class MdiCommand
 {
     /// <summary>Builds and runs the command over <paramref name="args"/>.</summary>
-    public static int Invoke(string[] args) => CreateRootCommand().Parse(args).Invoke();
+    /// <remarks>
+    /// <paramref name="output"/> and <paramref name="error"/> default to the console. Tests pass
+    /// their own writers so the argv path — option parsing, the mutual-exclusion checks, and the
+    /// defaults, none of which are reachable through the <c>Execute*</c> entry points — can be
+    /// driven without redirecting <see cref="Console"/>, which is process-global and would make
+    /// parallel test execution unsound.
+    /// </remarks>
+    public static int Invoke(string[] args, TextWriter? output = null, TextWriter? error = null)
+        => CreateRootCommand(output, error).Parse(args).Invoke();
 
     /// <summary>Builds the System.CommandLine surface (also used by tests).</summary>
-    public static RootCommand CreateRootCommand()
+    /// <inheritdoc cref="Invoke" path="/remarks"/>
+    public static RootCommand CreateRootCommand(TextWriter? output = null, TextWriter? error = null)
     {
         var assemblyArgument = new Argument<string>("assembly")
         {
@@ -73,7 +82,7 @@ public static class MdiCommand
 
         var heapOption = new Option<string?>("--heap")
         {
-            Description = "Instead of dumping tables, read one heap value, given as Heap:Address (for example String:1234 or Guid:1). Addresses match a cell's offset: a byte offset, except the Guid heap's 1-based index.",
+            Description = "Instead of dumping tables, read one heap value, given as Heap:Address (for example #Strings:0x1a4 or #GUID:1). Addresses match a cell's offset: a byte offset, except the #GUID heap's 1-based index.",
         };
 
         var maxBytesOption = new Option<int>("--max-bytes")
@@ -88,6 +97,26 @@ public static class MdiCommand
         };
         maxCharsOption.DefaultValueFactory = _ => MetadataProjectionOptions.DefaultMaxStringChars;
 
+        var showUntrustedOption = new Option<bool>("--show-untrusted-text")
+        {
+            Description =
+                "Render artifact text that carries bidi overrides, separators, or other "
+                + "non-graphic scalars instead of refusing. The rendering is still inert: every "
+                + "such scalar is spelled, never emitted, unless --dangerously-print-raw is "
+                + "also given.",
+        };
+
+        var rawOption = new Option<bool>("--dangerously-print-raw")
+        {
+            Description =
+                "Requires --show-untrusted-text. Spells artifact text exactly as the artifact "
+                + "does, with no visual encoding. Unsafe by design: hostile metadata can "
+                + "reprogram your terminal. Intended for studying a hostile artifact, ideally "
+                + "redirected to a file. The selected format still keeps itself well formed, so "
+                + "jsonl escapes control scalars (they decode back) and tsv replaces line and "
+                + "paragraph separators; md carries everything.",
+        };
+
         var root = new RootCommand("mdi \u2014 inspect the ECMA-335 metadata tables of a .NET assembly.");
         root.Arguments.Add(assemblyArgument);
         root.Options.Add(tableOption);
@@ -100,9 +129,13 @@ public static class MdiCommand
         root.Options.Add(heapOption);
         root.Options.Add(maxBytesOption);
         root.Options.Add(maxCharsOption);
+        root.Options.Add(showUntrustedOption);
+        root.Options.Add(rawOption);
 
         root.SetAction(parseResult =>
         {
+            TextWriter stdout = output ?? Console.Out;
+            TextWriter stderr = error ?? Console.Error;
             string assembly = parseResult.GetValue(assemblyArgument)!;
             string? tableSpec = parseResult.GetValue(tableOption);
             string formatText = parseResult.GetValue(formatOption)!;
@@ -114,28 +147,48 @@ public static class MdiCommand
             string? heapSpec = parseResult.GetValue(heapOption);
             int maxBytes = parseResult.GetValue(maxBytesOption);
             int maxChars = parseResult.GetValue(maxCharsOption);
+            bool showUntrusted = parseResult.GetValue(showUntrustedOption);
+            bool printRaw = parseResult.GetValue(rawOption);
+
+            // The two flags are separate axes, not a three-way choice, so they compose
+            // rather than conflict. --show-untrusted-text answers "do not refuse";
+            // --dangerously-print-raw answers "do not encode". Raw output needs both,
+            // which is the point: a live control character costs two separately named
+            // mistakes. See docs/design/untrusted-data-threat-model.md#presentation.
+            if (printRaw && !showUntrusted)
+            {
+                stderr.WriteLine(
+                    "Error: --dangerously-print-raw only chooses how text is spelled once it is "
+                    + "printed, and on its own it changes nothing, because refusing still comes "
+                    + "first. Add --show-untrusted-text to print the text at all.");
+                return 1;
+            }
+
+            UntrustedTextMode untrustedText = !showUntrusted ? UntrustedTextMode.Refuse
+                : printRaw ? UntrustedTextMode.Raw
+                : UntrustedTextMode.Contain;
 
             if (!TryParseFormat(formatText, out var format))
             {
-                Console.Error.WriteLine($"Error: unknown format '{formatText}'. Use md, tsv, or jsonl.");
+                stderr.WriteLine($"Error: unknown format '{formatText}'. Use md, tsv, or jsonl.");
                 return 1;
             }
 
             if (maxRows < 0 || maxBytes < 0 || maxChars < 0)
             {
-                Console.Error.WriteLine("Error: --max-rows, --max-bytes, and --max-chars must be non-negative.");
+                stderr.WriteLine("Error: --max-rows, --max-bytes, and --max-chars must be non-negative.");
                 return 1;
             }
 
             if (startRow < 1)
             {
-                Console.Error.WriteLine("Error: --start-row must be 1 or greater (row ids are 1-based).");
+                stderr.WriteLine("Error: --start-row must be 1 or greater (row ids are 1-based).");
                 return 1;
             }
 
             if (!TryParseTables(tableSpec, out var tables, out var badName))
             {
-                Console.Error.WriteLine(
+                stderr.WriteLine(
                     $"Error: unknown table '{badName}'. Table names are members of System.Reflection.Metadata.Ecma335.TableIndex (for example TypeDef, MethodDef, Field).");
                 return 1;
             }
@@ -153,24 +206,24 @@ public static class MdiCommand
 
             if (modes.Count > 1)
             {
-                Console.Error.WriteLine($"Error: {string.Join(" and ", modes)} cannot be combined; each selects a different view.");
+                stderr.WriteLine($"Error: {string.Join(" and ", modes)} cannot be combined; each selects a different view.");
                 return 1;
             }
 
             if (overview)
-                return ExecuteOverview(assembly, format, Console.Out, Console.Error);
+                return ExecuteOverview(assembly, format, stdout, stderr, untrustedText);
 
             if (heapSpec is not null)
             {
-                if (!TryParseHeapLocation(heapSpec, out var heap, out int address, out string? heapError))
+                if (!MetadataHeapCoordinate.TryParse(heapSpec, out var heap, out int address, out string? heapError))
                 {
-                    Console.Error.WriteLine($"Error: {heapError}");
+                    stderr.WriteLine($"Error: {heapError}");
                     return 1;
                 }
 
                 if (maxBytes < 0 || maxChars < 0)
                 {
-                    Console.Error.WriteLine("Error: --max-bytes and --max-chars must be non-negative.");
+                    stderr.WriteLine("Error: --max-bytes and --max-chars must be non-negative.");
                     return 1;
                 }
 
@@ -178,27 +231,28 @@ public static class MdiCommand
                 {
                     MaxPreviewBytes = maxBytes,
                     MaxStringChars = maxChars,
+                    UntrustedText = untrustedText,
                 };
 
-                return ExecuteHeapValue(assembly, heap, address, heapOptions, format, Console.Out, Console.Error);
+                return ExecuteHeapValue(assembly, heap, address, heapOptions, format, stdout, stderr);
             }
 
             if (referenceSpec is not null)
             {
                 if (maxReferences < 0)
                 {
-                    Console.Error.WriteLine("Error: --max-references must be non-negative.");
+                    stderr.WriteLine("Error: --max-references must be non-negative.");
                     return 1;
                 }
 
                 if (!TryParseRowLocation(referenceSpec, out var targetTable, out int targetRowId, out string? specError))
                 {
-                    Console.Error.WriteLine($"Error: {specError}");
+                    stderr.WriteLine($"Error: {specError}");
                     return 1;
                 }
 
                 return ExecuteReferences(
-                    assembly, targetTable, targetRowId, maxReferences, format, Console.Out, Console.Error);
+                    assembly, targetTable, targetRowId, maxReferences, format, stdout, stderr);
             }
 
             var options = new MetadataProjectionOptions
@@ -208,9 +262,10 @@ public static class MdiCommand
                 MaxPreviewBytes = maxBytes,
                 MaxStringChars = maxChars,
                 Tables = tables,
+                UntrustedText = untrustedText,
             };
 
-            return Execute(assembly, options, format, Console.Out, Console.Error);
+            return Execute(assembly, options, format, stdout, stderr);
         });
 
         return root;
@@ -250,6 +305,11 @@ public static class MdiCommand
 
             projection = session.MetadataTables(options);
         }
+        catch (UntrustedTextException ex)
+        {
+            ReportRefusal(ex, assemblyPath, error);
+            return 1;
+        }
         catch (Exception ex) when (IsExpectedReadFailure(ex))
         {
             error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
@@ -262,7 +322,7 @@ public static class MdiCommand
             return 0;
         }
 
-        MetadataProjectionRenderer.Render(projection, output, format);
+        MetadataProjectionRenderer.Render(projection, output, format, options.UntrustedText);
 
         // Markdown announces truncation inline in each table heading. The machine
         // formats carry no heading, so a bounded table would otherwise be
@@ -363,7 +423,8 @@ public static class MdiCommand
         string assemblyPath,
         MetadataTableFormat format,
         TextWriter output,
-        TextWriter error)
+        TextWriter error,
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
@@ -378,7 +439,12 @@ public static class MdiCommand
         try
         {
             using var session = AssemblyInspectionSession.Open(assemblyPath);
-            overview = session.MetadataImage();
+            overview = session.MetadataImage(untrustedText);
+        }
+        catch (UntrustedTextException ex)
+        {
+            ReportRefusal(ex, assemblyPath, error);
+            return 1;
         }
         catch (Exception ex) when (IsExpectedReadFailure(ex))
         {
@@ -392,7 +458,7 @@ public static class MdiCommand
             return 1;
         }
 
-        MetadataProjectionRenderer.Render(overview, output, format);
+        MetadataProjectionRenderer.Render(overview, output, format, untrustedText);
 
         // Markdown carries the overview's caveats inline. The machine formats are
         // pure row streams, so the same facts go to the error writer rather than
@@ -446,6 +512,11 @@ public static class MdiCommand
             using var session = AssemblyInspectionSession.Open(assemblyPath);
             value = session.MetadataHeapValue(heap, address, options);
         }
+        catch (UntrustedTextException ex)
+        {
+            ReportRefusal(ex, assemblyPath, error);
+            return 1;
+        }
         catch (Exception ex) when (IsExpectedReadFailure(ex))
         {
             error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
@@ -458,7 +529,7 @@ public static class MdiCommand
             return 1;
         }
 
-        MetadataProjectionRenderer.Render(value, heap, address, output, format);
+        MetadataProjectionRenderer.Render(value, heap, address, output, format, options.UntrustedText);
 
         if (value is MetadataValue.Malformed malformed)
         {
@@ -468,6 +539,41 @@ public static class MdiCommand
 
         return 0;
     }
+
+    /// <summary>
+    /// Reports a refusal: where the text is, what class of scalar was found, and the two ways to
+    /// proceed.
+    /// <para>
+    /// The message never contains the offending text, and it goes to the error writer, which is
+    /// exactly why that matters — stderr is read on a terminal and is almost never piped through
+    /// whatever containment the output stream got. A diagnostic that quoted the characters would
+    /// deliver the payload by the one route the user cannot redirect.
+    /// </para>
+    /// <para>
+    /// The heap coordinate is spelled the way <c>--heap</c> accepts it, so the way forward is a
+    /// command a reader can paste rather than assemble.
+    /// </para>
+    /// </summary>
+    static void ReportRefusal(UntrustedTextException refusal, string assemblyPath, TextWriter error)
+    {
+        error.WriteLine($"Error: '{assemblyPath}' contains text that is not safe to render as it is.");
+        error.WriteLine(
+            $"  {DescribeOrigin(refusal)} carries U+{refusal.Scalar:X4} ({refusal.Category}) " +
+            $"at index {refusal.Index}.");
+        error.WriteLine();
+        error.WriteLine("  --show-untrusted-text     render it inertly; every such scalar is spelled, never emitted");
+        error.WriteLine("  --show-untrusted-text --dangerously-print-raw");
+        error.WriteLine("                            render it verbatim; unsafe, and best redirected to a file");
+    }
+
+    /// <summary>
+    /// Names the location in the vocabulary the reader already has: a heap coordinate when the
+    /// text has an address, and what produced it when it does not.
+    /// </summary>
+    static string DescribeOrigin(UntrustedTextException refusal)
+        => refusal.Heap is { } heap
+            ? $"{MetadataHeapCoordinate.StreamName(heap)}:0x{refusal.Offset:x}"
+            : refusal.Message[..refusal.Message.IndexOf(" contains U+", StringComparison.Ordinal)];
 
     /// <summary>
     /// Whether <paramref name="ex"/> is an expected failure of opening or reading
@@ -533,42 +639,6 @@ public static class MdiCommand
         if (!int.TryParse(rowText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out rowId) || rowId < 1)
         {
             error = $"'{rowText}' is not a row id. Row ids are 1-based positive integers.";
-            return false;
-        }
-
-        error = null;
-        return true;
-    }
-
-    /// <summary>
-    /// Parses a <c>Heap:Address</c> heap reference (for example
-    /// <c>String:1234</c>). The two halves are validated separately so the
-    /// diagnostic names the half that is wrong.
-    /// </summary>
-    internal static bool TryParseHeapLocation(string spec, out HeapKind heap, out int address, out string? error)
-    {
-        heap = default;
-        address = 0;
-
-        int separator = spec.LastIndexOf(':');
-        if (separator < 0)
-        {
-            error = $"'{spec}' is not a heap reference. Use Heap:Address, for example String:1234.";
-            return false;
-        }
-
-        string heapName = spec[..separator].Trim();
-        string addressText = spec[(separator + 1)..].Trim();
-
-        if (!Enum.TryParse(heapName, ignoreCase: true, out heap) || !Enum.IsDefined(heap))
-        {
-            error = $"unknown heap '{heapName}'. Use String, Blob, Guid, or UserString.";
-            return false;
-        }
-
-        if (!int.TryParse(addressText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out address))
-        {
-            error = $"'{addressText}' is not a heap address. Addresses are non-negative integers.";
             return false;
         }
 

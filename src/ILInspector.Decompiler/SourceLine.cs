@@ -32,7 +32,7 @@ public readonly record struct SourceLine(string Text, int Offset);
 
 /// <summary>
 /// Rich line currency for the correlation layer: an ordered
-/// <see cref="AnnotatedSourceLine"/> stream is the interleave substrate. Each line
+/// <see cref="BoundSourceLine"/> stream is the interleave substrate. Each line
 /// carries its bare <paramref name="Text"/>, an anchoring IL <paramref name="Offset"/>
 /// (<c>-1</c> when unanchored), its <paramref name="Kind"/>
 /// (<see cref="SourceLineKind.CSharp"/> vs <see cref="SourceLineKind.Il"/> — the one
@@ -46,14 +46,14 @@ public readonly record struct SourceLine(string Text, int Offset);
 /// <see cref="Offset"/> keeps each line addressable for diff, body subset, and the
 /// mixed IL+C# view.
 /// </summary>
-public sealed record AnnotatedSourceLine(
+public sealed record BoundSourceLine(
     string Text,
     int Offset,
     SourceLineKind Kind,
     IReadOnlyList<IAnnotation> Annotations)
 {
     /// <summary>A line with no annotations attached.</summary>
-    public AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind)
+    public BoundSourceLine(string Text, int Offset, SourceLineKind Kind)
         : this(Text, Offset, Kind, [])
     {
     }

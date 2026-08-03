@@ -31,26 +31,24 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </remarks>
 internal sealed class CrossAssemblyTypeResolver
 {
-    static readonly string[] CoreLibCandidates =
-        ["System.Private.CoreLib", "System.Runtime", "mscorlib", "netstandard"];
-
-    readonly string _selfSimpleName;
-    readonly MetadataReader _selfReader;
+    readonly ResolvedAssemblyReference _selfAssembly;
     readonly string _selfCanonical;
     readonly MetadataContext _context;
-    readonly ConcurrentDictionary<TypeRef, ValueTypeHint> _valueTypeCache = new();
-    readonly ConcurrentDictionary<TypeRef, MetadataFactState> _inlineArrayCache = new();
-    readonly ConcurrentDictionary<TypeRef, MetadataFactState> _byRefLikeCache = new();
-    readonly ConcurrentDictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = new();
-    readonly ConcurrentDictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
+    readonly ConcurrentDictionary<TypeResolutionCoordinates, ValueTypeHint> _valueTypeCache = new();
+    readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
+    readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
+    readonly ConcurrentDictionary<(MethodRef Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
+    readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
 
-    public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
+    public CrossAssemblyTypeResolver(
+        MetadataReader selfReader,
+        ResolvedAssemblyReference selfAssembly,
+        MetadataContext context)
     {
-        _selfSimpleName = selfSimpleName;
-        _selfReader = selfReader;
+        _selfAssembly = selfAssembly;
         // Same-assembly identity comparisons must use the same PKT-gated
         // canonicalization as GetTypeFromDefinition's own self path (issue
-        // #3045): a plain name-only Canonical(_selfSimpleName) would disagree
+        // #3045): a plain name-only canonicalization would disagree
         // with a TypeRef.Assembly that GetTypeFromDefinition already refused to
         // canonicalize for an unsigned facade-named self, wrongly treating a
         // same-assembly type as cross-assembly (or vice versa).
@@ -95,7 +93,10 @@ internal sealed class CrossAssemblyTypeResolver
         if (field.DeclaringTypeCompilerGenerated == MetadataFactState.Unknown && field.DeclaringType is { Assembly: not null })
         {
             var dtType = NamedDefinition(field.DeclaringType);
-            if (dtType is not null && dtType.Assembly != _selfCanonical && Locate(dtType) is { } location && _context.Open(location) is { } assembly && assembly.TryGetType(location.FullTypeName, out var handle))
+            if (dtType is not null
+                && dtType.Assembly != _selfCanonical
+                && Locate(dtType) is { } definition
+                && _context.Open(definition, out var handle) is { } assembly)
             {
                 var typeDef = assembly.Reader.GetTypeDefinition(handle);
                 field = field with { DeclaringTypeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(assembly.Reader, typeDef.GetCustomAttributes()) ? MetadataFactState.Yes : MetadataFactState.No };
@@ -145,7 +146,11 @@ internal sealed class CrossAssemblyTypeResolver
         if (type.Assembly == _selfCanonical)
             return callee;
 
-        var facts = _methodFactCache.GetOrAdd(callee, c => ResolveMethodFacts(c, type));
+        if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
+            return callee;
+        var facts = _methodFactCache.GetOrAdd(
+            (callee, coordinates),
+            entry => ResolveMethodFacts(entry.Method, type));
 
         if (facts is not { } resolved)
             return callee;
@@ -204,7 +209,9 @@ internal sealed class CrossAssemblyTypeResolver
     /// </summary>
     public MetadataFactState Implements(TypeRef type, TypeRef iface)
     {
-        var key = (type, iface);
+        if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
+            return MetadataFactState.Unknown;
+        var key = (type, coordinates, iface);
         if (_interfaceCache.TryGetValue(key, out var cached))
             return cached;
 
@@ -233,20 +240,19 @@ internal sealed class CrossAssemblyTypeResolver
         implements = false;
         bool unresolved = false;
         var seen = new HashSet<TypeRef>();
-        var pending = new Stack<TypeRef>();
-        pending.Push(type);
+        var pending = new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
+        pending.Push((type, null));
 
         while (pending.Count > 0 && seen.Count < 256)
         {
-            var current = pending.Pop();
+            var (current, localAssembly) = pending.Pop();
             if (!seen.Add(current))
                 continue;
 
             if (NamedDefinition(current) is not { } definition)
                 continue;
-            if (Locate(definition) is not { } location
-                || _context.Open(location) is not { } assembly
-                || !assembly.TryGetType(location.FullTypeName, out var handle))
+            if (Locate(definition, localAssembly) is not { } resolved
+                || _context.Open(resolved, out var handle) is not { } assembly)
             {
                 unresolved = true;
                 continue;
@@ -262,11 +268,11 @@ internal sealed class CrossAssemblyTypeResolver
                     implements = true;
                     return true;
                 }
-                pending.Push(implemented);
+                pending.Push((implemented, resolved.Assembly.Assembly));
             }
 
             if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
-                pending.Push(baseType);
+                pending.Push((baseType, resolved.Assembly.Assembly));
         }
 
         return !unresolved;
@@ -302,11 +308,8 @@ internal sealed class CrossAssemblyTypeResolver
     {
         try
         {
-            if (Locate(type) is not { } location)
-                return null;
-            if (_context.Open(location) is not { } assembly)
-                return null;
-            if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            if (Locate(type) is not { } definition
+                || _context.Open(definition, out var handle) is not { } assembly)
                 return null;
 
             var reader = assembly.Reader;
@@ -320,7 +323,7 @@ internal sealed class CrossAssemblyTypeResolver
                 if (!string.Equals(reader.GetString(method.Name), callee.Name, StringComparison.Ordinal))
                     continue;
                 bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                    || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
+                    || ScopeFor(type) == AssemblyResolutionScope.Platform;
                 if (!TryMatchMethod(reader, typeDef, method, callee, allowCoreLibraryAliases, out var parameterRefKinds))
                     continue;
 
@@ -348,11 +351,8 @@ internal sealed class CrossAssemblyTypeResolver
     {
         try
         {
-            if (Locate(type) is not { } location)
-                return null;
-            if (_context.Open(location) is not { } assembly)
-                return null;
-            if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            if (Locate(type) is not { } definition
+                || _context.Open(definition, out var handle) is not { } assembly)
                 return null;
 
             var reader = assembly.Reader;
@@ -362,7 +362,7 @@ internal sealed class CrossAssemblyTypeResolver
                 : [];
             var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
             bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
-                || ScopeFor(type.Assembly) == AssemblyResolutionScope.Platform;
+                || ScopeFor(type) == AssemblyResolutionScope.Platform;
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -495,9 +495,8 @@ internal sealed class CrossAssemblyTypeResolver
     {
         try
         {
-            if (Locate(type) is not { } location
-                || _context.Open(location) is not { } assembly
-                || !assembly.TryGetType(location.FullTypeName, out var handle))
+            if (Locate(type) is not { } definition
+                || _context.Open(definition, out var handle) is not { } assembly)
             {
                 return TypeShapeKind.Unknown;
             }
@@ -525,39 +524,43 @@ internal sealed class CrossAssemblyTypeResolver
 
     ValueTypeHint ResolveValueTypeHint(TypeRef type)
     {
-        if (_valueTypeCache.TryGetValue(type, out var cached))
+        if (!TryCoordinates(type, out TypeResolutionCoordinates key))
+            return ValueTypeHint.Unknown;
+        if (_valueTypeCache.TryGetValue(key, out var cached))
             return cached;
 
         var hint = ValueTypeHint.Unknown;
         try
         {
-            if (Locate(type) is { } location)
-                hint = ReadValueTypeHint(location);
+            if (Locate(type) is { } definition)
+                hint = ReadValueTypeHint(definition);
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
         }
 
-        _valueTypeCache[type] = hint;
+        _valueTypeCache[key] = hint;
         return hint;
     }
 
     MetadataFactState ResolveInlineArrayFact(TypeRef type)
     {
-        if (_inlineArrayCache.TryGetValue(type, out var cached))
+        if (!TryCoordinates(type, out TypeResolutionCoordinates key))
+            return MetadataFactState.Unknown;
+        if (_inlineArrayCache.TryGetValue(key, out var cached))
             return cached;
 
         var fact = MetadataFactState.Unknown;
         try
         {
-            if (Locate(type) is { } location)
-                fact = ReadInlineArrayFact(location);
+            if (Locate(type) is { } definition)
+                fact = ReadInlineArrayFact(definition);
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
         }
 
-        _inlineArrayCache[type] = fact;
+        _inlineArrayCache[key] = fact;
         return fact;
     }
 
@@ -571,86 +574,92 @@ internal sealed class CrossAssemblyTypeResolver
     public MetadataFactState IsByRefLike(TypeRef type)
     {
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
-        if (definition is null)
+        if (definition is null
+            || !TryCoordinates(
+                definition,
+                out TypeResolutionCoordinates key))
             return MetadataFactState.Unknown;
-        if (_byRefLikeCache.TryGetValue(definition, out var cached))
+        if (_byRefLikeCache.TryGetValue(key, out var cached))
             return cached;
 
         var fact = MetadataFactState.Unknown;
         try
         {
-            if (Locate(definition) is { } location)
-                fact = ReadByRefLikeFact(location);
+            if (Locate(definition) is { } resolved)
+                fact = ReadByRefLikeFact(resolved);
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
         }
 
-        _byRefLikeCache[definition] = fact;
+        _byRefLikeCache[key] = fact;
         return fact;
     }
 
-    TypeLocation? Locate(TypeRef type)
+    ResolvedTypeDefinition? Locate(
+        TypeRef type,
+        ResolvedAssemblyReference? localAssembly = null)
     {
-        string name = type.Name.Replace('+', '.');
-        string fullName = string.IsNullOrEmpty(type.Namespace) ? name : $"{type.Namespace}.{name}";
-
-        if (type.Assembly == TypeRef.CoreLibrary)
+        MetadataTypeDefinitionName? definitionName = type.DefinitionName;
+        AssemblyReferenceIdentity? resolutionAssembly = type.ResolutionAssembly;
+        if (definitionName is null)
         {
-            foreach (var candidate in CoreLibCandidates)
+            if (!TryResolutionIdentity(
+                type,
+                out definitionName,
+                out resolutionAssembly))
             {
-                var identity = new AssemblyReferenceIdentity(candidate, Version: null, Culture: null, PublicKeyToken: null);
-                if (_context.Resolve(identity, AssemblyResolutionScope.Platform) is not { } candidateAssembly)
-                    continue;
-                if (LocateFrom(candidateAssembly, fullName, AssemblyResolutionScope.Platform) is { } located)
-                    return located;
+                return null;
             }
+        }
+        else if (type.Assembly != TypeRef.CoreLibrary
+            && resolutionAssembly is null
+            && localAssembly is null)
+        {
             return null;
         }
 
-        var scope = ScopeFor(type.Assembly);
-        if (_context.Resolve(IdentityFor(type.Assembly), scope) is not { } start)
-            return null;
-        return LocateFrom(start, fullName, scope);
-    }
-
-    TypeLocation? LocateFrom(ResolvedAssemblyReference start, string fullName, AssemblyResolutionScope scope)
-    {
-        if (_context.Open(TypeLocation.From(start, fullName)) is { } assembly && assembly.TryGetType(fullName, out _))
-            return TypeLocation.From(start, fullName);
-        return TypeForwardResolver.LocateType(start, fullName, _context.Resolver, scope: scope);
-    }
-
-    AssemblyResolutionScope ScopeFor(string simpleName)
-    {
-        foreach (var handle in _selfReader.AssemblyReferences)
+        TypeResolutionRequest request;
+        if (localAssembly is not null && resolutionAssembly is null)
         {
-            var reference = _selfReader.GetAssemblyReference(handle);
-            if (!string.Equals(_selfReader.GetString(reference.Name), simpleName, StringComparison.OrdinalIgnoreCase))
-                continue;
-            return PlatformKeys.IsPlatform(ToHex(_selfReader.GetBlobBytes(reference.PublicKeyOrToken)))
+            request = TypeResolutionRequest.FromAssembly(
+                localAssembly,
+                ScopeFor(type),
+                definitionName);
+        }
+        else if (type.Assembly == TypeRef.CoreLibrary)
+        {
+            return _context.ResolveCoreLibraryDefinition(
+                _selfAssembly,
+                definitionName);
+        }
+        else
+        {
+            if (resolutionAssembly is not { } identity)
+                return null;
+            request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(_selfAssembly),
+                ScopeFor(type),
+                definitionName);
+        }
+
+        TypeResolutionOutcome outcome =
+            _context.Resolve(_selfAssembly, request);
+        return outcome is TypeResolutionOutcome.Resolved resolved
+            ? resolved.Definition
+            : null;
+    }
+
+    static AssemblyResolutionScope ScopeFor(TypeRef type) =>
+        type.ResolutionAssembly is { } identity
+            && PlatformKeys.IsPlatform(identity.PublicKeyToken)
                 ? AssemblyResolutionScope.Platform
                 : AssemblyResolutionScope.Any;
-        }
-        return AssemblyResolutionScope.Any;
-    }
 
-    AssemblyReferenceIdentity IdentityFor(string simpleName)
+    ValueTypeHint ReadValueTypeHint(ResolvedTypeDefinition definition)
     {
-        foreach (var handle in _selfReader.AssemblyReferences)
-        {
-            var identity = AssemblyReferenceIdentity.From(_selfReader, handle);
-            if (string.Equals(identity.Name, simpleName, StringComparison.OrdinalIgnoreCase))
-                return identity;
-        }
-        return new AssemblyReferenceIdentity(simpleName, Version: null, Culture: null, PublicKeyToken: null);
-    }
-
-    ValueTypeHint ReadValueTypeHint(TypeLocation location)
-    {
-        if (_context.Open(location) is not { } assembly)
-            return ValueTypeHint.Unknown;
-        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+        if (_context.Open(definition, out var handle) is not { } assembly)
             return ValueTypeHint.Unknown;
 
         var typeDef = assembly.Reader.GetTypeDefinition(handle);
@@ -662,11 +671,10 @@ internal sealed class CrossAssemblyTypeResolver
             : ValueTypeHint.ReferenceType;
     }
 
-    MetadataFactState ReadInlineArrayFact(TypeLocation location)
+    MetadataFactState ReadInlineArrayFact(
+        ResolvedTypeDefinition definition)
     {
-        if (_context.Open(location) is not { } assembly)
-            return MetadataFactState.Unknown;
-        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+        if (_context.Open(definition, out var handle) is not { } assembly)
             return MetadataFactState.Unknown;
 
         var typeDef = assembly.Reader.GetTypeDefinition(handle);
@@ -675,11 +683,10 @@ internal sealed class CrossAssemblyTypeResolver
             : MetadataFactState.No;
     }
 
-    MetadataFactState ReadByRefLikeFact(TypeLocation location)
+    MetadataFactState ReadByRefLikeFact(
+        ResolvedTypeDefinition definition)
     {
-        if (_context.Open(location) is not { } assembly)
-            return MetadataFactState.Unknown;
-        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+        if (_context.Open(definition, out var handle) is not { } assembly)
             return MetadataFactState.Unknown;
 
         var typeDef = assembly.Reader.GetTypeDefinition(handle);
@@ -695,19 +702,71 @@ internal sealed class CrossAssemblyTypeResolver
         _ => null,
     };
 
-    static string ToHex(byte[] bytes)
-    {
-        var chars = new char[bytes.Length * 2];
-        for (int i = 0; i < bytes.Length; i++)
-        {
-            chars[i * 2] = "0123456789abcdef"[bytes[i] >> 4];
-            chars[i * 2 + 1] = "0123456789abcdef"[bytes[i] & 0xF];
-        }
-        return new string(chars);
-    }
-
     static TypeRef? NamedDefinition(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+
+    static bool TryCoordinates(
+        TypeRef type,
+        out TypeResolutionCoordinates coordinates)
+    {
+        if (NamedDefinition(type) is not { } definition
+            || !TryResolutionIdentity(
+                definition,
+                out MetadataTypeDefinitionName definitionName,
+                out AssemblyReferenceIdentity? resolutionAssembly))
+        {
+            coordinates = default;
+            return false;
+        }
+
+        coordinates = new TypeResolutionCoordinates(
+            definition.Assembly == TypeRef.CoreLibrary,
+            resolutionAssembly,
+            definitionName);
+        return true;
+    }
+
+    static bool TryResolutionIdentity(
+        TypeRef type,
+        out MetadataTypeDefinitionName definitionName,
+        out AssemblyReferenceIdentity? resolutionAssembly)
+    {
+        if (type.DefinitionName is { } structuredName)
+        {
+            definitionName = structuredName;
+            resolutionAssembly = type.ResolutionAssembly;
+            return type.Assembly == TypeRef.CoreLibrary || resolutionAssembly is not null;
+        }
+
+        // Publicly constructed TypeRefs predate structured resolution identity.
+        // Preserve their top-level compatibility without parsing '+' into a
+        // nesting relationship that the model cannot prove.
+        if (type.Kind != TypeRefKind.Definition
+            || string.IsNullOrEmpty(type.Assembly)
+            || type.Name.Contains('+', StringComparison.Ordinal)
+            || MetadataTypeDefinitionName.Create(type.Namespace, [type.Name])
+                is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            definitionName = null!;
+            resolutionAssembly = null;
+            return false;
+        }
+
+        definitionName = valid.Name;
+        resolutionAssembly = type.Assembly == TypeRef.CoreLibrary
+            ? null
+            : new AssemblyReferenceIdentity(
+                type.Assembly,
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+        return true;
+    }
+
+    readonly record struct TypeResolutionCoordinates(
+        bool IsCoreLibrary,
+        AssemblyReferenceIdentity? Assembly,
+        MetadataTypeDefinitionName Type);
 
     static bool NeedsParameterRefKinds(MethodRef method)
     {

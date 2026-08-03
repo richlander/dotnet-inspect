@@ -95,6 +95,7 @@ public static class ProjectCommandDefinitions
                 Tree = opts.ParseTree(parseResult),
                 Schema = opts.ParseSchema(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),

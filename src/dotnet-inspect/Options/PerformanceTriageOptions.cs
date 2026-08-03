@@ -1,3 +1,5 @@
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -5,6 +7,14 @@ namespace DotnetInspector.Options;
 /// </summary>
 public sealed record PerformanceTriageOptions
 {
+    /// <summary>
+    /// Contains a fragment of the user's own <c>--order-by</c>/<c>--where</c>
+    /// text before it is quoted back in a diagnostic. An agent composes these
+    /// option values from names it read out of a package, so the fragment is
+    /// untrusted even though the sentence around it is not.
+    /// </summary>
+    private static string Contain(string? text) => CSharpIdentifier.ContainRenderedText(text ?? string.Empty);
+
     public enum RowOperator
     {
         Equals,
@@ -119,7 +129,7 @@ public sealed record PerformanceTriageOptions
     public bool IncludesAllocationFanout =>
         Shapes.Contains("allocation-fanout", StringComparer.OrdinalIgnoreCase);
 
-    public bool TryGetPredicates(out RowPredicate[] predicates, out string error)
+    public bool TryGetPredicates(out RowPredicate[] predicates, out OptionError error)
     {
         var builder = new List<RowPredicate>();
         foreach (var expression in Where)
@@ -136,7 +146,7 @@ public sealed record PerformanceTriageOptions
         return true;
     }
 
-    public bool TryGetOrderTerms(out OrderTerm[] orderTerms, out string error)
+    public bool TryGetOrderTerms(out OrderTerm[] orderTerms, out OptionError error)
     {
         if (string.IsNullOrWhiteSpace(OrderBy))
         {
@@ -174,7 +184,7 @@ public sealed record PerformanceTriageOptions
                 else
                 {
                     orderTerms = [];
-                    error = $"Error: Invalid --order-by direction '{directionText}'. Valid directions: asc, desc.";
+                    error = $"Invalid --order-by direction '{Contain(directionText)}'. Valid directions: asc, desc.";
                     return false;
                 }
             }
@@ -185,12 +195,12 @@ public sealed record PerformanceTriageOptions
         orderTerms = [.. terms];
         if (orderTerms.Length == 0)
         {
-            error = "Error: --order-by requires at least one field.";
+            error = "--order-by requires at least one field.";
             return false;
         }
         if (orderTerms.Length > 1 && orderTerms.Any(term => term.Field == "Triage"))
         {
-            error = "Error: Triage is a composite order and must be used alone, e.g. --order-by \"Triage desc\".";
+            error = "Triage is a composite order and must be used alone, e.g. --order-by \"Triage desc\".";
             return false;
         }
         error = "";
@@ -216,7 +226,7 @@ public sealed record PerformanceTriageOptions
         return (raw, null);
     }
 
-    public static bool TryValidateShapes(PerformanceTriageOptions options, out string error)
+    public static bool TryValidateShapes(PerformanceTriageOptions options, out OptionError error)
     {
         var known = KnownShapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var invalid = options.Shapes.Where(shape => !known.Contains(shape)).ToArray();
@@ -227,11 +237,11 @@ public sealed record PerformanceTriageOptions
         }
 
         var quotedInvalid = string.Join(", ", invalid.Select(shape => $"'{shape}'"));
-        error = $"Error: Unknown Performance Triage shape{(invalid.Length == 1 ? "" : "s")} {quotedInvalid}. Valid shapes: {string.Join(", ", KnownShapes)}.";
+        error = $"Unknown Performance Triage shape{(invalid.Length == 1 ? "" : "s")} {Contain(quotedInvalid)}. Valid shapes: {string.Join(", ", KnownShapes)}.";
         return false;
     }
 
-    public static bool TryValidate(PerformanceTriageOptions options, out string error)
+    public static bool TryValidate(PerformanceTriageOptions options, out OptionError error)
     {
         if (!TryValidateShapes(options, out error))
             return false;
@@ -242,13 +252,13 @@ public sealed record PerformanceTriageOptions
         return true;
     }
 
-    static bool TryParsePredicate(string expression, out RowPredicate predicate, out string error)
+    static bool TryParsePredicate(string expression, out RowPredicate predicate, out OptionError error)
     {
         predicate = default!;
         expression = expression.Trim();
         if (expression.Length == 0)
         {
-            error = "Error: Empty --where predicate.";
+            error = "Empty --where predicate.";
             return false;
         }
 
@@ -267,7 +277,7 @@ public sealed record PerformanceTriageOptions
             var value = expression[(index + token.Length)..].Trim();
             if (value.Length == 0)
             {
-                error = $"Error: Missing value in --where predicate '{expression}'.";
+                error = $"Missing value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
 
@@ -275,18 +285,18 @@ public sealed record PerformanceTriageOptions
                 && !IsNumericField(field)
                 && field is not ("Confidence" or "Weight"))
             {
-                error = $"Error: Field '{field}' supports only = and != predicates.";
+                error = $"Field '{Contain(field)}' supports only = and != predicates.";
                 return false;
             }
             if (IsNumericField(field)
                 && !long.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
             {
-                error = $"Error: Field '{field}' expects an integer value in --where predicate '{expression}'.";
+                error = $"Field '{Contain(field)}' expects an integer value in --where predicate '{Contain(expression)}'.";
                 return false;
             }
             if (field is "Confidence" or "Weight" && !IsKnownConfidence(value))
             {
-                error = $"Error: Field '{field}' expects one of low, medium, high in --where predicate '{expression}'.";
+                error = $"Field '{Contain(field)}' expects one of low, medium, high in --where predicate '{Contain(expression)}'.";
                 return false;
             }
 
@@ -295,7 +305,7 @@ public sealed record PerformanceTriageOptions
             return true;
         }
 
-        error = $"Error: Invalid --where predicate '{expression}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
+        error = $"Invalid --where predicate '{Contain(expression)}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
         return false;
     }
 
@@ -353,15 +363,21 @@ public sealed record PerformanceTriageOptions
             .Replace("-", "", StringComparison.Ordinal)
             .Replace("_", "", StringComparison.Ordinal);
 
-    static string UnknownFieldError(string field, string kind, IReadOnlyList<string> knownFields)
+    static OptionError UnknownFieldError(string field, string kind, IReadOnlyList<string> knownFields)
     {
         var suggestion = knownFields
             .OrderBy(candidate => EditDistance(NormalizeName(field).ToLowerInvariant(), NormalizeName(candidate).ToLowerInvariant()))
             .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
         return suggestion is null
-            ? $"Error: Field '{field}' is not {kind} in section 'Performance Triage'."
-            : $"Error: Field '{field}' is not {kind} in section 'Performance Triage'.{Environment.NewLine}{Environment.NewLine}Did you mean:{Environment.NewLine}  {suggestion}";
+            ? new OptionError($"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.")
+            // The suggestion travels as a detail rather than as a newline
+            // inside the message: the writer indents each detail line itself,
+            // so this structure cannot be confused with one injected through
+            // the untrusted field name (issue #3319).
+            : new OptionError(
+                $"Field '{Contain(field)}' is not {kind} in section 'Performance Triage'.",
+                ["Did you mean:", $"  {Contain(suggestion)}"]);
     }
 
     static int EditDistance(string left, string right)

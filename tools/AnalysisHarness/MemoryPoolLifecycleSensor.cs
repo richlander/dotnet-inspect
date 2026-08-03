@@ -451,7 +451,7 @@ public static class MemoryPoolLifecycleSensor
 
     public static string Format(MemoryPoolLifecycleReport report, int maxExamples, MemoryPoolLifecycleFormat format)
     {
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == MemoryPoolLifecycleFormat.Markdown)
         {
             MarkoutSerializer.Serialize(

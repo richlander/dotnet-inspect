@@ -242,7 +242,7 @@ internal static class PackageInspector
             }
             catch (Exception ex)
             {
-                logger.Log($"Warning: Error scanning binary signals in {Path.GetFileName(dll)}: {ex.Message}");
+                logger.LogWarning($"Error scanning binary signals in {Path.GetFileName(dll)}: {ex.Message}");
             }
         }
 

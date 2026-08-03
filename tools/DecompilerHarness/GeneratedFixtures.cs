@@ -1303,7 +1303,11 @@ internal static class GeneratedFixtureCatalog
                 FidelityCheck.CompileBackStatus.Exact,
                 ExpectedTargetBodyFragments:
                 [
-                    "(object)left == (object)right",
+                    // The reference-equality fast path must be spelled on (object)
+                    // operands; comparing the record operands directly would recurse
+                    // through this very operator. The raised shape is an early-return
+                    // guard, so the cast comparison appears negated.
+                    "(object)left != (object)right",
                     "left.Equals(right)",
                 ]),
             new(
@@ -1329,7 +1333,11 @@ internal static class GeneratedFixtureCatalog
                 FidelityCheck.CompileBackStatus.Exact,
                 ExpectedTargetBodyFragments:
                 [
-                    "new StringBuilder()",
+                    // Target-typed new() in a declaration whose LHS type equals the
+                    // constructed type is a documented taste choice (#3059, recorded in
+                    // docs/decompiler-taste.md). Pin the declaration so both the builder
+                    // type and that spelling stay covered.
+                    "StringBuilder V_0 = new();",
                     "PrintMembers(V_0)",
                     "return V_0.ToString();",
                 ]),
@@ -2318,7 +2326,7 @@ internal static class GeneratedFixtureRunner
                         missingSourceFragment is not null
                             ? $"missing expected source fragment: {missingSourceFragment}"
                             : missingTargetBodyFragment is not null
-                                ? $"missing expected target body fragment: {missingTargetBodyFragment}"
+                                ? $"missing expected target body fragment: {missingTargetBodyFragment}{Environment.NewLine}actual target body:{Environment.NewLine}{TruncateBody(actual.TargetBody)}"
                                 : actual.Detail,
                         actual.IlDiffDiagnostic,
                         actual.IlDiff,
@@ -2333,6 +2341,18 @@ internal static class GeneratedFixtureRunner
             return new GeneratedFixtureReturnToSenderRunResult(root, assemblyPath, results);
         });
     }
+
+    /// <summary>
+    /// Renders a decompiled body for a fragment-mismatch failure, bounded so a large
+    /// method cannot flood the gate report. Without the actual body a stale fragment pin
+    /// reports only what was expected, which forces a separate local repro to diagnose.
+    /// </summary>
+    static string TruncateBody(string body)
+        => body.Length <= MaxReportedBodyLength
+            ? body
+            : body[..MaxReportedBodyLength] + $"… (+{body.Length - MaxReportedBodyLength} more chars)";
+
+    const int MaxReportedBodyLength = 2000;
 
     static string? MissingSourceFragment(string source, IReadOnlyList<string>? expectedSourceFragments)
     {

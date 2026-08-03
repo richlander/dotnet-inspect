@@ -110,7 +110,7 @@ public class MetadataImageOverviewTests
 
         var overview = DescribeSelf(peReader);
 
-        Assert.StartsWith("v", overview.MetadataVersion);
+        Assert.StartsWith("v", overview.MetadataVersion.ToString());
         Assert.Equal(MetadataKind.Ecma335, overview.Kind);
         Assert.True(overview.IsAssembly);
     }
@@ -141,7 +141,7 @@ public class MetadataImageOverviewTests
 
         var overview = DescribeSelf(peReader);
 
-        Assert.Equal(reader.MetadataVersion, overview.MetadataVersion);
+        Assert.Equal(reader.MetadataVersion, overview.MetadataVersion.ToString());
         Assert.Equal(peReader.PEHeaders.MetadataStartOffset, overview.MetadataOffset);
         Assert.Equal(peReader.PEHeaders.MetadataSize, overview.MetadataSize);
     }
@@ -487,7 +487,7 @@ public class MetadataImageOverviewTests
         Assert.Equal(HeapKind.UserString, heapValue.Heap);
         Assert.Equal(1, heapValue.Offset);
         Assert.NotNull(heapValue.Text);
-        Assert.NotEmpty(heapValue.Text);
+        Assert.False(heapValue.Text!.Value.IsEmpty);
     }
 
     [Theory]
@@ -542,8 +542,8 @@ public class MetadataImageOverviewTests
         var value = MetadataTableProjector.ReadHeapValue(peReader, HeapKind.Guid, address);
 
         var heapValue = Assert.IsType<MetadataValue.HeapReference>(value);
-        Assert.Equal(reader.GetGuid(mvid).ToString(), heapValue.Text);
-        Assert.NotEqual(Guid.Empty.ToString(), heapValue.Text);
+        Assert.Equal(reader.GetGuid(mvid).ToString(), heapValue.Text!.Value.ToString());
+        Assert.NotEqual(Guid.Empty.ToString(), heapValue.Text!.Value.ToString());
     }
 
     /// <summary>

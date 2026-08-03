@@ -1,5 +1,9 @@
 # Shared metadata primitives — target layering
 
+> **Map:** [Type, member, and API representation](design/type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 ## Problem
 
 Three layers read `System.Reflection.Metadata` (SRM) independently and each

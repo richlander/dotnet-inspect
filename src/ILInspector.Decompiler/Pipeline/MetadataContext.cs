@@ -16,8 +16,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 /// <remarks>
 /// Each defining assembly is opened at most once: <see cref="Open"/> caches the
-/// <see cref="OpenedAssembly"/> by path (failures cached as null so a bad path is
-/// not retried) and keeps its <see cref="PEReader"/> live for the context's
+/// <see cref="OpenedAssembly"/> by acquisition registration (failures cached as
+/// null so a bad descriptor is not retried) and keeps its <see cref="PEReader"/> live for the context's
 /// lifetime, so repeated lookups are O(1) with no re-open. A
 /// <see cref="MetadataReader"/> is only valid while its <see cref="PEReader"/> is
 /// alive, which is why this is <see cref="IDisposable"/>.
@@ -31,12 +31,43 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </remarks>
 public sealed class MetadataContext : IDisposable
 {
+    static readonly AssemblyReferenceIdentity[] s_coreLibraryCandidates =
+    [
+        new(
+            "System.Private.CoreLib",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null),
+        new(
+            "System.Runtime",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null),
+        new(
+            "mscorlib",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null),
+        new(
+            "netstandard",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null),
+    ];
+
     readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _opened = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _openedLocations = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<
+        AssemblyAcquisitionRegistration,
+        Lazy<OpenedAssembly?>> _openedRegistrations =
+            new(ReferenceEqualityComparer.Instance);
+    readonly TypeResolutionCatalog _typeResolutionCatalog = new();
+    readonly AssemblyReferenceBindingPolicy _bindingPolicy;
 
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         Resolver = resolver;
+        _bindingPolicy = new AssemblyReferenceBindingPolicy(resolver);
     }
 
     internal IAssemblyReferenceResolver Resolver { get; }
@@ -60,6 +91,65 @@ public sealed class MetadataContext : IDisposable
         return _openedLocations.GetOrAdd(location.AssemblyKey, _ => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(location.OpenRead))).Value;
     }
 
+    internal OpenedAssembly? Open(ResolvedAssemblyReference assembly)
+        => _openedRegistrations.GetOrAdd(
+            assembly.Registration,
+            _ => new Lazy<OpenedAssembly?>(
+                () => OpenedAssembly.TryOpen(assembly.OpenRead),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    internal OpenedAssembly? Open(
+        ResolvedTypeDefinition definition,
+        out TypeDefinitionHandle handle)
+    {
+        OpenedAssembly? assembly = Open(definition.Assembly.Assembly);
+        if (assembly is null
+            || !definition.Address.TryResolve(assembly.Reader, out handle))
+        {
+            handle = default;
+            return null;
+        }
+
+        return assembly;
+    }
+
+    internal TypeResolutionOutcome Resolve(
+        ResolvedAssemblyReference root,
+        TypeResolutionRequest request)
+    {
+        using TypeResolutionContext context =
+            _typeResolutionCatalog.CreateContext(
+                _bindingPolicy,
+                [root],
+                [request]);
+        return context.Resolve(request);
+    }
+
+    internal ResolvedTypeDefinition? ResolveCoreLibraryDefinition(
+        ResolvedAssemblyReference root,
+        MetadataTypeDefinitionName type)
+    {
+        // Pipeline.TypeRef historically canonicalized several facade identities
+        // to "corelib", erasing which explicit AssemblyRef supplied the type.
+        // Probe those legacy identities as structured reference requests and
+        // continue when an earlier facade binds but does not declare the type.
+        foreach (AssemblyReferenceIdentity identity in s_coreLibraryCandidates)
+        {
+            var request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(root),
+                AssemblyResolutionScope.Platform,
+                type);
+            if (Resolve(root, request)
+                is TypeResolutionOutcome.Resolved resolved)
+            {
+                return resolved.Definition;
+            }
+        }
+
+        return null;
+    }
+
     internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         => Resolver.Resolve(identity, scope);
 
@@ -69,8 +159,12 @@ public sealed class MetadataContext : IDisposable
             if (opened.IsValueCreated) opened.Value?.Dispose();
         foreach (var opened in _openedLocations.Values)
             if (opened.IsValueCreated) opened.Value?.Dispose();
+        foreach (var opened in _openedRegistrations.Values)
+            if (opened.IsValueCreated) opened.Value?.Dispose();
         _opened.Clear();
         _openedLocations.Clear();
+        _openedRegistrations.Clear();
+        _typeResolutionCatalog.Dispose();
     }
 }
 

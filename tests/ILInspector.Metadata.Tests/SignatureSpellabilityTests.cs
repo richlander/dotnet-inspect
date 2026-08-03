@@ -242,7 +242,9 @@ public sealed class SignatureSpellabilityTests
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => _paths.TryGetValue(identity.Name, out var path)
-                ? new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path), "TestMap")
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local("TestMap"))
                 : null;
     }
 
@@ -253,7 +255,9 @@ public sealed class SignatureSpellabilityTests
 
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
             => identity.Version is null && identity.Name.Equals(_assemblyName, StringComparison.OrdinalIgnoreCase)
-                ? new ResolvedAssemblyReference(identity, _path, () => File.OpenRead(_path), "VersionRelaxing")
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    _path,
+                    AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
     }
 

@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using System.Text.Json.Serialization;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -73,6 +74,15 @@ public class TypeView
     public int? ExtensionMethods { get; set; }
 
     [MarkoutSkipNull] public int? Events { get; set; }
+
+    /// <summary>
+    /// Type identity fact table. Unlike every other section on this view, the row set does not
+    /// grow with the type: it answers "what is this type" rather than listing its members, so it
+    /// is the same shape for <c>System.String</c> and for a one-member struct.
+    /// </summary>
+    [MarkoutSection(Name = "Type Info")]
+    [JsonIgnore]
+    public TypeInfoSection? TypeInfo { get; set; }
 
     /// <summary>
     /// Enum values without Description column (default).
@@ -475,6 +485,72 @@ public class BaseclassRow
 }
 
 /// <summary>
+/// Type identity fact table for the <c>Type Info</c> section.
+/// </summary>
+/// <remarks>
+/// The row set is structurally fixed: every property here is a fact *about* the type rather than
+/// an entry *from* it, so the section is the same size for a 200-member type and a 2-member one.
+/// That is what makes it the bare <c>-S</c> overview for the type view. Adding a property whose
+/// count of rows depends on the type under inspection would break that contract.
+/// </remarks>
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class TypeInfoSection
+{
+    public string? Type { get; init; }
+    public string? Kind { get; init; }
+    public string? Modifiers { get; init; }
+
+    [MarkoutPropertyName("Base")]
+    public string? BaseType { get; init; }
+
+    [MarkoutPropertyName("Type Parameters")]
+    public string? TypeParameters { get; init; }
+
+    public int? Interfaces { get; init; }
+
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; init; }
+
+    public string? Package { get; init; }
+    public string? Version { get; init; }
+
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; init; }
+
+    public string? Source { get; init; }
+}
+
+/// <summary>
+/// View model for the API surface identity fact table.
+/// </summary>
+/// <remarks>
+/// The row set is structurally fixed: every property here is a fact *about* the surface being
+/// listed rather than an entry *from* it, so the section is the same size whether the match is two
+/// types or twenty thousand. The three counts are counts, not enumerations — each contributes
+/// exactly one row no matter how large it gets. That is what makes this the bare <c>-S</c>
+/// candidate for the type-listing view. Adding a property whose count of rows depends on the
+/// assembly or the match would break that contract.
+/// </remarks>
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public class ApiInfoSection
+{
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; init; }
+
+    public int? Types { get; init; }
+    public int? Methods { get; init; }
+    public int? Properties { get; init; }
+    public string? Version { get; init; }
+
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; init; }
+
+    public string? Source { get; init; }
+}
+
+/// <summary>
 /// View model for full API surface rendering (all types in an assembly).
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
@@ -484,15 +560,25 @@ public class CliApiSurface
     [MarkoutIgnore] public string? Description { get; set; }
 
     [MarkoutSkipNull] public string? Library { get; set; }
-    public int Types { get; set; }
-    public int Methods { get; set; }
-    public int Properties { get; set; }
+    [MarkoutSkipNull] public int? Types { get; set; }
+    [MarkoutSkipNull] public int? Methods { get; set; }
+    [MarkoutSkipNull] public int? Properties { get; set; }
     [MarkoutSkipNull] public string? Source { get; set; }
     [MarkoutSkipNull] public string? Version { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
+
+    /// <summary>
+    /// API surface identity fact table. Unlike every other section on this view, the row set does
+    /// not grow with the assembly or the match: it answers "what am I listing" rather than listing
+    /// the matched types, so it is the same shape for a two-type match and for all of
+    /// <c>System.Private.CoreLib</c>.
+    /// </summary>
+    [MarkoutSection(Name = "API Info")]
+    [JsonIgnore]
+    public ApiInfoSection? ApiInfo { get; set; }
 
     // Type forwarders (edge case: types == 0 with forwarders)
     [MarkoutSection(Name = "Type Forwarders")]
@@ -568,17 +654,41 @@ public record MemberIndexRow(
     [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
-public record TypeSourceFileRow(string Url);
+/// <inheritdoc cref="SourceFileRow"/>
+public record TypeSourceFileRow(string Url)
+{
+    public string Url { get; init; } = CSharpIdentifier.ContainRenderedText(Url);
+}
 
 [MarkoutSerializable]
+/// <inheritdoc cref="SourceFileRow"/>
 public record MemberSourceLocationRow(
-    [property: MarkoutSkipNull] string? Selector,
-    [property: MarkoutSkipNull] string? Signature,
-    [property: MarkoutSkipNull] string? File,
-    [property: MarkoutSkipNull] int? Line,
-    [property: MarkoutPropertyName("End Line")]
-    [property: MarkoutSkipNull] int? EndLine,
-    [property: MarkoutSkipNull] string? Url);
+    string? Selector,
+    string? Signature,
+    string? File,
+    int? Line,
+    int? EndLine,
+    string? Url)
+{
+    // Redeclared in full, in constructor order; partial redeclaration reorders
+    // the rendered columns.
+    [MarkoutSkipNull]
+    public string? Selector { get; init; } = Contain(Selector);
+    [MarkoutSkipNull]
+    public string? Signature { get; init; } = Contain(Signature);
+    [MarkoutSkipNull]
+    public string? File { get; init; } = Contain(File);
+    [MarkoutSkipNull]
+    public int? Line { get; init; } = Line;
+    [MarkoutPropertyName("End Line")]
+    [MarkoutSkipNull]
+    public int? EndLine { get; init; } = EndLine;
+    [MarkoutSkipNull]
+    public string? Url { get; init; } = Contain(Url);
+
+    private static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+}
 
 [MarkoutSerializable]
 public record MemberSignatureRow(
@@ -867,6 +977,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiSurfaceTableRow))]
 [MarkoutContext(typeof(SampleRow))]
 [MarkoutContext(typeof(ApiInspectionFailureRow))]
+[MarkoutContext(typeof(ApiInfoSection))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
 }
@@ -979,8 +1090,29 @@ public record UnsafeMemberRow(
     string Reason,
     string Detail,
     string Kind,
-    [property: MarkoutSkipNull] string? IL,
-    [property: MarkoutSkipNull] string? Token);
+    string? IL,
+    string? Token)
+{
+    // Every positional property is redeclared, in constructor order, because
+    // PositionalRecordPropertyOrderTests requires all or none: a partial
+    // redeclaration reorders the reflected properties and so reorders the
+    // rendered columns.
+    public string Member { get; init; } = Member;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Reason { get; init; } = LibraryViewText.Contain(Reason);
+
+    public string Detail { get; init; } = Detail;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
+
+    [MarkoutSkipNull]
+    public string? IL { get; init; } = IL;
+
+    [MarkoutSkipNull]
+    public string? Token { get; init; } = Token;
+}
 
 [MarkoutSerializable]
 public record OptimizationOpportunityRow(
@@ -1030,7 +1162,34 @@ public record TopLeverageRow(
     string Fanout,
     string Depth,
     string LoopCalls,
-    [property: MarkoutSkipNull] string? Visibility = null,
-    [property: MarkoutSkipNull] string? Generated = null,
-    [property: MarkoutSkipNull] string? Stable = null,
-    [property: MarkoutSkipNull] string? Selector = null);
+    string? Visibility = null,
+    string? Generated = null,
+    string? Stable = null,
+    string? Selector = null)
+{
+    // All or none, in constructor order — see UnsafeMemberRow.
+    public string Member { get; init; } = Member;
+
+    public string Callers { get; init; } = Callers;
+
+    public string RootReach { get; init; } = RootReach;
+
+    public string Fanout { get; init; } = Fanout;
+
+    public string Depth { get; init; } = Depth;
+
+    public string LoopCalls { get; init; } = LoopCalls;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Visibility { get; init; } = LibraryViewText.Contain(Visibility);
+
+    [MarkoutSkipNull]
+    public string? Generated { get; init; } = Generated;
+
+    [MarkoutSkipNull]
+    public string? Stable { get; init; } = Stable;
+
+    [MarkoutSkipNull]
+    public string? Selector { get; init; } = Selector;
+}

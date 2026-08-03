@@ -3,8 +3,26 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered by base branch. A base-branch filter decides whether
+  # a *stacked* PR gets CI at all: a PR retargeted from `main` onto a long-lived
+  # branch silently stops matching, so it reports no checks rather than failing
+  # ones -- and "no checks reported" is indistinguishable at a glance from "not
+  # run yet", while `ci-required` counts a job that never ran as nothing to
+  # block on.
+  #
+  # An allow list here has to name every prefix a *base* can have, which is every
+  # prefix a branch can have, since any branch under review can be stacked on.
+  # That is not a list that can be maintained, and each way of getting it wrong
+  # is silent: `[main]` alone missed every stacked PR, adding `feature/**` still
+  # left `fix/**` uncovered (#3684 opened onto `fix/3628-...` and reported no
+  # checks), and adding `fix/**` still left #3558 -- open onto
+  # `prototype/wasm-command-ui` -- mergeable with zero checks (#3706).
+  #
+  # So the filter is gone rather than extended. Every pull request runs CI
+  # whatever it targets. The cost is CI on PRs between side branches; the cost
+  # of the allow list was PRs that merge with no CI at all and look clean doing
+  # it.
   pull_request:
-    branches: [main]
 
 env:
   DOTNET_NOLOGO: true
@@ -16,8 +34,14 @@ env:
 # (test/pack are PR-only), so there is little to cancel. release.yml
 # builds all release packages fresh at publish time and does not consume CI
 # artifacts.
+#
+# The group keys on the pull request *number*, not `github.head_ref`. Branch
+# names are not unique across forks, so two PRs both branched as `patch-1`
+# would share a group and cancel each other. That was merely wasteful while CI
+# was advisory; once `ci-required` is required, the loser's check would land as
+# `cancelled` and block that PR until someone re-ran it by hand.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -27,6 +51,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
+      decompiler: ${{ steps.filter.outputs.decompiler }}
       docs: ${{ steps.filter.outputs.docs }}
       ildiff: ${{ steps.filter.outputs.ildiff }}
       ilroundtrip: ${{ steps.filter.outputs.ilroundtrip }}
@@ -35,22 +60,62 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          # Full history. Change detection diffs against github.event.before,
+          # which is not always the immediate parent: a push advances main by
+          # more than one commit whenever two PRs merge back to back or a
+          # batch is pushed. fetch-depth: 2 left that commit outside the
+          # shallow clone and the diff died with "Invalid symmetric difference
+          # expression", taking the whole run with it.
+          fetch-depth: 0
 
       - name: Detect changes
         id: filter
         run: |
+          # This step must never fail. Every downstream job is gated on its
+          # outputs, so failing here does not just lose the filter -- it SKIPS
+          # the entire build and test matrix, landing an unvalidated commit on
+          # main. So when the change set cannot be determined, force every
+          # output true: CI over-runs instead of silently vanishing. Enforced
+          # by the fallback branch below, which runs no fallible command, not
+          # by an automated gate.
+          FILES=""
+          RESOLVED=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
-          else
-            BEFORE=${{ github.event.before }}
-            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-              BEFORE=HEAD~1
+            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only); then
+              RESOLVED=true
             fi
-            FILES=$(git diff --name-only "$BEFORE"..."${{ github.sha }}")
+          else
+            BEFORE="${{ github.event.before }}"
+            # The zero SHA means a new branch or a force push with no prior tip.
+            if [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              # Two dots, not three. A symmetric difference has to compute a
+              # merge base, which is a second way to fail and is not what
+              # change detection is asking. "What differs between the old tip
+              # and the new tip" is exactly the two-dot diff, and for the
+              # fast-forward pushes main receives the two agree anyway.
+              if FILES=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+                RESOLVED=true
+              fi
+            fi
+          fi
+          if [ "$RESOLVED" != "true" ]; then
+            # Force every gate on and stop here. Deliberately NOT "list every
+            # tracked file and classify it": that would put another fallible
+            # git call -- and a dependency on every case pattern below matching
+            # something -- on the one path whose entire job is to be
+            # infallible. `git ls-files` exits 128 on an unreadable index.
+            # Keep this list in sync with the `outputs:` block above.
+            echo "::warning title=Change detection fell back::Could not determine the changed files for ${{ github.sha }}; running every job so that no validation is skipped."
+            for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped; do
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            done
+            echo "Change detection fell back; every job filter forced true."
+            exit 0
           fi
           CODE=false
           CSHARPDIFF=false
+          DECOMPILER=false
           DOCS=false
           ILDIFF=false
           ILROUNDTRIP=false
@@ -67,6 +132,17 @@ jobs:
               eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
+              # The test lane is what actually runs these scripts (the
+              # `Install ilasm/ildasm/mdv` step and IlToolsActivationTests), so
+              # it is the only thing that can catch a break in them. Without
+              # this, a PR touching only a script skips that lane and
+              # `ci-required` passes on a `skipped`.
+              eng/restore-iltools.sh) CODE=true ;;
+              eng/activate-iltools.sh) CODE=true ;;
+              # GateExpectedClassesTests lives in the fast lane and is the only
+              # thing keeping this file honest against the pre-merge preset, so
+              # editing the file must run the lane that validates it.
+              eng/decompiler-gate-expected-classes.txt) CODE=true ;;
               *.props|*.targets|*.sln|*.slnx) CODE=true ;;
               .github/workflows/*) CODE=true ;;
             esac
@@ -100,7 +176,56 @@ jobs:
               .github/workflows/ci.yml) ILDIFF=true ;;
             esac
             case "$file" in
+              # The lint *configuration* is not a `.md` file, so it needs its
+              # own case: editing `.markdownlint.yaml` changes how every
+              # document is linted, and without this the lint job skips and the
+              # new configuration is never exercised. Only a root-level config
+              # exists today, but a `case` pattern is anchored at the start of
+              # the path, so match nested ones too rather than leaving the same
+              # hole open one directory down.
+              #
+              # These patterns over-match slightly: `*` spans `/`, so a path
+              # like `x/.markdownlint.d/y.cs` also trips them. That is the
+              # deliberate direction to err in -- over-matching costs one short
+              # lint run, while under-matching silently skips the job and, since
+              # `ci-required` counts `skipped` as passing, hides it. `case` has
+              # no way to anchor the basename, so tightening this would cost
+              # more legibility than the false positive is worth.
+              .markdownlint.*|.markdownlint-cli2.*) DOCS=true ;;
+              */.markdownlint.*|*/.markdownlint-cli2.*) DOCS=true ;;
               *.md|*.txt|docs/*|skills/*) DOCS=true ;;
+            esac
+            # The decompiler docket/byte-neutrality gates cost ~8 minutes, so
+            # they run as their own job rather than in the hot `test` lane.
+            #
+            # This filter is deliberately broad. The first version enumerated
+            # the decompiler projects, and review found it already wrong: it
+            # missed ILInspector.Decompiler.Fixtures.* (the assemblies the
+            # gates decompile), tools/RoundTripCompilation (the compile-back
+            # harness), DiffFixtures.V*, and transitive substrate such as
+            # ILInspector.MetadataPrimitives, ILInspector.Findings, and
+            # ILInspector.Text. A fidelity result is a whole-pipeline
+            # observation, so its true input set is the test project's
+            # transitive closure, which an enumerated list cannot track without
+            # rotting. Under-triggering silently disables the gate on exactly
+            # the changes it exists to catch; over-triggering costs a parallel
+            # job that never blocks the hot lane. Prefer the cheap error. The
+            # documentation-extension arm covers only `*.md`, deliberately: a
+            # `.txt` or `.jsonl` under these trees can be a corpus or baseline
+            # fixture, and excluding it by extension would silently un-gate it.
+            # `global.json` and `nuget.config` select the SDK and package
+            # inputs, which select the compiler, which selects the IL compared.
+            case "$file" in
+              eng/check-decompiler-gate.cs) DECOMPILER=true ;;
+              eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
+              eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
+              *.md) ;;
+              src/*) DECOMPILER=true ;;
+              tests/*) DECOMPILER=true ;;
+              tools/*) DECOMPILER=true ;;
+              global.json|nuget.config|NuGet.config|NuGet.Config) DECOMPILER=true ;;
+              *.props|*.targets|*.slnx) DECOMPILER=true ;;
+              .github/workflows/ci.yml) DECOMPILER=true ;;
             esac
             # The IL round-trip oracle has a fast PR subset plus a slow assembly
             # sweep. It depends on ILInspector.Metadata ->
@@ -148,8 +273,23 @@ jobs:
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
           done <<< "$FILES"
+          # `ilroundtrip` does not have a job of its own: its two steps live
+          # inside the `test` job, which is gated on `code`. So an input that
+          # sets only `ilroundtrip` computes an output nothing can act on --
+          # the job never starts and the steps never run. Every other member of
+          # the ilroundtrip list happens to set `code` too, which is why this
+          # was invisible; `eng/restore-ilassembler.sh` did not, and its
+          # validation silently never ran.
+          #
+          # State the implication once here rather than duplicating `code` into
+          # each ilroundtrip case, so a future addition to that list cannot
+          # reintroduce the gap by forgetting it.
+          if [ "$ILROUNDTRIP" = true ]; then
+            CODE=true
+          fi
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "csharpdiff=$CSHARPDIFF" >> "$GITHUB_OUTPUT"
+          echo "decompiler=$DECOMPILER" >> "$GITHUB_OUTPUT"
           echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
           echo "ildiff=$ILDIFF" >> "$GITHUB_OUTPUT"
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
@@ -157,7 +297,7 @@ jobs:
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
           echo "Changed files:"
           echo "$FILES"
-          echo "code=$CODE csharpdiff=$CSHARPDIFF docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
+          echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -253,29 +393,21 @@ jobs:
         if: steps.decompiler_pr_corpus.outcome == 'failure'
         run: exit 1
 
-      - name: Install ilasm/ildasm
+      # --mdv matters here and nowhere else: this is the only workflow that runs
+      # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
+      # skips without it -- and a skipped oracle is a green leg that compared
+      # nothing.
+      #
+      # continue-on-error lets the rest of the lane still report, so a feed
+      # outage does not cost every other result in the job. It does not make
+      # the failure survivable: `Check ilasm/ildasm/mdv result` below fails the
+      # lane once the tests have run. Losing oracle coverage must be red, not a
+      # quietly shorter skip list.
+      - name: Install ilasm/ildasm/mdv
+        id: iltools
         continue-on-error: true
         shell: bash
-        run: |
-          RID=${{ matrix.rid }}
-          VERSION=11.0.0-preview.1.26104.118
-          PACKAGES_DIR=$(mktemp -d)
-          PROJ_DIR=$(mktemp -d)
-          cat > "$PROJ_DIR/iltools.csproj" <<EOF
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
-            <ItemGroup>
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
-            </ItemGroup>
-          </Project>
-          EOF
-          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
-          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
-          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
-          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
-          echo "$ILASM_DIR" >> "$GITHUB_PATH"
-          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
@@ -291,6 +423,20 @@ jobs:
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
+      # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
+      # depend on a third-party service, and the Azure DevOps ones need a private feed and a
+      # token that CI — and any fork PR — does not have. Everything that can be proven with an
+      # in-memory transport, including the whole credential-mechanism matrix, runs here.
+      - name: Run NuGetFetch tests (offline)
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+
+      # InertText sits below every other project, so a regression here reaches every assembly
+      # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
+      # round-trip — so they run unconditionally rather than behind a path filter.
+      - name: Run InertText tests
+        run: dotnet run --project src/InertText.Tests -c Release
 
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
@@ -317,6 +463,16 @@ jobs:
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+
+      # Deliberately last: the suites above still report their results when
+      # acquisition fails, but the lane must not go green having silently traded
+      # its oracle comparisons for skips.
+      - name: Check ilasm/ildasm/mdv result
+        if: steps.iltools.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
@@ -350,6 +506,131 @@ jobs:
 
       - name: Build tool for net10.0 fallback
         run: dotnet build src/dotnet-inspect -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
+
+  # Decompiler docket and byte-neutrality gates, pre-merge.
+  #
+  # These gates carry doc comments asserting they fail CI, but every pre-merge
+  # lane runs `-trait- "Speed=Slow"` and they are all Slow, so until now they
+  # ran only in release.yml and the weekly Deep Inspect lane — where they were
+  # exceeding the job timeout, and a *cancelled* job does not satisfy Deep
+  # Inspect's `if: ... && failure()` notifier. Detection latency was unbounded,
+  # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
+  #
+  # This job runs the three gates whose failures are attributable to a specific
+  # fixture and docket entry, as its own job so it never serializes with the
+  # hot `test` lane. Currently-open failures are pinned in
+  # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
+  # failure, on any pin that starts passing, and on any gate test that neither
+  # passes nor fails, so the pin list is a ratchet in both directions rather
+  # than a permanent exemption.
+  #
+  # NOTE: this path-gated job must never be named as a required status check
+  # directly. A required check that does not run on a given PR is reported as
+  # "Expected" forever and blocks that merge permanently, and this job is
+  # skipped on any PR that touches no decompiler-relevant path. Its result
+  # reaches `ci-required`, the aggregate job at the end of this file that is
+  # intended to serve as the merge gate and be the one context the ruleset
+  # requires.
+  #
+  # The remaining Fidelity-area classes are excluded on cost, not principle:
+  # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
+  # tests and want the #3495 type-filter treatment before they can be gated.
+  decompiler-gates:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
+      # here. The completeness check compares a discovery listing against a
+      # results file, and both steps below run with --no-build against whatever
+      # the Build step produced. That comparison is only meaningful because the
+      # two provably come from one build: the checkout is fresh, nothing
+      # restores binaries, and Build is fail-fast, so neither step can run
+      # against a stale or partial binary. Caching build outputs would break
+      # that silently -- the gate would still pass, while comparing a listing
+      # and a report from different builds.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      # The gates decompile and recompile the fixture assemblies, so the whole
+      # solution must be built: building only the test project leaves the
+      # fixtures absent and the gates fail with a FileNotFoundException that
+      # reads exactly like a product regression.
+      #
+      # Deliberately not continue-on-error: the two --no-build steps below
+      # depend on this having succeeded.
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      # Enumerate what the preset selects, without running it. This is the
+      # reference the completeness check compares the results against; the
+      # report's own summary counters cannot serve, because an honestly
+      # truncated report declares its own smaller total and agrees with itself.
+      #
+      # Uses --gate pre-merge, the same preset as the run below, so the two
+      # cannot drift. Sub-second, and not continue-on-error: if discovery fails
+      # there is no reference and the gate must not proceed.
+      - name: Discover expected gate tests
+        run: |
+          dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+            --gate pre-merge -noColor -list methods/json \
+            > "$RUNNER_TEMP/decompiler-gates-expected.json"
+
+      # continue-on-error so the pinned known-red failures do not fail the job
+      # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
+      #
+      # The step timeout is the point, not a formality. This PR exists because
+      # a *job* timeout cancels the job, and a cancelled job runs no further
+      # steps and satisfies no `failure()` condition — it fails silently. A
+      # step timeout well under the job timeout converts a hang into a failed
+      # step that the job survives, so the checker still runs, finds a missing
+      # or truncated report, and fails the job loudly. Do not raise this to the
+      # job timeout.
+      #
+      # --no-build is required, not an optimization. Without it `dotnet run`
+      # builds implicitly, which would (a) break the guarantee that this run and
+      # the discovery listing above describe the same binary, and (b) hide a
+      # build failure inside a continue-on-error step, where it would surface
+      # only as a missing report.
+      - name: Run decompiler gates
+        id: gates
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+            --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
+
+      - name: Compare against pinned known-red
+        run: |
+          dotnet run eng/check-decompiler-gate.cs -- \
+            "$RUNNER_TEMP/decompiler-gates.xml" \
+            eng/decompiler-gate-known-red.txt \
+            eng/decompiler-gate-expected-classes.txt \
+            "$RUNNER_TEMP/decompiler-gates-expected.json"
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompiler-gates-report
+          path: ${{ runner.temp }}/decompiler-gates.xml
+          if-no-files-found: warn
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL
@@ -679,3 +960,123 @@ jobs:
 
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
+
+  # The one check the `main` ruleset is meant to require, and the only one that
+  # safely can be.
+  #
+  # Every other job here is path-gated, so none of them can be required
+  # directly: a required check that does not run on a given PR is reported as
+  # "Expected" forever and blocks the merge permanently. This job always runs
+  # and collapses the others into one result, so the ruleset has exactly one
+  # stable context to name.
+  #
+  # Adding the `required_status_checks` rule is a repository-settings change
+  # applied once this job exists on `main`; requiring it earlier would block
+  # every open PR with no way forward.
+  #
+  # Three details carry the whole contract, and each is easy to get backwards:
+  #
+  # 1. `if: always()` is mandatory. Without it this job inherits the default
+  #    `success()` condition, is skipped the moment any dependency fails, and a
+  #    skipped required check does not block a merge -- the failure it exists to
+  #    catch would be exactly what silences it.
+  #
+  # 2. `skipped` must pass but `cancelled` must not. Path-gated jobs are skipped
+  #    on most PRs and that is correct. A cancelled job is a job that hit its
+  #    timeout, and this repository has already been burned by that distinction
+  #    twice: the Deep Inspect notifier stayed silent because a cancelled job
+  #    satisfies neither `failure()` nor a failed conclusion (#3432), and seven
+  #    decompiler test classes sat at a 45-minute timeout unnoticed (#3489-#3493).
+  #    Treating `cancelled` as success would rebuild that hole at the merge gate.
+  #
+  # 3. The check is an allow list, not a deny list. Only `success` and `skipped`
+  #    pass; anything else blocks. A deny list of `failure|cancelled` would admit
+  #    any result state GitHub adds later, which is the fail-open direction. This
+  #    fails closed, matching the repository rule that failure stays visible.
+  #
+  # `changes` is in `needs` deliberately. If it fails, every downstream job is
+  # skipped, so a check that looked only at the gated jobs would see nothing but
+  # `skipped` and pass a PR on which no test ran at all. `changes` reporting
+  # `failure` is what closes that path.
+  ci-required:
+    needs:
+      - changes
+      - markdownlint
+      - test
+      - build-net10
+      - decompiler-gates
+      - csharp-diff-smoke
+      - il-diff-smoke
+      - pack
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    env:
+      # Defined once and consumed by both the self-test and the real check, so
+      # the thing proven non-vacuous is the same thing that gates the merge.
+      RESULT_FILTER: >-
+        to_entries[]
+        | select(.value.result != "success" and .value.result != "skipped")
+        | "\(.key)=\(.value.result)"
+    steps:
+      - uses: actions/checkout@v6
+
+      # A hand-maintained `needs` list is an allow list, and an allow list that
+      # nothing checks goes stale silently: add a job to this workflow, forget
+      # this line, and the merge gate stops covering it while still reporting
+      # green. That is the same shape as #3584, where a one-directional docket
+      # un-gated 46 fixture rows. So the workflow's own job list drives the
+      # required set, and both directions fail -- a job missing from `needs`
+      # and a `needs` entry naming a job that no longer exists.
+      - name: Verify this gate depends on every other job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          python3 -c '
+          import json, os, sys, yaml
+          with open(".github/workflows/ci.yml") as f:
+              jobs = set(yaml.safe_load(f)["jobs"])
+          jobs.discard("ci-required")
+          needs = set(json.loads(os.environ["NEEDS"]))
+          missing = sorted(jobs - needs)
+          extra = sorted(needs - jobs)
+          if missing:
+              print("::error::ci-required does not depend on: " + ", ".join(missing))
+          if extra:
+              print("::error::ci-required depends on unknown jobs: " + ", ".join(extra))
+          sys.exit(1 if missing or extra else 0)
+          '
+          echo "Gate covers every job in the workflow."
+
+      # A gate that accepted everything would be indistinguishable from a green
+      # run, so the filter's discrimination is asserted rather than assumed.
+      # This is that assertion: if the filter stops selecting bad results, this
+      # step fails even when every real job is green.
+      - name: Self-test the result filter
+        run: |
+          set -euo pipefail
+          probe='{"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
+          got=$(printf '%s' "$probe" | jq -r "$RESULT_FILTER" | paste -sd, -)
+          expected='broke=failure,timeout=cancelled,future=neutral'
+          if [ "$got" != "$expected" ]; then
+            echo "::error::Result filter no longer discriminates. Expected [$expected], got [$got]."
+            exit 1
+          fi
+          echo "Filter discriminates correctly: [$got]"
+
+      - name: Verify no required job failed or was cancelled
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script body so job outputs can never terminate the shell string.
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS"
+          blocking=$(printf '%s' "$NEEDS" | jq -r "$RESULT_FILTER")
+          if [ -n "$blocking" ]; then
+            echo "::error::CI is not green; these jobs did not succeed or skip:"
+            printf '%s\n' "$blocking"
+            exit 1
+          fi
+          echo "All required jobs succeeded or were correctly skipped."

@@ -23,7 +23,7 @@ public static class TimelineCommand
     {
         if (!TryValidate(options, out var range, out var descriptor, out var selectedSections, out var error))
         {
-            Console.Error.WriteLine($"Error: {error}");
+            CommandError.Write($"{error}");
             return 1;
         }
 
@@ -38,7 +38,7 @@ public static class TimelineCommand
                 options.IncludePrerelease);
             if (!TrySelectAddresses(vector, options.At, out var selectedAddresses, out error))
             {
-                Console.Error.WriteLine($"Error: {error}");
+                CommandError.Write($"{error}");
                 return 1;
             }
 
@@ -51,7 +51,7 @@ public static class TimelineCommand
             {
                 if (!TryResolveTypeName(options.TypeName, evaluations, out var typeFullName, out error))
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return 1;
                 }
 
@@ -74,7 +74,7 @@ public static class TimelineCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -1105,7 +1105,7 @@ public static class TimelineCommand
     {
         range = null;
         descriptor = NormalizeDescriptor(options.Finding);
-        selectedSections = ResolveSections(options.Select, out error);
+        selectedSections = ResolveSections(options.Select, options.SelectDefault, out error);
         if (error is not null)
             return false;
 
@@ -1173,9 +1173,20 @@ public static class TimelineCommand
             || descriptor == AnalysisFindings.CallSiteDescriptor.Id
             || descriptor == AnalysisFindings.UnsafetyDescriptor.Id;
 
-    static HashSet<string> ResolveSections(string[]? select, out string? error)
+    // Bare -S asks for the fixed/bounded overview: the sections whose row count is structurally
+    // constant across every target. Both timeline sections grow with the version range, so there
+    // is no such subset here and bare -S is refused rather than silently widened to the default
+    // view. It was refused before #3547 too, but by leaking the internal '@Default' marker into
+    // the message; the refusal is what is preserved, not the spelling.
+    static HashSet<string> ResolveSections(string[]? select, bool selectDefault, out string? error)
     {
         HashSet<string> sections = new(StringComparer.OrdinalIgnoreCase);
+        if (selectDefault && (select is null || select.Length == 0))
+        {
+            error = "Bare -S has no fixed sections for timeline. Use -S Evaluations or -S Transitions.";
+            return sections;
+        }
+
         if (select is null || select.Length == 0)
         {
             sections.Add(EvaluationsSection);
@@ -1305,6 +1316,7 @@ public sealed record TimelineOptions
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
     public string[]? Select { get; init; }
+    public bool SelectDefault { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }

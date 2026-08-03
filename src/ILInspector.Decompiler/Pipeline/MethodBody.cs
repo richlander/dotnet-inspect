@@ -15,6 +15,24 @@ public sealed record HandlerRegion(
     TypeRef? CatchType);
 
 /// <summary>
+/// The IL range of one local slot's declaration scope, as recorded by a portable
+/// PDB's <c>LocalScope</c> table. <see cref="EndOffset"/> is exclusive. This is the
+/// evidence that separates a local the source declared at method scope from one it
+/// declared inside a nested block; IL alone carries only a flat slot list.
+/// </summary>
+public readonly record struct LocalSlotScope(int StartOffset, int EndOffset)
+{
+    public int Length => EndOffset - StartOffset;
+
+    /// <summary>
+    /// True when the scope spans the whole method body, i.e. the source declared the
+    /// local at method scope. Anything narrower means the source declared it inside a
+    /// nested block.
+    /// </summary>
+    public bool CoversMethodBody(int ilLength) => StartOffset <= 0 && EndOffset >= ilLength;
+}
+
+/// <summary>
 /// A method body as plain data: no metadata handles, no lifetime — safe to
 /// hold after its <see cref="MetadataSource"/> is disposed.
 /// </summary>
@@ -24,7 +42,17 @@ public sealed record MethodBody(
     ImmutableArray<TypeRef> Locals,
     ImmutableArray<string?> LocalNames,
     ImmutableArray<HandlerRegion> Handlers,
-    bool SkipLocalsInit = false);
+    bool SkipLocalsInit = false)
+{
+    /// <summary>
+    /// Per local slot, whether the portable PDB scoped the local to something
+    /// narrower than the whole method body — that is, whether the source declared it
+    /// inside a nested block. Empty when no PDB was available, and false for a slot
+    /// with no scope entry (a compiler temp the source never declared). Length-aligned
+    /// with <see cref="Locals"/> when non-empty.
+    /// </summary>
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; init; } = [];
+}
 
 /// <summary>
 /// A parameter: name, symbolic type, whether metadata declares an optional

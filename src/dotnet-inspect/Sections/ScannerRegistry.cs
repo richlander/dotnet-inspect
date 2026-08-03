@@ -9,12 +9,18 @@ namespace DotnetInspector.Sections;
 /// <summary>
 /// Context passed to each scanner during data collection.
 /// </summary>
-public sealed class ScannerContext
+public sealed class ScannerContext : IDisposable
 {
     public required string AssemblyPath { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
+
+    /// <summary>
+    /// When supplied, records scanner execution and expensive resource acquisition. Null for an
+    /// untraced run, which is every run that did not pass <c>--trace</c>.
+    /// </summary>
+    public InspectionTrace? Trace { get; init; }
 
     /// <summary>
     /// Analysis features required by the complete scanner set. The shared body session computes
@@ -25,8 +31,110 @@ public sealed class ScannerContext
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
     private MethodBodyInspectionSession? _bodySession;
+    private AssemblyInspectionSession? _session;
+    private bool _sessionOpenAttempted;
     private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
         _drillMap;
+
+    /// <summary>
+    /// One metadata session over the assembly, opened on first use and shared by the scanners that
+    /// ask for it through <see cref="Scan{TScan}"/>.
+    ///
+    /// This exists for atomicity, not speed. Each of the three scanner fan-out sites that declared
+    /// prerequisites replaced held its callees inside one open, so a single run could not mix two
+    /// assemblies. Reopening the path per scanner would reintroduce that window: retargeting the
+    /// path between opens (a symlink swap, or a build replacing the file) yields an incoherent
+    /// result with a zero exit code.
+    ///
+    /// When <see cref="MetadataContext"/> is present — which is every path the library and package
+    /// commands take — the session <em>borrows</em> that already-open image rather than opening
+    /// <see cref="AssemblyPath"/> again. So the scanners are coherent not only with each other but
+    /// with the assembly identity, presence flags, and debug-directory facts the command read from
+    /// the same image. Reopening here would leave that wider window open even though every scanner
+    /// shared one session.
+    ///
+    /// Returns <see langword="null"/> when the assembly cannot be opened, so the caller falls back
+    /// to the path-based overload. That is deliberate: each path overload maps its own open
+    /// failure onto its own inspection type, and reproducing those mappings here would duplicate
+    /// them. The fallback reopens and fails again, which costs an extra open only on a path that is
+    /// already failing.
+    ///
+    /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
+    /// synchronization is required.
+    ///
+    /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c>,
+    /// <c>SharedSessionScanners_DoNotObserveAPathRetargetedMidRun</c>,
+    /// <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>, and
+    /// <c>SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened</c>.
+    /// </summary>
+    public AssemblyInspectionSession? Session()
+    {
+        if (_sessionOpenAttempted)
+            return _session;
+
+        _sessionOpenAttempted = true;
+        try
+        {
+            if (MetadataContext is { HasMetadata: true } context)
+            {
+                _session = AssemblyInspectionSession.Borrow(context);
+                Trace?.RecordResource("metadata session", "borrowed from the command's open image");
+            }
+            else
+            {
+                _session = AssemblyInspectionSession.Open(AssemblyPath);
+                Trace?.RecordResource("metadata session", "opened (no shared image available)");
+            }
+        }
+        catch (Exception)
+        {
+            // Left to the fallback path overload, which logs and produces the failed inspection.
+            _session = null;
+            Trace?.RecordResource("metadata session", "failed to open; scanners reopen individually");
+        }
+
+        return _session;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="shared"/> against the shared session when the assembly opened, and
+    /// <paramref name="reopen"/> otherwise, so a scanner keeps its own open-failure mapping.
+    /// </summary>
+    public TScan Scan<TScan>(
+        Func<AssemblyInspectionSession, TScan> shared,
+        Func<TScan> reopen)
+    {
+        if (Session() is not { } session)
+            return reopen();
+
+        SharedScanCount++;
+        return shared(session);
+    }
+
+    /// <inheritdoc cref="Scan{TScan}"/>
+    public void Scan(Action<AssemblyInspectionSession> shared, Action reopen)
+    {
+        if (Session() is not { } session)
+        {
+            reopen();
+            return;
+        }
+
+        SharedScanCount++;
+        shared(session);
+    }
+
+    /// <summary>
+    /// How many scans have taken the shared-session branch of <see cref="Scan{TScan}"/>.
+    ///
+    /// This exists so the atomicity property above can be gated rather than asserted. A scanner
+    /// that reverts to opening <see cref="AssemblyPath"/> itself still produces correct-looking
+    /// output, so nothing else in the suite would notice; the count drops, and
+    /// <c>SharedSessionScanners_AllObserveOneSession</c> fails.
+    /// </summary>
+    public int SharedScanCount { get; private set; }
+
+    public void Dispose() => _session?.Dispose();
 
     /// <summary>
     /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
@@ -36,11 +144,37 @@ public sealed class ScannerContext
     /// narrowed to the phases the requested scanners consume (see
     /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex() =>
-        (_bodySession ??= MethodBodyInspectionSession.OpenWithPrefetchedImage(
-            AssemblyPath,
-            GetMetadataContext(),
-            BodyAnalysisFeatures)).BodyIndex;
+    public Analysis.LibraryBodyIndex BodyIndex()
+    {
+        if (_bodySession is not null)
+            return _bodySession.BodyIndex;
+
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
+                AssemblyPath,
+                GetMetadataContext(),
+                BodyAnalysisFeatures);
+        }
+        catch (Exception ex)
+        {
+            // Scanners swallow a failed index and render an empty section, so without this the
+            // trace would show no body index for a run that tried to build one and failed —
+            // indistinguishable from a run that correctly never needed it.
+            Trace?.RecordResource("body index", $"FAILED after {Elapsed(start)}: {ex.GetType().Name}");
+            throw;
+        }
+
+        var index = _bodySession.BodyIndex;
+        Trace?.RecordResource(
+            "body index",
+            $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})");
+        return index;
+    }
+
+    private static string Elapsed(long start)
+        => $"{System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms";
 
     /// <summary>
     /// Stable member drill coordinates, derived once from the command's shared
@@ -48,10 +182,15 @@ public sealed class ScannerContext
     /// </summary>
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
         DrillMap()
-        => _drillMap ??=
-            LibraryMetadataService.BuildLibraryDrillMap(
-                GetMetadataContext(),
-                Logger);
+    {
+        if (_drillMap is not null)
+            return _drillMap;
+
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+        _drillMap = LibraryMetadataService.BuildLibraryDrillMap(GetMetadataContext(), Logger);
+        Trace?.RecordResource("drill map", $"built in {Elapsed(start)} ({_drillMap.Count} members)");
+        return _drillMap;
+    }
 
     PdbContext GetMetadataContext()
         => MetadataContext
@@ -66,7 +205,8 @@ public sealed class ScannerContext
 /// </summary>
 public sealed class ScannerRegistry
 {
-    private readonly Dictionary<string, Action<ScannerContext>> _scanners = [];
+    private readonly Dictionary<string, Action<ScannerContext>?> _scanners = [];
+    private readonly Dictionary<string, string[]> _requires = [];
 
     /// <summary>
     /// The keys of every registered scanner. This is the supply side of the section-to-scanner
@@ -81,21 +221,139 @@ public sealed class ScannerRegistry
     /// <summary>
     /// Registers a scanner by key. The action populates the model with data.
     /// </summary>
-    public ScannerRegistry Add(string key, Action<ScannerContext> scan)
+    /// <param name="requires">
+    /// Keys of scanners whose output this scanner reads. Declaring a prerequisite is the only
+    /// supported way to depend on another scanner's work: <see cref="RunScanners"/> runs
+    /// prerequisites first and runs every scanner at most once per context. A scanner that calls
+    /// another scanner directly instead hides the dependency from
+    /// <see cref="ExpandRequired"/>, so cost and ordering stop being computable from the
+    /// registry. Gate: <c>ScannerRegistryTests.LibraryScanners_DeclareTheirPrerequisites</c>.
+    /// </param>
+    public ScannerRegistry Add(string key, Action<ScannerContext> scan, params string[] requires)
     {
         _scanners[key] = scan;
+        _requires[key] = requires;
         return this;
     }
 
     /// <summary>
-    /// Runs all scanners whose keys are in the <paramref name="requiredScanners"/> set.
+    /// Registers a key that performs no work of its own and exists only to pull in
+    /// <paramref name="requires"/>. A section whose data comes from several scanners binds to a
+    /// bundle, because <see cref="ISectionDescriptor{TModel}.ScannerKey"/> names a single key.
+    /// </summary>
+    public ScannerRegistry AddBundle(string key, params string[] requires)
+    {
+        _scanners[key] = null;
+        _requires[key] = requires;
+        return this;
+    }
+
+    /// <summary>
+    /// The prerequisite keys declared by <paramref name="key"/>, or an empty span when it has
+    /// none. Exposed so a test can assert the declared graph rather than infer it from behavior.
+    /// </summary>
+    public IReadOnlyList<string> RequirementsOf(string key)
+        => _requires.TryGetValue(key, out var r) ? r : [];
+
+    /// <summary>
+    /// Expands <paramref name="requested"/> to include every transitively required scanner.
+    /// Callers that reason about the work a run will do — notably the body-analysis feature
+    /// selection, which must see a prerequisite that opens the body index — must expand first, or
+    /// they will under-count the run. Throws on a prerequisite cycle, matching
+    /// <see cref="RunScanners"/>: expansion runs first in
+    /// <c>LibraryMetadataService.InspectAsync</c>, so if only the run threw, a cycle would be
+    /// reported from the later of the two places that can see it.
+    /// Gate: <c>SectionPipelineTests.ExpandRequired_ThrowsOnPrerequisiteCycle</c>.
+    /// </summary>
+    public HashSet<string> ExpandRequired(IEnumerable<string> requested)
+    {
+        HashSet<string> closure = new(StringComparer.Ordinal);
+        HashSet<string> visiting = new(StringComparer.Ordinal);
+        foreach (var key in requested)
+            AddWithRequirements(key, closure, visiting);
+        return closure;
+    }
+
+    private void AddWithRequirements(string key, HashSet<string> closure, HashSet<string> visiting)
+    {
+        // Check the visiting stack before the closure: a key already in the closure is merely
+        // shared (a diamond), but a key still being visited is a cycle. Testing the closure first
+        // would return early and let the cycle through.
+        if (!visiting.Add(key))
+            throw new InvalidOperationException(
+                $"Scanner prerequisite cycle detected at '{key}'.");
+
+        if (closure.Add(key))
+        {
+            foreach (var required in RequirementsOf(key))
+            {
+                RequireRegistered(key, required);
+                AddWithRequirements(required, closure, visiting);
+            }
+        }
+
+        visiting.Remove(key);
+    }
+
+    /// <summary>
+    /// Rejects a declared prerequisite that names no registered scanner.
+    ///
+    /// A <em>requested</em> key with no registration is skipped on purpose: callers derive requests
+    /// from section descriptors across several registries, and the library registry's own
+    /// supply/demand equality is held by a separate gate. A <em>declared prerequisite</em> is not
+    /// the same thing — it is written next to the scanner that needs it, so a typo or a rename
+    /// silently drops a dependency the scanner is relying on and leaves output that looks correct.
+    ///
+    /// Gate: <c>ExpandRequired_ThrowsOnUnregisteredPrerequisite</c>.
+    /// </summary>
+    private void RequireRegistered(string key, string required)
+    {
+        if (!_scanners.ContainsKey(required))
+            throw new InvalidOperationException(
+                $"Scanner '{key}' requires '{required}', which is not registered.");
+    }
+
+    /// <summary>
+    /// Runs the scanners in <paramref name="requiredScanners"/> and everything they require,
+    /// prerequisites first, each at most once. Registration order breaks ties so a run is
+    /// deterministic.
     /// </summary>
     public void RunScanners(HashSet<string> requiredScanners, ScannerContext context)
     {
-        foreach (var (key, scan) in _scanners)
+        HashSet<string> ran = new(StringComparer.Ordinal);
+        HashSet<string> running = new(StringComparer.Ordinal);
+        foreach (var key in _scanners.Keys)
         {
             if (requiredScanners.Contains(key))
-                scan(context);
+                RunWithRequirements(key, context, ran, running);
         }
+    }
+
+    private void RunWithRequirements(
+        string key,
+        ScannerContext context,
+        HashSet<string> ran,
+        HashSet<string> running)
+    {
+        if (!_scanners.TryGetValue(key, out var scan) || ran.Contains(key))
+            return;
+
+        if (!running.Add(key))
+            throw new InvalidOperationException(
+                $"Scanner prerequisite cycle detected at '{key}'.");
+
+        foreach (var required in RequirementsOf(key))
+        {
+            RequireRegistered(key, required);
+            RunWithRequirements(required, context, ran, running);
+        }
+
+        running.Remove(key);
+        ran.Add(key);
+
+        if (context.Trace is { } trace)
+            trace.Time(key, isBundle: scan is null, () => scan?.Invoke(context));
+        else
+            scan?.Invoke(context);
     }
 }

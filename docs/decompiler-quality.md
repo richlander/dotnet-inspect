@@ -53,12 +53,12 @@ are not redundant:
 
 | Check | Question | Proves | Blind to |
 | --- | --- | --- | --- |
-| `--fidelity-check` | *Does it still mean the same thing?* | **Compile-back fidelity**: decompile → recompile → compare the body under fidelity contract V1 | Methods it cannot recompile or compare (reported separately, never as exact) |
+| `--fidelity-check` | *Does it still mean the same thing?* | **Compile-back fidelity**: decompile → recompile → compare the body under the fidelity contract | Methods it cannot recompile or compare (reported separately, never as exact) |
 | `--validity-check` | *Does it even compile?* | **Validity**: the rendered C# parses, is statement-legal, and binds | Whether valid C# is *faithful* (fidelity's job) |
 | `--annotation-check` | *Do the IL annotations match the opcodes?* | **Annotation fidelity**: each allocation/unsafety/lifetime annotation agrees with the raw IL opcode at its offset (precision), and every unambiguous opcode produces its annotation (recall) | Whether the C# itself is right — only the annotations |
 
 The deepest is **fidelity**: a body that compiles and reads plausibly but
-recompiles to a different contract V1 body changed the measured program shape —
+recompiles to a different contract body changed the measured program shape —
 the worst failure class, invisible to every check that never runs the output
 back through a compiler. The supporting evidence:
 
@@ -89,7 +89,7 @@ Use this order for risky decompiler work:
    changed methods as the fidelity population to cover. A bigger general sample
    is not enough if the changed methods remain unchecked.
 3. Improve harness context only where failure buckets show many methods can be
-   converted into useful contract V1 comparisons without changing the product
+   converted into useful contract comparisons without changing the product
    path.
    The product decompiler stays SRM-only, NativeAOT-friendly, Roslyn-free, and
    free of inspected-assembly loading.
@@ -756,10 +756,17 @@ The durable, blocking guard is the **fixture fidelity gate**:
 `FidelityGateTests` (and its lowered twin `LoweredFidelityGateTests`)
 decompile every method of `CfgSampleClass`, recompile each inside a reconstructed
 type skeleton, and fail CI when a method newly recompiles to a different
-contract V1 body — a regression beyond the documented `KnownDiffs` docket —
+contract body — a regression beyond the documented `KnownDiffs` docket —
 when the product body comparison is unavailable, or when a `PinnedExact`
 method (a previously-fixed one) regresses. Shrinking `KnownDiffs` and growing
 `PinnedExact` is how fidelity progress ratchets forward and cannot slip back.
+That ratchet is two-directional: `DocketRowsStayCheckedDiffs` fails when a
+`KnownDiffs` row stops being a diff, whether because it was fixed (promote it to
+`PinnedExact`) or because its C# stopped recompiling (a regression the
+diff-set-shaped assert would otherwise swallow). The one tolerated non-diff state
+is an import below Full fidelity, which forms no opcode verdict at all; those rows
+must be named explicitly in `KnownNotFull`, so a row that *newly* drops to
+`NotFull` still fails as the validity regression it is.
 The **annotation gate** (`AnnotationGateTests`) holds annotation
 fidelity over the whole CoreLib corpus the same way — precision is absolute (a
 wrong fact always fails; it is never runtime drift), recall is held above a
@@ -911,7 +918,7 @@ The harness modes pair into a loop, both ends anchored on the **same final C#**
 the product emits:
 
 - **Detect at scale.** `--fidelity-check` finds *which* methods regressed
-  (contract V1 body diffs across an assembly); `--gaps` finds which lost completeness;
+  (contract body diffs across an assembly); `--gaps` finds which lost completeness;
   `--pass-impact` shows a pass's blast radius before and after a change.
 - **Diagnose one.** `--dump` (with `--diff`, `--facts`, `--cfg`, `--remarks`)
   drills into the per-pass IR of a single method to find which pass introduced

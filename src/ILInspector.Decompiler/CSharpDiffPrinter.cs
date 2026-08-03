@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Text;
 
 namespace ILInspector.Decompiler;
 
@@ -138,7 +139,7 @@ public static class CSharpDiffPrinter
 
         var builder = new StringBuilder();
         foreach (string line in lines)
-            builder.AppendLine(line);
+            builder.AppendLf(line);
         return builder.ToString().TrimEnd();
     }
 

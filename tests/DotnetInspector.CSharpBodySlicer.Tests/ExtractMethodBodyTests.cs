@@ -1070,4 +1070,188 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("public int Target() => 0;\n// trailing note", body);
     }
+
+    /// <summary>
+    /// Gates the scanner rule that the <c>}</c> closing an interpolation hole is part of the
+    /// enclosing literal and therefore must not become the line's last significant character.
+    /// <see cref="BodySlicer.ExtractMethodBody(string, int, int, string?)"/> asks
+    /// <c>EndsDeclaration</c> whether the range already terminates; a hole closer that counted
+    /// as a terminator would answer yes here and stop the slice on line 3, dropping the raw
+    /// literal's closing delimiter and the method's own <c>}</c>.
+    ///
+    /// The range must be a single line for this to be observable: over a multi-line range
+    /// <c>EndsDeclaration</c> and <c>IndexPastClosingBrace</c> compute brace depth over the
+    /// same span, so whenever the misclassification would flip the former to <c>true</c> the
+    /// latter would have declined to extend anyway. This is the gate for that rule — the
+    /// corpus contains no interpolation hole closing on the last significant column of a
+    /// single-line member, so removing this test leaves the rule unverified.
+    /// </summary>
+    [Fact]
+    public void HoleClosingBraceOnASingleLineRange_DoesNotTerminateTheDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    void Target() { Log($\"\"\"x{y}",           // 3  <- StartLine, EndLine
+            "        \"\"\"); }",                            // 4
+            "",                                             // 5
+            "    void Other() { }",                          // 6
+            "}");                                           // 7
+
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("void Target() { Log($\"\"\"x{y}\n    \"\"\"); }", body);
+    }
+
+    /// <summary>
+    /// A line that closes a literal carried in from above and then declares a sibling accessor
+    /// is a declaration from the point the literal ends. Asking only whether the line *began*
+    /// inside a literal suppressed the question on exactly the line that answers it, and the
+    /// getter's slice then swallowed the setter (adversarial review, GPT).
+    /// </summary>
+    [Fact]
+    public void AccessorClosingACarriedLiteral_DoesNotSwallowTheSiblingAccessor()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    public string P",
+            "    {",
+            "        get",
+            "        {",
+            "            return @\"a",
+            "\" set { _v = value; }",
+            "        }",
+            "    }",
+            "}") + "\n";
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.NotNull(body);
+        Assert.DoesNotContain("set {", body);
+    }
+
+
+    /// <summary>
+    /// The backward signature scan reads trivia off each line above the slice. A line that ends
+    /// in a lone "/" has no character after it to classify, and reading one throws rather than
+    /// deciding the line is not a comment (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void SignatureScanOverALineEndingInASlash_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    public /",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// The same shape one character later: a declaration line ending in "=" is asked whether an
+    /// expression body ("=>") follows the member's name, and the ">" it would read is past the
+    /// end of the line (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void SignatureScanOverALineEndingInAnEquals_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    int Target =",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        // DeclaresMember only ever examines the slice's own first line, so the declaration
+        // under test has to be that line.
+        // The scan must reach a decision. Declining is a decision; throwing is not.
+        var thrown = Record.Exception(() => BodySlicer.ExtractMethodBody(source, 3, 6, "get_Target"));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// A destructor's declaring type is matched against the source a character at a time, and a
+    /// unicode escape is two characters. A name ending in a lone backslash has no second one
+    /// (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void DestructorMatchOverANameEndingInABackslash_DoesNotReadPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    ~\\",
+            "    {",
+            "        Body();",
+            "    }",
+            "}") + "\n";
+
+        var thrown = Record.Exception(
+            () => BodySlicer.ExtractMethodBody(source, 5, 6, "Finalize", isDestructor: true, destructorTypeName: "C"));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// A body whose braces never close runs the forward brace-recovery scan to the end of the
+    /// file. The scan's limit is clamped to the file length rather than to the scan budget,
+    /// because a member that begins within the budget of the last line makes the unclamped
+    /// limit larger than the file. Without the clamp the loop reads past the last line and
+    /// throws, which no other test reaches: every unbalanced fixture elsewhere either closes
+    /// its braces or sits far enough from EOF (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void UnbalancedBodyAtEndOfFile_StopsAtTheLastLineRatherThanReadingPastIt()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    void M()",
+            "    {",
+            "        if (x)",
+            "        {") + "\n";
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 6, "M");
+
+        Assert.Equal("void M()\n{\n    if (x)\n    {", body);
+    }
+
+    /// <summary>
+    /// <c>LexState.LoseDepth</c> sets both <c>literalDepthLost</c>, which the declaration index
+    /// reads, and <c>Untracked</c>, which only this legacy backward scan reads. The second
+    /// assignment is not redundant: a constructor spelled as a bare <c>C()</c> is not recognized
+    /// as a declaration on sight, so recovery scans backward past an unterminated line-bound
+    /// literal, and it is <c>Untracked</c> that tells that scan its brace depth is meaningless.
+    /// Disabling the assignment returns null here instead of the captured text.
+    ///
+    /// This test is that gate. It exists because the assignment survived a mutation battery
+    /// otherwise, so nothing distinguished it from a dead store (adversarial review, GPT-5.6 Sol,
+    /// which supplied this reproduction).
+    /// </summary>
+    [Fact]
+    public void AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    string s = \"",
+            "    C()",
+            "    {",
+            "    }",
+            "}");
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor");
+
+        Assert.Equal("class C\n{\n    string s = \"\n    C()\n    {\n    }", body);
+    }
 }
