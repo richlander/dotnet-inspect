@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotnetInspector.Packages;
@@ -103,11 +104,12 @@ public class EvilPoolSweepGateTests
         Assert.True(File.Exists(pooled), $"the sweep exited 0 without pooling '{pooled}'");
         Assert.Equal(world.FixtureSha256, Sha256Of(pooled));
 
-        // The pool is only reproducible if what the sweep reports is what it wrote -- both
-        // packages, in rank order, and no third thing.
-        Assert.Equal(
-            [world.LeadDestination, pooled],
-            File.ReadAllLines(world.PooledListPath).Where(line => line.Length > 0));
+        // This list crosses from .NET into shell tooling, so its exact bytes are the
+        // protocol: BOM-less UTF-8, LF separators, and a terminating LF. Reading lines
+        // would accept UTF-16 and a missing terminator and leave that contract ungated.
+        byte[] expectedList = Encoding.UTF8.GetBytes(
+            $"{world.LeadDestination}\n{pooled}\n");
+        Assert.Equal(expectedList, File.ReadAllBytes(world.PooledListPath));
 
         // And the count agrees with the record. Nothing read this aggregate before, so a
         // successful two-package pool could report zero selected -- measured.
