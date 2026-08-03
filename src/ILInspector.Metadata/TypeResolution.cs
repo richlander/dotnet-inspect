@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -337,7 +339,43 @@ public sealed class ResolvedTypeDefinitionKey
 /// </summary>
 public readonly record struct MetadataTypeDefinitionAddress(
     Guid ModuleVersionId,
-    TypeDefinitionToken Definition);
+    TypeDefinitionToken Definition)
+{
+    /// <summary>
+    /// Resolves this durable address against a live reader only after checking
+    /// its module MVID, token table, and TypeDef row bounds.
+    /// </summary>
+    public bool TryResolve(
+        MetadataReader reader,
+        out TypeDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        handle = default;
+
+        int token = Definition.Value;
+        if ((token & unchecked((int)0xFF000000)) != 0x02000000)
+            return false;
+
+        int row = token & 0x00FFFFFF;
+        if (row <= 0 || row > reader.GetTableRowCount(TableIndex.TypeDef))
+            return false;
+
+        try
+        {
+            Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (mvid != ModuleVersionId)
+                return false;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        handle = MetadataTokens.TypeDefinitionHandle(row);
+        return true;
+    }
+}
 
 /// <summary>
 /// Successful resolution payload combining the opaque definition key, durable

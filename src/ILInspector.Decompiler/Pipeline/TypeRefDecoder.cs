@@ -100,13 +100,26 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 : "";
             string ns = reader.GetString(root.Namespace);
             string name = TypeDefinitionName(reader, chain);
-            return TypeRef.Definition(
+            if (CreateDefinitionName(
+                    reader,
+                    ns,
+                    chain,
+                    static (metadata, item) =>
+                        metadata.GetTypeDefinition(item).Name)
+                is not { } definitionName)
+            {
+                return TypeRef.Unsupported(
+                    "type-definition metadata name is incomplete");
+            }
+            return TypeRef.DefinitionWithResolution(
                 assembly,
                 ns,
                 name,
                 HintFrom(rawTypeKind),
                 InlineArrayFact(reader, leaf),
-                EnclosingTypeFrom(reader, chain, assembly, ns));
+                EnclosingTypeFrom(reader, chain, assembly, ns),
+                definitionName,
+                resolutionAssembly: null);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -139,10 +152,35 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             var root = reader.GetTypeReference(chain[0]);
             string ns = reader.GetString(root.Namespace);
             string name = TypeReferenceName(reader, chain);
-            string assembly = terminal.Kind == HandleKind.AssemblyReference
-                ? CanonicalReferenced(reader, (AssemblyReferenceHandle)terminal)
+            AssemblyReferenceIdentity? resolutionAssembly =
+                terminal.Kind == HandleKind.AssemblyReference
+                    ? AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)terminal)
+                    : null;
+            string assembly = resolutionAssembly is not null
+                ? CanonicalReferenced(resolutionAssembly)
                 : "";
-            return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
+            if (CreateDefinitionName(
+                    reader,
+                    ns,
+                    chain,
+                    static (metadata, item) =>
+                        metadata.GetTypeReference(item).Name)
+                is not { } definitionName)
+            {
+                return TypeRef.Unsupported(
+                    "type-reference metadata name is incomplete");
+            }
+            return TypeRef.DefinitionWithResolution(
+                assembly,
+                ns,
+                name,
+                HintFrom(rawTypeKind),
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                definitionName,
+                resolutionAssembly);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -167,6 +205,24 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             name.Append(reader.GetString(reader.GetTypeDefinition(handles[i]).Name));
         }
         return name.ToString();
+    }
+
+    static MetadataTypeDefinitionName? CreateDefinitionName<THandle>(
+        MetadataReader reader,
+        string @namespace,
+        ReadOnlySpan<THandle> chain,
+        Func<MetadataReader, THandle, StringHandle> getName)
+        where THandle : struct
+    {
+        var segments = ImmutableArray.CreateBuilder<string>(chain.Length);
+        foreach (THandle handle in chain)
+            segments.Add(reader.GetString(getName(reader, handle)));
+        return MetadataTypeDefinitionName.Create(
+            @namespace,
+            segments.MoveToImmutable())
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
     }
 
     /// <summary>
@@ -195,7 +251,24 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             return null;
 
         string name = TypeDefinitionName(reader, chain[..^1]);
-        return TypeRef.Definition(assembly, ns, name);
+        MetadataTypeDefinitionName? definitionName =
+            CreateDefinitionName(
+                reader,
+                ns,
+                chain[..^1],
+                static (metadata, item) =>
+                    metadata.GetTypeDefinition(item).Name);
+        return definitionName is null
+            ? null
+            : TypeRef.DefinitionWithResolution(
+                assembly,
+                ns,
+                name,
+                ValueTypeHint.Unknown,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                definitionName,
+                resolutionAssembly: null);
     }
 
     static string TypeReferenceName(
@@ -392,14 +465,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// <c>"System.Runtime"</c> with no valid public-key token — so name alone
     /// must never grant corelib identity for a reference.
     /// </summary>
-    static string CanonicalReferenced(MetadataReader reader, AssemblyReferenceHandle handle)
+    static string CanonicalReferenced(AssemblyReferenceIdentity identity)
     {
-        var reference = reader.GetAssemblyReference(handle);
-        string name = reader.GetString(reference.Name);
+        string name = identity.Name;
         if (!IsCoreLibFacadeName(name))
             return name;
-        string? token = AssemblyReferenceIdentity.From(reader, handle).PublicKeyToken;
-        return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;
+        return PlatformKeys.IsPlatform(identity.PublicKeyToken)
+            ? TypeRef.CoreLibrary
+            : name;
     }
 
     static bool IsCoreLibFacadeName(string assemblyName) => assemblyName is
