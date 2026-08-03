@@ -404,6 +404,14 @@ public class ApiType
     /// Null in older serialized surfaces.
     /// </summary>
     public string? MetadataName { get; set; }
+
+    /// <summary>
+    /// Exact structured metadata lookup name retained for in-process
+    /// definition resolution. It is omitted from serialized API surfaces,
+    /// which predate the structured resolution model.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
     
     /// <summary>
     /// Access level for non-public types. Null means public, including for older

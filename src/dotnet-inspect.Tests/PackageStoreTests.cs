@@ -5,6 +5,14 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public sealed class PackageStoreTests : IDisposable
 {
+    /// <summary>
+    /// Stands in for the source that served the fixture bytes. Cached content is
+    /// scoped to the source that committed it, so a test that seeds the cache
+    /// must also say which source it is speaking for.
+    /// </summary>
+    private static readonly string TestSourceKey =
+        NuGetCache.GetSourceKey("https://tests.invalid/v3/index.json");
+
     private readonly string _cacheDir =
         Path.Combine(Path.GetTempPath(), $"dotnet-inspect-pkgstore-{Guid.NewGuid():N}");
 
@@ -28,11 +36,11 @@ public sealed class PackageStoreTests : IDisposable
         var store = new InMemoryPackageStore();
         var nupkg = MakeNupkg("Example");
 
-        Assert.Null(store.TryGetCached("Foo.Bar", "2.0.0"));
+        Assert.Null(store.TryGetCached("Foo.Bar", "2.0.0", [TestSourceKey]));
 
         IPackageContent content;
         using (var stream = new MemoryStream(nupkg))
-            content = await store.CommitAsync("Foo.Bar", "2.0.0", stream, ct);
+            content = await store.CommitAsync("Foo.Bar", "2.0.0", TestSourceKey, stream, ct);
 
         // In-memory content is never materialized on disk.
         Assert.Null(content.RootPath);
@@ -54,8 +62,27 @@ public sealed class PackageStoreTests : IDisposable
         Assert.Contains("lib/net8.0/Example.dll", entries);
 
         // Lookup is case-insensitive on name and version.
-        Assert.NotNull(store.TryGetCached("foo.bar", "2.0.0"));
-        Assert.NotNull(store.TryGetCached("Foo.Bar", "2.0.0"));
+        Assert.NotNull(store.TryGetCached("foo.bar", "2.0.0", [TestSourceKey]));
+        Assert.NotNull(store.TryGetCached("Foo.Bar", "2.0.0", [TestSourceKey]));
+    }
+
+    [Fact]
+    public async Task InMemoryPackageStore_DoesNotServeContentCommittedByAnotherSource()
+    {
+        var store = new InMemoryPackageStore();
+        var ct = TestContext.Current.CancellationToken;
+        string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
+        string publicFeedKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
+        using (var stream = new MemoryStream(MakeNupkg("Foo.Bar")))
+        {
+            await store.CommitAsync("Foo.Bar", "2.0.0", privateFeedKey, stream, ct);
+        }
+
+        Assert.Null(store.TryGetCached("Foo.Bar", "2.0.0", [publicFeedKey]));
+        Assert.NotNull(store.TryGetCached("Foo.Bar", "2.0.0", [publicFeedKey, privateFeedKey]));
+        Assert.Null(store.TryGetLatestCachedVersion("Foo.Bar", [publicFeedKey]));
+        Assert.Equal("2.0.0", store.TryGetLatestCachedVersion("Foo.Bar", [privateFeedKey]));
     }
 
     [Fact]
@@ -67,11 +94,11 @@ public sealed class PackageStoreTests : IDisposable
         foreach (var version in new[] { "2.0.0", "2.1.0", "3.0.0-beta" })
         {
             using var stream = new MemoryStream(MakeNupkg("Example"));
-            await store.CommitAsync("Foo.Bar", version, stream, ct);
+            await store.CommitAsync("Foo.Bar", version, TestSourceKey, stream, ct);
         }
 
-        Assert.Equal("2.1.0", store.TryGetLatestCachedVersion("Foo.Bar"));
-        Assert.Null(store.TryGetLatestCachedVersion("Unknown.Package"));
+        Assert.Equal("2.1.0", store.TryGetLatestCachedVersion("Foo.Bar", [TestSourceKey]));
+        Assert.Null(store.TryGetLatestCachedVersion("Unknown.Package", [TestSourceKey]));
     }
 
     [Fact]
@@ -81,11 +108,11 @@ public sealed class PackageStoreTests : IDisposable
         var store = new FileSystemPackageStore();
         var nupkg = MakeNupkg("example.package");
 
-        Assert.Null(store.TryGetCached("example.package", "1.0.0"));
+        Assert.Null(store.TryGetCached("example.package", "1.0.0", [TestSourceKey]));
 
         IPackageContent committed;
         using (var stream = new MemoryStream(nupkg))
-            committed = await store.CommitAsync("example.package", "1.0.0", stream, ct);
+            committed = await store.CommitAsync("example.package", "1.0.0", TestSourceKey, stream, ct);
 
         Assert.NotNull(committed.RootPath);
         Assert.True(Directory.Exists(committed.RootPath));
@@ -99,12 +126,12 @@ public sealed class PackageStoreTests : IDisposable
         dll.Dispose();
 
         // A second lookup hits the committed cache entry at the same path.
-        var cached = store.TryGetCached("example.package", "1.0.0");
+        var cached = store.TryGetCached("example.package", "1.0.0", [TestSourceKey]);
         Assert.NotNull(cached);
         Assert.Equal(committed.RootPath, cached!.RootPath);
         Assert.True(cached.FromCache);
 
-        Assert.Equal("1.0.0", store.TryGetLatestCachedVersion("example.package"));
+        Assert.Equal("1.0.0", store.TryGetLatestCachedVersion("example.package", [TestSourceKey]));
     }
 
     [Theory]
@@ -124,7 +151,7 @@ public sealed class PackageStoreTests : IDisposable
         await Assert.ThrowsAsync<ArgumentException>(async () =>
         {
             using var stream = new MemoryStream(MakeNupkg("example.package"));
-            await store.CommitAsync(packageName, version, stream, ct);
+            await store.CommitAsync(packageName, version, TestSourceKey, stream, ct);
         });
     }
 
@@ -140,7 +167,7 @@ public sealed class PackageStoreTests : IDisposable
         await Assert.ThrowsAsync<ArgumentException>(async () =>
         {
             using var stream = new MemoryStream(MakeNupkg("example.package"));
-            await store.CommitAsync(packageName, version, stream, ct);
+            await store.CommitAsync(packageName, version, TestSourceKey, stream, ct);
         });
     }
 
@@ -152,7 +179,7 @@ public sealed class PackageStoreTests : IDisposable
 
         IPackageContent content;
         using (var stream = new MemoryStream(MakeNupkg("Example")))
-            content = await store.CommitAsync("Foo.Bar", "1.0.0", stream, ct);
+            content = await store.CommitAsync("Foo.Bar", "1.0.0", TestSourceKey, stream, ct);
 
         // Entry stored as lib/net8.0/Example.dll; a differently-cased request
         // must still resolve, mirroring the desktop filesystem.
@@ -168,7 +195,7 @@ public sealed class PackageStoreTests : IDisposable
 
         IPackageContent content;
         using (var stream = new MemoryStream(MakeNupkg("example.package")))
-            content = await store.CommitAsync("example.package", "1.0.0", stream, ct);
+            content = await store.CommitAsync("example.package", "1.0.0", TestSourceKey, stream, ct);
 
         Assert.Throws<ArgumentException>(() =>
             content.TryOpenEntry("../escape.dll", out _));

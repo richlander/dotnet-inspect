@@ -426,6 +426,7 @@ public class ApiCommand
             // via ApiOutputFormatter.SameType (which prefers MetadataName over the
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Kind = type.Kind,
             // Every identity fact carries over: this copy exists to narrow Members, and anything
             // else it drops silently changes what sections and discovery see. Omitting the two
@@ -1984,6 +1985,7 @@ public class ApiCommand
                 Namespace = type.Namespace,
                 Name = type.Name,
                 MetadataName = type.MetadataName,
+                DefinitionName = type.DefinitionName,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -2070,6 +2072,7 @@ public class ApiCommand
             Namespace = type.Namespace,
             Name = type.Name,
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

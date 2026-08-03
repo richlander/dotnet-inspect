@@ -42,6 +42,45 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void DefinitionAddress_ResolvesOnlyAgainstMatchingModuleAndRow()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle expected = reader.TypeDefinitions.Single(
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Type");
+        var address = new MetadataTypeDefinitionAddress(
+            ReadMvid(image),
+            TypeDefinitionToken.FromHandle(reader, expected));
+
+        Assert.True(address.TryResolve(reader, out TypeDefinitionHandle resolved));
+        Assert.Equal(expected, resolved);
+
+        Assert.False(
+            (address with { ModuleVersionId = Guid.NewGuid() })
+                .TryResolve(reader, out _));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0x01000001)]
+    [InlineData(0x02000000)]
+    [InlineData(0x02FFFFFF)]
+    public void DefinitionAddress_RejectsInvalidToken(int token)
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        var address = new MetadataTypeDefinitionAddress(
+            ReadMvid(image),
+            RawTypeDefinitionToken(token));
+
+        Assert.False(address.TryResolve(reader, out _));
+    }
+
+    [Fact]
     public void Forwarder_UsesPolicyOnceAndPreservesHopEvidence()
     {
         byte[] targetImage = BuildAssembly("Target", definesType: true);
@@ -1386,6 +1425,12 @@ public class TypeResolutionContextTests
         MetadataReader reader = pe.GetMetadataReader();
         return reader.GetGuid(reader.GetModuleDefinition().Mvid);
     }
+
+    static TypeDefinitionToken RawTypeDefinitionToken(int value) =>
+        (TypeDefinitionToken)typeof(TypeDefinitionToken)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single()
+            .Invoke([value]);
 
     static byte[] BuildAssembly(
         string assemblyName,

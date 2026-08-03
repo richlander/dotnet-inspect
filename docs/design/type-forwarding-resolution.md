@@ -620,6 +620,15 @@ candidate's acquisition domain. The core-library target remains a distinct
 binding/cache arm even when policy selects the same candidate that an explicit
 `AssemblyRef` would select.
 
+The temporary `IAssemblyReferenceResolver` adapter cannot derive that intrinsic
+answer from its identity-only API and reports `UnsupportedScope`. Decompiler's
+legacy `TypeRef` canonicalization erased which of several explicit core-library
+facade references supplied a type, so its migration seam probes those known
+facade identities as ordered structured reference requests and continues when
+an earlier facade binds but does not declare the requested type. New acquisition
+owners implement the intrinsic policy directly rather than copying that
+compatibility search.
+
 `Module` preserves a decoded `ModuleRef` name and requesting candidate. The
 first engine has no module acquisition policy, so it returns the typed
 `UnsupportedModuleReference` rejection; Analysis never fabricates that verdict
@@ -1483,11 +1492,11 @@ cryptographic identity; two adversarial modules can share an MVID, so the
 address alone must not establish cross-artifact correspondence. The exact
 catalog-local key remains separate.
 
-The address exposes no handle. Metadata owns an internal dereference operation
-that first verifies the MVID, validates that the token denotes a `TypeDef`, and
-checks its row against the target reader's `TypeDef` table before constructing
-a transient handle. No consumer may cast `TypeDefinitionToken.Value` directly
-to a handle.
+The address stores no handle. Its Metadata-owned `TryResolve` operation first
+verifies the MVID, validates that the token denotes a `TypeDef`, and checks its
+row against the target reader's `TypeDef` table before returning a transient
+handle tied to that reader. No consumer may cast `TypeDefinitionToken.Value`
+directly to a handle.
 
 The assembly descriptor and type name are materialized provenance. Stable
 projections may render or persist the descriptor's identity and provenance;

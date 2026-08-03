@@ -198,6 +198,88 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void CrossAssemblyFacts_UseDescriptorStreamWhenPathIsInformational()
+    {
+        using var source = MetadataSource.Open(
+            typeof(object).Assembly.Location,
+            null,
+            new StreamOnlyResolver(typeof(CfgSampleClass).Assembly.Location));
+        var declaringType = TypeRef.Definition(
+            typeof(CfgSampleClass).Assembly.GetName().Name!,
+            typeof(CfgSampleClass).Namespace!,
+            nameof(CfgSampleClass));
+        var backing = new FieldRef(
+            declaringType,
+            "<CompoundProperty>k__BackingField",
+            Int32);
+
+        FieldRef upgraded = source.CrossAssembly.Upgrade(backing);
+
+        Assert.Equal("CompoundProperty", upgraded.BackingPropertyName);
+    }
+
+    [Fact]
+    public void CrossAssemblyInterfaceWalk_FollowsLocalTypeDefinitions()
+    {
+        using var source = MetadataSource.Open(
+            typeof(object).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.SingleAssembly(
+                typeof(CrossAssemblyLocalCollectionDerived).Assembly.Location));
+        TypeRef type = TypeRef.Definition(
+            typeof(CrossAssemblyLocalCollectionDerived).Assembly.GetName().Name!,
+            typeof(CrossAssemblyLocalCollectionDerived).Namespace!,
+            nameof(CrossAssemblyLocalCollectionDerived));
+
+        Assert.Equal(
+            MetadataFactState.Yes,
+            source.SupportsCollectionInitializer(type));
+    }
+
+    [Fact]
+    public void CrossAssemblyInterfaceCache_IncludesGenericArguments()
+    {
+        using var source = MetadataSource.Open(
+            typeof(object).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.SingleAssembly(
+                typeof(CrossAssemblyGenericEquatable<>).Assembly.Location));
+        TypeRef definition = TypeRef.Definition(
+            typeof(CrossAssemblyGenericEquatable<>).Assembly.GetName().Name!,
+            typeof(CrossAssemblyGenericEquatable<>).Namespace!,
+            "CrossAssemblyGenericEquatable`1");
+        TypeRef stringType = TypeRef.CoreLib("System", "String");
+        TypeRef intInstance = TypeRef.GenericInstance(definition, [Int32]);
+        TypeRef equatableDefinition =
+            TypeRef.CoreLib("System", "IEquatable`1");
+        TypeRef equatableInt =
+            TypeRef.GenericInstance(equatableDefinition, [Int32]);
+        TypeRef equatableString =
+            TypeRef.GenericInstance(equatableDefinition, [stringType]);
+
+        Assert.Equal(
+            MetadataFactState.Unknown,
+            source.CrossAssembly.Implements(intInstance, equatableString));
+        Assert.Equal(
+            MetadataFactState.Yes,
+            source.CrossAssembly.Implements(intInstance, equatableInt));
+    }
+
+    [Fact]
+    public void CoreLibraryResolution_TriesLaterFacadeCandidates()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        TypeRef upgraded = source.CrossAssembly.Upgrade(
+            TypeRef.CoreLib("System", "Uri"));
+
+        Assert.Equal(ValueTypeHint.ReferenceType, upgraded.ValueTypeHint);
+    }
+
+    [Fact]
     public void LocalFunctionMetadataName_StaysFull()
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "C");
@@ -373,4 +455,44 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
+
+    sealed class StreamOnlyResolver : IAssemblyReferenceResolver
+    {
+        readonly byte[] _image;
+        readonly AssemblyReferenceIdentity _identity;
+
+        public StreamOnlyResolver(string path)
+        {
+            _image = File.ReadAllBytes(path);
+            _identity = ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("StreamOnlyTestIdentity"))
+                .Identity;
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            identity.Name == _identity.Name
+                ? ResolvedAssemblyReference.Create(
+                    _identity,
+                    "/informational/not-the-assembly.dll",
+                    () => new MemoryStream(_image, writable: false),
+                    AssemblyResolutionProvenance.Local("StreamOnlyTest"))
+                : null;
+    }
+}
+
+public class CrossAssemblyLocalCollectionBase : System.Collections.IEnumerable
+{
+    public System.Collections.IEnumerator GetEnumerator() =>
+        Array.Empty<object>().GetEnumerator();
+}
+
+public sealed class CrossAssemblyLocalCollectionDerived :
+    CrossAssemblyLocalCollectionBase;
+
+public sealed class CrossAssemblyGenericEquatable<T> : IEquatable<T>
+{
+    public bool Equals(T? other) => false;
 }
