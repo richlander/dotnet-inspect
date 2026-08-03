@@ -5,11 +5,44 @@ derived platform packs. [Version resolution](version-resolution.md) owns which
 package coordinate is selected and when network lookup occurs; this document
 owns how content for an exact coordinate becomes visible safely.
 
+## Source conformance
+
+Cached content is scoped to the source that supplied it. A request is served
+only the exact bytes downloaded from a source the current configuration lists.
+Content obtained from any other source is invisible to it, even for an
+identical package id and version.
+
+This is a correctness boundary, not an optimization. Two feeds may publish the
+same coordinate with different content, so serving one feed's bytes for another
+feed's request is package source confusion: the caller receives, and reports on,
+a package it never asked for and may not be entitled to read. Avoiding that
+outcome takes precedence over cache hit rate.
+
+The consequences run through the whole model, and the rest of this document
+should be read with them in mind:
+
+- the source is part of the cache path, so one coordinate held by two feeds
+  occupies two entries and the same bytes may be stored twice;
+- a lookup consults only the entries its configuration entitles it to, and
+  treats every other entry as absent; and
+- in-flight acquisitions are shared only between callers with the same source
+  configuration.
+
+A source is identified by a digest of its normalized URL. Scheme and host are
+case-insensitive by definition and are folded; path and query are not, because
+`/FeedA` and `/feeda` can be different feeds on a case-sensitive server. The
+digest keeps source URLs out of cache paths and makes every identity a valid
+path segment. It is opacity rather than confidentiality: a feed URL is low
+entropy, and a local reader who can see these paths can already see which
+packages were cached.
+
 ## Guarantees
 
 The cache model provides:
 
-- one shared acquisition task per exact coordinate within a process;
+- content scoped to the source that supplied it;
+- one shared acquisition task per exact coordinate *and source configuration*
+  within a process;
 - complete-tree visibility through marked, atomic directory publication;
 - convergence on one valid winner when processes publish concurrently; and
 - no lock ordering between package coordinates.
@@ -25,9 +58,9 @@ implement any of those architectures exactly.
 
 | Precedent | Pattern adopted by dotnet-inspect | Important difference |
 | --- | --- | --- |
-| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. |
+| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet's global folder is also source-blind, whereas dotnet-inspect's own cache is scoped by source. |
 | Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
-| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, and version rather than by a content hash. |
+| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, version, and source rather than by a content hash. |
 | Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
 | Git mutable-state locks | Immutable entries do not require a long-lived cross-process lock when publishers can converge on one valid result. | Explicit locking remains appropriate for future mutable state that cannot use winner convergence. |
 
@@ -45,8 +78,11 @@ work, but it permits duplicate download and extraction.
 
 ## Process-local single-flight
 
-The process-wide in-flight registry is keyed by the final cache path for one
-exact package coordinate. Concurrent callers receive the same task. The
+The process-wide in-flight registry is keyed by one exact package coordinate
+together with the caller's ordered source list. Concurrent callers receive the
+same task only when both match. Callers configured for different sources would
+otherwise be handed each other's bytes, which is the same confusion the cache
+scoping prevents, arriving by a different route. The
 registry entry is removed after completion, whether acquisition succeeds or
 fails, because the committed filesystem entry remains authoritative and is
 revalidated by later requests.
@@ -69,7 +105,7 @@ Package content publication follows this sequence:
 4. Write `.dotnet-inspect.complete` inside the staging directory.
 5. Close all files opened by dotnet-inspect.
 6. Move the staging directory atomically to its final
-   `package-content-v2/{id}/{version}` path.
+   `package-content-v4/{id}/{version}/{source}` path.
 7. If another publisher won, validate and use its committed directory.
 
 Readers accept only final directories with the expected structure and marker;
@@ -77,8 +113,9 @@ they never inspect staging paths. Platform-pack projection applies the same
 transaction separately under `packs-v2` with its own completion marker. It
 copies from committed package content and never mutates that package directory.
 
-The versioned `package-content-v2` and `packs-v2` namespaces fence these
-transactions from older direct-copy writers.
+The versioned `package-content-v4` and `packs-v2` namespaces fence these
+transactions from older direct-copy writers, and from earlier layouts that did
+not scope entries by source.
 
 ## Filesystem coordination
 

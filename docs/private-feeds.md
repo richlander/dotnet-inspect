@@ -143,6 +143,30 @@ sitting next to any of them. To keep it somewhere else entirely, point at it exp
 dotnet-inspect package MyCompany.Widgets --nugetconfig ~/private-feeds/nuget.config
 ```
 
+## Cached packages stay with their source
+
+Downloaded content is cached against the source it came from. A later run is served that content
+only if its configuration still lists that source; otherwise the package is fetched again, or
+reported as not found.
+
+This matters when a package id and version exist on more than one feed. Removing a private feed
+from your configuration does not leave its packages readable from cache, and adding a public feed
+does not let public content stand in for a package you previously read from a private one. Each
+source's copy is kept separately, so switching between configurations gives you what that
+configuration's sources actually serve.
+
+Two practical consequences:
+
+- Inspecting one package from two feeds stores it twice. This is deliberate — the two feeds may
+  not be publishing identical bytes.
+- `--source` and `--add-source` take part in this. A run that replaces your sources will not read
+  content cached under the sources it replaced.
+
+The NuGet global folder (`~/.nuget/packages`) is the exception. It records no source, because
+NuGet does not track one there, so dotnet-inspect reads it as a local store that `dotnet restore`
+also writes to rather than as a feed. If that distinction matters for what you are checking, use
+`--source` to name the feed explicitly and confirm the package is served from it.
+
 ## Checking a source without changing your config
 
 `--add-source` adds one feed for a single run, and `--source` replaces the configured sources
