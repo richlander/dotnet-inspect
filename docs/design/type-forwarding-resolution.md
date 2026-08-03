@@ -112,10 +112,11 @@ comparison projection.
 
 ### Degradation is data
 
-`PrintedBodyMap` uses an explicit degraded position instead of dropping a fact.
-Forwarder resolution similarly distinguishes absence, unavailable evidence,
-ambiguity, and rejection. None is represented as an ordinary null or an empty
-alias set.
+`PrintedBodyMap` keeps an unplaceable fact and makes its `Extent` explicitly
+nullable instead of dropping the fact or inventing coordinates. Forwarder
+resolution similarly preserves absence, unavailable evidence, ambiguity, and
+rejection as typed outcomes rather than collapsing them to an empty alias set
+or a missing result.
 
 ## Vocabulary
 
