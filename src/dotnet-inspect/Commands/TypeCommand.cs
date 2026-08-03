@@ -608,11 +608,17 @@ public static class TypeCommand
             if (api == null)
                 continue;
 
-            ApiServices.ResolveForwardedTypes(api, assemblyPath, logger, options.IncludeAll);
+            ApiServices.ResolveForwardedTypes(
+                api,
+                assemblyPath,
+                logger,
+                options.IncludeAll,
+                isPlatformAssembly: true,
+                options);
 
             foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
             {
-                type.SourceAssemblyPath = assemblyPath;
+                type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
         }
