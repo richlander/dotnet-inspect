@@ -3,18 +3,26 @@ name: CI
 on:
   push:
     branches: [main]
-  # The base-branch filter also decides whether a *stacked* PR gets CI at all.
-  # A PR retargeted from `main` onto a long-lived feature branch silently stops
-  # matching `[main]`, so it reports no checks rather than failing ones -- and
-  # once `ci-required` is a required check, "no checks reported" is
-  # indistinguishable at a glance from "not run yet".
+  # Deliberately unfiltered by base branch. A base-branch filter decides whether
+  # a *stacked* PR gets CI at all: a PR retargeted from `main` onto a long-lived
+  # branch silently stops matching, so it reports no checks rather than failing
+  # ones -- and "no checks reported" is indistinguishable at a glance from "not
+  # run yet", while `ci-required` counts a job that never ran as nothing to
+  # block on.
   #
-  # The list must therefore cover every prefix a *base* can have, which is every
+  # An allow list here has to name every prefix a *base* can have, which is every
   # prefix a branch can have, since any branch under review can be stacked on.
-  # `feature/**` alone left `fix/**` uncovered, and that is not a hypothetical
-  # gap: #3684 opened onto `fix/3628-...` and reported no checks at all.
+  # That is not a list that can be maintained, and each way of getting it wrong
+  # is silent: `[main]` alone missed every stacked PR, adding `feature/**` still
+  # left `fix/**` uncovered (#3684 opened onto `fix/3628-...` and reported no
+  # checks), and adding `fix/**` still left #3558 -- open onto
+  # `prototype/wasm-command-ui` -- mergeable with zero checks (#3706).
+  #
+  # So the filter is gone rather than extended. Every pull request runs CI
+  # whatever it targets. The cost is CI on PRs between side branches; the cost
+  # of the allow list was PRs that merge with no CI at all and look clean doing
+  # it.
   pull_request:
-    branches: [main, 'feature/**', 'fix/**']
 
 env:
   DOTNET_NOLOGO: true
