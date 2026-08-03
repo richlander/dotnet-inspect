@@ -5,6 +5,11 @@ derived platform packs. [Version resolution](version-resolution.md) owns which
 package coordinate is selected and when network lookup occurs; this document
 owns how content for an exact coordinate becomes visible safely.
 
+The publication and filesystem sections describe the current implementation.
+The source-authorization and provenance sections describe the target contract
+from the [package source model](package-source-model.md) and identify current
+deviations explicitly.
+
 ## Source conformance
 
 Content that dotnet-inspect downloaded is scoped to the source that supplied it.
@@ -28,56 +33,71 @@ should be read with them in mind:
 - in-flight acquisitions are shared only between callers with the same source
   configuration.
 
-### The NuGet global folder is outside this boundary
+### The NuGet global folder is a payload cache
 
-`~/.nuget/packages` is read eagerly, ahead of source scoping, and a package
-found there answers regardless of the configured sources. This is deliberate.
-That folder holds what the user restored, not what dotnet-inspect fetched, and
-binding to it eagerly is what makes an inspection agree with the bytes a build
-actually consumed — the fidelity argument and the performance argument point the
-same way. The scoping above governs content dotnet-inspect acquired, where the
-tool chose the source and is accountable for the choice.
+`~/.nuget/packages` does not supply version candidates. Once an exact coordinate
+has been selected, it may supply the payload only when
+`.nupkg.metadata.source` matches a source authorized for that coordinate. For a
+discovered coordinate, that means a feed that reported the version. For a
+pinned coordinate, it means any source eligible for the package id.
 
-The rule is therefore *strict conformance to the sources dotnet-inspect fetched
-from*, not *strict conformance to everything on the machine*. Callers that need
-only configured sources to answer pass `--no-nuget-cache`, which drops the
-folder from lookup. Note that NuGet does record an installed package's source in
-`.nupkg.metadata`; the folder is treated as source-blind by choice, not for want
-of the data.
+This makes the folder a local replica of the recorded feed rather than a
+source-blind authority. Missing, ambiguous, or mismatched source metadata is a
+cache miss. `--no-nuget-cache` removes the layer entirely.
 
-### Known deviation: precedence between two entitled sources
+Source-blind, restore-compatible reuse is not a separate mode. The same
+producer check applies to every package request. `--no-nuget-cache` controls
+whether the global payload layer participates; it does not enable a stricter
+policy than the default.
 
-Slots are consulted in configured order, so when two configured feeds both have
-the coordinate cached, the higher-precedence one answers, as it would on a cold
-run. The case that still differs is when the higher-precedence feed holds the
-package but has no cached slot: a cold run downloads from it, a warm run answers
-from the lower-precedence feed's slot. Both are entitlement-correct — the caller
-reads both feeds — so this is precedence, not source confusion. Closing it
-requires probing the network on every request, which would defeat cache-first and
-offline operation, so it is left open deliberately and tracked as part of the
-broader source-support design.
+Feed authorization is independent of how the active source set was expressed.
+A source inherited from `nuget.config`, added after `<clear/>`, or selected by
+`--source` authorizes the same matching payload. `<clear/>` removes inherited
+authorizations, so their cached payloads become unavailable until the
+corresponding source is added back.
 
-"Entitled" here means the source appears in the caller's configured sources.
-dotnet-inspect does not yet consult `<packageSourceMapping>`, which would narrow
-entitlement further, to the feeds mapped to a particular package id.
+The current implementation is more permissive: it reads global-folder content
+without checking provenance and some cache-first paths scan installed versions
+as candidates. Separating candidate discovery from provenance-matched payload
+fulfillment is tracked by
+[#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
+
+### Selection between two eligible sources
+
+Source declaration order is not feed precedence. When two sources are eligible
+for one package id, either source may supply an exact coordinate. A
+source-bound cache slot may therefore answer without probing an uncached
+eligible source that appears earlier in configuration. This preserves
+cache-first and offline operation and matches NuGet's contract: package source
+mapping, not declaration order, limits which feed may serve an id.
+
+"Authorized" currently means the source appears in the caller's active sources.
+After `<packageSourceMapping>` and candidate provenance are implemented, the
+payload producer must also be selected by the winning mapping pattern and, for
+a discovered coordinate, have reported that version. See the
+[package source model](package-source-model.md) for the end-to-end contract.
 
 A source is identified by a digest of its canonical URL, and canonicalization is
 shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
 one URL cannot mean two things in one tool. Scheme, host, default port,
-percent-escape casing and a trailing path slash fold, because the URI grammar
-defines them as equivalent; path and query case do not, because `/FeedA` and
-`/feeda` can be different feeds on a case-sensitive server. The digest keeps
-source URLs out of cache paths and makes every identity a valid path segment. It
-is opacity rather than confidentiality: a feed URL is low entropy, and a local
-reader who can see these paths can already see which packages were cached.
+percent-escape casing, and an empty root path versus `/` fold because the URI
+grammar defines them as equivalent. Path and query case do not fold:
+`/FeedA` and `/feeda` can name different resources. A non-root trailing slash
+must likewise remain distinct, but the current cache identity incorrectly folds
+`/feed` and `/feed/`. Correcting it requires a cache namespace migration and is
+tracked by [#3737](https://github.com/richlander/dotnet-inspect/issues/3737).
+The digest keeps source URLs out of cache paths and makes every identity a
+valid path segment. It is a path-safe identifier, not a security boundary;
+source authorization comes from the source policy, not from hiding cache keys.
 
 ## Guarantees
 
 The cache model provides:
 
 - content scoped to the source that supplied it;
-- one shared acquisition task per exact coordinate *and source configuration*
-  within a process;
+- producer-feed and payload-location provenance on every opened package;
+- one shared acquisition task per exact coordinate, authorized-producer set,
+  cache root, and acquisition policy within a process;
 - complete-tree visibility through marked, atomic directory publication;
 - convergence on one valid winner when processes publish concurrently; and
 - no lock ordering between package coordinates.
@@ -114,12 +134,18 @@ work, but it permits duplicate download and extraction.
 ## Process-local single-flight
 
 The process-wide in-flight registry is keyed by one exact package coordinate
-together with the caller's ordered source list. Concurrent callers receive the
-same task only when both match. Callers configured for different sources would
-otherwise be handed each other's bytes, which is the same confusion the cache
-scoping prevents, arriving by a different route. The
-registry entry is removed after completion, whether acquisition succeeds or
-fails, because the committed filesystem entry remains authoritative and is
+together with the canonical authorized-producer set, cache root, and the
+acquisition policy that affects whether a result is legal, including
+payload-cache and network permission. Raw source options are insufficient:
+callers can name the same active feeds while package source mapping or
+candidate discovery authorizes different producers. Concurrent callers receive
+the same task only when those authorization inputs match, and every waiter
+revalidates the returned producer. The current ordered-source-list key must
+migrate with the broader source-policy work in
+[#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
+
+The registry entry is removed after completion, whether acquisition succeeds
+or fails, because the committed filesystem entry remains authoritative and is
 revalidated by later requests.
 
 The acquisition factory only downloads, extracts, validates, and commits its
