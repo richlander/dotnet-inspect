@@ -65,15 +65,21 @@ All four families use identity-set matching and leave `Finding.Ordinal` null.
 `PdbContext` exposes POCO records and generic raw CDI access:
 
 - `EnumeratePdbDocuments`
+- `EnumeratePdbDocumentPaths`
 - `EnumerateMemberDocuments`
 - `EnumerateTypeDocuments`
 - `ResolveMethodDocument`
 - `ResolvePdbLocation`
-- `GetModuleCustomDebugInformation(Guid)`
-- `GetDocumentCustomDebugInformation(row, Guid)`
+- `ReadModuleCustomDebugInformation(Guid)`
+- `ReadDocumentCustomDebugInformation(row, Guid)`
 
 It does not expose `MetadataReader` or `PEReader`, and it does not name
 SourceLink GUIDs, maps, URLs, or provenance.
+
+Path-only consumers use `EnumeratePdbDocumentPaths`; checksum blobs are copied
+only for the full document census. A CDI read materializes its value only when
+the parent and GUID identify exactly one row. Duplicate rows are reported as
+ambiguous without choosing or copying a value.
 
 `SourceLinkService` owns PDB lifecycle composition above that context. A PDB
 loaded after service creation advances `PdbContext.PdbVersion`; the service

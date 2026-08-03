@@ -10,7 +10,7 @@ public sealed class SourceLinkResolver
 {
     readonly PdbContext _context;
     readonly SLF.SourceLinkResolver _map;
-    IReadOnlyList<PdbDocumentInfo>? _documents;
+    IReadOnlyList<string>? _documentPaths;
     Dictionary<string, List<string>>? _docsByFirstSegment;
     Dictionary<string, PdbTypeDocumentInfo>? _typesByFullName;
     Dictionary<string, PdbTypeDocumentInfo>? _typesBySimpleName;
@@ -84,8 +84,7 @@ public sealed class SourceLinkResolver
 
         if (files.Count == 0)
         {
-            string? inferred = Documents
-                .Select(static document => document.FilePath)
+            string? inferred = DocumentPaths
                 .FirstOrDefault(path => Path.GetFileNameWithoutExtension(path)
                     .Equals(simpleName, StringComparison.OrdinalIgnoreCase));
             if (inferred is null)
@@ -110,8 +109,7 @@ public sealed class SourceLinkResolver
             AdditionalSourceFiles =
             [
                 .. files.Values
-                    .Where(file => file.FilePath != primary.FilePath)
-                    .OrderBy(static file => file.FilePath, StringComparer.Ordinal),
+                    .Where(file => file.FilePath != primary.FilePath),
             ],
         };
     }
@@ -143,8 +141,8 @@ public sealed class SourceLinkResolver
     public string? ApplySourceLinkMapping(string filePath)
         => _map.ResolveUrl(filePath);
 
-    IReadOnlyList<PdbDocumentInfo> Documents
-        => _documents ??= [.. _context.EnumeratePdbDocuments()];
+    IReadOnlyList<string> DocumentPaths
+        => _documentPaths ??= [.. _context.EnumeratePdbDocumentPaths()];
 
     void EnsureTypeIndexes()
     {
@@ -171,14 +169,14 @@ public sealed class SourceLinkResolver
         {
             var index =
                 new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var document in Documents)
+            foreach (string path in DocumentPaths)
             {
-                string fileName = Path.GetFileName(document.FilePath);
+                string fileName = Path.GetFileName(path);
                 int firstDot = fileName.IndexOf('.');
                 string segment = firstDot >= 0 ? fileName[..firstDot] : fileName;
                 if (!index.TryGetValue(segment, out var paths))
                     index[segment] = paths = [];
-                paths.Add(document.FilePath);
+                paths.Add(path);
             }
             _docsByFirstSegment = index;
         }
@@ -206,7 +204,6 @@ public sealed class SourceLinkResolver
         return files.FirstOrDefault(file => Path.GetFileName(file.FilePath)
                 .Equals(primaryName, StringComparison.OrdinalIgnoreCase))
             ?? files.OrderBy(file => Path.GetFileName(file.FilePath).Length)
-                .ThenBy(static file => file.FilePath, StringComparer.Ordinal)
                 .First();
     }
 

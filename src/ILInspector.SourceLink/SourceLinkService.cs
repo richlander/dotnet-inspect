@@ -33,7 +33,10 @@ public sealed class SourceLinkService : IDisposable
 
     readonly PdbContext _context;
     readonly ISourceLinkIndexCache? _cache;
+    readonly Action<string>? _log;
+    bool _sourceLinkPresent;
     string? _sourceLinkJson;
+    string? _sourceLinkError;
     SLF.SourceLinkResolver? _map;
     SourceDocumentPathResolver _pathResolver = SourceDocumentPathResolver.Empty;
     SourceLinkResolver? _resolver;
@@ -42,10 +45,14 @@ public sealed class SourceLinkService : IDisposable
     Dictionary<string, string[]>? _typeFileIndex;
     int _observedPdbVersion = -1;
 
-    SourceLinkService(PdbContext context, ISourceLinkIndexCache? cache)
+    SourceLinkService(
+        PdbContext context,
+        ISourceLinkIndexCache? cache,
+        Action<string>? log)
     {
         _context = context;
         _cache = cache;
+        _log = log;
         RefreshPdbState();
     }
 
@@ -56,18 +63,18 @@ public sealed class SourceLinkService : IDisposable
         string assemblyPath,
         Action<string>? log,
         ISourceLinkIndexCache? cache)
-        => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache);
+        => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache, log);
 
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,
         ISourceLinkIndexCache? cache = null)
-        => new(PdbContext.Open(assembly, log), cache ?? DefaultCache);
+        => new(PdbContext.Open(assembly, log), cache ?? DefaultCache, log);
 
     public static SourceLinkService OpenPrefetched(
         string assemblyPath,
         Action<string>? log = null)
-        => new(PdbContext.OpenPrefetched(assemblyPath, log), DefaultCache);
+        => new(PdbContext.OpenPrefetched(assemblyPath, log), DefaultCache, log);
 
     public PdbContext Context => _context;
     public bool HasPdb => _context.HasPdb;
@@ -77,7 +84,7 @@ public sealed class SourceLinkService : IDisposable
         get
         {
             EnsureCurrentPdbState();
-            return _sourceLinkJson is not null;
+            return _sourceLinkPresent;
         }
     }
     public string? SourceLinkJson
@@ -183,10 +190,10 @@ public sealed class SourceLinkService : IDisposable
         return _provenance ??= _map is null
             ? new SourceLinkFetch.SourceLinkProvenanceResult(
                 null,
-                "the PDB carries no SourceLink map")
+                _sourceLinkError ?? "the PDB carries no SourceLink map")
             : SLF.SourceLinkProvenance.Determine(
                 _map,
-                _context.EnumeratePdbDocuments().Select(static document => document.FilePath));
+                _context.EnumeratePdbDocumentPaths());
     }
 
     internal SourceDocumentPathResolver PathResolver
@@ -200,21 +207,48 @@ public sealed class SourceLinkService : IDisposable
 
     void RefreshPdbState()
     {
-        _sourceLinkJson = _context
-            .GetModuleCustomDebugInformation(SourceLinkKind)
-            .Select(static bytes => Encoding.UTF8.GetString(bytes))
-            .FirstOrDefault();
-        _map = _sourceLinkJson is null
-            ? null
-            : SLF.SourceLinkResolver.Parse(_sourceLinkJson);
-        _pathResolver = _map is null
-            ? SourceDocumentPathResolver.Empty
-            : SourceDocumentPathResolver.Create(_map);
-        _resolver = _map is null ? null : new SourceLinkResolver(_context, _map);
+        _sourceLinkPresent = false;
+        _sourceLinkJson = null;
+        _sourceLinkError = null;
+        _map = null;
+        _pathResolver = SourceDocumentPathResolver.Empty;
+        _resolver = null;
         _provenance = null;
         _trackedFiles = null;
         _typeFileIndex = null;
-        _observedPdbVersion = _context.PdbVersion;
+
+        try
+        {
+            var sourceLink =
+                _context.ReadModuleCustomDebugInformation(SourceLinkKind);
+            _sourceLinkPresent =
+                sourceLink.Status != PdbCustomDebugInformationStatus.Absent;
+            if (sourceLink.Status == PdbCustomDebugInformationStatus.Duplicate)
+            {
+                _sourceLinkError =
+                    "the PDB carries multiple SourceLink custom debug information records";
+                _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+                return;
+            }
+
+            if (sourceLink.Value is null)
+                return;
+
+            _sourceLinkJson = Encoding.UTF8.GetString(sourceLink.Value);
+            _map = SLF.SourceLinkResolver.Parse(_sourceLinkJson);
+            _pathResolver = SourceDocumentPathResolver.Create(_map);
+            _resolver = new SourceLinkResolver(_context, _map);
+        }
+        catch (Exception ex) when (IsPdbInspectionFailure(ex))
+        {
+            _sourceLinkError =
+                $"the SourceLink custom debug information could not be read: {ex.Message}";
+            _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+        }
+        finally
+        {
+            _observedPdbVersion = _context.PdbVersion;
+        }
     }
 
     void EnsureCurrentPdbState()
@@ -282,10 +316,11 @@ public sealed class SourceLinkService : IDisposable
         {
             if (type.FilePaths.Count == 0)
                 continue;
-            Add(type.TypeFullName, type.FilePaths);
+            string[] orderedPaths = [.. type.FilePaths.Order()];
+            Add(type.TypeFullName, orderedPaths);
             string indexName = TypeFileIndexName(type.TypeFullName);
             if (indexName != type.TypeFullName)
-                Add(indexName, type.FilePaths);
+                Add(indexName, orderedPaths);
         }
         return index.ToDictionary(
             static item => item.Key,
@@ -308,6 +343,11 @@ public sealed class SourceLinkService : IDisposable
         int separator = fullName.LastIndexOf('.');
         return separator >= 0 ? fullName[(separator + 1)..] : fullName;
     }
+
+    static bool IsPdbInspectionFailure(Exception exception)
+        => exception is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException;
 
     public void Dispose() => _context.Dispose();
 }

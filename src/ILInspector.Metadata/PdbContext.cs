@@ -23,6 +23,21 @@ public record PdbDocumentInfo(
     string? ChecksumAlgorithm = null,
     int DocumentRowId = 0);
 
+public enum PdbCustomDebugInformationStatus
+{
+    Absent,
+    Present,
+    Duplicate,
+}
+
+/// <summary>
+/// One custom-debug-information value selected by parent and kind.
+/// A duplicate is reported without choosing or materializing either value.
+/// </summary>
+public sealed record PdbCustomDebugInformationResult(
+    PdbCustomDebugInformationStatus Status,
+    byte[]? Value);
+
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
 /// The metadata token and document row identify same-version coordinates; the
@@ -879,6 +894,18 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
+    /// Enumerates portable-PDB document paths without reading their checksum blobs.
+    /// </summary>
+    public IEnumerable<string> EnumeratePdbDocumentPaths()
+    {
+        if (_pdbReader == null)
+            yield break;
+
+        foreach (var docHandle in _pdbReader.Documents)
+            yield return _pdbReader.GetString(_pdbReader.GetDocument(docHandle).Name);
+    }
+
+    /// <summary>
     /// Enumerates method-to-document mappings from visible portable-PDB sequence points.
     /// A method may produce multiple rows when sequence points span multiple documents.
     /// </summary>
@@ -964,7 +991,8 @@ public class PdbContext : IDisposable
             if (string.IsNullOrEmpty(fullName) || fullName == "<Module>")
                 continue;
 
-            HashSet<string> paths = [];
+            List<string> paths = [];
+            HashSet<string> seenPaths = new(StringComparer.Ordinal);
             foreach (var methodHandle in type.GetMethods())
             {
                 try
@@ -977,7 +1005,7 @@ public class PdbContext : IDisposable
                         continue;
                     var document = _pdbReader.GetDocument(debugInfo.Document);
                     string path = _pdbReader.GetString(document.Name);
-                    if (!string.IsNullOrEmpty(path))
+                    if (!string.IsNullOrEmpty(path) && seenPaths.Add(path))
                         paths.Add(path);
                 }
                 catch (Exception ex) when (ex is BadImageFormatException
@@ -990,27 +1018,33 @@ public class PdbContext : IDisposable
             yield return new PdbTypeDocumentInfo(
                 fullName,
                 metadata.GetString(type.Name),
-                paths.Order(StringComparer.Ordinal).ToArray());
+                paths);
         }
     }
 
-    /// <summary>Gets module custom-debug-information values having <paramref name="kind"/>.</summary>
-    public IReadOnlyList<byte[]> GetModuleCustomDebugInformation(Guid kind)
-        => GetCustomDebugInformation(EntityHandle.ModuleDefinition, kind);
+    /// <summary>
+    /// Reads the unique module custom-debug-information value having
+    /// <paramref name="kind"/>.
+    /// </summary>
+    public PdbCustomDebugInformationResult ReadModuleCustomDebugInformation(Guid kind)
+        => ReadCustomDebugInformation(EntityHandle.ModuleDefinition, kind);
 
     /// <summary>
-    /// Gets document custom-debug-information values having <paramref name="kind"/>.
+    /// Reads the unique document custom-debug-information value having
+    /// <paramref name="kind"/>.
     /// </summary>
-    public IReadOnlyList<byte[]> GetDocumentCustomDebugInformation(int documentRowId, Guid kind)
+    public PdbCustomDebugInformationResult ReadDocumentCustomDebugInformation(
+        int documentRowId,
+        Guid kind)
     {
         if (_pdbReader == null
             || documentRowId <= 0
             || documentRowId > _pdbReader.GetTableRowCount(TableIndex.Document))
         {
-            return [];
+            return new(PdbCustomDebugInformationStatus.Absent, null);
         }
 
-        return GetCustomDebugInformation(
+        return ReadCustomDebugInformation(
             MetadataTokens.DocumentHandle(documentRowId),
             kind);
     }
@@ -1038,19 +1072,33 @@ public class PdbContext : IDisposable
         return false;
     }
 
-    IReadOnlyList<byte[]> GetCustomDebugInformation(EntityHandle parent, Guid kind)
+    PdbCustomDebugInformationResult ReadCustomDebugInformation(
+        EntityHandle parent,
+        Guid kind)
     {
         if (_pdbReader == null)
-            return [];
+            return new(PdbCustomDebugInformationStatus.Absent, null);
 
-        List<byte[]> values = [];
+        BlobHandle value = default;
+        bool found = false;
         foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
         {
             var info = _pdbReader.GetCustomDebugInformation(handle);
-            if (_pdbReader.GetGuid(info.Kind) == kind)
-                values.Add(_pdbReader.GetBlobBytes(info.Value));
+            if (_pdbReader.GetGuid(info.Kind) != kind)
+                continue;
+
+            if (found)
+                return new(PdbCustomDebugInformationStatus.Duplicate, null);
+
+            found = true;
+            value = info.Value;
         }
-        return values;
+
+        return found
+            ? new(
+                PdbCustomDebugInformationStatus.Present,
+                _pdbReader.GetBlobBytes(value))
+            : new(PdbCustomDebugInformationStatus.Absent, null);
     }
 
     private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
