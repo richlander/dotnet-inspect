@@ -398,13 +398,11 @@ public class SourceLinkProvenanceTests
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("path=/fixed.cs&path=/*", "repeats the")]
     [InlineData("path=/*&path=/fixed.cs", "repeats the")]
     // The wildcard has to sit in one of the repeats: with none, the entry is refused a layer
     // earlier for pairing a wildcard key with a constant URL, which is not this rule.
     [InlineData("scopePath=/*&scopePath=/other", "repeats the")]
     [InlineData("api-version=1.0&api-version=7.1&path=/*", "repeats the")]
-    [InlineData("PATH=/fixed.cs&path=/*", "case-insensitively is not stated")]
     [InlineData("path=/*&PATH=/fixed.cs", "case-insensitively is not stated")]
     public void ARepeatedContentSelector_IsNotAttributable(string query, string reason)
     {
@@ -414,6 +412,38 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains(reason, result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rows above whose wildcard sits in the occurrence the host does <em>not</em> serve are
+    /// refused one layer earlier, by the matcher, since issue #3599's resolution half landed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Azure serves the first occurrence, so <c>path=/fixed.cs&amp;path=/*</c> substitutes into a
+    /// position the host will never read: every document fetches <c>fixed.cs</c>. That is the
+    /// definition of an entry that cannot select content, so it is now rejected outright rather
+    /// than resolved and left unattributed.
+    /// </para>
+    /// <para>
+    /// The split between this theory and the one above is the whole point of separating them:
+    /// which layer refuses depends on whether the substitution is in the served occurrence, and
+    /// asserting that here keeps a future change from moving a row between layers unnoticed.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("path=/fixed.cs&path=/*")]
+    [InlineData("PATH=/fixed.cs&path=/*")]
+    public void ARepeatedContentSelectorWhoseWildcardIsNeverRead_IsRefusedResolution(string query)
+    {
+        string map =
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""";
+
+        var resolver = SLF.SourceLinkResolver.Parse(map);
+
+        Assert.Equal(["/_/*"], resolver.RejectedKeys);
+        Assert.Null(resolver.ResolveUrl("/_/A.cs"));
+        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]).IsEstablished);
     }
 
     /// <summary>
@@ -587,6 +617,14 @@ public class SourceLinkProvenanceTests
     /// document, because an assembly declaring one document offers no second URL to compare
     /// against and the defect is present there just the same.
     /// </summary>
+    /// <remarks>
+    /// This once demonstrated the defect by resolving: both documents produced distinct URLs that
+    /// fetched one file, and the assertion was that provenance declined to attribute them. Since
+    /// issue #3599's resolution half landed, the entry is refused by the matcher instead, so the
+    /// stronger statement is available and is made here — nothing is fetched at all. The
+    /// intermediate property is kept as the reason the refusal is not redundant with the
+    /// two-probe check: the request texts really do differ, so only a host-aware rule catches it.
+    /// </remarks>
     [Fact]
     public void AnAzureMapWhoseWildcardSelectsNothing_IsRefusedEvenForOneDocument()
     {
@@ -594,14 +632,12 @@ public class SourceLinkProvenanceTests
             $$$"""{"documents":{"*":"{{{AzureItems}}}api-version=*&versionType=commit&version={{{Sha}}}&path=/README.md"}}""";
 
         var resolver = SLF.SourceLinkResolver.Parse(Map);
-        Assert.True(resolver.TryResolve("1.0", out var a));
-        Assert.True(resolver.TryResolve("7.1", out var b));
 
-        // The two-probe check passes: the request texts really are different.
-        Assert.NotEqual(a.Url, b.Url);
-
-        // And the part the host selects on is identical, so both fetch one file.
-        Assert.Equal(a.Url[a.Url.IndexOf("&path=", StringComparison.Ordinal)..], b.Url[b.Url.IndexOf("&path=", StringComparison.Ordinal)..]);
+        // The two-probe check would pass: substituting '1.0' and '7.1' really does produce two
+        // different request texts. Only the host's grammar says both fetch README.md.
+        Assert.Equal(["*"], resolver.RejectedKeys);
+        Assert.False(resolver.TryResolve("1.0", out _));
+        Assert.False(resolver.TryResolve("7.1", out _));
 
         Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0", "7.1"]).IsEstablished);
         Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0"]).IsEstablished);
@@ -611,6 +647,10 @@ public class SourceLinkProvenanceTests
     /// The defect the rule above prevents, stated as the behaviour rather than the refusal: two
     /// documents must not both resolve to one file while reporting an origin.
     /// </summary>
+    /// <remarks>
+    /// As above, the refusal now happens at the matcher rather than at attribution, so the
+    /// documents resolve to nothing instead of resolving to one file unattributed.
+    /// </remarks>
     [Fact]
     public void AGitHubMapWhoseWildcardIsConfinedToTheQuery_DoesNotAttributeEveryDocumentToOneFile()
     {
@@ -618,22 +658,13 @@ public class SourceLinkProvenanceTests
             $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/fixed.cs?ignored=*"}}""";
 
         var resolver = SLF.SourceLinkResolver.Parse(Map);
-        Assert.True(resolver.TryResolve("A.cs", out var a));
-        Assert.True(resolver.TryResolve("B.cs", out var b));
 
-        // The two-probe check passes: the request texts really are different.
-        Assert.NotEqual(a.Url, b.Url);
-
-        // And yet both fetch the same file, because the host ignores what differs. So the map
-        // must not be attributable, or one file would be reported as the source of every
-        // document with a correct-looking origin.
-        Assert.Equal(
-            a.Url[..a.Url.IndexOf('?', StringComparison.Ordinal)],
-            b.Url[..b.Url.IndexOf('?', StringComparison.Ordinal)]);
+        Assert.Equal(["*"], resolver.RejectedKeys);
+        Assert.False(resolver.TryResolve("A.cs", out _));
+        Assert.False(resolver.TryResolve("B.cs", out _));
 
         var result = SLF.SourceLinkProvenance.Determine(resolver, ["A.cs", "B.cs"]);
         Assert.False(result.IsEstablished);
-        Assert.Contains("ignores the query", result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>

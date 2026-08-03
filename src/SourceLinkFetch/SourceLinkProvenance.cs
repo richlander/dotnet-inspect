@@ -176,7 +176,7 @@ public static class SourceLinkProvenance
             }
 
             if (!TryCheckSubstitutionSelectsContent(
-                    url, origin, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
+                    url, origin.Host, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
             {
                 return new SourceLinkProvenanceResult(
                     null,
@@ -310,7 +310,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     internal static bool TryCheckSubstitutionSelectsContent(
         string url,
-        in SourceLinkOrigin origin,
+        string host,
         int offset,
         int length,
         out string rejection)
@@ -330,7 +330,7 @@ public static class SourceLinkProvenance
         int fragmentStart = url.IndexOf('#', StringComparison.Ordinal);
         int pathEnd = queryStart >= 0 ? queryStart : (fragmentStart >= 0 ? fragmentStart : url.Length);
 
-        if (string.Equals(origin.Host, GitHubRawHost, StringComparison.Ordinal))
+        if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
         {
             // This host serves the path, so the path is the only place a substitution can select
             // anything. The query is already refused outright for this host, which leaves the
@@ -340,7 +340,7 @@ public static class SourceLinkProvenance
             if (offset < authorityEnd || end > pathEnd)
             {
                 rejection =
-                    $"'{origin.Host}' selects content by path, and the document text is " +
+                    $"'{host}' selects content by path, and the document text is " +
                     "substituted outside it, so every document resolves to the same file";
                 return false;
             }
@@ -362,10 +362,90 @@ public static class SourceLinkProvenance
         }
 
         rejection =
-            $"'{origin.Host}' selects content by the 'path' or 'scopePath' parameter, and the " +
+            $"'{host}' selects content by the 'path' or 'scopePath' parameter, and the " +
             "document text is substituted outside it, so every document resolves to the same file";
         return false;
     }
+
+    /// <summary>
+    /// Whether an entry may resolve at all: refuses one that would fetch a single file for every
+    /// document it matches, on a host whose content selector this reader knows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <em>resolution</em> half of issue #3599, and it is deliberately a weaker
+    /// predicate than the attribution half above rather than the same one applied twice. Refusing
+    /// to resolve wherever attribution refuses was the obvious reading of the issue and is wrong:
+    /// measured on the six shapes pinned by
+    /// <c>SourceLinkMapConformanceTests.OnlyAnEntryThatCannotSelectContent_IsRefusedResolution</c>,
+    /// attribution refuses five and only two of those fetch the wrong file.
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>
+    ///     A wildcard in the path with an inert query alongside it
+    ///     (<c>.../{sha}/*?foo=bar</c>) is unattributable because this host ignores the query,
+    ///     yet the path still selects, so it fetches exactly the right file.
+    ///   </item>
+    ///   <item>
+    ///     A branch-based GitHub map (<c>.../o/r/main/*</c>) is unattributable because the
+    ///     revision/path boundary is not determinable, and fetches correctly regardless.
+    ///   </item>
+    ///   <item>
+    ///     A self-hosted server is unattributable because it is not a recognized host — and
+    ///     refusing it would stop this tool resolving source for every SourceLink deployment
+    ///     outside the two hosts whose grammar is written down here.
+    ///   </item>
+    /// </list>
+    /// <para>
+    /// So an unrecognized host keeps today's behavior: unknown grammar means no claim in either
+    /// direction, and the entry resolves. Only a host this reader can speak for, whose selector
+    /// the substitution demonstrably misses, is refused — and it is refused as a non-conformant
+    /// entry, so it lands in <see cref="SourceLinkResolver.RejectedKeys"/> and stops shadowing a
+    /// valid less-specific entry rather than merely failing to resolve. That is the same remedy
+    /// this matcher already applies to a wildcard key paired with a constant URL, and for the
+    /// identical stated reason: wrong content is worse than no content.
+    /// </para>
+    /// <para>
+    /// The direction of the call is worth naming. <see cref="Determine"/> asks the resolver what
+    /// a map resolves to, and here the resolver asks this class what a host reads. That is not a
+    /// cycle: this method is a pure question about a host's URL grammar, holds no state, and
+    /// reaches nothing on the resolver. The grammars live here because that is where the hosts
+    /// are already written down, and duplicating them into the matcher is what issue #3599
+    /// explicitly ruled out.
+    /// </para>
+    /// </remarks>
+    internal static bool CanSelectContent(string url, int offset, int length, out string rejection)
+    {
+        rejection = "";
+
+        if (offset < 0)
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || !IsRecognizedSourceHost(uri.Host))
+        {
+            // An unrecognized host's grammar is unknown, so nothing here can say whether the
+            // substitution selects. Silence is the answer that preserves a working deployment.
+            return true;
+        }
+
+        return TryCheckSubstitutionSelectsContent(url, uri.Host, offset, length, out rejection);
+    }
+
+    /// <summary>
+    /// Whether this reader knows the URL grammar of a host, and can therefore say what a
+    /// substitution placed in one of its components does.
+    /// </summary>
+    /// <remarks>
+    /// This names the same set as the allow list in <see cref="TryReadOrigin"/>, and is
+    /// deliberately the only other reader of it, so a host admitted there gains a content
+    /// selector here in the same change rather than silently resolving unchecked.
+    /// </remarks>
+    internal static bool IsRecognizedSourceHost(string host) =>
+        string.Equals(host, GitHubRawHost, StringComparison.Ordinal)
+        || string.Equals(host, AzureDevOpsHost, StringComparison.Ordinal)
+        || host.EndsWith(VisualStudioHostSuffix, StringComparison.Ordinal);
 
     /// <summary>
     /// Refuses an origin whose own text carries a scalar that can act on whatever displays it.
