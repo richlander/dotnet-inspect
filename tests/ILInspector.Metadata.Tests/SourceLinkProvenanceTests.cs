@@ -831,7 +831,15 @@ public class SourceLinkProvenanceTests
             + "?api-version=1.0&versionType=commit&version=" + Sha;
 
         // The empty 'path' is not what the host selects with, so the wildcard in 'scopePath' is.
-        foreach (string query in new[] { "path&scopePath=/*", "path=&scopePath=/*", "scopePath&path=/*" })
+        // Blank is decided after decoding: measured, every one of these falls through exactly as
+        // an absent value does.
+        foreach (string query in new[]
+        {
+            "path&scopePath=/*", "path=&scopePath=/*", "scopePath&path=/*",
+            "path=%20&scopePath=/*", "path=%20%20&scopePath=/*", "path=+&scopePath=/*",
+            "path=%09&scopePath=/*", "path=%0a&scopePath=/*", "path=%0d&scopePath=/*",
+            "path=%C2%A0&scopePath=/*",
+        })
         {
             var resolver = SLF.SourceLinkResolver.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
@@ -844,7 +852,11 @@ public class SourceLinkProvenanceTests
 
         // With nothing left to fall through to, the host serves its root listing for every
         // document, so the fall-through cannot become a blanket acceptance of an empty selector.
-        foreach (string query in new[] { "path&path=/*", "path&scopePath&path=/*" })
+        // Blank text is still blank when it is the only spelling present.
+        foreach (string query in new[]
+        {
+            "path&path=/*", "path&scopePath&path=/*", "path=%20&path=/*",
+        })
         {
             var resolver = SLF.SourceLinkResolver.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
@@ -852,6 +864,70 @@ public class SourceLinkProvenanceTests
             Assert.Equal(["*"], resolver.RejectedKeys);
             Assert.False(resolver.TryResolve("A.cs", out _));
         }
+
+        // Blank is emptiness, not trimming: the host answers 404 for a value with a space in
+        // front of a real file, so a value that merely contains blank text still selects.
+        var padded = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&path=%20/*\"}}");
+
+        Assert.Empty(padded.RejectedKeys);
+    }
+
+    /// <summary>
+    /// A parameter name folds case over ASCII only, because a Unicode fold onto one of these
+    /// names invents a selector the host does not have.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in the fifth review round. <see cref="char.ToUpperInvariant(char)"/> maps U+017F
+    /// LATIN SMALL LETTER LONG S to <c>'S'</c>, so <c>ſcopePath</c> compared equal to
+    /// <c>scopePath</c> here while the host ignores it entirely. Ordered with the wildcard in the
+    /// spelling only this reader believes in, that was issue #3599 again rather than the
+    /// over-refusal it was first reported as: this reader found its wildcard and accepted, and
+    /// the host served one file under every document's name.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// </para>
+    /// <code>
+    /// ſcopePath=/README.md                        200  425   ignored, so root listing
+    /// ſcopePath=/nope.txt&amp;scopePath=/README.md     200  985   does not bind or win
+    /// ſcopePath=/A.cs&amp;scopePath=/README.md         200  985   one file for
+    /// ſcopePath=/B.cs&amp;scopePath=/README.md         200  985   every document
+    /// PATH=/nope.txt&amp;path=/README.md              404        ASCII still folds
+    /// </code>
+    /// </remarks>
+    [Fact]
+    public void ANonAsciiCaseFold_DoesNotInventAContentSelector()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // The host has no such parameter, so the wildcard is in nothing it reads and the real
+        // scopePath alongside it selects one fixed file for every document.
+        var invented = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/*&scopePath=/One.cs\"}}");
+
+        Assert.Equal(["*"], invented.RejectedKeys);
+        Assert.False(invented.TryResolve("A.cs", out _));
+
+        // Nor may it shadow one: the host ignores it, so the map resolves and must not be refused.
+        var ignored = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/One.cs&path=/*\"}}");
+
+        Assert.Empty(ignored.RejectedKeys);
+        Assert.True(ignored.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+        Assert.True(ignored.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+        Assert.NotEqual(one.Url, two.Url);
+
+        // The ASCII fold the host does perform is untouched, so the rule above is not a blanket
+        // return to ordinal comparison.
+        var ascii = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&PATH=/One.cs&path=/*\"}}");
+
+        Assert.Equal(["*"], ascii.RejectedKeys);
     }
 
     /// <summary>
@@ -873,10 +949,12 @@ public class SourceLinkProvenanceTests
     /// </para>
     /// <code>
     /// path[]=/nope.txt&amp;path=/README.md      404   binds, and wins
-    /// path[][]  path[][][]  path[]%5B%5D     404   repeats, so one group is not the rule
+    /// path[][]  path[][][]  path[]%5B%5D     404   repeats
     /// []path    [][]path    []path[]         404   and binds on the left as well
-    /// %5B%5Dpath  path%5B%5D%5B%5D           404   after decoding
+    /// p[]ath  pa[]th  pat[]h  p[]a[]t[]h     404   and anywhere in between
+    /// %5B%5Dpath  path%5B%5D%5B%5D  p%5B%5Dath 404 after decoding
     /// []PATH    []%70ath                     404   with the case and escape folds
+    /// p[[]]ath  pa[]]th  pa[[]th             200   one pass, so no rescan
     /// path[0]  path[1]  path[a]  path[][0]   200   ignored
     /// [0]path  [a]path  [].path  [0].path    200   ignored
     /// x[]path  []pathx  path[]x  path]       200   ignored
@@ -898,13 +976,15 @@ public class SourceLinkProvenanceTests
             "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
             + "?api-version=1.0&versionType=commit&version=" + Sha;
 
-        // Measured to bind and win, so a wildcard in the later pair is never read. Brackets bind
-        // on either side and repeat, so the fold cannot be a single trailing group.
+        // Measured to bind and win, so a wildcard in the later pair is never read. Empty groups
+        // are deleted wherever they appear, so the fold cannot be an edges-only rule.
         foreach (string alias in new[]
         {
             "path[]", "path[][]", "path[][][]", "path%5B%5D", "path%5B%5D%5B%5D", "path[]%5B%5D",
             "PATH[]", "%70ath[]",
             "[]path", "[][]path", "%5B%5Dpath", "[]path[]", "[]PATH", "[]%70ath",
+            "p[]ath", "pa[]th", "pat[]h", "p[][]ath", "p[]a[]t[]h", "p[]at[]h", "p%5B%5Dath",
+            "[]p[]ath[]",
         })
         {
             var shadowed = SLF.SourceLinkResolver.Parse(
@@ -914,12 +994,15 @@ public class SourceLinkProvenanceTests
             Assert.False(shadowed.TryResolve("A.cs", out _));
         }
 
-        // Measured to be ignored by the host, so folding them would refuse a map that works.
+        // Measured to be ignored by the host, so folding them would refuse a map that works. The
+        // nested spellings are the close negative for the deletion being a single pass: the host
+        // does not rescan what a deletion brings together.
         foreach (string ignored in new[]
         {
             "path[0]", "path[1]", "path[a]", "path%5B0%5D", "path[][0]", "path[0][]",
             "path[]x", "path[]0", "path]", "path{}", "path()", "path%255B%255D",
             "[0]path", "[a]path", "[].path", "[0].path", "x[]path", "[]pathx",
+            "p[[]]ath", "pa[]]th", "pa[[]th", "p[[]]a[]th", "p[0]ath",
             "path.", "path.x", "pathX",
         })
         {

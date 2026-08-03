@@ -685,13 +685,55 @@ public static class SourceLinkProvenance
         string url, int queryStart, out int valueStart, out int valueEnd)
     {
         if (TrySpanOfQueryValue(url, queryStart, "path", out valueStart, out valueEnd)
-            && valueEnd > valueStart)
+            && ValueSelects(url, valueStart, valueEnd))
         {
             return true;
         }
 
         return TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd)
-            && valueEnd > valueStart;
+            && ValueSelects(url, valueStart, valueEnd);
+    }
+
+    /// <summary>
+    /// Whether a selector value names anything, as the host judges it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Blank is not a selection, and blank is decided after decoding rather than on the raw text:
+    /// measured, <c>path=%20</c>, <c>path=+</c>, <c>path=%09</c>, <c>path=%0a</c>, <c>path=%0d</c>
+    /// and <c>path=%C2%A0</c> all fall through to <c>scopePath</c> exactly as an absent value
+    /// does, and <c>path=%20</c> alone answers with the repository root listing. Comparing raw
+    /// lengths made this reader treat those as selections and refuse maps the host resolves,
+    /// which is over-refusal — a real defect in this predicate. Found in review.
+    /// </para>
+    /// <para>
+    /// The host does not <em>trim</em>, so this is emptiness and not normalization:
+    /// <c>path=%20/README.md</c> answers 404 rather than serving the file.
+    /// </para>
+    /// </remarks>
+    private static bool ValueSelects(string url, int valueStart, int valueEnd)
+    {
+        if (valueEnd <= valueStart)
+        {
+            return false;
+        }
+
+        string raw = url.Substring(valueStart, valueEnd - valueStart);
+
+        // '+' is a space in a form-encoded value, which is how these hosts read a query.
+        string decoded;
+        try
+        {
+            decoded = Uri.UnescapeDataString(raw.Replace('+', ' '));
+        }
+        catch (UriFormatException)
+        {
+            // Undecodable text is not blank, and refusing to call it blank keeps the caller from
+            // falling through to a selector the host will not reach.
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(decoded);
     }
 
     /// <summary>
@@ -764,8 +806,8 @@ public static class SourceLinkProvenance
 
     /// <summary>
     /// Whether a raw query parameter name denotes <paramref name="name"/> once the percent-escapes
-    /// the host decodes have been applied and the array brackets its model binder ignores have
-    /// been stripped.
+    /// the host decodes have been applied and the array brackets its model binder deletes have
+    /// been removed.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -774,62 +816,59 @@ public static class SourceLinkProvenance
     /// left as the literal <c>'%'</c> it is, which is how these hosts read it.
     /// </para>
     /// <para>
-    /// Any number of empty <c>[]</c> groups on <em>either</em> side binds the same parameter,
-    /// because the host's model binder reads them as collection syntax around the name. A group
-    /// that carries anything between the brackets does not, and neither does any other adornment;
-    /// folding those would refuse maps that resolve correctly, which this predicate must not do.
-    /// See <c>AnArraySuffixedContentSelector_BindsTheSameParameter</c> for the measurements.
+    /// An empty <c>[]</c> group is deleted wherever it appears — not only at the ends — in a
+    /// single left-to-right pass. The host does not rescan what a deletion brings together, so
+    /// <c>p[[]]ath</c> collapses to <c>p[]ath</c> and stays unbound while <c>p[]ath</c> binds.
+    /// Both directions are measured; see
+    /// <c>AnArraySuffixedContentSelector_BindsTheSameParameter</c>.
+    /// </para>
+    /// <para>
+    /// Case folds over ASCII only. <see cref="char.ToUpperInvariant(char)"/> maps U+017F LATIN
+    /// SMALL LETTER LONG S to <c>'S'</c>, which made this reader see <c>ſcopePath</c> as
+    /// <c>scopePath</c> while the host ignores it entirely — so a map could put the wildcard in a
+    /// parameter only this reader believes exists. Found in review and measured: <c>ſcopePath</c>
+    /// alone answers with the repository root listing, and <c>ſcopePath=/A.cs</c> beside
+    /// <c>scopePath=/README.md</c> serves README for every document.
     /// </para>
     /// </remarks>
     private static bool DecodedNameMatches(ReadOnlySpan<char> raw, string name)
     {
+        int matched = 0;
         int i = 0;
-        while (TryReadEmptyBracketGroup(raw, i, out int afterLeading))
-        {
-            i = afterLeading;
-        }
 
-        foreach (char expected in name)
+        while (i < raw.Length)
         {
-            // Case-insensitively for the same reason the parameter reader is: whether the host
-            // folds case is not stated by the URL, so a name that differs only in case has to be
-            // seen here and refused by the rule that owns it, not missed. Measured: 'PATH' and
-            // '%50%41%54%48' both select on Azure DevOps.
-            if (!TryDecodeAt(raw, i, out char c, out int next)
-                || char.ToUpperInvariant(c) != char.ToUpperInvariant(expected))
+            if (!TryDecodeAt(raw, i, out char c, out int next))
             {
                 return false;
             }
 
+            if (c == '['
+                && TryDecodeAt(raw, next, out char close, out int afterClose)
+                && close == ']')
+            {
+                i = afterClose;
+                continue;
+            }
+
+            if (matched == name.Length || AsciiLower(c) != AsciiLower(name[matched]))
+            {
+                return false;
+            }
+
+            matched++;
             i = next;
         }
 
-        while (TryReadEmptyBracketGroup(raw, i, out int afterTrailing))
-        {
-            i = afterTrailing;
-        }
-
-        return i == raw.Length;
+        return matched == name.Length;
     }
 
     /// <summary>
-    /// Reads one decoded <c>[]</c> at <paramref name="i"/>, reporting where it ends.
+    /// Lowercases an ASCII letter and leaves every other scalar alone, so that no non-ASCII
+    /// scalar can be folded onto one of these parameter names.
     /// </summary>
-    private static bool TryReadEmptyBracketGroup(ReadOnlySpan<char> raw, int i, out int next)
-    {
-        next = i;
-
-        if (TryDecodeAt(raw, i, out char open, out int afterOpen)
-            && open == '['
-            && TryDecodeAt(raw, afterOpen, out char close, out int afterClose)
-            && close == ']')
-        {
-            next = afterClose;
-            return true;
-        }
-
-        return false;
-    }
+    private static char AsciiLower(char c) =>
+        (uint)(c - 'A') <= 'Z' - 'A' ? (char)(c | 0x20) : c;
 
     /// <summary>
     /// Reads the character at <paramref name="i"/> as the host decodes it, reporting where the

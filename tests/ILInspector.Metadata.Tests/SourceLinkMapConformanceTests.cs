@@ -641,6 +641,18 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path%5B%5D=/One.cs&path=/*",
         false)]
+    // Refused: the empty group is deleted wherever it sits, not only at the ends.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&p[]ath=/One.cs&path=/*",
+        false)]
+    // Refused: 'ſ' upper-cases to 'S' under the invariant culture, so a Unicode fold would have
+    // this reader find a wildcard in a parameter the host does not have, while the real
+    // 'scopePath' beside it serves one file for every document.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&\u017FcopePath=/*&scopePath=/One.cs",
+        false)]
     // Accepted: unattributable, yet each fetches the document it matched.
     [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/*?foo=bar", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/main/*", true)]
@@ -675,6 +687,23 @@ public class SourceLinkMapConformanceTests
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path&scopePath=/*",
+        true)]
+    // Accepted: blank is decided after decoding, so a whitespace value falls through the same way
+    // an absent one does. Measured; refusing it was over-refusal.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=%20&scopePath=/*",
+        true)]
+    // Accepted: a nested spelling is not deleted, because the host makes a single pass and does
+    // not rescan. This is the close negative for the middle-bracket row above.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&p[[]]ath=/One.cs&path=/*",
+        true)]
+    // Accepted: the host ignores the Unicode fold, so a map carrying one still resolves.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&\u017FcopePath=/One.cs&path=/*",
         true)]
     // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
     [InlineData(
