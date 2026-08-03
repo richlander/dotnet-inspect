@@ -213,12 +213,11 @@ public class CompilerGeneratedOrdinalTests
     /// <c>&lt;&gt;</c>-prefixed anonymous shapes still report a closing angle of 1 and
     /// stay disowned, which is what keeps unrelated closures from merging.
     ///
-    /// The lambda cache field <c>&lt;&gt;9__N_K</c> is the one <c>&lt;&gt;</c>-prefixed
-    /// shape this correspondence does own, and it is owned on a different basis: not on
-    /// its own name, which carries no containing method and would merge unrelated
-    /// closures exactly as the others would, but through the sibling lambda method it
-    /// pairs with. Ownership here is what keeps the per-side rewrite off it; the fold
-    /// itself is decided in the field loop.
+    /// The lambda cache field <c>&lt;&gt;9__N_K</c> is folded by this correspondence,
+    /// but not owned by <c>TryElideOrdinal</c>: it carries no containing method, so
+    /// there is nothing here to elide. It folds through the sibling lambda method it
+    /// pairs with, decided in the field loop, and the per-side rewrite is kept off it
+    /// by <c>FieldNameOutsideCorrespondence</c>.
     /// </summary>
     [Fact]
     public void GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned()
@@ -237,11 +236,14 @@ public class CompilerGeneratedOrdinalTests
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c__DisplayClass1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
 
-        // The lambda cache field is owned under `Any` so the per-side rewrite keeps off
-        // it, and under `Field` so the field loop's grammar check agrees with the guard.
-        // It stays disowned under `Method` and `Type`, the kinds Roslyn never emits it on.
-        Assert.NotNull(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
-        Assert.NotNull(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Field));
+        // The lambda cache field stays disowned here on every kind, including `Any`.
+        // It is the one form this correspondence folds without owning it in this
+        // function: its name carries no containing method, so `TryElideOrdinal` has
+        // nothing to elide, and the field path keeps the per-side rewrite off it
+        // directly in FieldNameOutsideCorrespondence rather than through this guard.
+        // An earlier revision of this slice claimed ownership here as well; review
+        // showed that branch changed no end-to-end outcome, so it is gone.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Method));
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Type));
 
@@ -1790,25 +1792,36 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Ownership is what keeps the per-side rewrite off a cache field the correspondence
-    /// declined to fold. Without it the rewrite folds <c>&lt;&gt;9__N_K</c> on the
-    /// containing-method-blind <c>&lt;&gt;9__#_K</c> key and reports Exact for the two
-    /// unrelated closures of
-    /// <see cref="LambdaCacheFieldsOfDifferentContainingMethods_DoNotFold"/>.
+    /// The per-side rewrite folds two unrelated closures' cache fields together; the
+    /// composed contract does not.
     /// </summary>
+    /// <remarks>
+    /// This is the measured baseline behind
+    /// <see cref="LambdaCacheFieldsOfDifferentContainingMethods_DoNotFold"/>: the rewrite
+    /// keys on the containing-method-blind <c>&lt;&gt;9__#_K</c>, so it merges every
+    /// method's slot K. That is not a defect of the rewrite on its own terms -- it is the
+    /// behavior this slice keeps away from the composed contract, and asserting it here
+    /// means the improvement is pinned against something measured rather than remembered.
+    /// <para>
+    /// An earlier revision also asserted that <c>TryElideOrdinal</c> claimed
+    /// <c>&lt;&gt;9__N_K</c> under <c>Any</c>, on the theory that the ownership guard was
+    /// what held the rewrite off. Review showed that branch changed no end-to-end outcome
+    /// -- <c>FieldNameOutsideCorrespondence</c> does that work -- so both the branch and
+    /// the assertion are gone. <c>DeclinedLambdaCacheField_StaysOutOfThePerSideRewrite</c>
+    /// is the gate that actually covers it.
+    /// </para>
+    /// </remarks>
     [Fact]
     public void LambdaCacheFields_AreNotLeftToThePerSideRewrite()
     {
-        Assert.True(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(
-            "<>9__1_0",
-            CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any) is not null);
-
-        // The rewrite alone does fold them -- which is the behavior being kept away from
-        // the composed contract, not a defect of the rewrite on its own terms.
         Assert.Equal(IlBodyDiffOutcome.Exact, CompareCacheField(
             oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
             newMethod: "<Other>b__0_0", newField: "<>9__0_0",
             normalization: IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).Outcome);
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, CompareCacheField(
+            oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
+            newMethod: "<Other>b__0_0", newField: "<>9__0_0").Outcome);
     }
 
     static IlBodyDiffResult CompareCacheField(

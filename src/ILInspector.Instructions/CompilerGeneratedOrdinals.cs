@@ -360,7 +360,15 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 // built for `<>9__0_0` whose sibling is `<Run>b__0_0`, and a real
                 // difference reports Exact. The folded branch already carries NUL inside
                 // OrdinalPlaceholder; it is the raw branch that is otherwise spellable.
-                // Gated by LambdaCacheFieldName_CannotBeForgedByARawFieldName.
+                //
+                // Two gates, because one claim is concrete and the other general.
+                // LambdaCacheFieldName_CannotBeForgedByARawFieldName pins that *this*
+                // composition is not bare concatenation, and fails if the separator is
+                // dropped. It does not pin that the separator is unspellable -- give
+                // KeySeparator a spellable value and that test still passes, because its
+                // forged name is written against NUL. The unspellability itself is
+                // KeySeparatorCannotBeSpelledByAMetadataName, which drives its assertion
+                // from the constant and so fails for any spellable value.
                 named[fieldHandle] = LambdaCacheFieldPrefix + KeySeparator + siblingName;
             }
 
@@ -441,13 +449,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         Method,
 
         /// <summary>
-        /// A name read from a field definition. Only Roslyn's lambda cache field
-        /// <c>&lt;&gt;9__N_K</c> is read on this kind, and it does not fold on its own
-        /// name -- see <see cref="TryLambdaCacheFieldTail"/>.
-        /// </summary>
-        Field,
-
-        /// <summary>
         /// Either kind. Used only by the ownership guard, which asks whether a
         /// name belongs to this correspondence at all so the per-side rewrite
         /// can keep off it. Answering broadly there costs at most a false
@@ -467,21 +468,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         // empty pair of brackets, so their ordinal is their only discriminator and
         // eliding it would merge unrelated closures. Depth matching still reports 1 for
         // those, so they are rejected here exactly as before.
-        // The lambda cache field opens with an empty pair of brackets and so is refused
-        // by the depth check below. It is nonetheless owned: the field loop folds it
-        // through its sibling lambda method rather than on its own name. Claiming it for
-        // the ownership guard is what stops the per-side rewrite folding `<>9__N_K` on
-        // the weaker `<>9__#_K` key while the correspondence is also in force. The
-        // returned text is never rendered -- only the guard and the field loop's own
-        // grammar check consume this branch, and the field's rendered name comes from
-        // TryLambdaCacheFieldTail's sibling. Gated by
-        // LambdaCacheFields_AreNotLeftToThePerSideRewrite.
-        if (kind is GeneratedNameKind.Any or GeneratedNameKind.Field
-            && TryLambdaCacheFieldTail(name) is not null)
-        {
-            return $"{LambdaCacheFieldPrefix}{OrdinalPlaceholder}";
-        }
-
+        //
+        // `<>9__N_K` is refused here like the others, and is still folded -- but by the
+        // field loop, through the sibling lambda method it pairs with, never on its own
+        // name. Nothing about that fold passes through this function, and the per-side
+        // rewrite is kept off the field by FieldNameOutsideCorrespondence rather than by
+        // this guard.
         int close = FindClosingAngle(name);
         if (close <= 1)
             return null;
