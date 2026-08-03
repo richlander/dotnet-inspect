@@ -45,6 +45,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     private const string ParagraphSeparator = "\u2029";
     private readonly string _cacheDirectory =
         Directory.CreateTempSubdirectory("diagnostic-containment-cache-").FullName;
+    private bool _deleteCacheOnDispose = true;
 
     /// <remarks>
     /// A raw line feed and carriage return are the most direct forgery of all --
@@ -435,7 +436,8 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         var stderr = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000))
         {
-            try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            if (!OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10)))
+                _deleteCacheOnDispose = false;
             throw new TimeoutException($"{executable} did not exit.");
         }
 
@@ -467,7 +469,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_cacheDirectory))
+        if (_deleteCacheOnDispose && Directory.Exists(_cacheDirectory))
             Directory.Delete(_cacheDirectory, recursive: true);
     }
 }

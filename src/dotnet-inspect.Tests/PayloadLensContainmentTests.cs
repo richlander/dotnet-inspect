@@ -54,6 +54,7 @@ public class PayloadLensContainmentTests : IDisposable
     private const string LineSeparator = "\u2028";
     private readonly string _cacheDirectory =
         Directory.CreateTempSubdirectory("payload-containment-cache-").FullName;
+    private bool _deleteCacheOnDispose = true;
 
     /// <summary>
     /// The README bytes every test here plants and expects back unchanged.
@@ -326,7 +327,8 @@ public class PayloadLensContainmentTests : IDisposable
         var stderr = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000))
         {
-            process.Kill(entireProcessTree: true);
+            if (!OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10)))
+                _deleteCacheOnDispose = false;
             throw new TimeoutException($"{executable} did not exit.");
         }
 
@@ -335,7 +337,7 @@ public class PayloadLensContainmentTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_cacheDirectory))
+        if (_deleteCacheOnDispose && Directory.Exists(_cacheDirectory))
             Directory.Delete(_cacheDirectory, recursive: true);
     }
 }
