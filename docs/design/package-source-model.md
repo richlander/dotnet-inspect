@@ -209,6 +209,102 @@ cache, while discovery also requires an eligible local-folder feed or
 source-scoped candidate cache. `--isolated` combines a separate app-cache root
 with exclusion of the global packages folder.
 
+## Worked examples
+
+Unless one is shown, these examples assume the complete configuration
+hierarchy contains no package-source configuration, administrator default
+source, or package source mapping.
+
+### Pinned package, default source
+
+```bash
+dotnet-inspect package Foo@1.2.3
+```
+
+The caller supplied the exact coordinate, so no candidate query is needed.
+NuGet.org is the implicit eligible source. If
+`global-packages/foo/1.2.3/.nupkg.metadata` records NuGet.org, dotnet-inspect
+opens that payload without network access:
+
+```text
+Producer: nuget.org
+Payload location: global-packages
+```
+
+If the metadata is absent or records another feed, the global entry is a miss.
+An authorized NuGet.org slot in the dotnet-inspect app cache may still answer.
+dotnet-inspect downloads `Foo@1.2.3` from NuGet.org only when no authorized
+payload cache answers, then commits it to that app-cache slot.
+
+### Bare package, default source
+
+```bash
+dotnet-inspect package Foo
+```
+
+The command must first determine which version `Foo` means. NuGet.org is the
+implicit candidate source:
+
+1. Use NuGet.org's source-scoped candidate cache when it is fresh.
+2. Otherwise, query NuGet.org and select the latest stable version.
+3. Retain NuGet.org as the feed that reported the selected coordinate.
+4. Open an app-cache or global-packages payload only when its producer is
+   NuGet.org; otherwise download the payload from NuGet.org.
+
+An installed `Foo@1.2.3` payload does not by itself make `1.2.3` a candidate.
+With an empty candidate cache, this command queries NuGet.org even when that
+payload is already in global packages. The network candidate query may still be
+followed by a local payload hit.
+
+### One explicit source
+
+```bash
+dotnet-inspect package Foo \
+  --source https://feed-a.example/v3/index.json
+```
+
+Only feed A supplies candidates. If discovery selects `Foo@1.2.3` and A
+reported it, a cached payload recorded from A may answer. A global-packages
+entry recorded from NuGet.org or feed B is ignored, even though its id and
+version match.
+
+The pinned form skips A's candidate query but keeps the same payload rule:
+
+```bash
+dotnet-inspect package Foo@1.2.3 \
+  --source https://feed-a.example/v3/index.json
+```
+
+### Equivalent `nuget.config`
+
+When no administrator default source is active, this configuration has the
+same source authority as `--source` naming feed A:
+
+```xml
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="feed-a"
+         value="https://feed-a.example/v3/index.json" />
+  </packageSources>
+</configuration>
+```
+
+Feed A supplies candidates and authorizes payloads recorded from A. `<clear/>`
+removes ordinary inherited feeds and their cached-payload authority; it does
+not remove administrator sources from `NuGetDefaults.Config`, which must be
+disabled through `disabledPackageSources`. It also does not disable payload
+caching for a source subsequently added to the configuration.
+
+### Offline operation
+
+| Request | Cached state | Result |
+| --- | --- | --- |
+| `Foo@1.2.3 --offline` | Authorized payload | Succeeds without candidate metadata. |
+| `Foo --offline` | Fresh candidate list selects `1.2.3`; authorized payload exists | Succeeds entirely from caches. |
+| `Foo --offline` | Payload exists, but candidate metadata is absent | Fails because content cannot introduce a version candidate. |
+| `Foo --offline` | Fresh candidate metadata exists, but no authorized payload exists | Fails because network payload acquisition is prohibited. |
+
 ## Feed-relative inspection
 
 Package inspection is feed-relative. An id and version identify the NuGet
