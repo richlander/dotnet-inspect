@@ -1366,6 +1366,15 @@ static string? FindRepositoryRoot(string start)
     return null;
 }
 
+// Unverified, deliberately: no black-box input accepted by the sweep makes this
+// transform a value. IsBarePackageId refuses separators, and its one special-segment
+// spelling, "..", is rank-prefixed before this call. Pinned versions have passed
+// IsBareVersion, which refuses separators and ".."; resolved versions have already
+// survived PackageExtractor's path construction and cache-coordinate validation.
+// Measured for #3719: replacing this helper with identity leaves EvilPoolSweepGateTests
+// and EvilPoolPinTests green. Keep it as defense in depth behind those checks: both
+// sides guard the same path-traversal outcome, and sanitizing again is the cheap side
+// to be wrong on.
 static string SafePathSegment(string value)
 {
     var invalid = Path.GetInvalidFileNameChars().ToHashSet();

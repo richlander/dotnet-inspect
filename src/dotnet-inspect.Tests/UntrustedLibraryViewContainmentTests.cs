@@ -1424,6 +1424,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "MemberRef.ReturnType (TypeRef): no public constructor",
         "MethodIdentity.DeclaringType (TypeRef): no public constructor",
         "MethodIdentity.ReturnType (TypeRef): no public constructor",
+        "TypeForwarder.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "TypeParameter.DisplayName (String): string with no setter",
     ];
 

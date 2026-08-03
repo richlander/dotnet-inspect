@@ -86,10 +86,11 @@ public record MethodExceptionRegionInfo(
 public class PdbContext : IDisposable
 {
     private readonly PEReader _peReader;
-    private readonly FileStream _peStream;
+    private readonly Stream _peStream;
     private readonly bool _entireImagePrefetched;
     private readonly Action<string>? _log;
-    private readonly string _assemblyPath;
+    private readonly string? _assemblyPath;
+    private readonly string _assemblyDisplayName;
 
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
@@ -103,7 +104,14 @@ public class PdbContext : IDisposable
     /// <summary>
     /// The path to the assembly file that was opened.
     /// </summary>
-    public string AssemblyPath => _assemblyPath;
+    public string AssemblyPath => _assemblyPath
+        ?? throw new InvalidOperationException(
+            "This assembly was opened from a descriptor without a filesystem path.");
+
+    /// <summary>
+    /// The acquisition-owned path, when the descriptor supplied one.
+    /// </summary>
+    public string? AssemblyPathOrNull => _assemblyPath;
 
     /// <summary>
     /// The log callback, if any.
@@ -180,9 +188,10 @@ public class PdbContext : IDisposable
     public bool HasSourceLink => SourceLinkJson != null;
 
     private PdbContext(
-        FileStream peStream,
+        Stream peStream,
         PEReader peReader,
-        string assemblyPath,
+        string? assemblyPath,
+        string assemblyDisplayName,
         Action<string>? log,
         bool entireImagePrefetched)
     {
@@ -190,9 +199,12 @@ public class PdbContext : IDisposable
         _peReader = peReader;
         _entireImagePrefetched = entireImagePrefetched;
         _assemblyPath = assemblyPath;
+        _assemblyDisplayName = assemblyDisplayName;
         _log = log;
         FileSize = peStream.Length;
-        LastWriteTimeUtc = File.GetLastWriteTimeUtc(peStream.SafeFileHandle);
+        LastWriteTimeUtc = peStream is FileStream fileStream
+            ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
+            : default;
     }
 
     /// <summary>
@@ -203,16 +215,27 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
-    /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
-    /// facet surface reads the same bytes this context read instead of reopening
-    /// <see cref="AssemblyPath"/>. Internal because the reader is metadata-internal; borrowers go
-    /// through the session.
+    /// Opens an acquisition descriptor through its authoritative stream factory.
+    /// The optional path is used only for adjacent PDB discovery and file metadata.
     /// </summary>
+    public static PdbContext Open(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default);
+    }
+
     /// <summary>
     /// This context's open reader, lent to <see cref="AssemblyInspectionSession.Borrow"/> so the
     /// facet surface reads the same bytes this context read instead of reopening
-    /// <see cref="AssemblyPath"/>. Internal because the reader is metadata-internal; borrowers go
-    /// through the session. Throws rather than lending an already-released reader.
+    /// the source. Internal because the reader is metadata-internal; borrowers go
+    /// through the session.
     /// </summary>
     internal PEReader BorrowedPEReader
     {
@@ -246,8 +269,20 @@ public class PdbContext : IDisposable
         string assemblyPath,
         Action<string>? log,
         PEStreamOptions streamOptions)
+        => Open(
+            File.OpenRead(assemblyPath),
+            assemblyPath,
+            Path.GetFileName(assemblyPath),
+            log,
+            streamOptions);
+
+    static PdbContext Open(
+        Stream stream,
+        string? assemblyPath,
+        string assemblyDisplayName,
+        Action<string>? log,
+        PEStreamOptions streamOptions)
     {
-        var stream = File.OpenRead(assemblyPath);
         PEReader peReader;
         try
         {
@@ -263,6 +298,7 @@ public class PdbContext : IDisposable
             stream,
             peReader,
             assemblyPath,
+            assemblyDisplayName,
             log,
             (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0);
 
@@ -332,7 +368,7 @@ public class PdbContext : IDisposable
             {
                 provider.Dispose();
                 stream.Dispose();
-                _log?.Invoke($"Portable PDB identity mismatch: {Path.GetFileName(pdbFilePath)} does not match {Path.GetFileName(_assemblyPath)}");
+                _log?.Invoke($"Portable PDB identity mismatch: {Path.GetFileName(pdbFilePath)} does not match {_assemblyDisplayName}");
                 return;
             }
 
@@ -782,54 +818,6 @@ public class PdbContext : IDisposable
             : null;
 
     /// <summary>
-    /// Finds a type forwarder target assembly name for a given type.
-    /// </summary>
-    public string? FindTypeForwarder(string typeName)
-    {
-        if (!_peReader.HasMetadata)
-            return null;
-
-        var reader = _peReader.GetMetadataReader();
-        foreach (var exportedTypeHandle in reader.ExportedTypes)
-        {
-            var exportedType = reader.GetExportedType(exportedTypeHandle);
-            if (!exportedType.IsForwarder)
-                continue;
-
-            var fullName = reader.GetFullTypeName(exportedType);
-
-            if (fullName.Equals(typeName, StringComparison.OrdinalIgnoreCase))
-            {
-                if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
-                {
-                    var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
-                    return reader.GetString(assemblyRef.Name);
-                }
-            }
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Resolves the assembly path that actually implements a type, following type forwarders.
-    /// Returns null if the type is defined in this assembly (not forwarded).
-    /// Looks for the target assembly DLL in the same directory as this assembly.
-    /// </summary>
-    public string? ResolveImplementationAssemblyPath(string typeName)
-    {
-        var targetAssemblyName = FindTypeForwarder(typeName);
-        if (targetAssemblyName == null)
-            return null;
-
-        var dir = Path.GetDirectoryName(_assemblyPath);
-        if (dir == null)
-            return null;
-
-        var targetPath = Path.Combine(dir, targetAssemblyName + ".dll");
-        return File.Exists(targetPath) ? targetPath : null;
-    }
-
-    /// <summary>
     /// Enumerates all source documents in the PDB for strict verification.
     /// </summary>
     public IEnumerable<SourceDocument> EnumerateSourceDocuments()
@@ -1160,6 +1148,8 @@ public class PdbContext : IDisposable
     private void TryLoadLocalPdb()
     {
         if (HasPdb)
+            return;
+        if (_assemblyPath is null)
             return;
 
         var pdbPath = Path.ChangeExtension(_assemblyPath, ".pdb");

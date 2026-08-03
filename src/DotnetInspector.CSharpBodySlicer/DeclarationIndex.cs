@@ -75,9 +75,19 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
-/// All line numbers are <b>1-based</b>, matching portable-PDB sequence points and
-/// <see cref="BodySlicer.ExtractMethodBody"/>, so a caller never converts at the boundary where
-/// an off-by-one would silently select the neighbouring member.
+/// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
+/// never converts at the boundary where an off-by-one would silently select the neighbouring
+/// member. They normally coincide with portable-PDB sequence points, but that correspondence is
+/// the <i>caller's</i> to establish, not a property this type asserts: a <c>#line</c> directive
+/// remaps what the PDB reports, in both line number and document name. Measured against a real
+/// build, <c>#line 500 "elsewhere.cs"</c> above a method makes every one of its sequence points
+/// read <c>elsewhere.cs:500</c> while this type reports the physical line it occupies. This is a
+/// <b>known, ungated limitation</b> of correlating a row with debug info, raised in adversarial
+/// review round 5 of PR #3680 by GPT-5.6 Sol; it is a property of any physical-line index and is
+/// not affected by conditional recovery, which changes only which rows are vouched for and never
+/// which lines they name. It is rare (4 of 20,838 files in <c>dotnet/runtime/src/libraries</c>
+/// carry a renumbering <c>#line</c>, and none of those four is a conditional file), and it belongs
+/// to whichever layer performs the PDB-to-row match.
 /// </para>
 /// </summary>
 /// <param name="Kind">What was declared.</param>
@@ -129,24 +139,72 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// That such a region reports unknown rather than a guess is gated by
 /// <c>DeclarationIndexTests.ASpanTheScanCannotVouchFor_ReportsUnknown</c>.
 /// <para>
-/// A conditional directive loses the place for the <em>rest of the file</em>, not just for the
-/// region it guards: every later row reports false, including rows after the <c>#endif</c> and rows
-/// no branch could affect. Measured over dotnet/runtime's libraries at commit <c>e614b717a9d</c>,
-/// that costs 12.1% of declarations, of which 36,135 begin — leading trivia included — after the
-/// last <c>#endif</c>. Those figures are an ungated point-in-time measurement, not a property: no
-/// test re-measures them, and they will drift as that corpus moves. The loss is conservative
-/// rather than wrong — a row the scan cannot vouch for reports unknown instead of reporting one
-/// branch's answer as the declaration's. That holds by a discipline at each site rather than by a
-/// central check: a site that fixes a row's span either consults the depth flag or sets
-/// <c>SpanKnown</c> false outright, the unclosed-row sweep being the only one of the latter kind.
-/// Being per-site, it is gated at the site where it was once absent:
+/// A conditional group loses the place only for the rows <em>inside</em> it, provided every branch
+/// returns to the brace depth the group opened at; the depth after such an <c>#endif</c> is the
+/// same whichever branch the compiler keeps, so later rows are vouched for again. A group whose
+/// branches do not each balance, or that reaches below its own opening depth, or that contains a
+/// directive this scan could only skip because it believed itself inside a comment or literal,
+/// loses the place for the rest of the file. Measured over dotnet/runtime's libraries, the
+/// remaining loss is 1.47% of declarations, against 12.12% when any conditional poisoned the file
+/// to its end. Those figures are an ungated point-in-time measurement, not a property: no test
+/// re-measures them, and they will drift as that corpus moves.
+/// </para>
+/// <para>
+/// The loss is conservative rather than wrong — a row the scan cannot vouch for reports unknown
+/// instead of reporting one branch's answer as the declaration's. That holds by a discipline at
+/// each site rather than by a central check: a site that fixes a row's span either consults the
+/// depth flag or sets <c>SpanKnown</c> false outright, the unclosed-row sweep being the only one
+/// of the latter kind. Being per-site, the discipline is only as good as its weakest site, and
+/// naming one of them as "the only path that can report a wrong span" was wrong twice over:
 /// <c>DeclarationIndexTests.AConditionalInitializer_ReportsUnknownRatherThanOneBranchsEnd</c>
-/// covers the one path that extends a span already measured and marked
-/// known, which is the only path that can report a wrong span rather than lose a row. The loss
-/// itself is a known limitation tracked by
-/// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>, not a property
-/// this type intends to keep. That every later row reports false is pinned by
-/// <c>DeclarationIndexTests.AConditionalDirective_LosesEveryLaterRowToEndOfFile</c>.
+/// gates the initializer path only for a terminator the scan already knows is in a branch, and
+/// review round 7 produced two builds that walk straight past it — one where the initializer sits
+/// after the group, one where the other branch has already consumed the row it would extend. What
+/// enforces the property across sites is not a citation but the differential:
+/// <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> compares every vouched row
+/// against Roslyn under four symbol configurations and fails on any row whose lines move between
+/// two configurations that both parse, which is the property this paragraph asserts. Parse
+/// validity is weaker than compilation validity: the generator can spell, for example,
+/// <c>public namespace N;</c>, which Roslyn parses but the language rejects (CS1671). Lines remain
+/// well defined there, so that distinction does not invalidate this line differential, but a
+/// structural oracle such as the ParentIndex/Depth follow-up in issue #3725 must apply the stronger
+/// validity gate. It answers only
+/// half the question, because it compares the builds against each other and never reads the
+/// product's own numbers;
+/// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
+/// the other half by checking the product's numbers against each build.
+/// Both are only as good as the generator's reach, which rounds 7 through 13 each falsified, so
+/// read
+/// that file's header before reading a clean run as proof. The per-site gates
+/// remain as regression pins:
+/// <c>AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt</c> and
+/// <c>AnInitializerConsumedByAnotherBranch_LosesTheDeclarationBeforeIt</c> for the two round-7
+/// shapes, <c>AnInitializerMaskedByAnotherBranchsInitializer_LosesTheDeclarationBeforeIt</c> and
+/// <c>AnEnumInitializerReachingBackThroughAGroup_LosesTheMemberBeforeIt</c> for the round-8 pair,
+/// <c>ATrailingSemicolonAfterAGroup_LosesTheTypeItCouldBelongTo</c> for the round-9 forward
+/// direction, <c>ATrailingSemicolonShieldedByAConditionalMember_LosesTheTypeBeforeIt</c>,
+/// <c>ATrailingSemicolonBehindAConditionalFileScopedNamespace_LosesTheTypeAtTheOuterScope</c> and
+/// <c>ATrailingSemicolonAfterAConditionalBracelessDeclaration_LosesTheTypeBeforeIt</c> for the
+/// round-10 trio,
+/// <c>ATrailingSemicolonMaskedAfterABracelessOpener_DoesNotVouchTheRowBeforeIt</c> for round 11,
+/// <c>ATrailingSemicolonMaskedByANonTypeBlock_DoesNotVouchTheEarlierType</c> and
+/// <c>ATrailingSemicolonAfterAConditionalExtensionBlock_RefusesItsSiblingNotItsParent</c> for
+/// round 12,
+/// <c>AConditionalFileScopedNamespace_DoesNotStealAnEnclosingNamespacesClosingBrace</c> for
+/// round 13, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
+/// Recovery after a balanced group is
+/// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over
+/// real conditional sources, by
+/// <c>DeclarationIndexTests.InAConditionalFile_EveryDeclarationOutsideTheConditionals_IsStillVouchedFor</c>.
+/// </para>
+/// <para>
+/// <see cref="Depth"/> and <see cref="ParentIndex"/> are <em>not</em> covered by
+/// <c>SpanKnown</c> in general; it is a claim about this row's lines. Where the branches of a
+/// group disagree about which declaration encloses the text after the <c>#endif</c>, the group is
+/// refused outright rather than vouched for with one branch's nesting — that is what the
+/// opening-depth floor is for — but no test asserts nesting correctness for a row the scan does
+/// vouch for beyond the corpus differentials above.
 /// </para>
 /// </param>
 public sealed record DeclarationSpan(
@@ -220,9 +278,12 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Where the lexer loses its place — an unterminated literal, or a conditional directive whose
 /// braces may belong to a discarded branch — affected rows carry
-/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span. A conditional
-/// directive affects every row to the end of the file, not only the guarded region; see that
-/// member's remarks and
+/// <see cref="DeclarationSpan.SpanKnown"/> false rather than a plausible wrong span; that is the
+/// property <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> gates, and it is a
+/// claim about vouched rows only, never about how many rows are vouched. A conditional
+/// directive costs the rows inside its own branches, and costs the rest of the file only when the
+/// group's branches do not agree on the structure after its <c>#endif</c>; see that member's
+/// remarks and
 /// <see href="https://github.com/richlander/dotnet-inspect/issues/3668">#3668</see>.
 /// </para>
 /// <para>

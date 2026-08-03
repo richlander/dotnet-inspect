@@ -3363,7 +3363,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
-        Assert.Contains("Types: 89", fieldsOutput, StringComparison.Ordinal);
+        // Structured resolution reaches ParamCollectionAttribute through the
+        // platform policy instead of dropping it with the sibling-only probe.
+        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -3380,7 +3382,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 89 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -3683,7 +3685,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_ApiInfo_DoesNotGrowWithTheAssembly()
     {
         // Bounded means the row set does not depend on the target. CoreLib lists 1353 types and
-        // System.Text.Json lists 89; the three counts are counts rather than enumerations, so each
+        // System.Text.Json lists 90; the three counts are counts rather than enumerations, so each
         // contributes exactly one row at either size. A future field that enumerated anything would
         // fail here rather than quietly making the overview unbounded.
         var (bigExit, big, _) = await RunAppAsync(
@@ -8974,7 +8976,7 @@ public partial class CommandExecutionTests
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
                     Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
-                    if (RequiresRealDataDiscoveryGuard(command))
+                    if (RequiresNonEmptyDiscoveryResult(command, section))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
                             $"{command[0]} -S '{section}' produced no data after being listed by -D.");
@@ -9009,10 +9011,24 @@ public partial class CommandExecutionTests
         return [.. args];
     }
 
-    private static bool RequiresRealDataDiscoveryGuard(string[] command)
-        => IsNoMemberTypeDiscoveryCommand(command)
-           || command is ["member", _, var memberName, ..]
-                && memberName == nameof(MemberCallsFixture.Overloaded);
+    private static readonly HashSet<string> TypeUnprobedDiscoverySections =
+        ApiMemberSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static readonly HashSet<string> MemberOverloadUnprobedDiscoverySections =
+        ApiMemberOverloadSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static bool RequiresNonEmptyDiscoveryResult(string[] command, string section)
+    {
+        // ProbeEffectiveness=false deliberately allows -D to list a structurally applicable
+        // section whose -S result is empty. Derive that exemption from the same pipeline
+        // declaration while preserving the non-empty guard for probed sections.
+        if (IsNoMemberTypeDiscoveryCommand(command))
+            return !TypeUnprobedDiscoverySections.Contains(section);
+
+        return command is ["member", _, var memberName, ..]
+               && memberName == nameof(MemberCallsFixture.Overloaded)
+               && !MemberOverloadUnprobedDiscoverySections.Contains(section);
+    }
 
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
