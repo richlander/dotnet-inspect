@@ -80,8 +80,11 @@ internal static class HostileOutputAssert
         foreach (var marker in markers)
         {
             int at = output.IndexOf(marker, StringComparison.Ordinal);
-            while (at > 0)
+            while (at >= 0)
             {
+                Assert.True(
+                    at > 0,
+                    $"{marker} starts the output: containment split the text it was embedded in");
                 char before = output[at - 1];
                 Assert.False(
                     before is '\n' or '\r' or '\u0085' or '\u2028' or '\u2029',
