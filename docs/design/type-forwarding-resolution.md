@@ -1435,6 +1435,11 @@ public abstract class DefinitionCorrespondence
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
     }
+
+    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
+    {
+        internal IncompleteMetadata() { }
+    }
 }
 
 public sealed class DuplicateArtifactCandidateEvidence
@@ -2112,6 +2117,11 @@ public abstract class CandidateTypeRelation
     }
 }
 ```
+
+`IncompleteMetadata` retains a candidate whose name inventory could not be
+completed even though the image remained openable. It is separate from
+`Resolution` because no decoder-produced origin exists for a malformed row
+from which to construct a resolution request.
 
 All remaining gates consume projections of this relation:
 

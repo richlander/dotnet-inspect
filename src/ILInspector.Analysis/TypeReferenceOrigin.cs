@@ -12,12 +12,15 @@ public abstract record TypeReferenceOrigin
     {
     }
 
+    private protected abstract int Discriminator { get; }
+
     public sealed record AssemblyReference : TypeReferenceOrigin
     {
         internal AssemblyReference(AssemblyReferenceIdentity assembly) =>
             Assembly = assembly;
 
         public AssemblyReferenceIdentity Assembly { get; }
+        private protected override int Discriminator => 0;
     }
 
     public sealed record CurrentAssembly : TypeReferenceOrigin
@@ -26,6 +29,7 @@ public abstract record TypeReferenceOrigin
         {
         }
 
+        private protected override int Discriminator => 1;
     }
 
     public sealed record IntrinsicCoreLibrary : TypeReferenceOrigin
@@ -34,6 +38,7 @@ public abstract record TypeReferenceOrigin
         {
         }
 
+        private protected override int Discriminator => 2;
     }
 
     public sealed record ModuleReference : TypeReferenceOrigin
@@ -41,6 +46,7 @@ public abstract record TypeReferenceOrigin
         internal ModuleReference(string moduleName) => ModuleName = moduleName;
 
         public string ModuleName { get; }
+        private protected override int Discriminator => 3;
     }
 }
 
