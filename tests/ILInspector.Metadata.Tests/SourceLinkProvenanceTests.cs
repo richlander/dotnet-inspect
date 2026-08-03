@@ -748,6 +748,14 @@ public class SourceLinkProvenanceTests
     /// 985-byte file, because a valueless <c>scopePath</c> is ignored rather than pairing with
     /// <c>path</c> — the pair is refused (400) only when both carry values.
     /// </para>
+    /// <para>
+    /// Two shapes sit outside what this pins, both non-generated and both failing safe, recorded
+    /// so the boundary is not mistaken for a claim. <c>scopePath=&lt;value&gt;&amp;path=/*</c>
+    /// resolves here while Azure answers 400 for every document, so nothing is fetched rather than
+    /// one fixed file being shown. <c>path&amp;scopePath=/*</c> is refused here while Azure would
+    /// select through <c>scopePath</c>, so a map no generator emits loses resolution. Neither is
+    /// the defect this rule is about, and both were measured in review rather than assumed.
+    /// </para>
     /// </remarks>
     [Fact]
     public void AValuelessContentSelector_IsTheOccurrenceTheHostServes()
@@ -775,6 +783,88 @@ public class SourceLinkProvenanceTests
             Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
             Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
             Assert.NotEqual(one.Url, two.Url);
+        }
+    }
+
+    /// <summary>
+    /// The host's model binder reads <c>path[]</c> as <c>path</c>, so an array-suffixed selector
+    /// is the occurrence it serves — and the spellings it does <em>not</em> fold must keep working.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found by GPT-5.6-sol in the third review round, and the fourth instance of one defect:
+    /// spell a component so this reader and the host disagree about what it says.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, using
+    /// the control that tells binding apart from being ignored — give the alias a missing file and
+    /// let a real <c>path</c> follow with a present one:
+    /// </para>
+    /// <code>
+    /// path[]=/nope.txt&amp;path=/README.md      404   -- binds, and wins
+    /// path%5B%5D=/nope.txt&amp;path=/README.md  404   -- same after decoding
+    /// path[0]  path[1]  path%5B0%5D            200   -- ignored
+    /// path.    path.x   [0].path   pathX       200   -- ignored
+    /// </code>
+    /// <para>
+    /// Without the control this reads the wrong way round: <c>path[]=/README.md</c> alone returns
+    /// the file, which looks like binding but is equally consistent with the parameter being
+    /// dropped — except that no path at all returns the 425-byte root listing, not the file. Only
+    /// the inverted ordering settles it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AnArraySuffixedContentSelector_BindsTheSameParameter()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // Measured to bind and win, so a wildcard in the later pair is never read.
+        foreach (string alias in new[] { "path[]", "path%5B%5D", "PATH[]", "%70ath[]" })
+        {
+            var shadowed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + alias + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Equal(["*"], shadowed.RejectedKeys);
+            Assert.False(shadowed.TryResolve("A.cs", out _));
+        }
+
+        // Measured to be ignored by the host, so folding them would refuse a map that works.
+        foreach (string ignored in new[] { "path[0]", "path[1]", "path%5B0%5D", "path.", "path.x", "pathX" })
+        {
+            var unrelated = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + ignored + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Empty(unrelated.RejectedKeys);
+            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
+
+        // The suffix is not a licence to select nothing: it is still a working selector when the
+        // wildcard is the value it carries.
+        var suffixed = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&path[]=/*\"}}");
+
+        Assert.Empty(suffixed.RejectedKeys);
+        Assert.True(suffixed.TryResolve("A.cs", out _));
+
+        // The fold is a property of the name, not of 'path': a suffixed scopePath takes the same
+        // answer as scopePath does in the same position. That answer is 'accept' here -- a valued
+        // scopePath beside a valued path is measured to make Azure DevOps answer 400 for every
+        // document, which is a map that fetches nothing rather than the one-file substitution
+        // #3599 is about -- so this row also proves the fold does not silently widen refusal.
+        foreach (string spelling in new[] { "scopePath", "scopePath[]", "scopePath%5B%5D" })
+        {
+            var scoped = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Empty(scoped.RejectedKeys);
+            Assert.True(scoped.TryResolve("A.cs", out SLF.SourceLinkResolution scopedOne));
+            Assert.True(scoped.TryResolve("B.cs", out SLF.SourceLinkResolution scopedTwo));
+            Assert.NotEqual(scopedOne.Url, scopedTwo.Url);
         }
     }
 

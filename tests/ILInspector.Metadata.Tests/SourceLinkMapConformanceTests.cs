@@ -622,6 +622,17 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path&path=/*",
         false)]
+    // Refused: the host's model binder reads 'path[]' as 'path', so the suffixed pair binds and is
+    // served, and the wildcard in the later pair is never read. Also in its encoded spelling,
+    // which the name decoder reaches before the suffix is matched.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[]=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path%5B%5D=/One.cs&path=/*",
+        false)]
     // Accepted: unattributable, yet each fetches the document it matched.
     [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/*?foo=bar", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/main/*", true)]
@@ -634,6 +645,17 @@ public class SourceLinkMapConformanceTests
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&download&path=/*",
+        true)]
+    // Accepted: an indexed suffix is measured to be ignored by the host, so folding it would
+    // strand a map that resolves correctly. This is the close negative for the rows above.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[0]=/One.cs&path=/*",
+        true)]
+    // Accepted: the suffix is not itself disqualifying when it carries the wildcard.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[]=/*",
         true)]
     // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
     [InlineData(

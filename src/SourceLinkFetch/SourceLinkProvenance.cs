@@ -577,11 +577,13 @@ public static class SourceLinkProvenance
     /// Whether one component's text carries nothing that can act on whatever displays it.
     /// </summary>
     /// <remarks>
-    /// Split out so that a component can be judged <em>as written</em>, before any
-    /// canonicalization rewrites it. <see cref="CanonicalHost"/> applies IDNA mapping, which
-    /// deletes a soft hyphen and a zero-width space outright — so a host checked only after
-    /// canonicalization would be sanitized rather than refused, and
+    /// Split out so that a component can be judged before any canonicalization <em>this code</em>
+    /// applies rewrites it. <see cref="CanonicalHost"/> applies IDNA mapping, which deletes a soft
+    /// hyphen and a zero-width space outright — so a host checked only after canonicalization
+    /// would be sanitized rather than refused, and
     /// <c>docs/design/untrusted-data-threat-model.md</c> settles on reject-don't-sanitize.
+    /// <see cref="Uri"/>'s own authority normalization still runs first and is deliberately not
+    /// pinned; see <c>ALiveFormatCharacterInAHostLabel_IsNotAttributable</c>.
     /// </remarks>
     private static bool TryCheckTextIsInert(string value, string name, out string rejection)
     {
@@ -716,16 +718,31 @@ public static class SourceLinkProvenance
 
     /// <summary>
     /// Whether a raw query parameter name denotes <paramref name="name"/> once the percent-escapes
-    /// the host decodes have been applied.
+    /// the host decodes have been applied, and the array suffix it binds through is allowed for.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Decoding happens during the comparison rather than into a buffer so that a name cannot be
     /// read one way here and another way by the caller. An escape that is not two hex digits is
     /// left as the literal <c>'%'</c> it is, which is how these hosts read it.
+    /// </para>
+    /// <para>
+    /// A trailing <c>[]</c> binds the same parameter, because the host's model binder reads
+    /// <c>path[]</c> as <c>path</c>. Found in review, and measured against
+    /// <c>dev.azure.com/dnceng-public/public</c> with the control that discriminates binding from
+    /// being ignored — <c>path[]=/nope.txt&amp;path=/README.md</c> answers 404, so the suffixed
+    /// spelling binds <em>and</em> wins, while <c>path[0]</c>, <c>path[1]</c>, <c>path.</c>,
+    /// <c>path.x</c>, <c>[0].path</c> and <c>pathX</c> all answer with the file, so they are
+    /// ignored and must not be folded. The suffix is matched after decoding, so
+    /// <c>path%5B%5D</c> is caught too.
+    /// </para>
     /// </remarks>
     private static bool DecodedNameMatches(ReadOnlySpan<char> raw, string name)
     {
         int matched = 0;
+        Span<char> suffix = stackalloc char[2];
+        int suffixLength = 0;
+
         for (int i = 0; i < raw.Length; i++)
         {
             char c = raw[i];
@@ -738,19 +755,31 @@ public static class SourceLinkProvenance
                 i += 2;
             }
 
-            // Case-insensitively for the same reason the parameter reader is: whether the host
-            // folds case is not stated by the URL, so a name that differs only in case has to be
-            // seen here and refused by the rule that owns it, not missed.
-            if (matched == name.Length
-                || char.ToUpperInvariant(c) != char.ToUpperInvariant(name[matched]))
+            if (matched < name.Length)
+            {
+                // Case-insensitively for the same reason the parameter reader is: whether the
+                // host folds case is not stated by the URL, so a name that differs only in case
+                // has to be seen here and refused by the rule that owns it, not missed. Measured:
+                // 'PATH' and '%50%41%54%48' both select on Azure DevOps.
+                if (char.ToUpperInvariant(c) != char.ToUpperInvariant(name[matched]))
+                {
+                    return false;
+                }
+
+                matched++;
+                continue;
+            }
+
+            if (suffixLength == suffix.Length)
             {
                 return false;
             }
 
-            matched++;
+            suffix[suffixLength++] = c;
         }
 
-        return matched == name.Length;
+        return matched == name.Length
+            && (suffixLength == 0 || (suffixLength == 2 && suffix[0] == '[' && suffix[1] == ']'));
     }
 
     private static bool TryReadHexDigit(char c, out int value)
@@ -825,11 +854,16 @@ public static class SourceLinkProvenance
             return false;
         }
 
-        // The host is judged as written, before CanonicalHost applies IDNA mapping. That mapping
-        // deletes a soft hyphen and a zero-width space rather than preserving them, so a check
-        // made only on the canonical form would silently sanitize a hostile host into a clean one
-        // and attribute it -- the opposite of the reject-don't-sanitize rule the threat model
-        // settles on, and a regression of the round-17 refusal this restates.
+        // The host is judged as Uri reports it, before CanonicalHost applies IDNA mapping. That
+        // mapping deletes a soft hyphen and a zero-width space rather than preserving them, so a
+        // check made only on the canonical form would silently sanitize a hostile host into a
+        // clean one and attribute it -- the opposite of the reject-don't-sanitize rule the threat
+        // model settles on, and a regression of the round-17 refusal this restates.
+        //
+        // "As Uri reports it" is the honest limit, not "as written": Uri itself removes U+202A
+        // through U+202E from an authority before this code runs, measured. That is deliberately
+        // not pinned here -- ALiveFormatCharacterInAHostLabel_IsNotAttributable says why -- and it
+        // concedes nothing, because what Uri hands back carries no scalar that can act on a sink.
         if (!TryCheckTextIsInert(uri.Host, "host", out rejection))
         {
             return false;
