@@ -167,14 +167,16 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// half the question, because it compares the builds against each other and never reads the
 /// product's own numbers;
 /// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
-/// the other half, and covers rows that exist in a single build, which the first cannot see.
-/// Both are only as good as the generator's reach, which rounds 7 and 8 each falsified, so read
+/// the other half by checking the product's numbers against each build.
+/// Both are only as good as the generator's reach, which rounds 7, 8 and 9 each falsified, so read
 /// that file's header before reading a clean run as proof. The per-site gates
 /// remain as regression pins:
 /// <c>AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt</c> and
 /// <c>AnInitializerConsumedByAnotherBranch_LosesTheDeclarationBeforeIt</c> for the two round-7
 /// shapes, <c>AnInitializerMaskedByAnotherBranchsInitializer_LosesTheDeclarationBeforeIt</c> and
 /// <c>AnEnumInitializerReachingBackThroughAGroup_LosesTheMemberBeforeIt</c> for the round-8 pair,
+/// <c>ATrailingSemicolonAfterAGroup_LosesTheTypeItCouldBelongTo</c> for the round-9 forward
+/// direction,
 /// <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
 /// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
 /// Recovery after a balanced group is

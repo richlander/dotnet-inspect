@@ -693,6 +693,16 @@ internal static class DeclarationIndexBuilder
 
                 if (initializerTail)
                 {
+                    // The third conjunct is conservative and UNVERIFIED as a distinct requirement:
+                    // no mutation has produced a wrong vouch from dropping it (adversarial review
+                    // round 9, Claude Opus 5), and it may be equivalent to the first two. For
+                    // eq > 0 a ";" in the same section as a qualifying "=" would force the tokens
+                    // between them into that section, which disqualifies the "="; for eq == 0 a
+                    // ";" in a different section is either inside a group, where the DepthKnown
+                    // test below revokes the vouch anyway, or after a balanced one, where it sits
+                    // on the same physical line in every build. It is kept because the argument is
+                    // about reachability rather than safety, and its only observed effect is
+                    // over-refusal. Do not cite it as gated.
                     bool oneBranch = lastClosed >= 0
                         && lastClosedSection == pending[eq].Section
                         && lastClosedSection == tok.Section;
@@ -716,6 +726,54 @@ internal static class DeclarationIndexBuilder
                         lastClosed = -1;
                         continue;
                     }
+                }
+
+                // The twelfth way, and the third direction. Ways 1-8 ask whether a header written
+                // BEFORE a group survives it; ways 9-11 are a tail reaching BACK through one. This
+                // is a declaration already closed, measured and vouched reaching FORWARD to claim a
+                // terminator written after it.
+                //
+                // A type or namespace declaration takes an optional trailing ";" that the grammar
+                // puts in the production itself ("class_declaration : ... class_body ';'?"). The
+                // scan did not model it at all, which was a wrong span even with no conditionals:
+                // "class A {\n}\n;" ended A at the brace where Roslyn ends it at the ";". Under a
+                // conditional it becomes a wrong VOUCH, because which declaration owns the ";" is
+                // branch-dependent:
+                //
+                //     class A
+                //     {
+                //     }
+                //     #if Y
+                //     class B { }
+                //     #endif
+                //     ;
+                //
+                // With Y the ";" is B's and A ends at its brace; without Y there is no B and the
+                // ";" is A's own, so A ends four lines later. Both builds compile with zero errors.
+                // Found by adversarial review round 9 (Claude Opus 5), which also established that
+                // this PR is what promotes the row to vouched: before balanced-group recovery the
+                // leading group poisoned the rest of the file and A was declined anyway.
+                if (pending.Count == 0 && lastClosed >= 0 && rows[lastClosed].Kind
+                        is DeclarationKind.Class or DeclarationKind.Struct
+                        or DeclarationKind.Interface or DeclarationKind.Record
+                        or DeclarationKind.Enum or DeclarationKind.Namespace)
+                {
+                    if (lastClosedSection == tok.Section && tok.DepthKnown)
+                    {
+                        rows[lastClosed].EndLine = tok.Line + 1;
+                    }
+                    else
+                    {
+                        // The ";" and the "}" that produced the row are in different branches, so
+                        // every sibling the ";" could have attached to is a candidate and none of
+                        // their ends is provable. Do not extend: the extension itself is one
+                        // branch's answer.
+                        RefuseSiblingsAnInitializerCouldReach();
+                    }
+
+                    EndDeclaration(tok);
+                    lastClosed = -1;
+                    continue;
                 }
 
                 if (pending.Count > 0)

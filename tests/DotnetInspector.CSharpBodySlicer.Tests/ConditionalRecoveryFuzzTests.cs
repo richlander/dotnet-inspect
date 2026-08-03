@@ -84,11 +84,15 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //     branches were unreachable at any case count; enums appeared only as
 //     one-line declarations, so no enum interior was ever conditional.
 //   - round 9: DifferFromProduct silently omitted SignatureEndLine and
-//     BodyStartLine, so product mode vouched for fields it never read; and
+//     BodyStartLine, so product mode vouched for fields it never read;
 //     constructors were emitted only in forms that can never be vouched, and
-//     so were never compared at all.
+//     so were never compared at all; and no composition of the pools could
+//     place a bare ";" after a "}" that closed a type, which is where the
+//     twelfth way lived.
 // Before citing a clean run, read the cmp1/cmp2 buckets it printed and check
-// that the rows you care about are actually in them.
+// that the rows you care about are actually in them. Note also that "fair"
+// means "parses", not "compiles": the oracle reads parse diagnostics, so
+// bind-time errors such as CS1520 still count as fair cases.
 // ---------------------------------------------------------------------------
 
 public class ConditionalRecoveryFuzzTests
@@ -124,17 +128,18 @@ public class ConditionalRecoveryFuzzTests
     /// The companion gate, and a strictly different question.
     /// <see cref="NoVouchedRowMovesBetweenBuilds"/> compares the BUILDS against each other and so
     /// only ever asks whether a vouched row is ambiguous; it never reads the product's own line
-    /// numbers, and it says nothing at all about a row that exists in just one build, because
-    /// there is then no second build to disagree with. This asks the other half: that the numbers
-    /// the product reports are the numbers Roslyn reports, for every vouched row, in every build
-    /// where that row exists.
+    /// numbers. This asks the other half: that the numbers the product reports are the numbers
+    /// Roslyn reports, for every vouched row, in every build where that row exists.
     ///
-    /// Adversarial review round 8 (Gemini 3.1 Pro) found the gap -- the pairwise loop skips any
-    /// row matched in fewer than two configurations, so an existentially branch-dependent row was
-    /// never checked by anything. Running the product comparison in CI rather than only from
-    /// eng/conditional-recovery-fuzz.cs closes it.
+    /// Adversarial review round 8 (Gemini 3.1 Pro) proposed this to cover rows present in only one
+    /// build, which the pairwise loop skips. Round 9 (Claude Opus 5) showed that rationale is
+    /// wrong and the set is empty by construction: a vouched row requires
+    /// <c>pending.All(t =&gt; t.DepthKnown)</c>, so it lies outside every conditional group, so it
+    /// exists in every configuration that parses. The <c>cmp1</c> and <c>cmp2</c> buckets confirm
+    /// it -- they are equal for every kind in every sweep. The test earns its place on the first
+    /// reason alone, which the round-8 note treated as incidental.
     ///
-    /// Round 9 (GPT-5.6 Sol) then found this gate reading only four of the six span fields:
+    /// Round 9 (GPT-5.6 Sol) also found this gate reading only four of the six span fields:
     /// <c>DifferFromProduct</c> omitted <c>SignatureEndLine</c> and <c>BodyStartLine</c>, so
     /// setting <c>BodyStartLine</c> to a constant left all five cases green. Both are compared
     /// now, and that mutation fails all five.
@@ -483,9 +488,9 @@ public class ConditionalRecoveryFuzzTests
             lines.Add("#endif");
         }
 
-        // Cases 16-18 are enum shapes, and an enum is legal at both scopes, so the non-member
-        // pick is remapped onto them rather than leaving them reachable only inside a type.
-        int pick = rnd.Next(inType ? 20 : 7);
+        // Cases 16-21 are enum and type shapes, all legal at both scopes, so the non-member pick
+        // is remapped onto them rather than leaving them reachable only inside a type.
+        int pick = rnd.Next(inType ? 23 : 10);
         if (!inType && pick >= 4) pick += 12;
         switch (pick)
         {
@@ -616,6 +621,29 @@ public class ConditionalRecoveryFuzzTests
                 lines.Add($"    Ao{a}");
                 Group($"    , Bo{a}");
                 lines.Add("}");
+                return;
+            case 19:
+                // The twelfth way: a type's optional trailing ";" claimed by a conditional
+                // neighbour. No composition of the pools could place a bare ";" after a "}" that
+                // closed a TYPE -- every ";" the generator emits terminates a field whose
+                // declarator text precedes it -- so this shape was unreachable at any seed and any
+                // case count (adversarial review round 9, Claude Opus 5).
+                lines.Add($"class Sy{a}");
+                lines.Add("{");
+                lines.Add("}");
+                Group($"class Sz{a} {{ }}");
+                lines.Add(";");
+                return;
+            case 20:
+                // The symmetric form, where the vouched answer matches neither build.
+                lines.Add($"class Sw{a} {{ }}");
+                Group2(["    ;"], ["    ;"]);
+                return;
+            case 21:
+                // The benign counterpart: a trailing ";" with no group between it and the type it
+                // belongs to. It must stay vouched, and its span must include the ";".
+                lines.Add($"class Sv{a} {{ }}");
+                lines.Add(";");
                 return;
             default:
                 lines.Add($"    [System.Obsolete]");

@@ -2522,6 +2522,89 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The twelfth way, and the third direction: ways 1-8 ask whether a header written before a
+    /// group survives it, ways 9-11 are a tail reaching back through one, and this is a closed and
+    /// already-vouched declaration reaching FORWARD to claim a terminator written after it.
+    ///
+    /// A type declaration takes an optional trailing <c>;</c>. With <c>Y</c> it belongs to
+    /// <c>B</c> and <c>A</c> ends at its own brace on line 6; without <c>Y</c> there is no
+    /// <c>B</c>, the <c>;</c> is <c>A</c>'s own, and <c>A</c> ends on line 10. All four symbol
+    /// configurations parse with zero errors.
+    ///
+    /// This is the one defect in the series that the PR itself introduced: before balanced-group
+    /// recovery the leading group poisoned the rest of the file, so <c>A</c> was declined for an
+    /// unrelated reason. Found by adversarial review round 9 (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterAGroup_LosesTheTypeItCouldBelongTo()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            class Z { }
+            #endif
+            class A
+            {
+            }
+            #if Y
+            class B { }
+            #endif
+            ;
+            class Tail { }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.False(a.SpanKnown, "A ends on line 6 with Y and line 10 without it");
+    }
+
+    /// <summary>
+    /// The same token with no conditional anywhere, which is where the defect actually lived: the
+    /// scan did not model the optional trailing <c>;</c> at all, so it reported a span that was
+    /// simply wrong rather than branch-dependent. Roslyn ends <c>A</c> on line 4.
+    ///
+    /// This one is a pre-existing wrong span rather than a wrong vouch, and it is why the
+    /// conditional case above exists. It is also not a deliberate convention: every bodiless row
+    /// the scan emits already includes its terminating <c>;</c>.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterAType_ExtendsThatTypesSpan()
+    {
+        var index = DeclarationIndex.Build("""
+            class A
+            {
+            }
+            ;
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.Equal(4, a.EndLine);
+        Assert.True(a.SpanKnown, "no conditional is involved, so the span is provable");
+    }
+
+    /// <summary>
+    /// The both-branches-symmetric form, which is worse than the asymmetric one: the scan's answer
+    /// matches neither build. With <c>X</c> the <c>;</c> is on line 5 and <c>A</c> ends there;
+    /// without it the <c>;</c> is on line 7. The unfixed scan reported line 3.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonSpelledInBothBranches_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class A
+            {
+            }
+            #if X
+                ;
+            #else
+                ;
+            #endif
+            class Tail { }
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.False(a.SpanKnown, "A ends on line 5 with X and line 7 without it");
+    }
+
+    /// <summary>
     /// A trivia poison that crosses no branch is spent once the declaration that raised it ends,
     /// and <c>ResetHeader</c> discharging it is what keeps the rest of the file vouched. With
     /// <c>X</c> the comment documents <c>s</c>; without <c>X</c> neither exists, so <c>Tail</c>
