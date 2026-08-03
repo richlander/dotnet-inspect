@@ -334,6 +334,92 @@ public sealed class ResolvedTypeDefinitionKey
 }
 
 /// <summary>
+/// Catalog-owned answer to whether two resolved TypeDefs correspond.
+/// </summary>
+public abstract class DefinitionCorrespondence
+{
+    private protected DefinitionCorrespondence()
+    {
+    }
+
+    public sealed class Same : DefinitionCorrespondence
+    {
+        internal Same()
+        {
+        }
+    }
+
+    public sealed class Different : DefinitionCorrespondence
+    {
+        internal Different()
+        {
+        }
+    }
+
+    public sealed class IndeterminateDuplicateArtifact
+        : DefinitionCorrespondence
+    {
+        internal IndeterminateDuplicateArtifact(
+            DuplicateArtifactEvidence evidence) =>
+            Evidence = evidence;
+
+        public DuplicateArtifactEvidence Evidence { get; }
+    }
+
+    public sealed class IncomparableCatalogs : DefinitionCorrespondence
+    {
+        internal IncomparableCatalogs(
+            AssemblyCatalogId left,
+            AssemblyCatalogId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogId Left { get; }
+        public AssemblyCatalogId Right { get; }
+    }
+
+    public sealed class StaleGeneration : DefinitionCorrespondence
+    {
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId left,
+            AssemblyCatalogGenerationId right)
+        {
+            Left = left;
+            Right = right;
+        }
+
+        public AssemblyCatalogGenerationId Left { get; }
+        public AssemblyCatalogGenerationId Right { get; }
+    }
+}
+
+public sealed class DuplicateArtifactCandidateEvidence
+{
+    internal DuplicateArtifactCandidateEvidence(
+        ResolvedAssemblyReference assembly,
+        MetadataTypeDefinitionAddress address)
+    {
+        Assembly = assembly;
+        Address = address;
+    }
+
+    public ResolvedAssemblyReference Assembly { get; }
+    public MetadataTypeDefinitionAddress Address { get; }
+}
+
+public sealed class DuplicateArtifactEvidence
+{
+    internal DuplicateArtifactEvidence(
+        ImmutableArray<DuplicateArtifactCandidateEvidence> candidates) =>
+        Candidates = candidates;
+
+    public ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates
+        { get; }
+}
+
+/// <summary>
 /// Durable physical location of a TypeDef row: module MVID plus validated
 /// TypeDef token. This is an address, not a correspondence claim.
 /// </summary>

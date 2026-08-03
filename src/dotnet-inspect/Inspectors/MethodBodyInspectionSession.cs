@@ -19,9 +19,13 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 public sealed class MethodBodyInspectionSession
 {
-    MethodBodyInspectionSession(Analysis.LibraryBodyIndex index, string sourceName)
+    MethodBodyInspectionSession(
+        Analysis.LibraryBodyIndex index,
+        ResolvedAssemblyReference assembly,
+        string sourceName)
     {
         BodyIndex = index;
+        Assembly = assembly;
         SourceName = sourceName;
     }
 
@@ -30,6 +34,8 @@ public sealed class MethodBodyInspectionSession
     /// Consumers query it directly instead of growing a parallel forwarding surface here.
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex { get; }
+
+    public ResolvedAssemblyReference Assembly { get; }
 
     /// <summary>
     /// Short assembly name (file name without extension) this session was opened from. Used to
@@ -64,8 +70,36 @@ public sealed class MethodBodyInspectionSession
             features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        return OpenWithFeatures(
+        var assembly = ResolvedAssemblyReference.CreateFromPath(
             assemblyPath,
+            AssemblyResolutionProvenance.Local("method body inspection"));
+        return OpenWithFeatures(
+            assembly,
+            features,
+            resolver,
+            bodyScope,
+            bodyTypeScope);
+    }
+
+    internal static MethodBodyInspectionSession Open(
+        ResolvedAssemblyReference assembly,
+        IAssemblyReferenceResolver? resolver = null,
+        bool includeAllocations = true,
+        bool includeOpportunities = true,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+    {
+        var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
+        if (includeAllocations)
+            features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
+        if (includeOpportunities)
+        {
+            features |=
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        }
+
+        return OpenWithFeatures(
+            assembly,
             features,
             resolver,
             bodyScope,
@@ -73,12 +107,16 @@ public sealed class MethodBodyInspectionSession
     }
 
     internal static MethodBodyInspectionSession OpenWithFeatures(
-        string assemblyPath,
+        ResolvedAssemblyReference assembly,
         Analysis.LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
+        string assemblyPath = assembly.Path
+            ?? throw new ArgumentException(
+                "Method-body inspection requires a path-backed assembly.",
+                nameof(assembly));
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
             Analysis.LibraryBodyIndex.Open(
@@ -87,6 +125,7 @@ public sealed class MethodBodyInspectionSession
                 resolver,
                 bodyScope,
                 bodyTypeScope),
+            assembly,
             Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
@@ -103,6 +142,10 @@ public sealed class MethodBodyInspectionSession
                 context.GetPrefetchedImage(),
                 features,
                 resolver),
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "prefetched method body inspection")),
             Path.GetFileNameWithoutExtension(assemblyPath));
     }
 
@@ -134,7 +177,8 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public ImmutableArray<CallerEdge> CallerEdges(
         int targetToken,
-        IReadOnlyList<MethodBodyInspectionSession>? scopes = null)
+        IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
+        Analysis.CallerResolutionPlan? resolutionPlan = null)
     {
         var selected = BodyIndex.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
         var pattern = selected is { } identity
@@ -151,12 +195,22 @@ public sealed class MethodBodyInspectionSession
 
         if (pattern is not null && scopes is { Count: > 0 })
         {
+            ArgumentNullException.ThrowIfNull(resolutionPlan);
             foreach (var scope in scopes)
             {
                 foreach (var call in scope.BodyIndex.DirectCalls)
                 {
-                    if (pattern.MatchesCrossAssembly(call.Callee))
+                    Analysis.TypeRef declaringType =
+                        Analysis.GenericMemberIdentity.OpenDeclaringType(
+                            call.Callee.DeclaringType);
+                    if (resolutionPlan.GetRelation(
+                            scope.Assembly,
+                            declaringType)
+                            is Analysis.CandidateTypeRelation.SameDefinition
+                        && pattern.MatchesResolvedCrossAssembly(call.Callee))
+                    {
                         edges.Add(new CallerEdge(scope.SourceName, call));
+                    }
                 }
             }
         }

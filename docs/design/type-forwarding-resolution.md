@@ -2535,6 +2535,13 @@ an inspected assembly name into a path.
 - Port #3476's real framework fixture and close negative controls.
 - Do not port `ForwardedTypeAliases`.
 
+Slice 5 is delivered. Analysis retains exact decoder-produced origins, one
+reachability plan supplies both caller projections, Metadata owns
+generation-scoped definition correspondence, and final call-site matching
+consumes the plan's per-origin relation. The spelling-based scope filters and
+`MatchesCrossAssembly` have been removed rather than retained as compatibility
+paths.
+
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
