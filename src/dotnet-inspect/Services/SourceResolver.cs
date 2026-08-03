@@ -112,17 +112,24 @@ public static class SourceResolver
         // System.Runtime, not System.Numerics).
         if (platformCandidate != null)
         {
-            switch (PlatformResolver.LookupType(platformCandidate))
+            PlatformTypeLookupOutcome lookup =
+                PlatformResolver.LookupType(name);
+            if (lookup is PlatformTypeLookupOutcome.Missing)
+                lookup = PlatformResolver.LookupType(platformCandidate);
+
+            switch (lookup)
             {
                 case PlatformTypeLookupOutcome.Resolved resolved:
                     string runtimeLibrary =
                         resolved.Candidate.Assembly.Identity.Name;
+                    string exactTypeName =
+                        resolved.Candidate.Type.ToMetadataFullName();
                     RequestTelemetry.Breadcrumb(
                         "qualified-type-split",
-                        $"{name} -> platform={runtimeLibrary}; type={platformCandidate}");
+                        $"{name} -> platform={runtimeLibrary}; type={exactTypeName}");
                     return new LocalProbeResult(
                         runtimeLibrary,
-                        platformCandidate,
+                        exactTypeName,
                         LocalSourceKind.Platform);
                 case PlatformTypeLookupOutcome.Missing:
                     break;

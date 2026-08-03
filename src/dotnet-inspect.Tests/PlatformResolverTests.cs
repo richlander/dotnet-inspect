@@ -242,6 +242,51 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void LookupType_ExplicitMissingGenericArity_ReturnsMissing()
+    {
+        Assert.IsType<PlatformTypeLookupOutcome.Missing>(
+            PlatformResolver.LookupType("Dictionary<T1,T2,T3>"));
+    }
+
+    [Fact]
+    public void PlatformTypeCatalog_UnavailableDirectory_IsRetried()
+    {
+        string referencePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-platform-catalog-{Guid.NewGuid():N}");
+        string typeName = typeof(PlatformResolverTests).FullName!;
+        try
+        {
+            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                PlatformTypeCatalog.Lookup(
+                    typeName,
+                    referencePath,
+                    "test",
+                    "1.0.0"));
+            Assert.Equal(
+                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                rejected.Failure.Kind);
+
+            Directory.CreateDirectory(referencePath);
+            File.Copy(
+                typeof(PlatformResolverTests).Assembly.Location,
+                Path.Combine(referencePath, "CatalogFixture.dll"));
+
+            Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                PlatformTypeCatalog.Lookup(
+                    typeName,
+                    referencePath,
+                    "test",
+                    "1.0.0"));
+        }
+        finally
+        {
+            if (Directory.Exists(referencePath))
+                Directory.Delete(referencePath, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LookupType_UnqualifiedCollision_ReturnsOrderedAmbiguity()
     {
         var ambiguous = Assert.IsType<PlatformTypeLookupOutcome.Ambiguous>(

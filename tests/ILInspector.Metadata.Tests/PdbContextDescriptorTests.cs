@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Findings;
 
@@ -92,6 +94,27 @@ public class PdbContextDescriptorTests
     }
 
     [Fact]
+    public void DeclarationInventory_IncludesNestedForwardedTypes()
+    {
+        byte[] image = BuildNestedForwarderAssembly();
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+        var descriptor = ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("test"));
+
+        var read = Assert.IsType<
+            AssemblyTypeDeclarationInventoryOutcome.Read>(
+                AssemblyTypeDeclarationInventoryReader.Read(descriptor));
+
+        Assert.Contains(
+            read.Inventory.Forwarders,
+            name => name.Namespace == "N"
+                && name.Segments.SequenceEqual(["Outer", "Inner"]));
+    }
+
+    [Fact]
     public void SurfaceClassification_ProjectsSuccessAndFailureToFindings()
     {
         string path = typeof(PdbContextDescriptorTests).Assembly.Location;
@@ -126,5 +149,59 @@ public class PdbContextDescriptorTests
         using var peReader = new PEReader(stream);
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             peReader.GetMetadataReader());
+    }
+
+    static byte[] BuildNestedForwarderAssembly()
+    {
+        const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("NestedForwarder.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NestedForwarder"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        ExportedTypeHandle outer = metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Outer"),
+            target,
+            typeDefinitionId: 0);
+        metadata.AddExportedType(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Inner"),
+            outer,
+            typeDefinitionId: 0);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 }

@@ -110,9 +110,35 @@ public static class AssemblyTypeDeclarationInventoryReader
                 ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
             foreach (ExportedTypeHandle handle in reader.ExportedTypes)
             {
-                ExportedType exported = reader.GetExportedType(handle);
-                if (!exported.IsForwarder)
+                var traversal =
+                    MetadataRelationshipTraversal
+                        .WalkExportedTypeImplementationChain(reader, handle);
+                if (traversal is
+                    RelationshipTraversalResult<
+                        RelationshipChain<ExportedTypeHandle>>.Rejected)
+                {
+                    return Rejected(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "An exported type relationship could not be decoded.");
+                }
+
+                RelationshipChain<ExportedTypeHandle> chain =
+                    ((RelationshipTraversalResult<
+                        RelationshipChain<ExportedTypeHandle>>.Completed)
+                            traversal).Value;
+                if (chain.Terminal.Kind != HandleKind.AssemblyReference)
                     continue;
+
+                // ECMA-335 marks the root as a forwarder; nested rows point to
+                // that root without carrying tdForwarder themselves.
+                ExportedType root =
+                    reader.GetExportedType(chain.Handles[0]);
+                if (!root.IsForwarder)
+                {
+                    return Rejected(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "An assembly-forwarded type chain is not marked as a forwarder.");
+                }
 
                 if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read read)

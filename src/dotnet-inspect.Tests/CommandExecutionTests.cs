@@ -3015,6 +3015,17 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("This is a type-forwarding library", output);
     }
 
+    [Fact]
+    public async Task BareQualifiedPlatformType_WithLeafCollision_RoutesExactly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.IO.File", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("System.IO.File", output);
+    }
+
     private static bool IsFacadeAssembly(string assemblyPath) =>
         PlatformResolver.ClassifyAssemblySurface(assemblyPath)
             is AssemblySurfaceClassificationOutcome.Classified classified

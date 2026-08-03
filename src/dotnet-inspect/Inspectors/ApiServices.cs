@@ -258,8 +258,14 @@ internal static class ApiServices
 
         if (resolvedCount > 0)
         {
+            AssemblyResolutionProvenance provenance = isPlatformAssembly
+                ? AssemblyResolutionProvenance.Platform(
+                    "InstalledPlatform",
+                    frameworkVersion: null,
+                    "ApiServices")
+                : AssemblyResolutionProvenance.Local("ApiServices");
             api.SurfaceClassification =
-                PlatformResolver.ClassifyAssemblySurface(dllPath);
+                AssemblySurfaceClassifier.Classify(dllPath, provenance);
             api.SurfaceClassificationInspection =
                 MetadataFindings.InspectAssemblySurface(
                     api.SurfaceClassification,

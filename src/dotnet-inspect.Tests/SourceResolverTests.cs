@@ -132,6 +132,27 @@ public class SourceResolverTests
         Assert.Contains("ambiguous", failure, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("System.IO.File", "System.Runtime")]
+    [InlineData("System.Threading.ThreadState", "System.Threading.Thread")]
+    public void TryResolveQualifiedTypeName_UsesQualifiedCatalogIdentity(
+        string typeName,
+        string expectedAssembly)
+    {
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            typeName,
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(failure);
+        Assert.NotNull(probe);
+        Assert.Equal(expectedAssembly, probe.SourceName);
+        Assert.Equal(typeName, probe.Remainder);
+        Assert.Equal(SourceResolver.LocalSourceKind.Platform, probe.Kind);
+    }
+
     [Fact]
     public async Task ResolveAsync_PackageTypeSyntax_DoesNotUseRootPlatformFallback()
     {

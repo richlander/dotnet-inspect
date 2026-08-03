@@ -166,13 +166,27 @@ internal sealed class PlatformTypeCatalog
             return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
 
         string fullReferencePath = Path.GetFullPath(referencePath);
-        PlatformTypeCatalogResult catalogResult = Cache.GetOrAdd(
+        Lazy<PlatformTypeCatalogResult> cachedCatalog = Cache.GetOrAdd(
             fullReferencePath,
             path => new Lazy<PlatformTypeCatalogResult>(
                 () => Build(path, framework, frameworkVersion),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+                LazyThreadSafetyMode.ExecutionAndPublication));
+        PlatformTypeCatalogResult catalogResult = cachedCatalog.Value;
         if (catalogResult is PlatformTypeCatalogResult.Rejected rejected)
+        {
+            if (rejected.Failure.Kind
+                == PlatformTypeLookupFailureKind.CatalogUnavailable)
+            {
+                // Remove only the failed Lazy observed by this caller; a
+                // concurrent retry may already have installed a replacement.
+                ((ICollection<KeyValuePair<
+                    string,
+                    Lazy<PlatformTypeCatalogResult>>>)Cache).Remove(
+                        new(fullReferencePath, cachedCatalog));
+            }
+
             return new PlatformTypeLookupOutcome.Rejected(rejected.Failure);
+        }
 
         var catalog =
             ((PlatformTypeCatalogResult.Ready)catalogResult).Catalog;
@@ -206,9 +220,11 @@ internal sealed class PlatformTypeCatalog
                         candidate.Type.ToMetadataFullName())
                     == pattern.GenericArity),
             ];
-            if (!sameArity.IsEmpty)
-                selected = sameArity;
+            selected = sameArity;
         }
+
+        if (selected.IsEmpty)
+            return new PlatformTypeLookupOutcome.Missing();
 
         ImmutableArray<PlatformTypeLookupCandidate> exact =
         [
