@@ -26,13 +26,15 @@ namespace DotnetInspector.Tests;
 /// developer can repair, not an unavailable optional tool, and skipping would drop genuine
 /// coverage of every source-backed section.
 ///
-/// <see cref="TestAssemblySourceLinkTests"/> is the non-vacuity gate: it asserts this probe
-/// reports availability under a normal build, so the helper cannot rot into a state where
-/// the hint is never — or always — produced.
+/// <see cref="TestAssemblySourceLinkTests"/> is the gate. It drives
+/// <see cref="DescribeUnavailability"/> over a real available assembly and over two
+/// constructed unavailable ones, so neither a probe stuck at "available" — which would
+/// silently retire the diagnostic — nor one stuck at "unavailable" can survive.
 /// </remarks>
 internal static class TestAssemblySourceLink
 {
-    private static readonly Lazy<string?> LazyUnavailableReason = new(Probe);
+    private static readonly Lazy<string?> LazyUnavailableReason =
+        new(() => DescribeUnavailability(typeof(TestAssemblySourceLink).Assembly.Location));
 
     /// <summary>True when the PDB the product accepts for the test assembly carries SourceLink.</summary>
     public static bool IsAvailable => LazyUnavailableReason.Value is null;
@@ -46,27 +48,35 @@ internal static class TestAssemblySourceLink
     /// </summary>
     /// <remarks>
     /// The probe observes only that SourceLink is absent; it does not establish why. The hint
-    /// therefore reports the observation as fact and offers the known environmental cause as a
-    /// candidate to check, rather than asserting it.
+    /// reports the observation as fact and offers the known environmental cause as a candidate,
+    /// with a check precise enough to confirm or exclude it, rather than asserting it.
     /// </remarks>
     public static string FailureHint =>
         UnavailableReason is { } reason
-            ? $" NOTE: this assertion needs SourceLink in the test assembly's PDB, and {reason}. " +
-              "That points at the environment rather than at a product regression, though this " +
-              "check does not establish which cause applies. The known one under a .NET 11 SDK is " +
-              "issue #3658: `Microsoft.Build.Tasks.Git` reads `packed-refs` from `$GIT_DIR` when it " +
-              "lives in `$GIT_COMMON_DIR`, so in a linked worktree whose branch ref has been packed " +
-              "by `git gc` the build silently emits no SourceLink. Check with " +
-              "`test -f \"$(git rev-parse --git-common-dir)/refs/heads/$(git rev-parse --abbrev-ref HEAD)\"`; " +
-              "if that is the cause, repair with " +
-              "`git update-ref refs/heads/$(git rev-parse --abbrev-ref HEAD) HEAD` and prevent " +
-              "recurrence with `git config gc.packRefs false`. Other causes — a source archive with " +
-              "no `.git`, or SourceLink explicitly disabled — need no repair."
+            ? $" NOTE: this assertion needs SourceLink in the test assembly's PDB, and {reason}. "
+              + "That points at the build environment rather than at a product regression, though "
+              + "this check does not establish which cause applies. The known one under a .NET 11 "
+              + "SDK is issue #3658: when git has packed the branch ref of a linked worktree, "
+              + "`Microsoft.Build.Tasks.Git` looks for `packed-refs` in `$GIT_DIR` while it lives in "
+              + "`$GIT_COMMON_DIR`, resolves no revision, and the build emits no SourceLink without "
+              + "warning. Confirm — exit 0 means this is the cause: "
+              + "`git symbolic-ref -q HEAD >/dev/null "
+              + "&& [ \"$(git rev-parse --git-dir)\" != \"$(git rev-parse --git-common-dir)\" ] "
+              + "&& ! test -f \"$(git rev-parse --git-common-dir)/$(git symbolic-ref -q HEAD)\"`. "
+              + "Repair by recreating the loose ref — `git update-ref <branch> HEAD` alone is a "
+              + "no-op here, because the value is unchanged: "
+              + "`B=$(git symbolic-ref -q HEAD); S=$(git rev-parse HEAD); "
+              + "git update-ref -d \"$B\" && git update-ref \"$B\" \"$S\"`. "
+              + "Then `git config gc.packRefs false` prevents recurrence. Other causes — a source "
+              + "archive with no `.git`, or SourceLink explicitly disabled — need no repair."
             : string.Empty;
 
-    private static string? Probe()
+    /// <summary>
+    /// Describes why <paramref name="assemblyPath"/> has no usable SourceLink, or null when it has.
+    /// Takes a path so the gate can drive it over constructed unavailable cases.
+    /// </summary>
+    internal static string? DescribeUnavailability(string assemblyPath)
     {
-        var assemblyPath = typeof(TestAssemblySourceLink).Assembly.Location;
         if (string.IsNullOrEmpty(assemblyPath) || !File.Exists(assemblyPath))
             return "the test assembly has no readable file location";
 
