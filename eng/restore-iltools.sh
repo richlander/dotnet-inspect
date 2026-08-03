@@ -114,6 +114,22 @@ emit_path() {
 
 cygpath="$(command -v cygpath 2> /dev/null || true)"
 
+# The MSYS form above is right for a shell and wrong for a GitHub Actions lane.
+# $GITHUB_PATH feeds PATH for *every* later step, including pwsh steps and the
+# .NET processes they spawn, and Win32 CreateProcess cannot resolve /c/... -- so
+# the tools would be unfindable and every oracle test would skip, green. No
+# Windows lane exists today (the test matrix is linux-x64 only), so rather than
+# ship an unexercised native-path mode, refuse loudly: whoever adds that lane
+# gets this message instead of a silently uncompared run.
+if [ -n "$cygpath" ] && [ -n "${GITHUB_PATH:-}" ]; then
+    echo "error: refusing to write MSYS-style paths to \$GITHUB_PATH." >&2
+    echo "  This script emits /c/... form on Git Bash, which .NET cannot resolve" >&2
+    echo "  when a later pwsh step spawns a process. Adding a Windows CI lane" >&2
+    echo "  requires emitting native paths here first; see the emit_path comment" >&2
+    echo "  above for why the MSYS form exists (drive colons split a PATH)." >&2
+    exit 1
+fi
+
 # The package payload's extension follows the RID being restored, not the host:
 # restoring win-x64 from Linux still yields ilasm.exe.
 case "$rid" in
@@ -151,9 +167,39 @@ fi
 # layout moved would otherwise put a non-existent directory on PATH, and every
 # test that needs these tools would skip -- reporting the same green run as a
 # machine that never tried.
+#
+# The executable bit is necessary but not sufficient: a tool can be present and
+# +x yet still fail to start -- a native dependency missing from the image, or,
+# for a `dotnet tool` shim, no runtime it will roll forward to. That failure is
+# invisible to a mode check, and lands as the very skip this script exists to
+# prevent. So run each tool and require a marker from its *own* help text.
+#
+# Match the help text, not the exit status and not the tool name. ilasm exits 1
+# when invoked with no arguments while ildasm and mdv exit 0, so status carries
+# no signal; and the host's startup failure names the app it could not launch
+# ("App: /path/to/mdv"), so a marker of "mdv" would match the broken case too.
+smoke_tool() {
+    tool_path="$1"
+    tool_marker="$2"
+    tool_output="$("$tool_path" < /dev/null 2>&1)" || true
+
+    case "$tool_output" in
+        *"$tool_marker"*) ;;
+        *)
+            echo "error: $tool_path is installed but did not run." >&2
+            echo "  expected its help output to contain: $tool_marker" >&2
+            echo "  got: $(printf '%s' "$tool_output" | head -3)" >&2
+            exit 1
+            ;;
+    esac
+}
+
 for tool in "$ilasm_dir/ilasm$tool_ext" "$ildasm_dir/ildasm$tool_ext"; do
     [ -x "$tool" ] || { echo "error: expected an executable at $tool after restore." >&2; exit 1; }
 done
+
+smoke_tool "$ilasm_dir/ilasm$tool_ext" "Usage: ilasm"
+smoke_tool "$ildasm_dir/ildasm$tool_ext" "Usage: ildasm"
 
 emit_path "$ilasm_dir"
 emit_path "$ildasm_dir"
@@ -175,5 +221,15 @@ if [ "$want_mdv" -eq 1 ]; then
         echo "error: expected an executable at $tools_dir/mdv after install." >&2
         exit 1
     fi
+
+    # "Parameters:" heads mdv's own usage listing. The runtime's startup failure
+    # does not contain it, so this separates "installed and working" from
+    # "installed and inert" -- the case that otherwise skips the oracle quietly.
+    if [ -x "$tools_dir/mdv" ]; then
+        smoke_tool "$tools_dir/mdv" "Parameters:"
+    else
+        smoke_tool "$tools_dir/mdv.exe" "Parameters:"
+    fi
+
     emit_path "$tools_dir"
 fi

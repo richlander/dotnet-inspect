@@ -76,15 +76,31 @@ fi
 # containing a glob metacharacter would be matched as a pattern by the first
 # and mangled by the second. Uses only builtins, like the rest of this file, so
 # it still works when the PATH being repaired is itself unusable.
+# Exact-element membership test against a PATH-shaped string. Deliberately
+# avoids both `case` patterns and unquoted word splitting, because a directory
+# containing a glob metacharacter would be matched as a pattern by the first
+# and mangled by the second. Uses only builtins, like the rest of this file, so
+# it still works when the PATH being repaired is itself unusable.
+#
+# Walks the string colon by colon rather than translating colons to newlines and
+# reading lines. `read` ends an element at a newline, so the newline form tears a
+# directory containing one into two entries -- and a directory *ending* in one
+# yields an empty element, which means the current directory.
 __iltools_path_has() {
-    local needle="$1" element haystack
-    haystack="${2-}"
-    while IFS= read -r element; do
+    local needle="$1" rest="${2-}" element
+
+    while :; do
+        element="${rest%%:*}"
+
         if [ "$element" = "$needle" ]; then
             return 0
         fi
-    done <<< "${haystack//:/$'\n'}"
-    return 1
+
+        case "$rest" in
+            *:*) rest="${rest#*:}" ;;
+            *) return 1 ;;
+        esac
+    done
 }
 
 # Printed on every failure that could have been caused by arguments, because
@@ -107,7 +123,7 @@ __iltools_activate() {
     # A function body so `local` keeps the sourcing shell's namespace clean and
     # a failure can `return`; `exit` here would close an interactive shell.
     local self dir script_dir restore out status joined line saw_entry
-    local element tail first arg
+    local element tail first arg rest
     local -a args=()
 
     # `source file` with no arguments leaves the sourcing script's own
@@ -129,7 +145,13 @@ __iltools_activate() {
         dir="."
     fi
 
-    script_dir="$(cd "$dir" && pwd)" || return 1
+    # CDPATH= disables `cd`'s alternate-directory search. With CDPATH set -- a
+    # common interactive setting, and this file is meant to be sourced
+    # interactively -- a match there makes `cd` print the resolved directory on
+    # stdout, which command substitution then captures ahead of `pwd`. The
+    # result is a two-line script_dir that resolves to nothing. `--` keeps a
+    # directory starting with `-` from being read as an option.
+    script_dir="$(CDPATH= cd -- "$dir" && pwd)" || return 1
     restore="$script_dir/restore-iltools.sh"
 
     if [ ! -x "$restore" ]; then
@@ -212,18 +234,24 @@ __iltools_activate() {
     # deleting the caller's.
     tail=""
     first=1
-    while IFS= read -r element; do
-        if __iltools_path_has "$element" "$joined"; then
-            continue
+    rest="$PATH"
+    while :; do
+        element="${rest%%:*}"
+
+        if ! __iltools_path_has "$element" "$joined"; then
+            if [ "$first" -eq 1 ]; then
+                tail="$element"
+                first=0
+            else
+                tail="$tail:$element"
+            fi
         fi
 
-        if [ "$first" -eq 1 ]; then
-            tail="$element"
-            first=0
-        else
-            tail="$tail:$element"
-        fi
-    done <<< "${PATH//:/$'\n'}"
+        case "$rest" in
+            *:*) rest="${rest#*:}" ;;
+            *) break ;;
+        esac
+    done
 
     if [ "$first" -eq 1 ]; then
         export PATH="$joined"

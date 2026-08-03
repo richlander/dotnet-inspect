@@ -47,6 +47,11 @@ public class IlToolsActivationTests
     // test in the errexit cases.
     const string ReportPathOnExit = """trap 'printf "PATH=%s\n" "$PATH"' EXIT""";
 
+    // %q renders the whole PATH as one shell-quoted token, so a newline inside
+    // an entry survives the trip as a `\n` escape instead of ending the report
+    // line. Plain %s cannot express the case these tests exist to pin.
+    const string ReportQuotedPathOnExit = """trap 'printf "PATHQ=%q\n" "$PATH"' EXIT""";
+
     // A stub that emits two directories the way restore-iltools.sh does.
     // Reports the argument *count* as well as the values: a single empty
     // argument and no arguments at all are indistinguishable in "$*".
@@ -320,6 +325,119 @@ public class IlToolsActivationTests
     }
 
     /// <summary>
+    /// A directory containing a newline is legal and must survive verbatim. The
+    /// colon-to-newline rewrite this file used to rely on tore such an entry in
+    /// two and rejoined the halves with a colon; when the newline was trailing,
+    /// the second half was empty -- an empty PATH element, which means the
+    /// current directory. Activation reported success either way.
+    /// </summary>
+    [Fact]
+    public void Activate_WhenAnExistingEntryContainsANewline_PreservesItAndAddsNoEmptyElement()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var quoted = ActivateReportingQuotedPath(
+            TwoDirectoryProducer,
+            initialPath: "/before:/tmp/has\nnewline:/after");
+
+        Assert.Contains(@"\n", quoted);
+        Assert.DoesNotContain("::", quoted);
+
+        // The newline must still be inside a single entry, not promoted to a
+        // separator: '/tmp/has' and 'newline' must not have become siblings.
+        Assert.DoesNotContain("/tmp/has:", quoted);
+    }
+
+    /// <summary>
+    /// A trailing newline is the variant that produced an empty element, so it
+    /// gets its own case rather than riding on the interior one.
+    /// </summary>
+    [Fact]
+    public void Activate_WhenAnExistingEntryEndsWithANewline_AddsNoEmptyElement()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var quoted = ActivateReportingQuotedPath(
+            TwoDirectoryProducer,
+            initialPath: "/tmp/trailing\n:/after");
+
+        Assert.DoesNotContain("::", quoted);
+        Assert.Contains(@"\n", quoted);
+    }
+
+    /// <summary>
+    /// This file is meant to be sourced interactively, and CDPATH is an
+    /// interactive setting. When `cd` finds the target through CDPATH it prints
+    /// the resolved directory on stdout, which command substitution captures
+    /// ahead of `pwd` -- leaving a two-line script directory that resolves to
+    /// nothing, so activation fails on a machine where nothing is wrong.
+    /// </summary>
+    [Fact]
+    public void Activate_WithCdpathSet_StillResolvesItsOwnDirectory()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        using var scratch = new ScratchDirectory(TwoDirectoryProducer);
+
+        // CDPATH names the scratch directory's own parent, so a relative `cd`
+        // to the script's directory can resolve through it.
+        var script = string.Join('\n', [
+            $"export CDPATH=\"{Path.GetDirectoryName(scratch.Path)}\"",
+            ReportPathOnExit,
+            $"source \"{scratch.ActivatePath}\"",
+        ]);
+
+        var result = RunBash(script, "/orig1");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["/tmp/iltools-a", "/tmp/iltools-b", "/orig1"], result.PathEntries);
+    }
+
+    /// <summary>
+    /// The producer emits MSYS-form paths on Git Bash so drive colons cannot
+    /// split a PATH. That form is unusable in $GITHUB_PATH, where a later pwsh
+    /// step's .NET processes resolve it through Win32 -- the tools would go
+    /// unfound and every oracle test would skip, green, which is the exact
+    /// failure these scripts exist to prevent. No Windows lane exists today, so
+    /// the producer must refuse rather than emit something silently inert.
+    /// </summary>
+    [Fact]
+    public void Restore_WhenEmittingMsysPathsIntoGithubPath_RefusesInsteadOfSkippingQuietly()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        using var stubs = new ScratchDirectory(producer: null);
+
+        // Stand in for Git Bash: the producer keys the MSYS rewrite on cygpath
+        // being present, so a stub on PATH reaches the guard on any host.
+        var cygpath = Path.Combine(stubs.Path, "cygpath");
+        File.WriteAllText(cygpath, "#!/bin/sh\nshift; echo \"$1\"\n");
+        ScratchDirectory.MakeExecutablePublic(cygpath);
+
+        var info = new ProcessStartInfo("bash")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepoRoot,
+        };
+        info.ArgumentList.Add(RestoreScript);
+        info.ArgumentList.Add("--rid");
+        info.ArgumentList.Add("linux-x64");
+        info.Environment["PATH"] = stubs.Path + ":" + Environment.GetEnvironmentVariable("PATH");
+        info.Environment["GITHUB_PATH"] = Path.Combine(stubs.Path, "github_path");
+
+        using var process = Process.Start(info)!;
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.NotEqual(0, process.ExitCode);
+        Assert.Contains("GITHUB_PATH", stderr);
+        Assert.Equal("", stdout.Trim());
+    }
+
+    /// <summary>
     /// `source file` with no arguments leaves the sourcing script's own
     /// positional parameters visible to the sourced file, and bash offers no
     /// way to tell those apart from real arguments. An empty argument is the
@@ -545,6 +663,32 @@ public class IlToolsActivationTests
                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                 UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
+
+        public static void MakeExecutablePublic(string path) => MakeExecutable(path);
+    }
+
+    /// <summary>
+    /// Sources the script and returns the caller shell's PATH in shell-quoted
+    /// form, so entries containing newlines stay observable.
+    /// </summary>
+    static string ActivateReportingQuotedPath(string producer, string initialPath)
+    {
+        using var scratch = new ScratchDirectory(producer);
+
+        var script = string.Join('\n', [
+            ReportQuotedPathOnExit,
+            $"source \"{scratch.ActivatePath}\"",
+        ]);
+
+        var result = RunBash(script, initialPath);
+
+        Assert.Equal(0, result.ExitCode);
+
+        var line = result.Stdout.Split('\n')
+            .FirstOrDefault(l => l.StartsWith("PATHQ=", StringComparison.Ordinal));
+
+        Assert.NotNull(line);
+        return line["PATHQ=".Length..];
     }
 
     static ActivationResult Activate(
