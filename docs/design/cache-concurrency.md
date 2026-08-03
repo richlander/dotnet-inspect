@@ -5,11 +5,79 @@ derived platform packs. [Version resolution](version-resolution.md) owns which
 package coordinate is selected and when network lookup occurs; this document
 owns how content for an exact coordinate becomes visible safely.
 
+## Source conformance
+
+Content that dotnet-inspect downloaded is scoped to the source that supplied it.
+A request is served only the exact bytes downloaded from a source the current
+configuration lists. Content obtained from any other source is invisible to it,
+even for an identical package id and version.
+
+This is a correctness boundary, not an optimization. Two feeds may publish the
+same coordinate with different content, so serving one feed's bytes for another
+feed's request is package source confusion: the caller receives, and reports on,
+a package it never asked for and may not be entitled to read. Avoiding that
+outcome takes precedence over cache hit rate.
+
+The consequences run through the whole model, and the rest of this document
+should be read with them in mind:
+
+- the source is part of the cache path, so one coordinate held by two feeds
+  occupies two entries and the same bytes may be stored twice;
+- a lookup consults only the entries its configuration entitles it to, and
+  treats every other entry as absent; and
+- in-flight acquisitions are shared only between callers with the same source
+  configuration.
+
+### The NuGet global folder is outside this boundary
+
+`~/.nuget/packages` is read eagerly, ahead of source scoping, and a package
+found there answers regardless of the configured sources. This is deliberate.
+That folder holds what the user restored, not what dotnet-inspect fetched, and
+binding to it eagerly is what makes an inspection agree with the bytes a build
+actually consumed — the fidelity argument and the performance argument point the
+same way. The scoping above governs content dotnet-inspect acquired, where the
+tool chose the source and is accountable for the choice.
+
+The rule is therefore *strict conformance to the sources dotnet-inspect fetched
+from*, not *strict conformance to everything on the machine*. Callers that need
+only configured sources to answer pass `--no-nuget-cache`, which drops the
+folder from lookup. Note that NuGet does record an installed package's source in
+`.nupkg.metadata`; the folder is treated as source-blind by choice, not for want
+of the data.
+
+### Known deviation: precedence between two entitled sources
+
+Slots are consulted in configured order, so when two configured feeds both have
+the coordinate cached, the higher-precedence one answers, as it would on a cold
+run. The case that still differs is when the higher-precedence feed holds the
+package but has no cached slot: a cold run downloads from it, a warm run answers
+from the lower-precedence feed's slot. Both are entitlement-correct — the caller
+reads both feeds — so this is precedence, not source confusion. Closing it
+requires probing the network on every request, which would defeat cache-first and
+offline operation, so it is left open deliberately and tracked as part of the
+broader source-support design.
+
+"Entitled" here means the source appears in the caller's configured sources.
+dotnet-inspect does not yet consult `<packageSourceMapping>`, which would narrow
+entitlement further, to the feeds mapped to a particular package id.
+
+A source is identified by a digest of its canonical URL, and canonicalization is
+shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
+one URL cannot mean two things in one tool. Scheme, host, default port,
+percent-escape casing and a trailing path slash fold, because the URI grammar
+defines them as equivalent; path and query case do not, because `/FeedA` and
+`/feeda` can be different feeds on a case-sensitive server. The digest keeps
+source URLs out of cache paths and makes every identity a valid path segment. It
+is opacity rather than confidentiality: a feed URL is low entropy, and a local
+reader who can see these paths can already see which packages were cached.
+
 ## Guarantees
 
 The cache model provides:
 
-- one shared acquisition task per exact coordinate within a process;
+- content scoped to the source that supplied it;
+- one shared acquisition task per exact coordinate *and source configuration*
+  within a process;
 - complete-tree visibility through marked, atomic directory publication;
 - convergence on one valid winner when processes publish concurrently; and
 - no lock ordering between package coordinates.
@@ -25,9 +93,9 @@ implement any of those architectures exactly.
 
 | Precedent | Pattern adopted by dotnet-inspect | Important difference |
 | --- | --- | --- |
-| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. |
+| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet's global folder is also source-blind, whereas dotnet-inspect's own cache is scoped by source. |
 | Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
-| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, and version rather than by a content hash. |
+| Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, version, and source rather than by a content hash. |
 | Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |
 | Git mutable-state locks | Immutable entries do not require a long-lived cross-process lock when publishers can converge on one valid result. | Explicit locking remains appropriate for future mutable state that cannot use winner convergence. |
 
@@ -45,8 +113,11 @@ work, but it permits duplicate download and extraction.
 
 ## Process-local single-flight
 
-The process-wide in-flight registry is keyed by the final cache path for one
-exact package coordinate. Concurrent callers receive the same task. The
+The process-wide in-flight registry is keyed by one exact package coordinate
+together with the caller's ordered source list. Concurrent callers receive the
+same task only when both match. Callers configured for different sources would
+otherwise be handed each other's bytes, which is the same confusion the cache
+scoping prevents, arriving by a different route. The
 registry entry is removed after completion, whether acquisition succeeds or
 fails, because the committed filesystem entry remains authoritative and is
 revalidated by later requests.
@@ -69,7 +140,7 @@ Package content publication follows this sequence:
 4. Write `.dotnet-inspect.complete` inside the staging directory.
 5. Close all files opened by dotnet-inspect.
 6. Move the staging directory atomically to its final
-   `package-content-v2/{id}/{version}` path.
+   `package-content-v4/{id}/{version}/{source}` path.
 7. If another publisher won, validate and use its committed directory.
 
 Readers accept only final directories with the expected structure and marker;
@@ -77,8 +148,9 @@ they never inspect staging paths. Platform-pack projection applies the same
 transaction separately under `packs-v2` with its own completion marker. It
 copies from committed package content and never mutates that package directory.
 
-The versioned `package-content-v2` and `packs-v2` namespaces fence these
-transactions from older direct-copy writers.
+The versioned `package-content-v4` and `packs-v2` namespaces fence these
+transactions from older direct-copy writers, and from earlier layouts that did
+not scope entries by source.
 
 ## Filesystem coordination
 

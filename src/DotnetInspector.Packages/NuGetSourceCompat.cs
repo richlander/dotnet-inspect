@@ -26,6 +26,43 @@ public record NuGetSourceOptions
 /// </summary>
 public static class NuGetSourceResolver
 {
+    /// <summary>
+    /// Resolves sources and reduces them to the identities the package content
+    /// cache records, so a caller can ask the cache for content this
+    /// configuration is actually entitled to. Configured order is preserved.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveSourceKeys(
+        NuGetSourceOptions? options,
+        string? workingDirectory = null)
+        => SourceKeys(ResolveSources(options, workingDirectory));
+
+    /// <summary>
+    /// Reduces already-resolved sources to their cache identities, preserving
+    /// configured order.
+    /// </summary>
+    /// <remarks>
+    /// Order is part of the contract. Sources are consulted in configured order
+    /// on a miss, so a cache read that consults slots in some other order could
+    /// answer from a lower-precedence feed than the one a cold run would have
+    /// used. Returning a set rather than an ordered list would leave that
+    /// precedence undefined.
+    /// </remarks>
+    public static IReadOnlyList<string> SourceKeys(IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var keys = new List<string>();
+        foreach (var source in sources)
+        {
+            var key = NuGetCache.GetSourceKey(source.Url);
+            if (seen.Add(key))
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
     {
         options ??= NuGetSourceOptions.Default;

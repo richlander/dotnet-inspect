@@ -264,7 +264,9 @@ public static class RouterCommandDefinition
 
         private static async Task<bool> PackageExistsAsync(string packageName, CommandContext context)
         {
-            if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+            if (NuGetCache.TryGetLatestCachedVersion(
+                    packageName,
+                    NuGetSourceResolver.ResolveSourceKeys(null)) != null)
                 return true;
 
             try

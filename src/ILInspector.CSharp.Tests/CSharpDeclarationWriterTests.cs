@@ -1491,6 +1491,187 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("public class GlobalKeywordType<T> where T : struct, @struct", declaration);
     }
 
+    /// <summary>
+    /// A caller-supplied generic-parameter list (the decompiled-source `member`
+    /// view passes the names it resolved from metadata) makes the ApiSignature
+    /// renderer decline, so the declaration is composed on the text path instead.
+    /// That path used to drop the `where` clauses, emitting C# that no longer
+    /// states the constraint its body relies on (issue #3664).
+    /// </summary>
+    [Fact]
+    public void GenericMethod_WithCallerSuppliedTypeParameters_KeepsConstraints()
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, options: null, methodParameters: ["T"]);
+
+        Assert.Equal(
+            "public static int Compare<T>(T a, T b) where T : System.IComparable<T>",
+            declaration);
+    }
+
+    /// <summary>
+    /// The ApiSignature path renders the same constraints, so the two paths agree
+    /// on the clause rather than one of them silently dropping it.
+    /// </summary>
+    [Fact]
+    public void GenericMethod_WithoutCallerSuppliedTypeParameters_KeepsConstraints()
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "public static int Compare<T>(T a, T b) where T : System.IComparable<T>",
+            declaration);
+    }
+
+    /// <summary>
+    /// An override inherits its constraints, and a type constraint may not be restated:
+    /// `csc` rejects it with CS0460. Both declaration paths have to omit it, so the gate
+    /// runs with and without a caller-supplied generic-parameter list.
+    /// (The `class`/`struct` carve-out C# does allow is covered separately, by
+    /// <see cref="OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows"/>.)
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OverrideGenericMethod_OmitsInheritedConstraints(bool callerSuppliesTypeParameters)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.IsOverride = true;
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: callerSuppliesTypeParameters ? ["T"] : null);
+
+        Assert.Equal("public override int Compare<T>(T a, T b)", declaration);
+    }
+
+    /// <summary>
+    /// An explicit interface implementation inherits its constraints for the same
+    /// reason an override does, and restating them is the same CS0460.
+    /// </summary>
+    /// <remarks>
+    /// Only the caller-supplied case is load-bearing today: forcing the gate open
+    /// fails that case but not the ApiSignature one, because the ApiSignature method
+    /// branch keys on <c>Kind == "method"</c> and so never renders this kind at all.
+    /// The second case is therefore a pin, not a gate — it fails if a later change
+    /// routes explicit interface implementations through that branch without
+    /// teaching it about inherited constraints.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExplicitInterfaceGenericMethod_OmitsInheritedConstraints(bool callerSuppliesTypeParameters)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.Kind = "explicit-interface-implementation";
+        member.Name = "Samples.IComparer.Compare";
+        member.Signature = "int Samples.IComparer.Compare<T>(T a, T b)";
+        member.SignatureModel!.MemberName = "Samples.IComparer.Compare<T>";
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: callerSuppliesTypeParameters ? ["T"] : null);
+
+        Assert.DoesNotContain("where", declaration, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C# permits exactly one restatement on a member that inherits its constraints —
+    /// a bare `class` or `struct` — and it is load-bearing, not cosmetic: it decides
+    /// whether `T?` means a nullable reference type or Nullable&lt;T&gt;. Dropping it
+    /// produced an override that no longer compiles (CS0453/CS0115), so the reduction
+    /// keeps it while omitting everything CS0460 forbids.
+    /// </summary>
+    [Theory]
+    // A reference-type constraint survives, without the annotation `class?` that is
+    // itself CS0460, and without the `new()` that may not be restated.
+    [InlineData(new[] { "class", "new()" }, "where T : class")]
+    [InlineData(new[] { "class?" }, "where T : class")]
+    // A value-type constraint reduces to the one spelling C# accepts here.
+    [InlineData(new[] { "struct" }, "where T : struct")]
+    [InlineData(new[] { "unmanaged" }, "where T : struct")]
+    // Nothing else may be named on an inheriting member.
+    [InlineData(new[] { "notnull" }, "")]
+    [InlineData(new[] { "System.IComparable<T>" }, "")]
+    public void OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows(
+        string[] constraints,
+        string expectedClause)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.IsOverride = true;
+        var typeParameter = member.SignatureModel!.TypeParameters[0];
+        typeParameter.Constraints = [.. constraints];
+        typeParameter.StructuredConstraints =
+        [
+            .. constraints.Select(constraint => new TypeParameterConstraint(
+                constraint,
+                IsTypeName: constraint is not ("class" or "class?" or "struct" or "unmanaged" or "notnull" or "new()"))),
+        ];
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: ["T"]);
+
+        Assert.Equal(
+            string.IsNullOrEmpty(expectedClause)
+                ? "public override int Compare<T>(T a, T b)"
+                : $"public override int Compare<T>(T a, T b) {expectedClause}",
+            declaration);
+    }
+
+    static (ApiType Type, ApiMember Member) CreateConstrainedGenericMethod()
+    {
+        var member = new ApiMember
+        {
+            Name = "Compare",
+            Kind = "method",
+            IsStatic = true,
+            Signature = "int Compare<T>(T a, T b)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Compare<T>",
+                TypeParameters =
+                [
+                    new TypeParameter
+                    {
+                        Name = "T",
+                        Constraints = ["System.IComparable<T>"],
+                        StructuredConstraints =
+                        [
+                            new TypeParameterConstraint("System.IComparable<T>", IsTypeName: true),
+                        ],
+                    },
+                ],
+                Parameters =
+                [
+                    new ApiParameter { Name = "a", Type = "T" },
+                    new ApiParameter { Name = "b", Type = "T" },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Values",
+            Kind = "class",
+            Members = [member],
+        };
+        return (type, member);
+    }
+
     static ApiType CreateSampleType()
         => new()
         {

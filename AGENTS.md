@@ -194,7 +194,39 @@ the shipped CLI) is the worked example, and
 `docs/decompiler-correctness-pipeline.md` owns its host contract, its structural
 and semantic levels, and what to do when a fixture trips one.
 
-Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
+Some tests use external tools as independent oracles and **skip** when those
+tools are absent: `ilasm`/`ildasm` (CLI and decompiler suites) and `mdv`
+(the metadata projection oracle). A machine without them reports a green run
+that proved less than it appears to, so restore them before trusting a clean
+result:
+
+```bash
+source eng/activate-iltools.sh --mdv
+```
+
+`eng/restore-iltools.sh` does the acquisition and prints the directories;
+`eng/activate-iltools.sh` is the sourceable wrapper that puts them on PATH.
+Source the wrapper rather than assembling PATH by hand. A child process cannot
+change its parent's PATH, so the assembly has to happen in your shell, and
+every way of getting it wrong is silent -- a masked exit status, a lost
+trailing newline, or empty output prepending an empty PATH entry, which means
+the current directory. Each leaves a plausible PATH with no oracles on it. The
+wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
+`src/dotnet-inspect.Tests` is its gate, and also fails if this documentation
+goes back to hand-rolling the assembly.
+
+The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
+`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
+directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
+Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
+metadata oracle suite. Its install step is `continue-on-error` so that a feed
+outage does not cost every other result in the lane, but `Check
+ilasm/ildasm/mdv result` runs after the suites and fails the lane if
+acquisition failed: losing oracle coverage is red, not a quietly shorter skip
+list. `deep-inspect.yml` and `release.yml` still degrade to skips, so read
+their step logs before treating a green decompiler or IL-diff leg as
+oracle-backed.
+
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `ILInspector.Decompiler.Tests` composes `Speed` and `Area` traits and offers a

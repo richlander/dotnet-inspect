@@ -306,6 +306,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         string signature;
+        var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
             signature = $"{member.ReturnType} {member.Name}";
@@ -313,6 +314,7 @@ internal static class CSharpDeclarationWriter
         else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
         {
             signature = modelSignature;
+            renderedFromModel = true;
         }
         else
         {
@@ -352,6 +354,27 @@ internal static class CSharpDeclarationWriter
         {
             if (methodParameters is { Count: > 0 })
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
+
+            // TryRenderSignatureModel appends the `where` clauses itself, so only the
+            // text fallback has to recover them — and it is reached two different ways.
+            // A caller that supplies its own generic-parameter names makes the model
+            // path decline (the single-member view), and so does a member kind the
+            // model path does not render (an explicit interface implementation, in the
+            // whole-type view). Both used to lose the clauses, which renders a
+            // constrained generic member as uncompilable C#: the declaration stops
+            // stating a constraint its own signature and body still rely on.
+            //
+            // When the caller supplied names, they and the model's type parameters come
+            // from the same GenericParameter rows in the same order, so the two line up
+            // by construction; requiring equal arity keeps a mismatched pairing from
+            // spelling a clause for the wrong parameter. When the caller supplied none
+            // there is nothing to pair with, and the model's list stands alone.
+            if (!renderedFromModel
+                && member.SignatureModel?.TypeParameters is { Count: > 0 } modelTypeParameters
+                && (methodParameters is not { Count: > 0 } || methodParameters.Count == modelTypeParameters.Count))
+            {
+                signature = AppendMemberTypeParameterConstraints(signature, member, modelTypeParameters);
+            }
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
             signature = EscapeMemberNameInSignature(signature, member.Name);
@@ -766,6 +789,96 @@ internal static class CSharpDeclarationWriter
         }
     }
 
+    /// <summary>
+    /// Appends a method's <c>where</c> clauses. An <c>override</c> and an explicit
+    /// interface implementation inherit their constraints and mostly may not restate
+    /// them (CS0460) — but C# carves out exactly one exception, and it is load-bearing
+    /// rather than cosmetic: a bare <c>class</c> or <c>struct</c> constraint *may* be
+    /// restated, and it is what decides how <c>T?</c> binds. Dropping it silently
+    /// rewrites <c>T?</c> from a nullable reference type to <see cref="System.Nullable{T}"/>
+    /// (or the reverse), so those two are reduced to their legal spelling and kept.
+    /// Constraints outside that pair are omitted here; see
+    /// <see cref="AppendInheritedConstraintRestatement"/> for the cases that leaves open.
+    /// </summary>
+    /// <remarks>
+    /// Both member call sites (the <see cref="ApiSignature"/> renderer and the text
+    /// path a caller-supplied generic-parameter list forces) route through here, so
+    /// the two cannot disagree about which clauses are legal. The type-declaration
+    /// call site does not: a type always owns, and so always restates, its own
+    /// constraints.
+    /// </remarks>
+    static string AppendMemberTypeParameterConstraints(
+        string declaration,
+        ApiMember member,
+        IReadOnlyList<TypeParameter> typeParameters)
+        => member.IsOverride || member.Kind == "explicit-interface-implementation"
+            ? AppendInheritedConstraintRestatement(declaration, typeParameters)
+            : AppendTypeParameterConstraints(declaration, typeParameters);
+
+    /// <summary>
+    /// Restates only what C# permits on a member that inherits its constraints: the
+    /// bare <c>class</c> or <c>struct</c> keyword. The annotated <c>class?</c> form is
+    /// itself CS0460, and <c>unmanaged</c> is a value-type constraint, so both are
+    /// reduced to the legal spelling that preserves how <c>T?</c> binds.
+    /// </summary>
+    /// <remarks>
+    /// Every clause emitted here was compiled against csc as a restatement on an
+    /// override, and the reduction is gated by
+    /// <c>OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows</c> plus the two
+    /// real-artifact canaries in <c>ApiOutputFormatterTests</c>. What is emitted is
+    /// therefore correct, but it is knowingly *incomplete*: a base constraint that is
+    /// not one of these keywords — <c>notnull</c>, a named class or interface type, or
+    /// no constraint at all — also needs a restatement (<c>class</c> or <c>default</c>,
+    /// per the table in issue #3721) once the signature spells <c>T?</c>, and none is
+    /// emitted for it. Deciding those rows needs a reference-/value-type fact about the
+    /// constraint type that <see cref="TypeParameter"/> does not carry and that Metadata
+    /// rather than this layer must own, so it is tracked as #3721 rather than guessed at
+    /// here. Those cases render exactly as they did before this reduction existed.
+    /// </remarks>
+    static string AppendInheritedConstraintRestatement(
+        string declaration,
+        IReadOnlyList<TypeParameter> typeParameters)
+    {
+        foreach (var typeParameter in typeParameters)
+        {
+            if (RestatableConstraint(typeParameter) is not { } keyword)
+                continue;
+
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {keyword}";
+        }
+
+        return declaration;
+    }
+
+    /// <summary>
+    /// The single keyword an inheriting member may restate for one type parameter, or
+    /// null when it has no reference- or value-type constraint to restate. Reads
+    /// <see cref="TypeParameter.StructuredConstraints"/> when the producer populated
+    /// it, so a constraint *type* literally named <c>class</c> is never mistaken for
+    /// the keyword.
+    /// </summary>
+    static string? RestatableConstraint(TypeParameter typeParameter)
+    {
+        var keywords = typeParameter.StructuredConstraints is { } structured
+            ? structured.Where(constraint => !constraint.IsTypeName).Select(constraint => constraint.Value)
+            : typeParameter.Constraints.Where(s_specialConstraintKeywords.Contains);
+
+        string? keyword = null;
+        foreach (var candidate in keywords)
+        {
+            switch (candidate)
+            {
+                case "class" or "class?":
+                    return "class";
+                case "struct" or "unmanaged":
+                    keyword = "struct";
+                    break;
+            }
+        }
+
+        return keyword;
+    }
+
     static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
     {
         foreach (var typeParameter in typeParameters)
@@ -877,7 +990,7 @@ internal static class CSharpDeclarationWriter
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendTypeParameterConstraints($"{returnType} {memberName}({parameters})", model.TypeParameters);
+            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
