@@ -35,13 +35,15 @@ namespace DotnetInspector.Tests;
 /// </description></item>
 /// </list>
 /// </remarks>
-public class UntrustedArgumentDiagnosticContainmentTests
+public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 {
     private const string Bidi = "\u202E";
     private const string VerticalTab = "\u000B";
     private const string Escape = "\u001B";
     private const string LineSeparator = "\u2028";
     private const string ParagraphSeparator = "\u2029";
+    private readonly string _cacheDirectory =
+        Directory.CreateTempSubdirectory("diagnostic-containment-cache-").FullName;
 
     /// <remarks>
     /// A raw line feed and carriage return are the most direct forgery of all --
@@ -150,16 +152,24 @@ public class UntrustedArgumentDiagnosticContainmentTests
         Assert.Contains(blockLines, l => l.Contains("Did you mean:", StringComparison.Ordinal));
         AssertOneUnindentedLine(blockLines, block);
 
+        // Force the independent cache-maintenance status that exposed #3726.
+        // The injected fragment must stay folded even when stderr also carries
+        // an unrelated, legitimate unprefixed line.
+        string obsoleteCache = Path.Combine(_cacheDirectory, "package-content-v0");
+        Directory.CreateDirectory(obsoleteCache);
+        File.WriteAllBytes(Path.Combine(obsoleteCache, "old.bin"), new byte[4096]);
+
         // The same writer, with a line terminator injected into the message.
         var (_, injected) = RunCli(["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"]);
         string[] injectedLines = Lines(injected);
 
-        HostileOutputAssert.MarkersRendered(injected, "message-line-injection", "INJECTEDARG");
-
-        // A run may emit several genuine diagnostics; what the injection must
-        // not do is add a line that is neither indented nor prefixed by this
-        // writer. The forged "Error: INJECTEDARG" is folded into its message.
-        AssertEveryLineIsOwned(injectedLines, injected);
+        const string InjectedSeverity = "Error: INJECTEDARG";
+        HostileOutputAssert.MarkersRendered(injected, "message-line-injection", InjectedSeverity);
+        HostileOutputAssert.NoLineSplit(injected, InjectedSeverity);
+        Assert.Contains(
+            injectedLines,
+            line => line.StartsWith("Removed ", StringComparison.Ordinal)
+                && line.EndsWith(" from obsolete cache entries.", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -237,24 +247,6 @@ public class UntrustedArgumentDiagnosticContainmentTests
             unindented.Length == 0,
             "A diagnostic must have exactly one unindented line, or injected text can forge one. "
                 + $"Extra: {string.Join(" | ", unindented)} in: {raw}");
-    }
-
-    private static void AssertEveryLineIsOwned(string[] lines, string raw)
-    {
-        string[] orphans =
-        [
-            .. lines.Where(l =>
-                l.Length > 0
-                && !l.StartsWith("  ", StringComparison.Ordinal)
-                && !l.StartsWith("Error: ", StringComparison.Ordinal)
-                && !l.StartsWith("Warning: ", StringComparison.Ordinal)
-                && !l.StartsWith("Note: ", StringComparison.Ordinal)),
-        ];
-
-        Assert.True(
-            orphans.Length == 0,
-            "Every stderr line must be indented or written by CommandError. "
-                + $"Orphans: {string.Join(" | ", orphans)} in: {raw}");
     }
 
     /// <summary>
@@ -401,7 +393,7 @@ public class UntrustedArgumentDiagnosticContainmentTests
         writer.Write(content);
     }
 
-    private static (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(string[] args)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -422,6 +414,7 @@ public class UntrustedArgumentDiagnosticContainmentTests
         // Out-of-process, so the offline switch has to travel as environment
         // rather than as the process-wide static the in-process helper sets.
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+        psi.Environment["DOTNET_INSPECT_CACHE_DIR"] = _cacheDirectory;
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
@@ -460,5 +453,11 @@ public class UntrustedArgumentDiagnosticContainmentTests
         return string.IsNullOrEmpty(located)
             ? throw new FileNotFoundException("Could not locate the dotnet-inspect product assembly.")
             : located;
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_cacheDirectory))
+            Directory.Delete(_cacheDirectory, recursive: true);
     }
 }

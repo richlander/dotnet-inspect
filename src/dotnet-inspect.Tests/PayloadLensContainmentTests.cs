@@ -46,11 +46,13 @@ namespace DotnetInspector.Tests;
 /// does put a real <c># Info</c> table in the picture -- and asserts the table
 /// landed on the other stream.
 /// </remarks>
-public class PayloadLensContainmentTests
+public class PayloadLensContainmentTests : IDisposable
 {
     private const string Bidi = "\u202E";
     private const string Escape = "\u001B";
     private const string LineSeparator = "\u2028";
+    private readonly string _cacheDirectory =
+        Directory.CreateTempSubdirectory("payload-containment-cache-").FullName;
 
     /// <summary>
     /// The README bytes every test here plants and expects back unchanged.
@@ -267,7 +269,7 @@ public class PayloadLensContainmentTests
         }
     }
 
-    private static (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(string[] args)
     {
         // The product copy in *this* project's output, matching
         // UntrustedArgumentDiagnosticContainmentTests: rebuilding the product
@@ -291,6 +293,7 @@ public class PayloadLensContainmentTests
         }
 
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+        psi.Environment["DOTNET_INSPECT_CACHE_DIR"] = _cacheDirectory;
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
@@ -306,5 +309,11 @@ public class PayloadLensContainmentTests
         }
 
         return (stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult());
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_cacheDirectory))
+            Directory.Delete(_cacheDirectory, recursive: true);
     }
 }
