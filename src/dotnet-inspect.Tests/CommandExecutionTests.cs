@@ -1143,6 +1143,88 @@ public partial class CommandExecutionTests
         Assert.Contains("Performance: Other", output);
     }
 
+    /// <summary>
+    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
+    /// curated route carries that selection as a flag rather than as an include set, so this also
+    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+
+        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
+        foreach (var section in expected)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/>: the map has to
+    /// describe the render bare <c>-S</c> produces, not some adjacent set. Every section of that
+    /// pipeline renders rows for this assembly, so the two sets must match exactly - comparing the
+    /// map against the pipeline property instead would assert nothing, because that property is
+    /// what a wrong answer here would come from. The requested-but-empty case, where the map
+    /// legitimately carries a row the render does not, is covered by
+    /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..].Trim())
+            .ToList();
+        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
+
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+        Assert.Equal(0, countExit);
+
+        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+            .Select(line => line.Split('|')[1].Trim())
+            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
+            .ToList();
+
+        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
+        Assert.Equal(rendered.Order(), mapped.Order());
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/> excluding
+    /// <c>ExplicitOnly</c> sections on a curated pipeline. The distinction is live, not defensive:
+    /// <c>Metadata: Image</c> and <c>Metadata: Heap</c> are <c>ExplicitOnly</c> and also
+    /// <c>Fixed</c>/<c>NetworkFree</c>, so they are fixed-overview members that bare <c>-S</c>
+    /// never renders. Reading <see cref="SectionPipeline{TModel}.FixedOverviewSectionNames"/>
+    /// instead would put both in the count map, each reporting zero for a section the user cannot
+    /// get this way.
+    /// </summary>
+    [Fact]
+    public void BareSelect_ExcludesExplicitOnlySections_OnCuratedPipelines()
+    {
+        var library = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            [MetadataSectionNames.Image, MetadataSectionNames.Heap],
+            library.FixedOverviewSectionNames.Except(library.BareSelectSectionNames));
+        Assert.Empty(library.BareSelectSectionNames.Except(library.FixedOverviewSectionNames));
+
+        // The package pipeline marks none of its fixed sections ExplicitOnly, so the two agree
+        // there. Pinning both shapes keeps the exclusion honest in either direction.
+        var package = PackageSectionDescriptors.CreatePipeline();
+        Assert.Equal(package.FixedOverviewSectionNames, package.BareSelectSectionNames);
+    }
+
     [Fact]
     public async Task PerformanceLegacyName_RedirectsToGroup()
     {
@@ -5398,6 +5480,49 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// The package half of #3547 gap 6. The map reports a requested section that has no rows as
+    /// zero rather than omitting it, which is what makes it a cheap probe of the whole overview -
+    /// the same contract a category map already has.
+    /// </summary>
+    [Fact]
+    public async Task Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        // This package ships no README, so the section is requested but renders nothing. Without
+        // such a section the zero-row half of the claim would be untested.
+        Assert.DoesNotContain("## Package README file", renderOutput);
+
+        var (exit, output, error) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+        Assert.Contains("| Package README file | 0 |", output);
+
+        foreach (var section in PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The negative case for the widened <c>--count</c> requirement: it accepts bare <c>-S</c>
+    /// because that is a selection, not because the requirement was dropped.
+    /// </summary>
+    [Fact]
+    public async Task Package_CountWithoutSelect_StillRequiresASelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(CountOutput.SectionRequiredMessage, error);
     }
 
     [Fact]

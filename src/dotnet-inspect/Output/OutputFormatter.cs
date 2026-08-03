@@ -236,6 +236,33 @@ public static class OutputFormatter
         });
     }
 
+    /// <summary>
+    /// The ordered sections a <c>--count</c> map should report, or <c>null</c> when the selection
+    /// names at most one section and a scalar count is the answer.
+    /// </summary>
+    /// <remarks>
+    /// Bare <c>-S</c> on a curated pipeline carries its selection as
+    /// <see cref="LibraryOptions.FixedOverview"/> rather than as an include set, so a map decision
+    /// that reads only <paramref name="includeSections"/> silently degrades a multi-section
+    /// overview to one meaningless total across heterogeneous tables (#3547). The request - not the
+    /// rendered set - is what the map describes, so a requested section with no rows reports zero
+    /// rather than disappearing, matching how a category renders.
+    /// </remarks>
+    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+        SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
+    {
+        var requested = includeSections is { Count: > 0 }
+            ? includeSections
+            : fixedOverview
+                ? new HashSet<string>(pipeline.BareSelectSectionNames, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+        if (requested is not { Count: > 1 })
+            return null;
+
+        return pipeline.AlphabeticalSectionOrder.Where(requested.Contains).ToList();
+    }
+
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
@@ -260,11 +287,9 @@ public static class OutputFormatter
 
         // A category selects many sections at once; report each member's count, including the
         // members that rendered nothing, so the map describes the whole category.
-        if (options.IncludeSections is { Count: > 1 })
-        {
-            var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
+        var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+        if (ordered != null)
             return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
-        }
 
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
@@ -337,9 +362,9 @@ public static class OutputFormatter
         {
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else
@@ -505,9 +530,9 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else

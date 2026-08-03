@@ -177,7 +177,8 @@ library while aggregate sections roll up rows across libraries and include
 library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
-`@Integrations`. Add `--count` to a category selector for per-section row counts.
+`@Integrations`. Add `--count` to a category selector for per-section row counts,
+or to bare `-S` for the same map over the fixed overview.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and

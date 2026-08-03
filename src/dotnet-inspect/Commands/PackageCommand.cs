@@ -117,7 +117,8 @@ public class PackageCommand
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+            if (!rendersOwnPayload && options.Count
+                && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);

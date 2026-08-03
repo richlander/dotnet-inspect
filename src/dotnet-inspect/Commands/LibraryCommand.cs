@@ -240,7 +240,8 @@ public class LibraryCommand
         // not use. -S still narrows effective discovery, so it stays permitted.
         var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
-        if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        if (!rendersOwnPayload && options.Count
+            && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
             return 1;
 
         if (options.Count && options.Print)
