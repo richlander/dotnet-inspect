@@ -3,6 +3,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using ILInspector.Findings;
 
 namespace DotnetInspector.Inspectors;
 
@@ -257,7 +258,31 @@ internal static class ApiServices
 
         if (resolvedCount > 0)
         {
-            api.IsTypeForwardingAssembly = PlatformResolver.IsFacadeOnlyAssembly(dllPath);
+            AssemblyResolutionProvenance provenance = isPlatformAssembly
+                ? AssemblyResolutionProvenance.Platform(
+                    "InstalledPlatform",
+                    frameworkVersion: null,
+                    "ApiServices")
+                : AssemblyResolutionProvenance.Local("ApiServices");
+            api.SurfaceClassification =
+                AssemblySurfaceClassifier.Classify(dllPath, provenance);
+            api.SurfaceClassificationInspection =
+                MetadataFindings.InspectAssemblySurface(
+                    api.SurfaceClassification,
+                    new FindingSubject(
+                        Path.GetFullPath(dllPath),
+                        Path.GetFileName(dllPath)));
+            api.IsTypeForwardingAssembly =
+                api.SurfaceClassification
+                    is AssemblySurfaceClassificationOutcome.Classified classified
+                && classified.Classification.Kind
+                    == AssemblySurfaceKind.Facade;
+            if (api.SurfaceClassification
+                is AssemblySurfaceClassificationOutcome.Rejected rejected)
+            {
+                logger.Log(
+                    $"Could not classify the forwarding surface: {rejected.Failure.Kind}.");
+            }
             api.PublicTypeCount = api.Types.Count;
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
             logger.Log($"Resolved {resolvedCount} types from forwarded libraries.");

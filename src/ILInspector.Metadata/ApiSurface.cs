@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using ILInspector.CSharp;
+using ILInspector.Findings;
 
 namespace ILInspector.Metadata;
 
@@ -166,6 +167,17 @@ public class ApiSurface
     /// types were resolved from target assemblies.
     /// </summary>
     public bool IsTypeForwardingAssembly { get; set; }
+
+    /// <summary>
+    /// Typed classification evidence retained for consumers that must
+    /// distinguish a non-facade surface from a failed classification.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
 }
 
 public sealed record ApiSurfaceInspectionFailure(

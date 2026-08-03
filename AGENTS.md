@@ -366,35 +366,82 @@ round:
   and re-run the validation the change claims; the resulting head is what you
   hand out. Reviewing a stale head spends the review on code that is not what
   will merge, and defers conflict resolution to *after* the reviews are clean —
-  where the resolution is itself unreviewed.
-- **The PR is mergeable and green.** Use `gh pr view <n> --json
-  mergeable,mergeStateStatus` for conflicts and `gh pr checks <n> --required`
-  for the gating runs; when the repository marks no check required, `--required`
-  reports none and exits non-zero, so fall back to plain `gh pr checks <n>`.
-  Exit `0` means nothing failed and nothing is outstanding; exit `8` means
-  checks are still running, which is not green — wait with `--watch`. A
-  `skipping` result is terminal and does not block: a path-filtered job that
-  skipped will never become a pass, so waiting on it waits forever. It is also
-  not evidence of anything. Never cite a skipped job as proof your change was
-  validated, and if a change should have triggered a job that skipped, treat the
-  path filter as the bug.
+  where the resolution is itself unreviewed. Once the reviews *are* clean, this
+  reverses: see [Clean reviews are not spent by main
+  moving](#clean-reviews-are-not-spent-by-main-moving).
+- **The PR is mergeable and green** — two questions, two commands. For
+  conflicts, `gh pr view <n> --json mergeable`: `CONFLICTING` blocks, and
+  `UNKNOWN` means GitHub has not finished computing the merge, so re-query
+  rather than read it as clear. For the gating runs, `gh pr checks <n>
+  --required`, which on a PR targeting `main` resolves to `ci-required` — the
+  only check the ruleset requires. Exit `0` is green; exit `8` means checks are
+  still running, so wait with `--watch`. Exit `1` reporting *no* required
+  checks is inconclusive: the aggregate may not have registered yet, or the
+  ruleset may not cover the PR's base. Fall back to plain `gh pr checks <n>`
+  and inspect the base separately; a PR targeting `main` is not green until its
+  current-head `ci-required` has passed. Do not read
+  `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
+  for a PR with no checks at all (#3706). `skipping` is terminal and does not
+  block, but it is also not evidence: never cite a skipped job as validation,
+  and if a change should have triggered a job that skipped, the path filter is
+  the bug. After a push, compare `headRefOid` from `gh pr view <n> --json
+  headRefName,headRefOid` with `headSha` from `gh run list --branch
+  <headRefName> --event pull_request --json databaseId,headSha,status,conclusion`,
+  then watch that run by id. `gh pr checks --watch` can otherwise return exit
+  `0` against the previous head's run before the new one registers.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
-  report its parent's changes as its own.
-- **Every slice in a stack must report CI.** `ci.yml` applies no base-branch
-  filter, so a child PR targeting its parent branch schedules the same CI as a
-  bottom slice targeting `main`. If `gh pr checks` reports no checks for a
-  stack slice, the slice is not green and something is wrong with workflow
-  scheduling — investigate it rather than accepting the silence, because a PR
-  that triggers no workflow reports nothing for `ci-required` to block on and
-  displays as MERGEABLE and CLEAN (#3706).
+  report its parent's changes as its own. `ci.yml` applies no base-branch
+  filter, so every slice schedules the same CI wherever it targets; a slice
+  reporting *no* checks is therefore not green. Re-query after the registration
+  window and verify the current head; if no matching workflow run appears, that
+  is a scheduling bug to investigate, since a PR that triggers no workflow
+  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
+  (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
 a confirmation rather than a second full pass.
+
+### Clean reviews are not spent by main moving
+
+For a PR that targets `main` — including the bottom slice of a stack — when
+every reviewer the tier requires has come back clean at the current head and
+`origin/main` has since moved, **stop and ask.** Do not integrate main, and do
+not open another round on your own initiative. Evaluate this from the latest
+clean result: an earlier finding that was fixed and then reviewed clean does not
+disqualify it. If a finding remains unresolved, or the head changed after that
+clean result because of an author change, conflict resolution, or restack, the
+exception does not apply: resolve or restack, integrate the effective base, and
+review the new head normally.
+
+Ask with an analysis of what actually landed: which commits touch files this
+change touches, which behavior this change relies on that they alter, and any
+conflict a textual merge would resolve silently but wrongly. Say plainly when
+the answer is that nothing in the range interacts with this change — that is the
+common case and it is the most useful thing you can report.
+
+The user decides which continuation the evidence warrants:
+
+- If the range is non-interacting, the user may direct you to integrate main,
+  re-run the claimed validation and current-head CI, and carry the clean reviews
+  forward without another round. Record the reviewed head, old and new main
+  tips, the non-interaction analysis, and the user's decision on the PR.
+- If the range can affect the change, integrate main and run a new round at the
+  resulting head.
+
+The first continuation is the sole exception to the fixed-head review rule; it
+does not authorize carrying reviews across author changes, conflict-resolution
+changes, or a restack that occurred after the recorded reviewed head.
+
+This is the one place the settled-branch rule yields, and it has to, or the
+budget is unbounded: on a busy `main`, a round takes longer than the interval
+between commits, so integrate-and-re-review by reflex never converges. A pair of
+clean reviews is a result. Unrelated commits landing behind it do not retract
+it.
 
 ### A quick read is not a round
 
@@ -410,40 +457,43 @@ the branch settles. When you cite its findings, say which it was.
 
 ### How many reviewers, and from which models
 
-**How much review a PR needs is a function of its triviality and risk alone —
-never the kind of change it makes.** If you are unsure which tier applies,
-escalate: default to more review, not less.
+The review gate has one threshold: trivial changes may skip review; everything
+else gets the standard round. Risk scales how deeply the reviewers attack the
+change, not how the round is staffed. If you are unsure whether a change is
+trivial, escalate: default to review, not none.
 
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Medium risk | One reviewer, always **GPT** at the highest available version and quality level. |
-| Higher risk — typical for a substantial feature | Two reviewers from two different model families. |
-
-Higher risk means subtle correctness, security, or compatibility risk, or a
-large or uncertain blast radius.
+| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer. |
 
 Adversarial-review roster — this list is the single source of truth, and
 scenario docs should reference it rather than restating it:
 
+- **GPT-5.6 Sol** — the fixed seat, in every round
 - Claude Opus
 - Gemini Pro
-- GPT
 
-**Always use the highest version a model offers** — if both Opus 4.8 and Opus 5
-are available, use Opus 5. For GPT, also select the highest available quality
-level. In the two-reviewer tier, do not review with your own model when another
-listed family is available.
+**Strongly prefer a second seat from a different model family than the one that
+authored the change.** Two families fail differently, and an author reviewing
+its own work brings the same blind spot that produced the bug — the second seat
+exists for the perspective the first cannot have. Reuse of your own model is
+permitted rather than blocking, because the fixed seat already guarantees one
+independent perspective, but treat it as the fallback when no other roster
+reviewer is available, and say on the PR which case applied.
+
+**Use the highest version and quality level a model offers** in the second seat
+— given both Opus 4.8 and Opus 5, use Opus 5. The GPT-5.6 Sol seat is a
+deliberate pin rather than a "highest available" slot; when it should move, move
+it here.
 
 These tiers assume a harness — such as the GitHub Copilot CLI — that can
-delegate to any family in the roster. A harness exposing only its own vendor's
-models changes how the reviewers are obtained, never the bar. For the
-medium-risk tier, use GPT when the harness offers it; otherwise request a GPT
-review from the user. For the two-reviewer tier, use an available roster family
-and **request the other, different-family reviewer from the user**, not marking
-the PR ready until both reviews arrive.
+delegate to the roster. A harness with only some roster models changes how the
+round is obtained, never the bar: run the roster reviewer it has and request
+every missing seat from the user. An out-of-roster model may provide a quick
+read but does not fill a seat.
 
-A **round** evaluates one settled head with every reviewer required by its tier.
+A **round** evaluates one settled head with every reviewer its tier requires.
 Two reviewers in the same round count as one round, not two.
 
 ### Running the round
