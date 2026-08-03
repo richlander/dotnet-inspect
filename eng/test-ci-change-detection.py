@@ -51,31 +51,60 @@ def run_detection(
         binaries = root / "bin"
         binaries.mkdir()
 
-        fake_command = """#!/bin/sh
+        fake_gh = """#!/bin/sh
+if [ "$#" -ne 4 ] || [ "$1" != "pr" ] || [ "$2" != "diff" ] \
+   || [ "$3" != "3704" ] || [ "$4" != "--name-only" ]; then
+  echo "unexpected gh invocation: $*" >&2
+  exit 64
+fi
 if [ "$RESOLUTION_SUCCEEDS" != "true" ]; then
   exit 1
 fi
-if [ "$1" = "cat-file" ]; then
-  exit 0
-fi
 printf '%s' "$CHANGED_FILES"
 """
-        for name in ("gh", "git"):
+        fake_git = """#!/bin/sh
+if [ "$RESOLUTION_SUCCEEDS" != "true" ]; then
+  exit 1
+fi
+if [ "$#" -eq 3 ] && [ "$1" = "cat-file" ] && [ "$2" = "-e" ] \
+   && [ "$3" = "${EXPECTED_BEFORE}^{commit}" ]; then
+  exit 0
+fi
+if [ "$#" -eq 4 ] && [ "$1" = "diff" ] && [ "$2" = "--name-only" ] \
+   && [ "$3" = "$EXPECTED_BEFORE" ] && [ "$4" = "$EXPECTED_SHA" ]; then
+  printf '%s' "$CHANGED_FILES"
+  exit 0
+fi
+echo "unexpected git invocation: $*" >&2
+exit 64
+"""
+        for name, content in (("gh", fake_gh), ("git", fake_git)):
             command = binaries / name
-            command.write_text(fake_command, encoding="utf-8")
+            command.write_text(content, encoding="utf-8")
             command.chmod(0o755)
 
         environment = os.environ.copy()
         environment.update(
             {
                 "CHANGED_FILES": files,
+                "EXPECTED_BEFORE": before,
+                "EXPECTED_SHA": sha,
                 "GITHUB_OUTPUT": str(output),
                 "PATH": f"{binaries}{os.pathsep}{environment['PATH']}",
                 "RESOLUTION_SUCCEEDS": str(resolution_succeeds).lower(),
             }
         )
         result = subprocess.run(
-            ["bash", "-c", rendered],
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-e",
+                "-o",
+                "pipefail",
+                "-c",
+                rendered,
+            ],
             cwd=repository,
             env=environment,
             capture_output=True,
