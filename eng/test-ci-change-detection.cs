@@ -13,7 +13,7 @@ string[] outputs =
 ];
 
 string repository = Environment.CurrentDirectory;
-string body = LoadDetectionBody(repository);
+string body = LoadDetectionBody(repository, outputs);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
@@ -74,48 +74,93 @@ AssertDetectionFails(
 
 Console.WriteLine("CI change detection fail-safe and path canaries passed.");
 
-static string LoadDetectionBody(string repository)
+static string LoadDetectionBody(
+    string repository,
+    IReadOnlyCollection<string> expectedOutputs)
 {
     string workflow = Path.Combine(repository, ".github", "workflows", "ci.yml");
     string[] lines = File.ReadAllLines(workflow);
-    int[] stepMatches = lines
-        .Select((line, index) => (line, index))
-        .Where(item => item.line.Trim() == "- name: Detect changes")
-        .Select(item => item.index)
-        .ToArray();
-    if (stepMatches.Length != 1)
+
+    int jobsLine = FindUniqueDirectLine(
+        lines,
+        0,
+        lines.Length,
+        0,
+        "jobs:",
+        "top-level jobs mapping");
+    int jobsEnd = FindBlockEnd(lines, jobsLine, 0);
+    int changesLine = FindUniqueDirectLine(
+        lines,
+        jobsLine + 1,
+        jobsEnd,
+        2,
+        "changes:",
+        "jobs.changes");
+    int changesEnd = FindBlockEnd(lines, changesLine, 2);
+
+    int outputsLine = FindUniqueDirectLine(
+        lines,
+        changesLine + 1,
+        changesEnd,
+        4,
+        "outputs:",
+        "jobs.changes.outputs");
+    int outputsEnd = FindBlockEnd(lines, outputsLine, 4);
+    foreach (string name in expectedOutputs)
     {
-        throw new InvalidOperationException(
-            $"Expected one Detect changes step, found {stepMatches.Length}.");
+        FindUniqueDirectLine(
+            lines,
+            outputsLine + 1,
+            outputsEnd,
+            6,
+            name + ": ${{ steps.filter.outputs." + name + " }}",
+            $"jobs.changes.outputs.{name} binding");
     }
 
-    int stepLine = stepMatches[0];
-    int stepIndent = CountIndent(lines[stepLine]);
-    int runLine = -1;
-    for (int index = stepLine + 1; index < lines.Length; index++)
-    {
-        string line = lines[index];
-        if (line.Length > 0 && CountIndent(line) <= stepIndent)
-        {
-            break;
-        }
-
-        if (line.Trim() == "run: |")
-        {
-            if (runLine >= 0)
-            {
-                throw new InvalidOperationException(
-                    "Detect changes contains more than one run block.");
-            }
-
-            runLine = index;
-        }
-    }
-
-    if (runLine < 0)
-    {
-        throw new InvalidOperationException("Detect changes has no literal run block.");
-    }
+    int stepsLine = FindUniqueDirectLine(
+        lines,
+        changesLine + 1,
+        changesEnd,
+        4,
+        "steps:",
+        "jobs.changes.steps");
+    int stepsEnd = FindBlockEnd(lines, stepsLine, 4);
+    int stepLine = FindUniqueDirectLine(
+        lines,
+        stepsLine + 1,
+        stepsEnd,
+        6,
+        "- name: Detect changes",
+        "jobs.changes Detect changes step");
+    int stepEnd = FindBlockEnd(lines, stepLine, 6);
+    FindUniqueDirectLine(
+        lines,
+        stepLine + 1,
+        stepEnd,
+        8,
+        "id: filter",
+        "Detect changes id");
+    FindUniqueDirectLine(
+        lines,
+        stepLine + 1,
+        stepEnd,
+        8,
+        "shell: bash",
+        "Detect changes shell");
+    RequireNoDirectKey(lines, stepLine + 1, stepEnd, 8, "if");
+    RequireNoDirectKey(
+        lines,
+        stepLine + 1,
+        stepEnd,
+        8,
+        "continue-on-error");
+    int runLine = FindUniqueDirectLine(
+        lines,
+        stepLine + 1,
+        stepEnd,
+        8,
+        "run: |",
+        "Detect changes literal run block");
 
     int runIndent = CountIndent(lines[runLine]);
     int bodyIndent = runIndent + 2;
@@ -238,9 +283,24 @@ static Dictionary<string, string> RunDetection(
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start Bash.");
-        string standardOutput = process.StandardOutput.ReadToEnd();
-        string standardError = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
+        bool timedOut = !process.WaitForExit(milliseconds: 30_000);
+        if (timedOut)
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+        }
+
+        string standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        string standardError = standardErrorTask.GetAwaiter().GetResult();
+        if (timedOut)
+        {
+            throw new InvalidOperationException(
+                "Change detection did not exit within 30 seconds.\n" +
+                $"stdout:\n{standardOutput}\nstderr:\n{standardError}");
+        }
+
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
@@ -272,6 +332,79 @@ static Dictionary<string, string> RunDetection(
     finally
     {
         Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static int FindUniqueDirectLine(
+    string[] lines,
+    int start,
+    int end,
+    int indent,
+    string content,
+    string description)
+{
+    int match = -1;
+    for (int index = start; index < end; index++)
+    {
+        if (CountIndent(lines[index]) != indent ||
+            lines[index].Trim() != content)
+        {
+            continue;
+        }
+
+        if (match >= 0)
+        {
+            throw new InvalidOperationException(
+                $"Expected one {description}, found more than one.");
+        }
+
+        match = index;
+    }
+
+    if (match < 0)
+    {
+        throw new InvalidOperationException($"Could not find {description}.");
+    }
+
+    return match;
+}
+
+static int FindBlockEnd(string[] lines, int start, int indent)
+{
+    for (int index = start + 1; index < lines.Length; index++)
+    {
+        string trimmed = lines[index].TrimStart();
+        if (trimmed.Length == 0 || trimmed.StartsWith('#'))
+        {
+            continue;
+        }
+
+        if (CountIndent(lines[index]) <= indent)
+        {
+            return index;
+        }
+    }
+
+    return lines.Length;
+}
+
+static void RequireNoDirectKey(
+    string[] lines,
+    int start,
+    int end,
+    int indent,
+    string key)
+{
+    for (int index = start; index < end; index++)
+    {
+        if (CountIndent(lines[index]) == indent &&
+            lines[index].TrimStart().StartsWith(
+                key + ":",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Detect changes must not declare {key}.");
+        }
     }
 }
 

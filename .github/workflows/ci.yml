@@ -48,6 +48,7 @@ jobs:
   # Detect what changed to determine which jobs to run
   changes:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
       csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
@@ -77,6 +78,7 @@ jobs:
 
       - name: Detect changes
         id: filter
+        shell: bash
         run: |
           # This step must never fail. Every downstream job is gated on its
           # outputs, so failing here does not just lose the filter -- it SKIPS
