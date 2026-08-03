@@ -9,8 +9,14 @@ It is the display half of the `--focus` gesture. The analysis half — deciding
 which characters a fact is about — is described in
 [hidden-fact-annotations.md](hidden-fact-annotations.md) and implemented by
 `AnnotationAnchor.ComputeCaretExtents`. **Stacking changes no analysis.** The
-per-fact extents already exist and are already correct; today's renderer
-discards them.
+per-fact extents already exist; today's renderer discards them.
+
+That separation held for the stacking change itself and no longer describes the
+current state of the anchor. [#3674](https://github.com/richlander/dotnet-inspect/pull/3674)
+went on to fix two anchoring defects — a fact whose own node prints nothing now
+adopts an extent from its nearest printed descendant, which gave 1,841 more
+facts an extent — and every figure in this document was re-measured against it.
+The design below is unchanged by that; only its numbers moved.
 
 Every figure in this document comes from the corpus named under
 [Measurements](#measurements): `System.Private.CoreLib`
@@ -101,7 +107,7 @@ depicts a layout that was never built. This one is
    row** (rule 5), and a nested extent that lands on a different row is not on
    its parent's row to cut anything. Nor does it order row widths overall: a
    later disjoint extent can be packed onto a lower row and reach further right
-   than anything above it, which happens on **50 of the 2,842** lines.
+   than anything above it, which happens on **50 of the 3,169** lines.
 3. **Number in that order,** `1.` upward, and label each caret with its number
    immediately before the trail.
 4. **Pack greedily onto rows.** An extent joins the first row where the
@@ -130,7 +136,7 @@ depicts a layout that was never built. This one is
    when any label on a line would begin left of the gutter, that line does not
    stack at all: it falls back to the widening render this document replaces.
    This is a guard rather than a path with traffic — it fires on **0 of the
-   2,842 lines that qualify to stack** in the corpus below, which is the
+   3,169 lines that qualify to stack** in the corpus below, which is the
    non-circular denominator, since a line it rejects does not stack by
    construction — but it is reachable, and a
    line is never rendered with a label that lies about its column.
@@ -176,21 +182,21 @@ they point at, and rule 8 refuses to shift a trail rightward to make room,
 bailing out instead. The rightmost column of a stacked row is therefore bounded
 by the code line by construction.
 
-The corpus agrees — 0 of the 2,842 lines carry a stacked caret row wider than
+The corpus agrees — 0 of the 3,169 lines carry a stacked caret row wider than
 their code line — but that count is a consistency check on the derivation above,
 not evidence for it, because no corpus could produce a counter-example.
 
 The comparison against the widening render is narrower than two earlier
 revisions of this section claimed, and the correction is worth stating plainly.
 **No caret glyph overhangs the code line in either render.** Measured over the
-same 2,842 lines, both are **0**, because the widening underline covers the
+same 3,169 lines, both are **0**, because the widening underline covers the
 trimmed statement, which ends inside the line. The widening render has no
 explicit bound, but it does not need one to stay within the line.
 
 What differs is the rendered **row**. Widening appends the first detail string
 to the caret row when it fits the inline budget, and that appended text carries
-the row past the end of the code line. Quoting this as **20 of 2,842 lines
-(0.70%)** pads the denominator with the 2,822 whose detail never goes inline and
+the row past the end of the code line. Quoting this as **20 of 3,169 lines
+(0.63%)** pads the denominator with the 3,149 whose detail never goes inline and
 which therefore cannot overhang at all. Inline detail appears on exactly **20**
 of these lines, and **all 20** overhang — the rate is **20/20**. It comes out
 whole because on the hoisted render these figures are taken from, widening
@@ -206,29 +212,29 @@ described a mechanism that does not occur.
 Widths below are **final rendered columns**, measured after the same projection
 `ApiOutputFormatter` applies — code lines receive `BodyIndentWidth`, hoisted
 caret lines do not — and the caret block is real rendered output, detail rows
-included. Whole rendered block on those 2,842 lines:
+included. Whole rendered block on those 3,169 lines:
 
 | terminal | widen (today) | stacked |
 | --- | ---: | ---: |
-| 80 cols | 23.3% | 23.4% |
-| 100 cols | 48.3% | 48.3% |
-| 120 cols | 65.9% | 65.9% |
-| 160 cols | 84.9% | 84.9% |
+| 80 cols | 20.9% | 21.0% |
+| 100 cols | 52.6% | 52.6% |
+| 120 cols | 68.7% | 68.7% |
+| 160 cols | 86.5% | 86.5% |
 
 That denominator is padded, and the padding is most of it: the block can never
 be narrower than the code line, so a line whose code alone overflows the
-terminal cannot fit under *any* caret model. At 80 columns only 730 of the 2,842
-have code that fits at all — the other 2,112 are structurally incapable of the
-outcome being counted. Restricted to the 730 that could fit, the rates are 90.5%
-widening and 91.1% stacked. At the wider terminals the padded rate and the
-code-fits share converge almost exactly (100 cols: 48.3% fit, 48.3% code-fits;
-120: 65.9% / 66.0%; 160: 84.9% / 84.9%), which says the block width simply *is*
+terminal cannot fit under *any* caret model. At 80 columns only 954 of the 3,169
+have code that fits at all — the other 2,215 are structurally incapable of the
+outcome being counted. Restricted to the 954 that could fit, the rates are 69.3%
+widening and 69.7% stacked. At the wider terminals the padded rate and the
+code-fits share converge almost exactly (100 cols: 52.6% fit, 52.7% code-fits;
+120: 68.7% / 68.8%; 160: 86.5% / 86.5%), which says the block width simply *is*
 the code width there.
 
 Terminal fit is unchanged, because on these dense lines the block width is set
 by the code line and the wrapped detail rows, which both models share. Nor does
-the block itself shrink much: it is the same width on 91.8% of these lines,
-narrower on 1.1%, and wider on 7.2% — the numbered labels cost a few columns
+the block itself shrink much: it is the same width on 83.4% of these lines,
+narrower on 1.3%, and wider on 15.3% — the numbered labels cost a few columns
 where the details were already the widest thing in the block.
 
 Those three shares are all padded, and quoting any of them as a rate invites the
@@ -238,43 +244,43 @@ than the percentages did:
 
 | population | unchanged | narrower | wider |
 | --- | ---: | ---: | ---: |
-| **2,612** pinned at the code width | 2,608 | — | 4 |
-| **230** with headroom above it | 0 | 30 | 200 |
+| **2,648** pinned at the code width | 2,643 | — | 5 |
+| **521** with headroom above it | 0 | 40 | 481 |
 
-Nothing happens on the pinned 2,612: four blocks grow and the rest are untouched.
-Every one of the 230 with headroom changes, and 200 of them get wider. So the
-aggregate "91.8% unchanged" is almost entirely the pinned population, and the
-real behaviour is confined to the 230. Growth turns out to be floor-limited too
-— 4 of 2,612 — so the earlier claim that "any block can grow", used to argue the
+Nothing happens on the pinned 2,648: five blocks grow and the rest are untouched.
+Every one of the 521 with headroom changes, and 481 of them get wider. So the
+aggregate "83.4% unchanged" is almost entirely the pinned population, and the
+real behaviour is confined to the 521. Growth turns out to be floor-limited too
+— 5 of 2,648 — so the earlier claim that "any block can grow", used to argue the
 shares were comparable, was wrong as well.
 
 **Stacking buys attribution, and costs a little width.** Fit does not move:
-unpadded, the 80-column rate goes from 90.5% to 91.1% on the 730 lines that could
-fit. Block width moves only on the 230 lines that have room to move, and it moves
-the wrong way far more often than the right one — 200 wider against 30 narrower.
+unpadded, the 80-column rate goes from 69.3% to 69.7% on the 954 lines that could
+fit. Block width moves only on the 521 lines that have room to move, and it moves
+the wrong way far more often than the right one — 481 wider against 40 narrower.
 Stated as counts within one population that is a clear result, and it is not the
 one the percentages suggested: the earlier text called the narrowing rounding
-noise and set 1.1% against 7.2%, which compared two shares of a denominator
+noise and set 1.1% against 7.2% on an earlier corpus, which compared two shares of a denominator
 dominated by lines that could do neither.
 
 The constraint still binds on the *alternatives*, which is why it is stated
-here: side-alignment overflows the code line on 97.52% of the 29,933 lines
-carrying an extent, by a mean of 81 columns over the 29,191 that overflow, and
-fits 24.7% of them at 80 columns against 75.7% for the bare code. That 24.7% is
+here: side-alignment overflows the code line on 97.63% of the 31,320 lines
+carrying an extent, by a mean of 85 columns over the 30,577 that overflow, and
+fits 23.6% of them at 80 columns against 76.4% for the bare code. That 23.6% is
 padded — a line whose bare code already overflows 80 columns cannot fit
-side-aligned either. Conditioned on the 22,662 whose bare code does fit,
-side-alignment still fits only **32.1%**. Unpadding it makes the rejected
+side-aligned either. Conditioned on the 23,937 whose bare code does fit,
+side-alignment still fits only **30.4%**. Unpadding it makes the rejected
 alternative look better than the headline did, which is why it is stated: the
-rejection rests on 32.1% against 75.7%, not on the padded figure. See
+rejection rests on 30.4% against 76.4%, not on the padded figure. See
 [Side-aligned annotations](#side-aligned-annotations) for the measurement
 convention these depend on.
 
 ### Mixed lines
 
 A **mixed** line carries facts of both kinds: some with an extent, some
-without. Summed over the five focus families there are 355 of them, and 254
+without. Summed over the five focus families there are 356 of them, and 255
 have exactly one surviving extent, so this is not a corner. They are not spread
-evenly: 298 fall under `--focus alloc`, 47 under `safety`, 10 under `cost`, and
+evenly: 299 fall under `--focus alloc`, 47 under `safety`, 10 under `cost`, and
 none at all under `unsafe` or `lifetime`.
 
 Today they widen. The reasoning was sound while a caret was the only signal
@@ -320,19 +326,19 @@ extent still has nothing to point at, so it widens exactly as before.
 
 - Lines whose focused facts all agree on one extent, and lines carrying a
   single focused fact, keep exactly today's geometry, including the
-  inline-detail shortcut. That is **27,091 lines, 90.5%** of those carrying an
-  extent. Adding the **2,931** lines where no fact has an extent, which also
-  render exactly as they do today, **30,022 of 32,864 caret lines (91.4%) are
-  untouched** and 2,842 (8.6%) change; see [Measurements](#measurements) for how
+  inline-detail shortcut. That is **28,151 lines, 89.9%** of those carrying an
+  extent. Adding the **1,544** lines where no fact has an extent, which also
+  render exactly as they do today, **29,695 of 32,864 caret lines (90.4%) are
+  untouched** and 3,169 (9.6%) change; see [Measurements](#measurements) for how
   that is counted and why the focus family has to be named before the number
   means anything. That denominator is the whole shipped population on purpose —
   the claim is how much existing output this changes, not a rate of some
   outcome among the cases capable of it. Read the other way it is close to a
-  mechanism: 27,091 + 2,931 is exactly 30,022, so the 2,842 is precisely the
+  mechanism: 28,151 + 1,544 is exactly 29,695, so the 3,169 is precisely the
   complement, and **every line that can stack does**. The selector is
   `Stack(...) is { Count: > 0 }`, not `Agreed`: `Agreed` returns null on
-  **5,773** lines, but 2,931 of those have no extent at all and so render
-  unchanged, leaving exactly the 2,842. The remaining gap is `Agreed`'s final
+  **4,713** lines, but 1,544 of those have no extent at all and so render
+  unchanged, leaving exactly the 3,169. The remaining gap is `Agreed`'s final
   bounds check, which could in principle reject a line that agrees; it rejects
   **0** on this corpus, so the identity is exact here by measurement rather
   than guaranteed by construction.
@@ -343,7 +349,11 @@ extent still has nothing to point at, so it widens exactly as before.
   caret. Lines where no fact has an extent widen exactly as today, as do lines
   rule 8 rejects.
 - Detail text stays left-aligned and wrapped to `Budget`.
-- `AnnotationAnchor` is untouched. This is a change to `AnnotationCaret` alone.
+- The stacking change itself is confined to `AnnotationCaret`; it reads extents
+  and does not compute them. The follow-up in
+  [#3674](https://github.com/richlander/dotnet-inspect/pull/3674) does change
+  `AnnotationAnchor`, which is why the figures here were re-measured, but it
+  changes no rule in this specification.
 
 ## Measurements
 
@@ -397,10 +407,10 @@ immediately before its caret run, and the widening row never does. Detecting it
 as "the block has no caret row" would be vacuous, because a fallback still
 renders the widening caret.
 
-So counted, the guard fires on **0 of 2,842** qualifying lines: all 2,842 do
+So counted, the guard fires on **0 of 3,169** qualifying lines: all 3,169 do
 stack. That the gate can report a non-zero was checked by mutation — raising the
 guard's margin from `commentColumn + 2` to `+ 6` makes it fire on 306 of the
-2,842, and to `+ 200` on all 2,842. The zero is a property of the corpus, not of
+3,169, and to `+ 200` on all 3,169. The zero is a property of the corpus, not of
 the probe. It is still a measurement rather than a consequence of subsetting,
 and it would have to be re-measured on another assembly.
 
@@ -408,7 +418,7 @@ The bound is also specific to the **stacks** column. The other columns are not
 monotone in the same direction: dropping one of two disagreeing extents turns a
 multi-extent line into a single-extent line, so `single extent` can *rise* under
 a narrower focus even as `multi-extent` and `stacks` fall. Read the table as
-what the five documented arguments produce, and the 2,842 as the corpus-measured
+what the five documented arguments produce, and the 3,169 as the corpus-measured
 ceiling on the rest.
 
 Extents are measured in printed characters, so a figure that does not name its
@@ -416,20 +426,20 @@ render is not a claim about anything.
 
 | focus | caret lines | …with an extent | single extent | multi-extent | mixed | stacks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `alloc` | 14,789 | 12,744 | 12,367 | 377 | 298 | 594 |
-| `safety` | 13,908 | 13,480 | 11,452 | 2,028 | 47 | 2,057 |
-| `cost` | 2,516 | 2,444 | 2,277 | 167 | 10 | 175 |
+| `alloc` | 14,789 | 14,123 | 13,420 | 703 | 299 | 921 |
+| `safety` | 13,908 | 13,487 | 11,459 | 2,028 | 47 | 2,057 |
+| `cost` | 2,516 | 2,445 | 2,278 | 167 | 10 | 175 |
 | `lifetime` | 928 | 800 | 800 | 0 | 0 | 0 |
 | `unsafe` | 723 | 465 | 449 | 16 | 0 | 16 |
-| **total** | **32,864** | **29,933** | **27,345** | **2,588** | **355** | **2,842** |
+| **total** | **32,864** | **31,320** | **28,406** | **2,914** | **356** | **3,169** |
 
 A line stacks when its focused facts disagree about the extent, or when some
-carry one and some do not: 2,588 multi-extent lines plus the 254 mixed lines
-with a single surviving extent gives **2,842**. Everything else — **30,022
-lines, 91.4%** of all 32,864 caret lines — keeps exactly today's geometry,
+carry one and some do not: 2,914 multi-extent lines plus the 255 mixed lines
+with a single surviving extent gives **3,169**. Everything else — **29,695
+lines, 90.4%** of all 32,864 caret lines — keeps exactly today's geometry,
 including the inline-detail shortcut. Two populations make up that remainder and
-they keep it for different reasons: **27,091** lines narrow to one agreed extent,
-and **2,931** lines have no fact with an extent at all and widen to output
+they keep it for different reasons: **28,151** lines narrow to one agreed extent,
+and **1,544** lines have no fact with an extent at all and widen to output
 identical to today's. An earlier revision quoted only the first of those as
 "everything else", which understated the unchanged share by the whole no-extent
 population.
@@ -445,56 +455,62 @@ that disagree about the extent. The gesture is worth having anyway, but this
 model is invisible under it, and a claim measured over all facts at once would
 have hidden that.
 
-Applying the specification to the 2,842 lines that stack:
+Applying the specification to the 3,169 lines that stack:
 
 | rows | lines | |
 | --- | ---: | ---: |
-| 1 | 2,543 | 89.5% |
-| 2 | 297 | 10.5% |
+| 1 | 2,870 | 90.6% |
+| 2 | 297 | 9.4% |
 | 3 | 1 | 0.0% |
 | 4 | 1 | 0.0% |
 
-That 89.5% is padded too: 254 of these lines carry a single extent group and
-cannot occupy more than one row. Among the **2,588** lines with two or more
-groups — the ones with something to pack — **2,289 (88.4%)** take a single row.
+That 90.6% is padded too: 255 of these lines carry a single extent group and
+cannot occupy more than one row. Among the **2,914** lines with two or more
+groups — the ones with something to pack — **2,615 (89.7%)** take a single row.
 
-And 2,588 is padded in turn, by a structural fact stated earlier in this
+And 2,914 is padded in turn, by a structural fact stated earlier in this
 document: extents sharing a start column can never share a row. **136** of those
 lines carry two distinct extents at one column and so cannot take a single row
-whatever the packer does. Among the remaining **2,452** the rate is **2,289
-(93.4%)**.
+whatever the packer does. Among the remaining **2,778** the rate is **2,615
+(94.1%)**.
 
-"Remaining" rather than "able to": 163 of those 2,452 also fail, refused by row
+"Remaining" rather than "able to": 163 of those 2,778 also fail, refused by row
 admission because their extents sit too close together. They are left in
 deliberately. Crowding is what this rate exists to measure, so excluding lines
 for being crowded would drive it to 100% and measure nothing. A shared start
 column is excluded because it is a different phenomenon — two extents anchored
 at one column are a nesting, not a packing failure.
 
-3,884 of 6,566 trails (59.2%) render at true width, but that headline rate is
+4,457 of 7,347 trails (60.7%) render at true width, but that headline rate is
 padded by a structural immunity and should not be read as a packing success
 rate. The last trail on a row has no successor, so its clip limit is
-`int.MaxValue` and it renders at true width by construction. Those 2,842 lines
-occupy **3,144 rows**, so 3,144 of the 6,566 trails could not have been clipped —
-they are 3,144 of the 3,884 counted as rendering at true width, and measurement
-confirms all 3,144 do. Of the **3,422** trails
-actually exposed to a successor, 740 (21.6%) survived at true width. Five of
+`int.MaxValue` and it renders at true width by construction. Those 3,169 lines
+occupy **3,471 rows**, so 3,471 of the 7,347 trails could not have been clipped —
+they are 3,471 of the 4,457 counted as rendering at true width, and measurement
+confirms all 3,471 do. Of the **3,876** trails
+actually exposed to a successor, 986 (25.4%) survived at true width. Eight of
 those are immune as well, their extents being no longer than `MinTrail`, which
-row admission already reserves. Among the **3,417** trails that could genuinely
-be cut, **735 (21.5%)** survived and **2,682 (78.5%)** were clipped. That is the
+row admission already reserves. Among the **3,868** trails that could genuinely
+be cut, **978 (25.3%)** survived and **2,890 (74.7%)** were clipped. That is the
 informative rate; it took two passes to strip both layers of padding off it.
 
 A trail is cut
 short by the next label on its own row, which is the only thing that clips a
-trail. That successor is nested inside the trail it clips on **1,867 (69.6%)**
-of them and wholly disjoint from it on **815 (30.4%)**, so clipping is
+trail. That successor is nested inside the trail it clips on **2,075 (71.8%)**
+of them and wholly disjoint from it on **815 (28.2%)**, so clipping is
 concentrated at nestings but is not confined to them. The rule 8 gutter fallback
-fires on **0** of the 2,842 lines qualifying to stack before it runs.
+fires on **0** of the 3,169 lines qualifying to stack before it runs.
 
 ### Reproducing these figures
 
 The specification above is implemented in `AnnotationCaret` and shipped in
 [#3656](https://github.com/richlander/dotnet-inspect/pull/3656) at `721adb61a`.
+Every figure below it was re-measured after
+[#3674](https://github.com/richlander/dotnet-inspect/pull/3674) taught the
+anchor to adopt a printed descendant for a fact whose own node prints nothing,
+which gave 1,841 more facts an extent and moved almost every number here. Each
+probe was first replayed against `74b4f546c` and reproduced the superseded
+figure exactly before its new result was trusted.
 
 Every code block in this document is a verbatim excerpt of `Annotated Source`
 output for the member and focus family named beside it:
@@ -573,20 +589,20 @@ section did not state it and quietly mixed two: **final rendered columns**,
 one row per fact, text set two columns past the widest caret, which is what
 the sketch above shows. Rendered column of code character *i* is
 `BodyIndentWidth + i`, so the body indent counts on both sides of every
-comparison. The population is the **29,933** lines carrying at least one
+comparison. The population is the **31,320** lines carrying at least one
 extent under the five focus families.
 
-- Text lands past the end of the code line on **29,191 lines (97.52%)**, and
-  over those 29,191 the mean overhang is **81 columns** — the mean is over the
-  lines that overflow, not over all 29,933.
-- **24.7%** of lines still fit 80 columns, against **75.7%** for the bare code.
-  Restricted to the 22,662 whose bare code fits at all, **32.1%** survive; the
-  other **67.9%** wrap, and the wrap destroys the very adjacency that motivates
-  the style. Over all 29,933 the wrap rate reads 75.3%, but 7,271 of those
+- Text lands past the end of the code line on **30,577 lines (97.63%)**, and
+  over those 30,577 the mean overhang is **85 columns** — the mean is over the
+  lines that overflow, not over all 31,320.
+- **23.6%** of lines still fit 80 columns, against **76.4%** for the bare code.
+  Restricted to the 23,937 whose bare code fits at all, **30.4%** survive; the
+  other **69.6%** wrap, and the wrap destroys the very adjacency that motivates
+  the style. Over all 31,320 the wrap rate reads 76.4%, but 7,383 of those
   lines overflow 80 columns before any annotation is added and wrap under any
   style, so that figure measures the corpus rather than this one.
-- The annotation column passes 100 on **3,655 lines (12.2%)** — or **87.6%** of
-  the **4,172** lines long enough to push it that far at all, which is the rate
+- The annotation column passes 100 on **3,691 lines (11.8%)** — or **87.7%** of
+  the **4,211** lines long enough to push it that far at all, which is the rate
   that means something: when the style can hurt, it almost always does.
 - The maximum annotation column is **57,946**, on
   `IcuLocaleData.get_NameIndexToNumericData`, the pathological line already
@@ -595,7 +611,7 @@ extent under the five focus families.
   57,946. The line length is the figure that survives a change of convention.
 
 At a one-column gap every percentage above moves by under one percentage point
-(97.20%, 25.3%, 33.0%, 11.8%, 87.2%) and the maximum column moves by one, to
+(97.32%, 24.2%, 31.2%, 11.4%, 87.3%) and the maximum column moves by one, to
 57,945; the counts behind them shift, but the rejection is unaffected. The
 obvious first candidate for a wide style.
 
