@@ -68,6 +68,9 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
+      - name: Self-test change detection
+        run: python3 eng/test-ci-change-detection.py
+
       - name: Detect changes
         id: filter
         run: |
@@ -76,12 +79,18 @@ jobs:
           # the entire build and test matrix, landing an unvalidated commit on
           # main. So when the change set cannot be determined, force every
           # output true: CI over-runs instead of silently vanishing. Enforced
-          # by the fallback branch below, which runs no fallible command, not
-          # by an automated gate.
+          # by the fallback branch below, which runs no fallible command, and
+          # by eng/test-ci-change-detection.py.
           FILES=""
           RESOLVED=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only); then
+            # An empty PR diff is ambiguous: the base may now contain equivalent
+            # changes, or the API may have returned no usable change set. In
+            # either case, over-run rather than let every gated job disappear.
+            # An empty push diff remains resolved below because it means the
+            # before and after trees do not differ.
+            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only) \
+               && [ -n "$FILES" ]; then
               RESOLVED=true
             fi
           else
