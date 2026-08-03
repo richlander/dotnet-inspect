@@ -790,6 +790,10 @@ public class ApiOutputFormatterTests
     [InlineData(nameof(RestatementRowFixture.Enumish), "default")]
     // Any other named class constraint does make T known to be a reference type.
     [InlineData(nameof(RestatementRowFixture.Named), "class")]
+    // `where T : U` inherits U's answer, so the chain has to be followed rather than
+    // treated as unknowable: U is class-constrained here and unconstrained below.
+    [InlineData(nameof(RestatementRowFixture.Transitive), "class")]
+    [InlineData(nameof(RestatementRowFixture.OpenChain), "default")]
     public void ConstraintRestatement_MatchesWhatCSharpRequires(string memberName, string expected)
     {
         string path = typeof(RestatementRowFixture).Assembly.Location;
@@ -817,18 +821,103 @@ public class ApiOutputFormatterTests
                 UnsafeOperations: false)));
         var sections = new MemberCodeView();
 
+        // A second type parameter exists only on the rows that need one to constrain T.
+        string signature = memberName is nameof(RestatementRowFixture.Transitive)
+            or nameof(RestatementRowFixture.OpenChain)
+            ? $"{memberName}<T, U>(T? value) where T : {expected} where U : {expected}"
+            : $"{memberName}<T>(T? value) where T : {expected}";
+
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
-        Assert.Contains(
-            $"{memberName}<T>(T? value) where T : {expected}",
-            sections.DecompiledSourceCode.Content,
-            StringComparison.Ordinal);
+        Assert.Contains(signature, sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
 
         var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
-        Assert.Contains(
-            $"{memberName}<T>(T? value) where T : {expected}",
-            typeSource,
-            StringComparison.Ordinal);
+        Assert.Contains(signature, typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The three core types that prove nothing about a type parameter are recognized by
+    /// typed identity, never by display name. An assembly may declare its own
+    /// <c>System.Enum</c>, and a parameter constrained to that type IS known to be a
+    /// reference type -- so treating the impostor as the real one would emit
+    /// <c>where T : default</c> and produce CS8822 rather than merely incomplete output.
+    /// </summary>
+    /// <remarks>
+    /// Non-vacuous: dropping the resolution-scope check from the classifier's
+    /// <c>TypeReference</c> arm classifies this parameter as
+    /// <see cref="TypeParameterTypeKind.NeitherReferenceNorValue"/> and fails this test.
+    /// The metadata is synthesized because the attack needs a second assembly that
+    /// declares <c>System.Enum</c> without a core-library strong name, which a compiled
+    /// in-repo fixture cannot express.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_RejectsACoreLibraryLookalike()
+    {
+        string dllPath = EmitCoreLibraryLookalikeSample();
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "LookalikeSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = Assert.Single(member.SignatureModel!.TypeParameters);
+
+            // The constraint really is a TypeReference spelled `System.Enum`, so the
+            // display name alone would have matched.
+            Assert.Contains(
+                typeParameter.StructuredConstraints ?? [],
+                constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
+
+            Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// Emits two assemblies: one declaring a <c>System.Enum</c> that is not the core
+    /// library's, and one whose generic virtual method is constrained to it. Returns the
+    /// path of the second.
+    /// </summary>
+    static string EmitCoreLibraryLookalikeSample()
+    {
+        var fakeCore = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName($"FakeCoreLib{Guid.NewGuid():N}"), typeof(object).Assembly);
+        var fakeModule = fakeCore.DefineDynamicModule("FakeCoreLib");
+        fakeModule.DefineType(
+            "System.Enum",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class)
+            .CreateType();
+        string fakePath = Path.Combine(Path.GetTempPath(), $"fake-corelib-{Guid.NewGuid():N}.dll");
+        fakeCore.Save(fakePath);
+
+        var impostor = System.Reflection.Assembly.LoadFrom(fakePath).GetType("System.Enum")!;
+
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("LookalikeEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("LookalikeEmit");
+        var tb = module.DefineType(
+            "LookalikeSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var mb = tb.DefineMethod(
+            "Pick",
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+        var typeParameters = mb.DefineGenericParameters("T");
+        typeParameters[0].SetBaseTypeConstraint(impostor);
+        mb.SetReturnType(typeParameters[0]);
+        mb.SetParameters(typeParameters[0]);
+        var il = mb.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"lookalike-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
     }
 
     /// <summary>
@@ -1238,6 +1327,14 @@ public class RestatementRowBase
     public virtual T? Named<T>(T? value) where T : ConstraintFixtureBase => value;
 
     public virtual T? Ctor<T>(T? value) where T : new() => value;
+
+    /// <summary>
+    /// `where T : U` makes T exactly as known as U, so these two rows differ only in
+    /// what the *other* parameter is constrained to.
+    /// </summary>
+    public virtual T? Transitive<T, U>(T? value) where T : U where U : ConstraintFixtureBase => value;
+
+    public virtual T? OpenChain<T, U>(T? value) where T : U => value;
 }
 
 public class RestatementRowFixture : RestatementRowBase
@@ -1253,4 +1350,8 @@ public class RestatementRowFixture : RestatementRowBase
     public override T? Named<T>(T? value) where T : class => value;
 
     public override T? Ctor<T>(T? value) where T : default => value;
+
+    public override T? Transitive<T, U>(T? value) where T : class where U : class => value;
+
+    public override T? OpenChain<T, U>(T? value) where T : default where U : default => value;
 }

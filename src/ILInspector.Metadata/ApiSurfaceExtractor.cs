@@ -1121,7 +1121,7 @@ public static class ApiSurfaceExtractor
     /// impersonates a core-library name but lacks (or forges) a matching
     /// public-key token is rejected.
     /// </summary>
-    private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+    internal static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;

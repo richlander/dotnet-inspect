@@ -36,6 +36,20 @@ internal static class TypeParameterKindClassifier
         GenericParameter parameter,
         bool hasValueTypeConstraint,
         bool hasReferenceTypeConstraint)
+        => Classify(reader, parameter, hasValueTypeConstraint, hasReferenceTypeConstraint, visited: null);
+
+    /// <param name="visited">
+    /// The parameters already being classified on this chain. `where T : U` makes T only
+    /// as known as U, so classification follows the chain, and this set stops a cyclic
+    /// or self-referential chain -- which metadata can express even though C# cannot --
+    /// from recursing forever.
+    /// </param>
+    static TypeParameterTypeKind Classify(
+        MetadataReader reader,
+        GenericParameter parameter,
+        bool hasValueTypeConstraint,
+        bool hasReferenceTypeConstraint,
+        HashSet<GenericParameterHandle>? visited)
     {
         // The attribute flags are decisive on their own and need no constraint types.
         if (hasValueTypeConstraint)
@@ -66,10 +80,145 @@ internal static class TypeParameterKindClassifier
                     break;
                 case ConstraintClass.ProvesNothing:
                     break;
+
+                // `where T : U` -- T is exactly as known as U, so follow the chain.
+                case ConstraintClass.DeferToTypeParameter:
+                    switch (ClassifySibling(reader, parameter, constraint.Type, visited))
+                    {
+                        case TypeParameterTypeKind.ReferenceType:
+                            return TypeParameterTypeKind.ReferenceType;
+
+                        // A value-type parameter cannot be a constraint in C#, so this
+                        // is malformed rather than a row of the table; fail closed.
+                        case TypeParameterTypeKind.ValueType:
+                        case TypeParameterTypeKind.Undetermined:
+                            kind = TypeParameterTypeKind.Undetermined;
+                            break;
+                        case TypeParameterTypeKind.NeitherReferenceNorValue:
+                            break;
+                    }
+
+                    break;
             }
         }
 
         return kind;
+    }
+
+    /// <summary>
+    /// Classifies the generic parameter that <paramref name="constraintType"/> names,
+    /// so that `where T : U` inherits U's answer. Both parameters belong to the same
+    /// declaration, so U is found among the siblings of <paramref name="parameter"/>
+    /// rather than by resolving anything -- a method type parameter among the owning
+    /// method's, a type type parameter among the declaring type's.
+    /// </summary>
+    /// <remarks>
+    /// Fails closed on anything unexpected: a signature that does not decode to a single
+    /// parameter index, an index outside the owning collection, an owner this assembly
+    /// cannot read, or a chain that revisits a parameter it is already classifying.
+    /// </remarks>
+    static TypeParameterTypeKind ClassifySibling(
+        MetadataReader reader,
+        GenericParameter parameter,
+        EntityHandle constraintType,
+        HashSet<GenericParameterHandle>? visited)
+    {
+        if (constraintType.Kind != HandleKind.TypeSpecification)
+            return TypeParameterTypeKind.Undetermined;
+
+        var reference = GuardedProviderDecode.TypeSpec(
+            reader,
+            (TypeSpecificationHandle)constraintType,
+            TypeParameterReferenceProvider.Instance,
+            (GenericContext?)null,
+            fallback: null);
+        if (reference is not { } target)
+            return TypeParameterTypeKind.Undetermined;
+
+        try
+        {
+            var siblings = SiblingParameters(reader, parameter, target.IsMethodParameter);
+            if (siblings is not { } handles || target.Index < 0 || target.Index >= handles.Count)
+                return TypeParameterTypeKind.Undetermined;
+
+            var siblingHandle = handles[target.Index];
+            visited ??= [];
+            if (!visited.Add(siblingHandle))
+                return TypeParameterTypeKind.Undetermined;
+
+            var sibling = reader.GetGenericParameter(siblingHandle);
+            var special = sibling.Attributes & GenericParameterAttributes.SpecialConstraintMask;
+            return Classify(
+                reader,
+                sibling,
+                (special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
+                (special & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                visited);
+        }
+        catch (BadImageFormatException)
+        {
+            return TypeParameterTypeKind.Undetermined;
+        }
+    }
+
+    /// <summary>
+    /// The generic parameters a sibling reference indexes into: the owning method's when
+    /// the reference is to a method type parameter, otherwise the declaring type's.
+    /// </summary>
+    static GenericParameterHandleCollection? SiblingParameters(
+        MetadataReader reader,
+        GenericParameter parameter,
+        bool isMethodParameter)
+    {
+        switch (parameter.Parent.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)parameter.Parent);
+                return isMethodParameter
+                    ? method.GetGenericParameters()
+                    : reader.GetTypeDefinition(method.GetDeclaringType()).GetGenericParameters();
+
+            case HandleKind.TypeDefinition:
+                // A type's own parameter cannot name a method parameter.
+                return isMethodParameter
+                    ? null
+                    : reader.GetTypeDefinition((TypeDefinitionHandle)parameter.Parent).GetGenericParameters();
+
+            default:
+                return null;
+        }
+    }
+
+    readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);
+
+    /// <summary>
+    /// Decodes a constraint signature that is expected to be exactly one generic
+    /// parameter reference, yielding null for every other shape so the caller fails
+    /// closed rather than mistaking a composed type for a bare parameter.
+    /// </summary>
+    sealed class TypeParameterReferenceProvider
+        : ISignatureTypeProvider<TypeParameterReference?, GenericContext?>
+    {
+        internal static readonly TypeParameterReferenceProvider Instance = new();
+
+        public TypeParameterReference? GetGenericMethodParameter(GenericContext? context, int index)
+            => new TypeParameterReference(index, IsMethodParameter: true);
+
+        public TypeParameterReference? GetGenericTypeParameter(GenericContext? context, int index)
+            => new TypeParameterReference(index, IsMethodParameter: false);
+
+        public TypeParameterReference? GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => null;
+        public TypeParameterReference? GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => null;
+        public TypeParameterReference? GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind) => null;
+        public TypeParameterReference? GetGenericInstantiation(TypeParameterReference? genericType, ImmutableArray<TypeParameterReference?> typeArguments) => null;
+        public TypeParameterReference? GetModifiedType(TypeParameterReference? modifier, TypeParameterReference? unmodifiedType, bool isRequired) => null;
+        public TypeParameterReference? GetPinnedType(TypeParameterReference? elementType) => null;
+        public TypeParameterReference? GetPrimitiveType(PrimitiveTypeCode typeCode) => null;
+        public TypeParameterReference? GetSZArrayType(TypeParameterReference? elementType) => null;
+        public TypeParameterReference? GetArrayType(TypeParameterReference? elementType, ArrayShape shape) => null;
+        public TypeParameterReference? GetByReferenceType(TypeParameterReference? elementType) => null;
+        public TypeParameterReference? GetPointerType(TypeParameterReference? elementType) => null;
+        public TypeParameterReference? GetFunctionPointerType(MethodSignature<TypeParameterReference?> signature) => null;
     }
 
     enum ConstraintClass
@@ -77,6 +226,13 @@ internal static class TypeParameterKindClassifier
         ProvesNothing,
         ProvesReferenceType,
         Unreadable,
+
+        /// <summary>
+        /// The constraint names another generic parameter, so the answer is that
+        /// parameter's answer. Resolved by <see cref="ClassifySibling"/> rather than
+        /// here, because the provider that decodes the signature sees only an index.
+        /// </summary>
+        DeferToTypeParameter,
     }
 
     static ConstraintClass ClassifyConstraintType(MetadataReader reader, EntityHandle handle)
@@ -90,11 +246,17 @@ internal static class TypeParameterKindClassifier
                 return ClassifyDefinition(reader, (TypeDefinitionHandle)handle);
 
             // Another module owns the interface flag, and a name is not a substitute for
-            // it: an unknown external type could be either.
+            // it: an unknown external type could be either. The three core types that
+            // prove nothing are the one exception, and even they are accepted only on
+            // typed identity -- an assembly may declare its own `System.Enum`, and
+            // treating that as the real one would emit `default` for a type parameter
+            // that is genuinely known to be a reference type (CS8822).
             case HandleKind.TypeReference:
+                var typeReference = reader.GetTypeReference((TypeReferenceHandle)handle);
                 return IsClassThatProvesNothing(TypeReferenceFullName(reader, (TypeReferenceHandle)handle))
-                    ? ConstraintClass.ProvesNothing
-                    : ConstraintClass.Unreadable;
+                    && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(reader, typeReference.ResolutionScope)
+                        ? ConstraintClass.ProvesNothing
+                        : ConstraintClass.Unreadable;
 
             // A generic instantiation constrains to the instantiated type, so the
             // question is about its generic type definition.
@@ -178,10 +340,11 @@ internal static class TypeParameterKindClassifier
 
         public ConstraintClass GetPinnedType(ConstraintClass elementType) => elementType;
 
-        // A constraint naming another type parameter is only as known as that parameter,
-        // which this pass does not resolve.
-        public ConstraintClass GetGenericMethodParameter(GenericContext? context, int index) => ConstraintClass.Unreadable;
-        public ConstraintClass GetGenericTypeParameter(GenericContext? context, int index) => ConstraintClass.Unreadable;
+        // A constraint naming another type parameter is only as known as that parameter.
+        // The index alone cannot be resolved here, so the answer is deferred to
+        // ClassifySibling, which has the owning parameter and can find its siblings.
+        public ConstraintClass GetGenericMethodParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
+        public ConstraintClass GetGenericTypeParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
 
         public ConstraintClass GetPrimitiveType(PrimitiveTypeCode typeCode) => ConstraintClass.Unreadable;
         public ConstraintClass GetSZArrayType(ConstraintClass elementType) => ConstraintClass.Unreadable;

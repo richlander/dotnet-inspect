@@ -619,7 +619,11 @@ public sealed class CSharpTypePrinter
             Name = parameter.Name,
             Variance = parameter.Variance,
             Constraints = constraints?.ToList()!,
-            StructuredConstraints = parameter.StructuredConstraints
+            StructuredConstraints = parameter.StructuredConstraints,
+            // Carried like StructuredConstraints: the snapshot feeds the declaration
+            // writer, which cannot restate the constraint an inheriting member requires
+            // without it, and losing it renders an override that does not compile.
+            TypeKind = parameter.TypeKind
         };
     }
 
