@@ -28,18 +28,39 @@
 # the lines to the runner, which does the joining itself.
 #
 # Note that `source file` with no arguments leaves the sourcing script's own
-# positional parameters visible here, so pass arguments explicitly (or none
-# from a script that has its own). A stray argument is rejected loudly by
-# restore-iltools.sh rather than silently ignored.
+# positional parameters visible here, and bash gives no way to tell those apart
+# from arguments genuinely passed to `source`. Empty arguments are dropped, so
+# a script with its own parameters can ask for none deterministically:
+#
+#   source eng/activate-iltools.sh ""
+#
+# Anything else that leaks through is rejected by restore-iltools.sh with a
+# hint naming this trap, rather than silently ignored.
 #
 # Deliberately does not `set -euo pipefail`: those would leak into the shell
 # that sourced it. For the same reason the helper functions are unset on the
 # way out; the one namespaced variable left behind, $__iltools_status, is the
 # price of returning the real exit code without an eval.
 
-if [ -z "${BASH_SOURCE[0]:-}" ]; then
+# `${BASH_VERSION:-}` rather than `${BASH_SOURCE[0]:-}`: array syntax is a
+# substitution error in dash and other POSIX shells, which would abort with
+# "Bad substitution" before this guard could print anything useful.
+if [ -z "${BASH_VERSION:-}" ]; then
     echo "error: activate-iltools.sh needs bash; source it from a bash shell." >&2
     return 2 2> /dev/null || exit 2
+fi
+
+# Refuse to clobber a caller's function of the same name. Without this, a
+# readonly collision leaves the caller's function running in place of ours and
+# reports success having restored nothing -- the silent-green failure this file
+# exists to prevent, wearing a different hat. Re-sourcing is unaffected: the
+# helpers are unset on the way out.
+if declare -F __iltools_activate > /dev/null 2>&1 ||
+   declare -F __iltools_path_has > /dev/null 2>&1 ||
+   declare -F __iltools_hint_arguments > /dev/null 2>&1; then
+    echo "error: this shell already defines one of the __iltools_* helper functions;" >&2
+    echo "       activate-iltools.sh will not overwrite them. Unset them and retry." >&2
+    return 2
 fi
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -50,14 +71,14 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     exit 2
 fi
 
-# Exact-element membership test against PATH. Deliberately avoids both `case`
-# patterns and unquoted word splitting, because a directory containing a glob
-# metacharacter would be matched as a pattern by the first and mangled by the
-# second. Uses only builtins, like the rest of this file, so it still works
-# when the PATH being repaired is itself unusable.
+# Exact-element membership test against a PATH-shaped string. Deliberately
+# avoids both `case` patterns and unquoted word splitting, because a directory
+# containing a glob metacharacter would be matched as a pattern by the first
+# and mangled by the second. Uses only builtins, like the rest of this file, so
+# it still works when the PATH being repaired is itself unusable.
 __iltools_path_has() {
     local needle="$1" element haystack
-    haystack="${PATH:-}"
+    haystack="${2-}"
     while IFS= read -r element; do
         if [ "$element" = "$needle" ]; then
             return 0
@@ -66,10 +87,39 @@ __iltools_path_has() {
     return 1
 }
 
+# Printed on every failure that could have been caused by arguments, because
+# `source` makes the caller's own parameters indistinguishable from real ones.
+# Without this, a script that takes `--fast` gets "unknown argument '--fast'"
+# from a script it never invoked.
+__iltools_hint_arguments() {
+    local self="$1" count="$2"
+
+    if [ "$count" -eq 0 ]; then
+        return 0
+    fi
+
+    printf 'hint: %d argument(s) were forwarded. If you did not pass them, they are\n' "$count" >&2
+    printf '      your own script'"'"'s positional parameters, which `source` leaves\n' >&2
+    printf '      visible here. Use `source %s ""` to invoke it with none.\n' "$self" >&2
+}
+
 __iltools_activate() {
     # A function body so `local` keeps the sourcing shell's namespace clean and
     # a failure can `return`; `exit` here would close an interactive shell.
     local self dir script_dir restore out status joined line saw_entry
+    local element tail first arg
+    local -a args=()
+
+    # `source file` with no arguments leaves the sourcing script's own
+    # positional parameters visible here, and bash offers no way to tell those
+    # apart from arguments genuinely passed to `source`. Dropping empty
+    # arguments gives a script with its own parameters a deterministic way to
+    # ask for none: `source eng/activate-iltools.sh ""`.
+    for arg in "$@"; do
+        if [ -n "$arg" ]; then
+            args+=("$arg")
+        fi
+    done
 
     # `${var%/*}` rather than dirname(1): this file's whole job is fixing PATH,
     # so it must not need PATH to work.
@@ -92,9 +142,10 @@ __iltools_activate() {
     # and if it is, `|| status=$?` keeps errexit from killing the caller's
     # script before it can be told what went wrong.
     status=0
-    out="$("$restore" "$@")" || status=$?
+    out="$("$restore" ${args[@]+"${args[@]}"})" || status=$?
     if [ "$status" -ne 0 ]; then
         printf 'error: %s failed (exit %d); PATH left unchanged.\n' "$restore" "$status" >&2
+        __iltools_hint_arguments "$self" "${#args[@]}"
         return "$status"
     fi
 
@@ -110,8 +161,23 @@ __iltools_activate() {
             *) continue ;;
         esac
 
-        # Sourcing twice should not grow PATH without bound.
-        if __iltools_path_has "$line"; then
+        # A directory containing ':' cannot be represented in PATH at all: it
+        # would split into two elements, and a colon-only line would produce
+        # empty ones, which mean the current directory. Neither is something to
+        # paper over -- refuse rather than silently corrupt PATH or silently
+        # drop the directory.
+        case "$line" in
+            *:*)
+                printf 'error: %s emitted a directory containing ":" (%s), which\n' "$restore" "$line" >&2
+                printf '       cannot be represented in PATH; PATH left unchanged.\n' >&2
+                return 1
+                ;;
+        esac
+
+        # Guards only against the producer emitting one directory twice.
+        # Directories already on PATH are handled below by moving them, not by
+        # skipping them.
+        if __iltools_path_has "$line" "$joined"; then
             continue
         fi
 
@@ -124,23 +190,49 @@ __iltools_activate() {
 
     if [ "$saw_entry" -eq 0 ]; then
         printf 'error: %s printed no directories; PATH left unchanged.\n' "$restore" >&2
+        # `--help` leaking in as an inherited parameter lands here rather than
+        # on the usage-error path: restore exits 0 having printed only usage.
+        __iltools_hint_arguments "$self" "${#args[@]}"
         return 1
     fi
 
-    if [ -z "$joined" ]; then
-        # Every directory was already present. PATH is already correct.
+    if [ -z "${PATH:-}" ]; then
+        # Appending ':$PATH' here would leave a trailing empty element.
+        export PATH="$joined"
         return 0
     fi
 
-    if [ -n "${PATH:-}" ]; then
-        export PATH="$joined:$PATH"
-    else
-        # Appending ':$PATH' here would leave a trailing empty element.
+    # Rebuild the tail without the restored directories rather than skipping a
+    # directory that is already present. Skipping keeps PATH from growing on a
+    # repeat source, but it also leaves a stale or broken copy earlier in PATH
+    # shadowing the one just restored: success reported, wrong tool resolved.
+    # Removing and re-prepending gets both. Every other element is preserved
+    # verbatim and in order, including empty ones -- this file must not
+    # introduce an empty PATH element, but it is not in the business of
+    # deleting the caller's.
+    tail=""
+    first=1
+    while IFS= read -r element; do
+        if __iltools_path_has "$element" "$joined"; then
+            continue
+        fi
+
+        if [ "$first" -eq 1 ]; then
+            tail="$element"
+            first=0
+        else
+            tail="$tail:$element"
+        fi
+    done <<< "${PATH//:/$'\n'}"
+
+    if [ "$first" -eq 1 ]; then
         export PATH="$joined"
+    else
+        export PATH="$joined:$tail"
     fi
 }
 
 __iltools_activate "$@"
 __iltools_status=$?
-unset -f __iltools_activate __iltools_path_has
+unset -f __iltools_activate __iltools_path_has __iltools_hint_arguments
 return "$__iltools_status"

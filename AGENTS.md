@@ -219,9 +219,13 @@ The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
 `ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
 directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
 Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
-metadata oracle suite. Those workflow steps are `continue-on-error`, so an
-acquisition failure in CI degrades to skips rather than a red run -- check the
-step's log before reading a green decompiler, IL-diff, or metadata leg as proof.
+metadata oracle suite. Its install step is `continue-on-error` so that a feed
+outage does not cost every other result in the lane, but `Check
+ilasm/ildasm/mdv result` runs after the suites and fails the lane if
+acquisition failed: losing oracle coverage is red, not a quietly shorter skip
+list. `deep-inspect.yml` and `release.yml` still degrade to skips, so read
+their step logs before treating a green decompiler or IL-diff leg as
+oracle-backed.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.

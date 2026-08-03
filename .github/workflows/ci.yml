@@ -388,10 +388,15 @@ jobs:
       # --mdv matters here and nowhere else: this is the only workflow that runs
       # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
       # skips without it -- and a skipped oracle is a green leg that compared
-      # nothing. continue-on-error keeps a feed outage degrading to those skips
-      # rather than failing the lane, so read the step log before treating this
-      # leg as oracle-backed.
+      # nothing.
+      #
+      # continue-on-error lets the rest of the lane still report, so a feed
+      # outage does not cost every other result in the job. It does not make
+      # the failure survivable: `Check ilasm/ildasm/mdv result` below fails the
+      # lane once the tests have run. Losing oracle coverage must be red, not a
+      # quietly shorter skip list.
       - name: Install ilasm/ildasm/mdv
+        id: iltools
         continue-on-error: true
         shell: bash
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
@@ -450,6 +455,16 @@ jobs:
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+
+      # Deliberately last: the suites above still report their results when
+      # acquisition fails, but the lane must not go green having silently traded
+      # its oracle comparisons for skips.
+      - name: Check ilasm/ildasm/mdv result
+        if: steps.iltools.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds

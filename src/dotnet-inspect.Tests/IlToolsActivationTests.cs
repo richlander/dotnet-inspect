@@ -37,6 +37,7 @@ public class IlToolsActivationTests
     static readonly string RestoreScript = Path.Combine(RepoRoot, "eng", "restore-iltools.sh");
 
     static readonly bool HasBash = CanRunBash();
+    static readonly bool HasDash = CanRun("dash");
 
     const string SkipReason = "bash is not available on this machine";
 
@@ -47,9 +48,11 @@ public class IlToolsActivationTests
     const string ReportPathOnExit = """trap 'printf "PATH=%s\n" "$PATH"' EXIT""";
 
     // A stub that emits two directories the way restore-iltools.sh does.
+    // Reports the argument *count* as well as the values: a single empty
+    // argument and no arguments at all are indistinguishable in "$*".
     const string TwoDirectoryProducer = """
         #!/bin/sh
-        echo "ARGS:[$*]" >&2
+        echo "ARGC:[$#] ARGS:[$*]" >&2
         printf '%s\n' /tmp/iltools-a /tmp/iltools-b
         """;
 
@@ -79,7 +82,7 @@ public class IlToolsActivationTests
         var result = Activate(TwoDirectoryProducer, initialPath: "/orig1", arguments: "--rid linux-x64 --mdv");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("ARGS:[--rid linux-x64 --mdv]", result.Stderr);
+        Assert.Contains("ARGC:[3] ARGS:[--rid linux-x64 --mdv]", result.Stderr);
     }
 
     /// <summary>
@@ -280,9 +283,160 @@ public class IlToolsActivationTests
     }
 
     /// <summary>
+    /// Round 7: skipping a directory already on PATH is not the same as
+    /// putting it first. A stale or broken copy earlier in PATH would keep
+    /// shadowing the tool just restored, with success reported.
+    /// </summary>
+    [Fact]
+    public void Activate_WhenARestoredDirectoryIsAlreadyOnPath_MovesItAheadOfTheRest()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var result = Activate(
+            """
+            #!/bin/sh
+            printf '%s\n' /tmp/iltools-good
+            """,
+            initialPath: "/tmp/iltools-stale:/tmp/iltools-good:/orig1");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["/tmp/iltools-good", "/tmp/iltools-stale", "/orig1"], result.PathEntries);
+    }
+
+    /// <summary>
+    /// Reordering must not otherwise rewrite the caller's PATH. This file must
+    /// not introduce an empty element, but it is not in the business of
+    /// deleting one the caller already had.
+    /// </summary>
+    [Fact]
+    public void Activate_PreservesUnrelatedEntriesVerbatimAndInOrder()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var result = Activate(TwoDirectoryProducer, initialPath: "/z:/tmp/iltools-b::/a");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["/tmp/iltools-a", "/tmp/iltools-b", "/z", "", "/a"], result.PathEntries);
+    }
+
+    /// <summary>
+    /// `source file` with no arguments leaves the sourcing script's own
+    /// positional parameters visible to the sourced file, and bash offers no
+    /// way to tell those apart from real arguments. An empty argument is the
+    /// documented escape hatch for a caller that has its own.
+    /// </summary>
+    [Fact]
+    public void Activate_TreatsAnEmptyArgumentAsNoArguments()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var result = Activate(TwoDirectoryProducer, initialPath: "/orig1", arguments: "\"\"");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("ARGC:[0]", result.Stderr);
+        Assert.Equal(["/tmp/iltools-a", "/tmp/iltools-b", "/orig1"], result.PathEntries);
+    }
+
+    /// <summary>
+    /// When parameters do leak through, the failure has to name the trap;
+    /// "unknown argument '--fast'" from a script the caller never invoked is
+    /// otherwise unattributable.
+    /// </summary>
+    [Fact]
+    public void Activate_WhenAnArgumentIsRejected_NamesThePositionalParameterTrap()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var result = Activate(
+            """
+            #!/bin/sh
+            echo "error: unknown argument '$1'." >&2
+            exit 2
+            """,
+            initialPath: "/orig1",
+            arguments: "--fast");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("positional parameters", result.Stderr);
+        Assert.Equal(["/orig1"], result.PathEntries);
+    }
+
+    /// <summary>
+    /// The non-bash guard has to survive being read by a POSIX shell. Array
+    /// syntax is a substitution error in dash, which aborts before any guard
+    /// can print anything useful.
+    /// </summary>
+    [Fact]
+    public void Activate_SourcedFromAPosixShell_ExplainsItselfInsteadOfCrashing()
+    {
+        Assert.SkipUnless(HasDash, "dash is not available on this machine");
+
+        using var scratch = new ScratchDirectory(TwoDirectoryProducer);
+        var result = Run("dash", $". \"{scratch.ActivatePath}\"", initialPath: null);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("needs bash", result.Stderr);
+        Assert.DoesNotContain("Bad substitution", result.Stderr);
+    }
+
+    /// <summary>
+    /// Round 7: a nonblank line containing ':' passes the whitespace guard but
+    /// splits into multiple PATH elements, and a colon-only line produces empty
+    /// ones -- the current-directory hazard, reintroduced through the producer.
+    /// </summary>
+    [Theory]
+    [InlineData(":")]
+    [InlineData("/tmp/we:ird")]
+    [InlineData("/tmp/ok:/tmp/smuggled")]
+    public void Activate_WhenAProducedDirectoryContainsAColon_FailsAndLeavesPathUnchanged(string emitted)
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        var result = Activate(
+            $"""
+            #!/bin/sh
+            printf '%s\n' '{emitted}'
+            """,
+            initialPath: "/orig1");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Equal(["/orig1"], result.PathEntries);
+        Assert.Contains("PATH left unchanged", result.Stderr);
+    }
+
+    /// <summary>
+    /// Round 7: a shell that already defines one of the helper names would
+    /// otherwise have it silently destroyed -- or, if it is readonly, would run
+    /// its own function in place of ours and report success having restored
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public void Activate_WhenTheHelperNamesAreTaken_RefusesRatherThanRunningTheCallersFunction()
+    {
+        Assert.SkipUnless(HasBash, SkipReason);
+
+        using var scratch = new ScratchDirectory(TwoDirectoryProducer);
+        var result = RunBash(
+            $$"""
+            __iltools_activate() { printf 'CALLER FUNCTION RAN\n'; return 0; }
+            readonly -f __iltools_activate
+            {{ReportPathOnExit}}
+            source "{{scratch.ActivatePath}}"
+            """,
+            initialPath: "/orig1");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.DoesNotContain("CALLER FUNCTION RAN", result.Stdout);
+        Assert.Contains("__iltools_", result.Stderr);
+        Assert.Equal(["/orig1"], result.PathEntries);
+    }
+
+    /// <summary>
     /// Keeps the documentation pointing at the tested artifact. The defect
     /// class these tests close was a hand-written PATH incantation in a doc
-    /// snippet, and it comes straight back if one is reintroduced.
+    /// snippet, so the gate rejects any runnable snippet that invokes the
+    /// producer directly -- `PATH="$(eng/restore-iltools.sh):$PATH"` never
+    /// mentions `export` and would otherwise sail through.
     /// </summary>
     [Fact]
     public void AgentsMarkdown_DelegatesIlToolsPathAssemblyToTheScript()
@@ -294,7 +448,12 @@ public class IlToolsActivationTests
         foreach (var block in FencedBashBlocks(agents).Where(b => b.Contains("iltools")))
         {
             Assert.False(
-                block.Contains("export PATH") || block.Contains("tr '\\n'"),
+                block.Contains("restore-iltools.sh"),
+                $"AGENTS.md tells the reader to run the producer directly instead of sourcing\n" +
+                $"eng/activate-iltools.sh, which puts the PATH assembly back outside the gate:\n{block}");
+
+            Assert.False(
+                block.Contains("PATH="),
                 $"AGENTS.md assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
         }
     }
@@ -408,9 +567,12 @@ public class IlToolsActivationTests
         return RunBash(string.Join('\n', lines), initialPath);
     }
 
-    static ActivationResult RunBash(string script, string? initialPath)
+    static ActivationResult RunBash(string script, string? initialPath) =>
+        Run("bash", script, initialPath);
+
+    static ActivationResult Run(string shell, string script, string? initialPath)
     {
-        var info = new ProcessStartInfo("bash")
+        var info = new ProcessStartInfo(shell)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -430,11 +592,13 @@ public class IlToolsActivationTests
         return new ActivationResult(process.ExitCode, stdout, stderr);
     }
 
-    static bool CanRunBash()
+    static bool CanRunBash() => CanRun("bash");
+
+    static bool CanRun(string shell)
     {
         try
         {
-            var info = new ProcessStartInfo("bash")
+            var info = new ProcessStartInfo(shell)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
