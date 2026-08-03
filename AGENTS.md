@@ -384,11 +384,13 @@ round:
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
   report its parent's changes as its own.
-- **Every slice in a stack must report CI.** Stack branches use the `feature/`
-  prefix, so a child PR targeting its parent branch schedules the same CI as a
+- **Every slice in a stack must report CI.** `ci.yml` applies no base-branch
+  filter, so a child PR targeting its parent branch schedules the same CI as a
   bottom slice targeting `main`. If `gh pr checks` reports no checks for a
-  stack slice, the slice is not green: verify the branch naming and workflow
-  scheduling before review.
+  stack slice, the slice is not green and something is wrong with workflow
+  scheduling — investigate it rather than accepting the silence, because a PR
+  that triggers no workflow reports nothing for `ci-required` to block on and
+  displays as MERGEABLE and CLEAN (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -519,7 +521,8 @@ until it is unreviewable, and over parallel PRs that race in the same files.
 - **Name the stack in every PR**: the slice's position, its parent PR, and the
   enumerated residual, which is the non-action boundary the PR-summary rule
   already requires.
-- **Name every slice branch `feature/<name>`** so child PRs targeting it run CI.
+- **Name every slice branch descriptively.** No prefix is required for CI:
+  `ci.yml` applies no base-branch filter, so a PR runs CI whatever it targets.
 - **One branch and one worktree per slice**, branched from the parent slice, and
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and
