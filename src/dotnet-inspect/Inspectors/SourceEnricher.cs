@@ -26,17 +26,60 @@ internal static class SourceEnricher
         bool cacheOnly = false)
     {
         if (!context.NeedsPdb) return;
+        if (context.AssemblyPathOrNull is not { } assemblyPath)
+        {
+            log?.Invoke(
+                "External PDB acquisition is unavailable because the resolved assembly descriptor has no filesystem path.");
+            return;
+        }
 
         var downloader = new SymbolPackageDownloader(httpClient);
         var result = await downloader.DownloadPdbAsync(
             context.PdbId!.Guid, context.PdbId.Age, context.PdbId.PdbFileName,
-            context.PdbId.IsPortable, context.AssemblyPath,
+            context.PdbId.IsPortable, assemblyPath,
             packageName, packageVersion, log, isPlatformAssembly, cacheOnly);
 
         if (result.PdbFilePath != null)
             context.LoadPdbFromFile(result.PdbFilePath, "Symbol Package", result.SymbolServer);
         else if (result.WindowsPdbDetected)
             context.WindowsPdbDetected = true;
+    }
+
+    /// <summary>
+    /// Acquires symbols using the provenance of the descriptor that supplied the
+    /// authoritative assembly bytes.
+    /// </summary>
+    internal static Task AcquirePdbAsync(
+        PdbContext context,
+        ResolvedAssemblyReference assembly,
+        HttpClient httpClient,
+        Action<string>? log,
+        bool cacheOnly = false)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        string? packageName = null;
+        string? packageVersion = null;
+        bool isPlatformAssembly = false;
+
+        switch (assembly.Provenance)
+        {
+            case AssemblyResolutionProvenance.PackageAsset package:
+                packageName = package.PackageId;
+                packageVersion = package.PackageVersion;
+                break;
+            case AssemblyResolutionProvenance.PlatformAsset:
+                isPlatformAssembly = true;
+                break;
+        }
+
+        return AcquirePdbAsync(
+            context,
+            httpClient,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            log,
+            cacheOnly);
     }
 
     // ===== Verbosity-Aware Enrichment Gateways =====
@@ -144,108 +187,27 @@ internal static class SourceEnricher
             var sourceInfo = service.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
-                var forwardTarget = context.FindTypeForwarder(typeName);
-                if (forwardTarget != null)
+                if (apiType.DefinitionName is not null
+                    && await TryEnrichFromForwardedAssemblyAsync(
+                        apiType,
+                        typeName,
+                        apiType.DefinitionName,
+                        dllPath,
+                        options,
+                        logger,
+                        httpClient))
                 {
-                    logger.Log($"Type '{typeName}' is forwarded to '{forwardTarget}'.");
-
-                    var forwardedResult = await TryEnrichFromForwardedAssemblyAsync(
-                        apiType, typeName, forwardTarget, dllPath, options, logger, httpClient);
-                    if (forwardedResult)
-                        return;
+                    return;
                 }
 
                 logger.Log($"Could not find type definition for '{typeName}'.");
                 return;
             }
-            if (sourceInfo != null)
-            {
-                apiType.SourceFilePath = sourceInfo.SourceFilePath;
-                apiType.SourceUrl = sourceInfo.SourceUrl;
-                apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
-                apiType.SourceLineNumber = sourceInfo.LineNumber;
-                apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
-
-                if (sourceInfo.AdditionalSourceFiles.Count > 0)
-                {
-                    apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
-                        .Select(f => new PartialSourceFileInfo
-                        {
-                            FilePath = f.FilePath,
-                            SourceUrl = f.SourceUrl,
-                            GitHubBrowseUrl = f.GitHubBrowseUrl
-                        })
-                        .ToList();
-                    logger.Log($"Found partial type with {sourceInfo.AdditionalSourceFiles.Count + 1} source files");
-                }
-
-                logger.Log($"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
-            }
-
-            if ((options.ShowDocs || options.ShowSamples) && sourceInfo?.SourceUrl != null)
-            {
-                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var parser = new DocCommentParser();
-
-                List<(string Url, string FilePath)> sourceFilesToFetch =
-                [
-                    (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
-                ];
-
-                foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
-                {
-                    if (additionalFile.SourceUrl != null)
-                    {
-                        sourceFilesToFetch.Add((additionalFile.SourceUrl, additionalFile.FilePath));
-                    }
-                }
-
-                List<(string Content, string Url, string FilePath)> allSourceContents = [];
-                string? primaryNamespace = null;
-                bool isPrimaryPartial = false;
-
-                foreach (var (url, filePath) in sourceFilesToFetch)
-                {
-                    logger.Log($"Fetching source from: {url}");
-                    string? content = await fetcher.FetchSourceAsync(url);
-
-                    if (content != null)
-                    {
-                        logger.Log($"Fetched {content.Length} bytes from {Path.GetFileName(filePath)}");
-
-                        if (allSourceContents.Count == 0)
-                        {
-                            isPrimaryPartial = IsPartialTypeDeclaration(content, apiType.Name);
-                            primaryNamespace = ExtractNamespace(content);
-                            allSourceContents.Add((content, url, filePath));
-                        }
-                        else if (isPrimaryPartial)
-                        {
-                            bool isMatchingPartial = IsPartialTypeDeclaration(content, apiType.Name);
-                            string? fileNamespace = ExtractNamespace(content);
-
-                            if (isMatchingPartial && fileNamespace == primaryNamespace)
-                            {
-                                allSourceContents.Add((content, url, filePath));
-                                logger.Log($"Validated matching partial in {Path.GetFileName(filePath)}");
-                            }
-                            else
-                            {
-                                logger.Log($"Skipping {Path.GetFileName(filePath)} - not a matching partial type");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        logger.Log($"Could not fetch source from: {url}");
-                    }
-                }
-
-                if (allSourceContents.Count > 0)
-                {
-                    MergePartialTypeDocumentation(apiType, allSourceContents, parser, options, logger);
-                }
-            }
+            await ApplySourceInfoAsync(
+                apiType,
+                sourceInfo,
+                options,
+                logger);
         }
         catch (Exception ex)
         {
@@ -722,27 +684,153 @@ internal static class SourceEnricher
     private static async Task<bool> TryEnrichFromForwardedAssemblyAsync(
         ApiType apiType,
         string typeName,
-        string targetAssemblyName,
+        MetadataTypeDefinitionName definitionName,
         string originalDllPath,
         ApiOptions options,
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        var runtimeDir = Path.GetDirectoryName(originalDllPath);
-        if (runtimeDir == null)
-            return false;
-
-        var targetDllPath = Path.Combine(runtimeDir, targetAssemblyName + ".dll");
-        if (!File.Exists(targetDllPath))
+        using var resolution = new TypeDefinitionResolutionSession(
+            originalDllPath,
+            isPlatformAssembly: !string.IsNullOrEmpty(
+                options.PlatformAssembly),
+            options);
+        TypeResolutionOutcome outcome = resolution.Resolve(definitionName);
+        if (outcome is not TypeResolutionOutcome.Resolved resolved
+            || resolved.Hops.IsDefaultOrEmpty)
         {
-            logger.Log($"Target library '{targetAssemblyName}' not found at '{targetDllPath}'.");
+            if (outcome is not TypeResolutionOutcome.NotFound)
+            {
+                logger.Log(
+                    $"Could not resolve forwarded definition for '{typeName}': {outcome.GetType().Name}.");
+            }
             return false;
         }
 
-        logger.Log($"Following type forwarder to '{targetAssemblyName}'...");
+        ResolvedAssemblyReference implementation =
+            resolved.Definition.Assembly.Assembly;
+        logger.Log(
+            $"Following {outcome.Hops.Length} type-forwarding hop(s) to '{implementation.Identity.Name}'.");
 
-        await EnrichTypeWithSourceInfoAsync(apiType, typeName, targetDllPath, options, logger, httpClient);
+        using var service = SourceLinkService.Open(implementation, logger.Log);
+        await AcquirePdbAsync(
+            service.Context,
+            implementation,
+            httpClient,
+            logger.Log);
+        if (!service.HasPdb || !service.HasSourceLink)
+            return false;
+
+        SourceLinkResolver.TypeSourceInfo? sourceInfo =
+            service.ResolveTypeSource(typeName);
+        if (sourceInfo is null)
+            return false;
+
+        await ApplySourceInfoAsync(apiType, sourceInfo, options, logger);
         return true;
+    }
+
+    private static async Task ApplySourceInfoAsync(
+        ApiType apiType,
+        SourceLinkResolver.TypeSourceInfo sourceInfo,
+        ApiOptions options,
+        VerboseLogger logger)
+    {
+        apiType.SourceFilePath = sourceInfo.SourceFilePath;
+        apiType.SourceUrl = sourceInfo.SourceUrl;
+        apiType.GitHubBrowseUrl = sourceInfo.GitHubBrowseUrl;
+        apiType.SourceLineNumber = sourceInfo.LineNumber;
+        apiType.SourceResolution = sourceInfo.ResolutionMethod.ToString();
+
+        if (sourceInfo.AdditionalSourceFiles.Count > 0)
+        {
+            apiType.AdditionalSourceFiles = sourceInfo.AdditionalSourceFiles
+                .Select(f => new PartialSourceFileInfo
+                {
+                    FilePath = f.FilePath,
+                    SourceUrl = f.SourceUrl,
+                    GitHubBrowseUrl = f.GitHubBrowseUrl
+                })
+                .ToList();
+            logger.Log(
+                $"Found partial type with {sourceInfo.AdditionalSourceFiles.Count + 1} source files");
+        }
+
+        logger.Log(
+            $"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
+
+        if (!(options.ShowDocs || options.ShowSamples)
+            || sourceInfo.SourceUrl is null)
+        {
+            return;
+        }
+
+        var fetcher = new SourceFetcher(
+            DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+        var parser = new DocCommentParser();
+        List<(string Url, string FilePath)> sourceFilesToFetch =
+        [
+            (sourceInfo.SourceUrl, sourceInfo.SourceFilePath ?? "")
+        ];
+
+        foreach (var additionalFile in sourceInfo.AdditionalSourceFiles)
+        {
+            if (additionalFile.SourceUrl is not null)
+                sourceFilesToFetch.Add(
+                    (additionalFile.SourceUrl, additionalFile.FilePath));
+        }
+
+        List<(string Content, string Url, string FilePath)> allSourceContents = [];
+        string? primaryNamespace = null;
+        bool isPrimaryPartial = false;
+
+        foreach ((string url, string filePath) in sourceFilesToFetch)
+        {
+            logger.Log($"Fetching source from: {url}");
+            string? content = await fetcher.FetchSourceAsync(url);
+            if (content is null)
+            {
+                logger.Log($"Could not fetch source from: {url}");
+                continue;
+            }
+
+            logger.Log(
+                $"Fetched {content.Length} bytes from {Path.GetFileName(filePath)}");
+            if (allSourceContents.Count == 0)
+            {
+                isPrimaryPartial =
+                    IsPartialTypeDeclaration(content, apiType.Name);
+                primaryNamespace = ExtractNamespace(content);
+                allSourceContents.Add((content, url, filePath));
+            }
+            else if (isPrimaryPartial)
+            {
+                bool isMatchingPartial =
+                    IsPartialTypeDeclaration(content, apiType.Name);
+                string? fileNamespace = ExtractNamespace(content);
+                if (isMatchingPartial && fileNamespace == primaryNamespace)
+                {
+                    allSourceContents.Add((content, url, filePath));
+                    logger.Log(
+                        $"Validated matching partial in {Path.GetFileName(filePath)}");
+                }
+                else
+                {
+                    logger.Log(
+                        $"Skipping {Path.GetFileName(filePath)} - not a matching partial type");
+                }
+            }
+        }
+
+        if (allSourceContents.Count > 0)
+        {
+            MergePartialTypeDocumentation(
+                apiType,
+                allSourceContents,
+                parser,
+                options,
+                logger);
+        }
     }
 
     private static bool IsPartialTypeDeclaration(string sourceContent, string typeName)

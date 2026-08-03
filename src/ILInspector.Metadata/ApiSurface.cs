@@ -181,6 +181,13 @@ public sealed record ApiSurfaceInspectionFailure(
 public class TypeForwarder
 {
     /// <summary>
+    /// Exact metadata lookup name retained for structured definition resolution.
+    /// It is omitted from serialized API surfaces, which predate this currency.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
+
+    /// <summary>
     /// Full name of the forwarded type.
     /// </summary>
     public string TypeName { get; set; } = "";

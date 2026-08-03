@@ -625,6 +625,13 @@ public static class ApiSurfaceExtractor
 
                 surface.TypeForwarders.Add(new TypeForwarder
                 {
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            exportedTypeHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 });

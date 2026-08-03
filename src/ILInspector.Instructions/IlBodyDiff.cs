@@ -157,8 +157,8 @@ public enum IlBodyDiffNormalization
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
 
     /// <summary>
-    /// Compare Roslyn compiler-generated local functions and state machines under an
-    /// ordinal-free name when the two sides correspond one-to-one.
+    /// Compare Roslyn compiler-generated lambdas, local functions and state machines
+    /// under an ordinal-free name when the two sides correspond one-to-one.
     /// </summary>
     /// <remarks>
     /// The ordinal Roslyn embeds in these names indexes the containing type's members,
@@ -1053,7 +1053,7 @@ public static class IlBodyDiff
         }
 
         // The two options split the synthesized name space when both are requested: the
-        // correspondence owns `d__` and `g__`, and the per-side rewrite keeps `b__` and
+        // correspondence owns `d__`, `g__` and `b__`, and the per-side rewrite keeps
         // `<>9__`. Where the correspondence owns a name, its refusal to fold is the
         // answer -- it declined because the ordinal-free key was ambiguous on a side, so
         // the members are not known to correspond, and letting the per-side rewrite fold
