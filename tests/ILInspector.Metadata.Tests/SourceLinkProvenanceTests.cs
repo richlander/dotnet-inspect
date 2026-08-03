@@ -749,12 +749,17 @@ public class SourceLinkProvenanceTests
     /// <c>path</c> — the pair is refused (400) only when both carry values.
     /// </para>
     /// <para>
-    /// Two shapes sit outside what this pins, both non-generated and both failing safe, recorded
-    /// so the boundary is not mistaken for a claim. <c>scopePath=&lt;value&gt;&amp;path=/*</c>
-    /// resolves here while Azure answers 400 for every document, so nothing is fetched rather than
-    /// one fixed file being shown. <c>path&amp;scopePath=/*</c> is refused here while Azure would
-    /// select through <c>scopePath</c>, so a map no generator emits loses resolution. Neither is
-    /// the defect this rule is about, and both were measured in review rather than assumed.
+    /// One shape sits outside what this pins, non-generated and failing safe, recorded so the
+    /// boundary is not mistaken for a claim: <c>scopePath=&lt;value&gt;&amp;path=/*</c> resolves
+    /// here while Azure answers 400 for every document, so nothing is fetched rather than one
+    /// fixed file being shown. That is not the defect this rule is about, and it was measured in
+    /// review rather than assumed.
+    /// </para>
+    /// <para>
+    /// <c>path&amp;scopePath=/*</c> was also listed here, as a shape this refused while Azure
+    /// selects through <c>scopePath</c>. A fourth-round review was right to call that a defect
+    /// rather than a boundary — over-refusal is one here — so it is now accepted, and
+    /// <see cref="AnEmptyContentSelector_FallsThroughToTheOtherOne"/> owns the model.
     /// </para>
     /// </remarks>
     [Fact]
@@ -787,25 +792,97 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
-    /// The host's model binder reads <c>path[]</c> as <c>path</c>, so an array-suffixed selector
-    /// is the occurrence it serves — and the spellings it does <em>not</em> fold must keep working.
+    /// An empty content selector is not a selection, so the host falls through to the other one
+    /// and the wildcard there is read.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Found by GPT-5.6-sol in the third review round, and the fourth instance of one defect:
-    /// spell a component so this reader and the host disagree about what it says.
+    /// Found in the fourth review round, and the first finding on this branch in the
+    /// <em>over-refusal</em> direction rather than the bypass direction. Reading only whichever
+    /// name appeared first refused <c>path&amp;scopePath=/*</c>, a map whose wildcard the host
+    /// genuinely reads — and over-refusal is a real defect in this predicate, because the whole
+    /// reason it is weaker than attribution is that refusing a working map strands deployments.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, where
+    /// the requested file is 985 bytes, the repository root listing is 425, and a missing file
+    /// answers 404. Nine shapes, and one model accounts for all nine: the first occurrence of
+    /// each name binds, an empty value is not a selection, <c>path</c> outranks <c>scopePath</c>
+    /// when both select, and both selecting at once is an error.
+    /// </para>
+    /// <code>
+    /// path&amp;scopePath=/README.md                    200  985
+    /// path=&amp;scopePath=/README.md                   200  985
+    /// path&amp;scopePath=/nope.txt                     404
+    /// path&amp;scopePath=/README.md&amp;path=/nope.txt      200  985
+    /// scopePath&amp;path=/README.md                    200  985
+    /// path&amp;path=/README.md                         200  425
+    /// path&amp;scopePath&amp;path=/README.md                200  425
+    /// scopePath=/README.md                        200  985
+    /// path=/README.md&amp;scopePath=/nope.txt          400
+    /// </code>
+    /// </remarks>
+    [Fact]
+    public void AnEmptyContentSelector_FallsThroughToTheOtherOne()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // The empty 'path' is not what the host selects with, so the wildcard in 'scopePath' is.
+        foreach (string query in new[] { "path&scopePath=/*", "path=&scopePath=/*", "scopePath&path=/*" })
+        {
+            var resolver = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
+
+            Assert.Empty(resolver.RejectedKeys);
+            Assert.True(resolver.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(resolver.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
+
+        // With nothing left to fall through to, the host serves its root listing for every
+        // document, so the fall-through cannot become a blanket acceptance of an empty selector.
+        foreach (string query in new[] { "path&path=/*", "path&scopePath&path=/*" })
+        {
+            var resolver = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
+
+            Assert.Equal(["*"], resolver.RejectedKeys);
+            Assert.False(resolver.TryResolve("A.cs", out _));
+        }
+    }
+
+    /// <summary>
+    /// The host's model binder reads <c>path[]</c> as <c>path</c>, so a bracketed selector is the
+    /// occurrence it serves — and the spellings it does <em>not</em> fold must keep working.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One trailing group was found by GPT-5.6-sol in the third review round, and the fourth
+    /// instance of one defect: spell a component so this reader and the host disagree about what
+    /// it says. Measuring the family in the fourth round showed the rule is wider than that — any
+    /// number of empty groups, on either side.
     /// </para>
     /// <para>
     /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
     /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, using
     /// the control that tells binding apart from being ignored — give the alias a missing file and
-    /// let a real <c>path</c> follow with a present one:
+    /// let a real <c>path</c> follow with a present one, so 404 means it bound <em>and</em> won:
     /// </para>
     /// <code>
-    /// path[]=/nope.txt&amp;path=/README.md      404   -- binds, and wins
-    /// path%5B%5D=/nope.txt&amp;path=/README.md  404   -- same after decoding
-    /// path[0]  path[1]  path%5B0%5D            200   -- ignored
-    /// path.    path.x   [0].path   pathX       200   -- ignored
+    /// path[]=/nope.txt&amp;path=/README.md      404   binds, and wins
+    /// path[][]  path[][][]  path[]%5B%5D     404   repeats, so one group is not the rule
+    /// []path    [][]path    []path[]         404   and binds on the left as well
+    /// %5B%5Dpath  path%5B%5D%5B%5D           404   after decoding
+    /// []PATH    []%70ath                     404   with the case and escape folds
+    /// path[0]  path[1]  path[a]  path[][0]   200   ignored
+    /// [0]path  [a]path  [].path  [0].path    200   ignored
+    /// x[]path  []pathx  path[]x  path]       200   ignored
+    /// path{}   path()   path%255B%255D       200   ignored
+    /// path.    path.x   pathX                200   ignored
+    /// path[                                  400   the host rejects it outright
     /// </code>
     /// <para>
     /// Without the control this reads the wrong way round: <c>path[]=/README.md</c> alone returns
@@ -821,8 +898,14 @@ public class SourceLinkProvenanceTests
             "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
             + "?api-version=1.0&versionType=commit&version=" + Sha;
 
-        // Measured to bind and win, so a wildcard in the later pair is never read.
-        foreach (string alias in new[] { "path[]", "path%5B%5D", "PATH[]", "%70ath[]" })
+        // Measured to bind and win, so a wildcard in the later pair is never read. Brackets bind
+        // on either side and repeat, so the fold cannot be a single trailing group.
+        foreach (string alias in new[]
+        {
+            "path[]", "path[][]", "path[][][]", "path%5B%5D", "path%5B%5D%5B%5D", "path[]%5B%5D",
+            "PATH[]", "%70ath[]",
+            "[]path", "[][]path", "%5B%5Dpath", "[]path[]", "[]PATH", "[]%70ath",
+        })
         {
             var shadowed = SLF.SourceLinkResolver.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + alias + "=/fixed.cs&path=/*\"}}");
@@ -832,7 +915,13 @@ public class SourceLinkProvenanceTests
         }
 
         // Measured to be ignored by the host, so folding them would refuse a map that works.
-        foreach (string ignored in new[] { "path[0]", "path[1]", "path%5B0%5D", "path.", "path.x", "pathX" })
+        foreach (string ignored in new[]
+        {
+            "path[0]", "path[1]", "path[a]", "path%5B0%5D", "path[][0]", "path[0][]",
+            "path[]x", "path[]0", "path]", "path{}", "path()", "path%255B%255D",
+            "[0]path", "[a]path", "[].path", "[0].path", "x[]path", "[]pathx",
+            "path.", "path.x", "pathX",
+        })
         {
             var unrelated = SLF.SourceLinkResolver.Parse(
                 "{\"documents\":{\"*\":\"" + Prefix + "&" + ignored + "=/fixed.cs&path=/*\"}}");
@@ -845,11 +934,14 @@ public class SourceLinkProvenanceTests
 
         // The suffix is not a licence to select nothing: it is still a working selector when the
         // wildcard is the value it carries.
-        var suffixed = SLF.SourceLinkResolver.Parse(
-            "{\"documents\":{\"*\":\"" + Prefix + "&path[]=/*\"}}");
+        foreach (string spelling in new[] { "path[]", "[]path", "path[][]" })
+        {
+            var suffixed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/*\"}}");
 
-        Assert.Empty(suffixed.RejectedKeys);
-        Assert.True(suffixed.TryResolve("A.cs", out _));
+            Assert.Empty(suffixed.RejectedKeys);
+            Assert.True(suffixed.TryResolve("A.cs", out _));
+        }
 
         // The fold is a property of the name, not of 'path': a suffixed scopePath takes the same
         // answer as scopePath does in the same position. That answer is 'accept' here -- a valued

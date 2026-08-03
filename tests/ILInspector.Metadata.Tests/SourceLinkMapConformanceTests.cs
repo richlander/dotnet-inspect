@@ -622,12 +622,20 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path&path=/*",
         false)]
-    // Refused: the host's model binder reads 'path[]' as 'path', so the suffixed pair binds and is
-    // served, and the wildcard in the later pair is never read. Also in its encoded spelling,
-    // which the name decoder reaches before the suffix is matched.
+    // Refused: the host's model binder reads 'path[]' as 'path', so the bracketed pair binds and
+    // is served, and the wildcard in the later pair is never read. Brackets bind on either side
+    // and repeat, so one trailing group is not the rule.
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path[]=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[][]=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&[]path=/One.cs&path=/*",
         false)]
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
@@ -652,10 +660,21 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path[0]=/One.cs&path=/*",
         true)]
-    // Accepted: the suffix is not itself disqualifying when it carries the wildcard.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&[0]path=/One.cs&path=/*",
+        true)]
+    // Accepted: the brackets are not themselves disqualifying when they carry the wildcard.
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path[]=/*",
+        true)]
+    // Accepted: an empty 'path' is not a selection, so the host falls through to 'scopePath' and
+    // reads the wildcard there. Measured: this shape serves the requested file, and 404s for one
+    // that is missing. Refusing it was over-refusal, which this predicate must not do.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path&scopePath=/*",
         true)]
     // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
     [InlineData(

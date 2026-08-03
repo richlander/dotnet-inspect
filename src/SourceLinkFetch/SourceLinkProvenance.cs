@@ -353,8 +353,7 @@ public static class SourceLinkProvenance
         // else -- in the route, the repository segment, 'api-version', or a version selector that
         // the immutability rules already pin to one commit -- leaves the served file fixed.
         if (queryStart >= 0
-            && (TrySpanOfQueryValue(url, queryStart, "path", out int valueStart, out int valueEnd)
-                || TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd))
+            && TrySpanOfContentSelector(url, queryStart, out int valueStart, out int valueEnd)
             && offset >= valueStart
             && end <= valueEnd)
         {
@@ -649,6 +648,53 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
+    /// Finds the span of the parameter value Azure DevOps actually selects content with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The first occurrence of each name binds; an <em>empty</em> value is not a selection, and
+    /// the host falls through to <c>scopePath</c> rather than serving the root listing. Reading
+    /// only the first name that appears — which is what this did — refused
+    /// <c>path&amp;scopePath=/*</c>, a map whose wildcard the host genuinely reads. Over-refusal
+    /// is a real defect in this predicate, so that mattered; found in review.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, where
+    /// the requested file is 985 bytes, the repository root listing is 425, and a missing file is
+    /// 404. Nine shapes, and the model above accounts for all nine:
+    /// </para>
+    /// <code>
+    /// path&amp;scopePath=/README.md                 200  985   empty path falls through
+    /// path=&amp;scopePath=/README.md                200  985   an explicit '=' is the same
+    /// path&amp;scopePath=/nope.txt                  404        and it is really selecting
+    /// path&amp;scopePath=/README.md&amp;path=/nope.txt  200  985   first occurrence, still empty
+    /// scopePath&amp;path=/README.md                 200  985   symmetric: empty scopePath yields
+    /// path&amp;path=/README.md                      200  425   no scopePath, so root listing
+    /// path&amp;scopePath&amp;path=/README.md             200  425   both empty, so root listing
+    /// scopePath=/README.md                     200  985
+    /// path=/README.md&amp;scopePath=/nope.txt       400        both selecting is an error
+    /// </code>
+    /// <para>
+    /// The last row is why a valued pair of both is left to resolve: it fetches nothing at all,
+    /// visibly, rather than serving one wrong file under every document's name, which is the
+    /// defect this predicate exists to stop.
+    /// </para>
+    /// </remarks>
+    private static bool TrySpanOfContentSelector(
+        string url, int queryStart, out int valueStart, out int valueEnd)
+    {
+        if (TrySpanOfQueryValue(url, queryStart, "path", out valueStart, out valueEnd)
+            && valueEnd > valueStart)
+        {
+            return true;
+        }
+
+        return TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd)
+            && valueEnd > valueStart;
+    }
+
+    /// <summary>
     /// Finds the span of a named query parameter's value in the URL's raw text.
     /// </summary>
     /// <remarks>
@@ -718,7 +764,8 @@ public static class SourceLinkProvenance
 
     /// <summary>
     /// Whether a raw query parameter name denotes <paramref name="name"/> once the percent-escapes
-    /// the host decodes have been applied, and the array suffix it binds through is allowed for.
+    /// the host decodes have been applied and the array brackets its model binder ignores have
+    /// been stripped.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -727,59 +774,89 @@ public static class SourceLinkProvenance
     /// left as the literal <c>'%'</c> it is, which is how these hosts read it.
     /// </para>
     /// <para>
-    /// A trailing <c>[]</c> binds the same parameter, because the host's model binder reads
-    /// <c>path[]</c> as <c>path</c>. Found in review, and measured against
-    /// <c>dev.azure.com/dnceng-public/public</c> with the control that discriminates binding from
-    /// being ignored — <c>path[]=/nope.txt&amp;path=/README.md</c> answers 404, so the suffixed
-    /// spelling binds <em>and</em> wins, while <c>path[0]</c>, <c>path[1]</c>, <c>path.</c>,
-    /// <c>path.x</c>, <c>[0].path</c> and <c>pathX</c> all answer with the file, so they are
-    /// ignored and must not be folded. The suffix is matched after decoding, so
-    /// <c>path%5B%5D</c> is caught too.
+    /// Any number of empty <c>[]</c> groups on <em>either</em> side binds the same parameter,
+    /// because the host's model binder reads them as collection syntax around the name. A group
+    /// that carries anything between the brackets does not, and neither does any other adornment;
+    /// folding those would refuse maps that resolve correctly, which this predicate must not do.
+    /// See <c>AnArraySuffixedContentSelector_BindsTheSameParameter</c> for the measurements.
     /// </para>
     /// </remarks>
     private static bool DecodedNameMatches(ReadOnlySpan<char> raw, string name)
     {
-        int matched = 0;
-        Span<char> suffix = stackalloc char[2];
-        int suffixLength = 0;
-
-        for (int i = 0; i < raw.Length; i++)
+        int i = 0;
+        while (TryReadEmptyBracketGroup(raw, i, out int afterLeading))
         {
-            char c = raw[i];
-            if (c == '%'
-                && i + 2 < raw.Length
-                && TryReadHexDigit(raw[i + 1], out int high)
-                && TryReadHexDigit(raw[i + 2], out int low))
-            {
-                c = (char)((high << 4) | low);
-                i += 2;
-            }
+            i = afterLeading;
+        }
 
-            if (matched < name.Length)
-            {
-                // Case-insensitively for the same reason the parameter reader is: whether the
-                // host folds case is not stated by the URL, so a name that differs only in case
-                // has to be seen here and refused by the rule that owns it, not missed. Measured:
-                // 'PATH' and '%50%41%54%48' both select on Azure DevOps.
-                if (char.ToUpperInvariant(c) != char.ToUpperInvariant(name[matched]))
-                {
-                    return false;
-                }
-
-                matched++;
-                continue;
-            }
-
-            if (suffixLength == suffix.Length)
+        foreach (char expected in name)
+        {
+            // Case-insensitively for the same reason the parameter reader is: whether the host
+            // folds case is not stated by the URL, so a name that differs only in case has to be
+            // seen here and refused by the rule that owns it, not missed. Measured: 'PATH' and
+            // '%50%41%54%48' both select on Azure DevOps.
+            if (!TryDecodeAt(raw, i, out char c, out int next)
+                || char.ToUpperInvariant(c) != char.ToUpperInvariant(expected))
             {
                 return false;
             }
 
-            suffix[suffixLength++] = c;
+            i = next;
         }
 
-        return matched == name.Length
-            && (suffixLength == 0 || (suffixLength == 2 && suffix[0] == '[' && suffix[1] == ']'));
+        while (TryReadEmptyBracketGroup(raw, i, out int afterTrailing))
+        {
+            i = afterTrailing;
+        }
+
+        return i == raw.Length;
+    }
+
+    /// <summary>
+    /// Reads one decoded <c>[]</c> at <paramref name="i"/>, reporting where it ends.
+    /// </summary>
+    private static bool TryReadEmptyBracketGroup(ReadOnlySpan<char> raw, int i, out int next)
+    {
+        next = i;
+
+        if (TryDecodeAt(raw, i, out char open, out int afterOpen)
+            && open == '['
+            && TryDecodeAt(raw, afterOpen, out char close, out int afterClose)
+            && close == ']')
+        {
+            next = afterClose;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Reads the character at <paramref name="i"/> as the host decodes it, reporting where the
+    /// text it was spelled with ends.
+    /// </summary>
+    private static bool TryDecodeAt(ReadOnlySpan<char> raw, int i, out char c, out int next)
+    {
+        if (i >= raw.Length)
+        {
+            c = default;
+            next = i;
+            return false;
+        }
+
+        if (raw[i] == '%'
+            && i + 2 < raw.Length
+            && TryReadHexDigit(raw[i + 1], out int high)
+            && TryReadHexDigit(raw[i + 2], out int low))
+        {
+            c = (char)((high << 4) | low);
+            next = i + 3;
+            return true;
+        }
+
+        c = raw[i];
+        next = i + 1;
+        return true;
     }
 
     private static bool TryReadHexDigit(char c, out int value)
