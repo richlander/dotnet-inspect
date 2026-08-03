@@ -21,6 +21,7 @@
     <Content Include="..\src\platform-index.js" Link="wwwroot\src\platform-index.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\src\styles.css" Link="wwwroot\src\styles.css" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\platform-index.tsv" Link="wwwroot\assets\platform-index.tsv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

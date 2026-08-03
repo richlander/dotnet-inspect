@@ -215,6 +215,13 @@ public sealed record BrowserStyleOption(
     bool OracleEndorsed,
     string? ConflictGroup);
 
+public sealed record BrowserStyleTier(
+    string Id,
+    string Title,
+    string Summary,
+    int Order,
+    bool ByteDivergent);
+
 // Type-level metadata projection — a JSON mirror of ILInspector.Research
 // ResearchViews.TypeProjectionResult, the presentation-neutral shared seam.
 public sealed record BrowserTypeMetadata(
@@ -462,6 +469,7 @@ public sealed record BrowserMetadataHeaders(
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(BrowserStyleOption[]))]
+[JsonSerializable(typeof(BrowserStyleTier[]))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 
@@ -529,11 +537,11 @@ public static partial class BrowserInspectionEngine
             await entryStream.CopyToAsync(assemblyStream);
             var image = assemblyStream.ToArray();
 
-            var reference = new ResolvedAssemblyReference(
+            var reference = ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(candidate.Entry.Name, null, null, null),
-                Path: null,
-                OpenRead: () => new MemoryStream(image, writable: false),
-                Provenance: candidate.Entry.FullName);
+                null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(candidate.Entry.FullName));
 
             using var inspection = AssemblyInspectionSession.Open(reference);
             if (!inspection.HasMetadata)
@@ -778,9 +786,6 @@ public static partial class BrowserInspectionEngine
                 $"Package '{normalizedId}' has no stable published version. Specify a prerelease version explicitly.");
     }
 
-    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler
-    // style knobs ("taste"). Projecting it verbatim keeps the UI data-driven: options added
-    // to the catalog surface in the browser without any change here.
     [JSExport]
     public static string PackageCacheStats()
     {
@@ -793,6 +798,23 @@ public static partial class BrowserInspectionEngine
         }
 
         return $"{{\"packages\":{packages},\"resident\":{resident}}}";
+    }
+
+    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler
+    // style taxonomy and knobs ("taste"). These browser records only carry its data across
+    // the Wasm boundary; hosts retain no labels, summaries, or ordering of their own.
+    [JSExport]
+    public static string ListStyleTiers()
+    {
+        var tiers = Pipeline.StyleOptionCatalog.Tiers
+            .Select(descriptor => new BrowserStyleTier(
+                descriptor.Id.ToString(),
+                descriptor.Title,
+                descriptor.Summary,
+                descriptor.Order,
+                descriptor.ByteDivergent))
+            .ToArray();
+        return JsonSerializer.Serialize(tiers, BrowserJsonContext.Default.BrowserStyleTierArray);
     }
 
     [JSExport]
@@ -886,11 +908,11 @@ public static partial class BrowserInspectionEngine
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
@@ -961,11 +983,11 @@ public static partial class BrowserInspectionEngine
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
@@ -1603,11 +1625,11 @@ public static partial class BrowserInspectionEngine
         ref int nonPublicOpportunities)
     {
         var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
-        using (var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+        using (var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(assemblyName, null, null, null),
             assemblyPath,
             () => File.OpenRead(assemblyPath),
-            Provenance: provenance)))
+            AssemblyResolutionProvenance.Local(provenance))))
         {
             foreach (var type in inspection.ApiSurface(includeAll: true).Types)
             {
@@ -1830,11 +1852,11 @@ public static partial class BrowserInspectionEngine
     static BrowserAssemblyMetadata? DescribeAssemblyMetadata(string assemblyName, string provenance, byte[] image)
     {
         using var buffer = new MemoryStream(image, writable: false);
-        var reference = new ResolvedAssemblyReference(
+        var reference = ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(assemblyName, null, null, null),
-            Path: null,
-            OpenRead: () => new MemoryStream(image, writable: false),
-            Provenance: provenance);
+            null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(provenance));
         using var inspection = AssemblyInspectionSession.Open(reference);
         if (!inspection.HasMetadata)
             return null;
@@ -1871,7 +1893,7 @@ public static partial class BrowserInspectionEngine
         return new BrowserAssemblyMetadata(
             assemblyName,
             provenance,
-            overview.MetadataVersion,
+            overview.MetadataVersion.ToString(),
             overview.Kind.ToString(),
             overview.IsAssembly,
             overview.MetadataSize,
@@ -1904,11 +1926,11 @@ public static partial class BrowserInspectionEngine
 
         try
         {
-            var reference = new ResolvedAssemblyReference(
+            var reference = ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
-                Path: null,
-                OpenRead: () => new MemoryStream(image, writable: false),
-                Provenance: provenance);
+                null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(provenance));
             using var inspection = AssemblyInspectionSession.Open(reference);
             if (!inspection.HasMetadata)
                 return EmptyWindow(assemblyName, tableIndex, "The image carries no metadata.");
@@ -1969,23 +1991,23 @@ public static partial class BrowserInspectionEngine
             Heap: heap.Heap.ToString(),
             Offset: heap.Offset,
             Length: heap.Length,
-            Text: heap.Text,
-            Preview: heap.Preview,
+            Text: heap.Text?.ToString(),
+            Preview: heap.Preview.ToString(),
             Truncated: heap.Truncated),
         MetadataValue.Handle handle => new BrowserMetadataCell(
             "handle",
             TargetTable: (int)handle.Reference.TargetTable,
             TargetRowId: handle.Reference.TargetRowId,
             Token: handle.Reference.Token,
-            Display: handle.Reference.Display,
-            Truncated: handle.Reference.DisplayTruncated),
+            Display: handle.Reference.Display?.ToString(),
+            Truncated: handle.Reference.Display?.IsTruncated ?? false),
         MetadataValue.Range range => new BrowserMetadataCell(
             "range",
             TargetTable: (int)range.Reference.TargetTable,
             StartRowId: range.Reference.StartRowId,
             EndRowId: range.Reference.EndRowId,
             Count: range.Reference.Count),
-        MetadataValue.Malformed malformed => new BrowserMetadataCell("malformed", Detail: malformed.Detail),
+        MetadataValue.Malformed malformed => new BrowserMetadataCell("malformed", Detail: malformed.Detail.ToString()),
         _ => new BrowserMetadataCell("nil"),
     };
 
@@ -2015,11 +2037,11 @@ public static partial class BrowserInspectionEngine
 
         try
         {
-            var reference = new ResolvedAssemblyReference(
+            var reference = ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
-                Path: null,
-                OpenRead: () => new MemoryStream(image, writable: false),
-                Provenance: provenance);
+                null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(provenance));
             using var inspection = AssemblyInspectionSession.Open(reference);
             if (!inspection.HasMetadata)
                 return EmptyHeap(assemblyName, heapName, "The image carries no metadata.");
@@ -2279,11 +2301,11 @@ public static partial class BrowserInspectionEngine
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var surface = inspection.ApiSurface(includeAll: true);
             bool DeclaresMember(ApiType candidate) =>
                 candidate.Members.Any(m => m.Name.Equals(memberName, StringComparison.Ordinal));
@@ -2356,11 +2378,11 @@ public static partial class BrowserInspectionEngine
                 $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
@@ -2455,11 +2477,11 @@ public static partial class BrowserInspectionEngine
             if (implementationPath is null || !File.Exists(implementationPath))
                 throw new InvalidOperationException($"No implementation asset for {assemblyName} at {targetFramework}.");
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
@@ -2542,11 +2564,11 @@ public static partial class BrowserInspectionEngine
             var implementationPath = await MaterializeImplementationAsync(
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
                 implementationPath,
                 () => File.OpenRead(implementationPath),
-                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
@@ -2876,11 +2898,11 @@ public static partial class BrowserInspectionEngine
             ?? throw new InvalidOperationException(
                 $"Could not acquire {RuntimeCoreAssembly} from {PlatformRuntimePackId} {version}.");
 
-        using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+        using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(RuntimeCoreAssembly), null, null, null),
-            Path: null,
-            OpenRead: () => new MemoryStream(bytes, writable: false),
-            Provenance: $"runtime-pack/{PlatformRuntimePackId}/{RuntimeCoreAssembly}"));
+            null,
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local($"runtime-pack/{PlatformRuntimePackId}/{RuntimeCoreAssembly}")));
         if (!inspection.HasMetadata)
             throw new InvalidOperationException($"{RuntimeCoreAssembly} has no metadata.");
 
@@ -2934,11 +2956,11 @@ public static partial class BrowserInspectionEngine
                 $"Could not acquire {fileName} from {packId} {version}.");
         RuntimeAssemblyPack[fileName.ToLowerInvariant()] = packId;
 
-        using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+        using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(fileName), null, null, null),
-            Path: null,
-            OpenRead: () => new MemoryStream(bytes, writable: false),
-            Provenance: $"runtime-pack/{packId}/{fileName}"));
+            null,
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{fileName}")));
         if (!inspection.HasMetadata)
             throw new InvalidOperationException($"{fileName} has no metadata.");
 
@@ -3082,11 +3104,11 @@ public static partial class BrowserInspectionEngine
             var path = Path.Combine(tempRoot, acquired.FileName);
             await File.WriteAllBytesAsync(path, acquired.Bytes);
 
-            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(acquired.FileName), null, null, null),
                 path,
                 () => File.OpenRead(path),
-                Provenance: $"runtime-pack/{packId}/{acquired.FileName}"));
+                AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{acquired.FileName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(

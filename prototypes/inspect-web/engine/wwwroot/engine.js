@@ -27,6 +27,7 @@ let loadRuntimePackAssembly;
 let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
+let listStyleTiers;
 let listStyleOptions;
 let packageCacheStats;
 
@@ -62,6 +63,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
   queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
   searchTypes = exports.BrowserInspectionEngine.SearchTypes;
+  listStyleTiers = exports.BrowserInspectionEngine.ListStyleTiers;
   listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
   await runtime.runMain();
@@ -275,6 +277,11 @@ export async function inspectTypeSource(request) {
 export async function inspectListStyleOptions() {
   if (!listStyleOptions) throw new Error("The browser inspection engine is not initialized.");
   return JSON.parse(await listStyleOptions());
+}
+
+export async function inspectListStyleTiers() {
+  if (!listStyleTiers) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(await listStyleTiers());
 }
 
 export function inspectPackageCacheStats() {

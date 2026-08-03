@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectListStyleTiers, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageHeapEntries, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformHeapEntries, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -163,7 +163,9 @@ const state = {
   docViewerMeta: null,
   graphSourceTitle: "",
   graphSourceRequest: null,
+  styleTiers: null,
   styleOptions: null,
+  styleCatalogError: "",
   taste: loadStoredTaste(),
   tasteOpen: false,
   settings: false,
@@ -6743,29 +6745,31 @@ function renderDocViewer() {
     </div>`;
 }
 
-const TASTE_TIERS = [
-  ["Formatting", "Formatting"],
-  ["Spelling", "Spelling (this.)"],
-  ["Lens", "Lenses · byte-divergent"],
-  ["Synthesis", "Name synthesis"]
-];
-
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
 // detail-view taste popover and the Settings page so both stay in lockstep with the engine's
-// StyleOptionCatalog (fetched once into state.styleOptions).
+// StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
 function styleCatalogGroupsHtml() {
+  const tiers = state.styleTiers || [];
   const options = state.styleOptions || [];
-  if (!options.length) return "";
-  return TASTE_TIERS
-    .filter(([tier]) => options.some(option => option.tier === tier))
-    .map(([tier, label]) => `
+  if (!tiers.length || !options.length) {
+    return state.styleCatalogError
+      ? `<div class="taste-empty">Style catalog unavailable: ${escapeHtml(state.styleCatalogError)}</div>`
+      : "";
+  }
+  return tiers
+    .filter(tier => options.some(option => option.tier === tier.id))
+    .map(tier => `
       <div class="taste-group">
-        <div class="taste-group-title">${escapeHtml(label)}</div>
-        ${options.filter(option => option.tier === tier).map(option => `
+        <div class="taste-group-head">
+          <div class="taste-group-title">${escapeHtml(tier.title)}</div>
+          ${tier.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
+        </div>
+        <div class="taste-group-summary">${escapeHtml(tier.summary)}</div>
+        ${options.filter(option => option.tier === tier.id).map(option => `
           <label class="taste-item">
             <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
             <span class="taste-item-text">
-              <span class="taste-item-title">${escapeHtml(option.title)}${option.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
+              <span class="taste-item-title">${escapeHtml(option.title)}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
               <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
             </span>
           </label>`).join("")}
@@ -7380,9 +7384,14 @@ async function bootstrap() {
     });
     const tEngine = performance.now();
     try {
-      state.styleOptions = await inspectListStyleOptions();
-    } catch {
+      [state.styleTiers, state.styleOptions] = await Promise.all([
+        inspectListStyleTiers(),
+        inspectListStyleOptions()
+      ]);
+    } catch (error) {
+      state.styleTiers = [];
       state.styleOptions = [];
+      state.styleCatalogError = String(error?.message || error);
     }
     if (state.home) {
       // Engine is warm and search is ready; show the intro/home page without loading a package.

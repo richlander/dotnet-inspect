@@ -39,6 +39,9 @@ published engine assets and is no longer independently fixture-backed.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys `1` through `6` switch lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
+- The Taste popover and Settings page render their style groups, summaries, and
+  ordering from the product-owned `StyleOptionCatalog`; the browser does not
+  restate that taxonomy.
 
 The prototype keeps package scope, target framework, selected type, and lens
 as separate axes. Package and framework changes issue new engine queries while

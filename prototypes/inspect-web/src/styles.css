@@ -1474,7 +1474,9 @@ kbd {
 .taste-body { overflow: auto; padding: 6px 0; }
 .taste-group { padding: 6px 0; }
 .taste-group + .taste-group { border-top: 1px solid var(--line); }
-.taste-group-title { padding: 4px 14px; font: 10px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.taste-group-head { display: flex; align-items: center; gap: 7px; padding: 4px 14px 0; }
+.taste-group-title { font: 10px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.taste-group-summary { padding: 3px 14px 5px; font: 9px/1.4 var(--mono); color: var(--dim); }
 .taste-item { display: flex; gap: 9px; padding: 7px 14px; cursor: pointer; align-items: flex-start; }
 .taste-item:hover { background: var(--panel-active); }
 .taste-item input { margin-top: 2px; accent-color: var(--accent, #4c9); cursor: pointer; }
