@@ -55,7 +55,9 @@ public static class SourceResolver
     /// against local sources: dotnet hive, dotnet-inspect cache, NuGet global cache.
     /// Returns the first hit with its remainder, or null if nothing matches locally.
     /// </summary>
-    internal static LocalProbeResult? TryProbeLocalQualifiedName(string name)
+    internal static LocalProbeResult? TryProbeLocalQualifiedName(
+        string name,
+        IReadOnlyList<string> sourceKeys)
     {
         // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
         // Single-dot names like "System.CommandLine" are ambiguous: could be
@@ -67,10 +69,6 @@ public static class SourceResolver
         if (dotCount < 2) return null;
 
         string? platformCandidate = null;
-
-        // Resolved once: this walks the directory tree for nuget.config files
-        // and parses each one, and the answer cannot change between candidates.
-        var sourceKeys = NuGetSourceResolver.ResolveSourceKeys(null);
 
         for (int i = name.Length - 1; i >= 0; i--)
         {
@@ -130,9 +128,12 @@ public static class SourceResolver
     /// Resolves a dotted source-qualified type name using the shared precedence:
     /// exact local type match first, then a typo-friendly platform prefix match.
     /// </summary>
-    internal static LocalProbeResult? TryResolveQualifiedTypeName(string name, bool allowPlatformPrefixFallback)
+    internal static LocalProbeResult? TryResolveQualifiedTypeName(
+        string name,
+        IReadOnlyList<string> sourceKeys,
+        bool allowPlatformPrefixFallback)
     {
-        var probe = TryProbeLocalQualifiedName(name);
+        var probe = TryProbeLocalQualifiedName(name, sourceKeys);
         if (probe != null || !allowPlatformPrefixFallback)
             return probe;
 
@@ -219,6 +220,7 @@ public static class SourceResolver
     /// <param name="explicitPackage">Explicit --package value.</param>
     /// <param name="explicitAssembly">Explicit --library value.</param>
     /// <param name="explicitPlatform">Explicit --platform value.</param>
+    /// <param name="sourceKeys">Cache source identities the caller is configured to read.</param>
     /// <param name="verbose">Whether to log verbose messages.</param>
     /// <param name="tryQualifiedTypeName">Whether to attempt parsing qualified type names (Type command only).</param>
     /// <returns>Resolved source information.</returns>
@@ -227,6 +229,7 @@ public static class SourceResolver
         string? explicitPackage,
         string? explicitAssembly,
         string? explicitPlatform,
+        IReadOnlyList<string> sourceKeys,
         bool verbose,
         bool tryQualifiedTypeName = false)
     {
@@ -355,7 +358,10 @@ public static class SourceResolver
                 if (tryQualifiedTypeName && typeName == null
                     && packagePath != null && platformAssembly == null && assemblyPath == null)
                 {
-                    var probe = TryResolveQualifiedTypeName(bareName, allowPlatformPrefixFallback: true);
+                    var probe = TryResolveQualifiedTypeName(
+                        bareName,
+                        sourceKeys,
+                        allowPlatformPrefixFallback: true);
                     if (probe != null)
                     {
                         typeName = probe.Remainder;
