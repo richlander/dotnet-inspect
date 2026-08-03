@@ -396,9 +396,11 @@ round:
   onto `main` pulls in work its parent has not landed and makes the slice's diff
   report its parent's changes as its own. `ci.yml` applies no base-branch
   filter, so every slice schedules the same CI wherever it targets; a slice
-  reporting *no* checks is therefore not green but a scheduling bug to
-  investigate, since a PR that triggers no workflow leaves `ci-required` nothing
-  to block on and displays as MERGEABLE and CLEAN (#3706).
+  reporting *no* checks is therefore not green. Re-query after the registration
+  window and verify the current head; if no matching workflow run appears, that
+  is a scheduling bug to investigate, since a PR that triggers no workflow
+  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
+  (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
@@ -409,10 +411,12 @@ a confirmation rather than a second full pass.
 For a PR that targets `main` — including the bottom slice of a stack — when
 every reviewer the tier requires has come back clean at the current head and
 `origin/main` has since moved, **stop and ask.** Do not integrate main, and do
-not open another round on your own initiative. If any reviewer had a finding,
-the author changed the head, or an upper slice's parent moved, this exception
-does not apply: resolve or restack, integrate the effective base, and review the
-new head normally.
+not open another round on your own initiative. Evaluate this from the latest
+clean result: an earlier finding that was fixed and then reviewed clean does not
+disqualify it. If a finding remains unresolved, or the head changed after that
+clean result because of an author change, conflict resolution, or restack, the
+exception does not apply: resolve or restack, integrate the effective base, and
+review the new head normally.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
@@ -431,7 +435,7 @@ The user decides which continuation the evidence warrants:
 
 The first continuation is the sole exception to the fixed-head review rule; it
 does not authorize carrying reviews across author changes, conflict-resolution
-changes, or a restack.
+changes, or a restack that occurred after the recorded reviewed head.
 
 This is the one place the settled-branch rule yields, and it has to, or the
 budget is unbounded: on a busy `main`, a round takes longer than the interval
