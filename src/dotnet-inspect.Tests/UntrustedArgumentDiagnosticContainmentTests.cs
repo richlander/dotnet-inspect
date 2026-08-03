@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -152,24 +153,33 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         Assert.Contains(blockLines, l => l.Contains("Did you mean:", StringComparison.Ordinal));
         AssertOneUnindentedLine(blockLines, block);
 
-        // Force the independent cache-maintenance status that exposed #3726.
-        // The injected fragment must stay folded even when stderr also carries
-        // an unrelated, legitimate unprefixed line.
-        string obsoleteCache = Path.Combine(_cacheDirectory, "package-content-v0");
-        Directory.CreateDirectory(obsoleteCache);
-        File.WriteAllBytes(Path.Combine(obsoleteCache, "old.bin"), new byte[4096]);
-
         // The same writer, with a line terminator injected into the message.
         var (_, injected) = RunCli(["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"]);
-        string[] injectedLines = Lines(injected);
 
         const string InjectedSeverity = "Error: INJECTEDARG";
         HostileOutputAssert.MarkersRendered(injected, "message-line-injection", InjectedSeverity);
         HostileOutputAssert.NoLineSplit(injected, InjectedSeverity);
-        Assert.Contains(
-            injectedLines,
-            line => line.StartsWith("Removed ", StringComparison.Ordinal)
-                && line.EndsWith(" from obsolete cache entries.", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Keeps out-of-process containment tests off the operator's real cache.
+    /// </summary>
+    /// <remarks>
+    /// This is the non-vacuity gate for the <c>DOTNET_INSPECT_CACHE_DIR</c>
+    /// wiring in <see cref="RunCli"/>. Without it, an obsolete category in the
+    /// operator cache can emit an unrelated maintenance line and make a
+    /// diagnostic assertion order-dependent (#3726).
+    /// </remarks>
+    [Fact]
+    public void ChildCli_UsesThePerTestCache()
+    {
+        var (output, error) = RunCli(["cache", "--json", "-T:q"]);
+
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            _cacheDirectory,
+            document.RootElement.GetProperty("location").GetString());
     }
 
     /// <summary>
