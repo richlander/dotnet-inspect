@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -92,6 +93,7 @@ public static class MemberOptionsParser
         var projectSourcePath = !sourceInputs.HasExplicitSource && projectValues.Length > 0
             ? projectValues[0]
             : null;
+        var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
 
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
@@ -100,6 +102,10 @@ public static class MemberOptionsParser
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
+
+        IReadOnlyList<string> sourceKeys = projectSourcePath is not null
+            ? []
+            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
 
         // Extract positional members
         List<string> positionalMembers = [];
@@ -133,7 +139,7 @@ public static class MemberOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
             source = sourceSelection.Source;
         }
 
@@ -157,6 +163,7 @@ public static class MemberOptionsParser
         {
             var split = SharedParsers.TrySplitQualifiedTypeMember(
                 source.PackagePath,
+                sourceKeys,
                 allowPlatformPrefixFallback: true);
             if (split != null)
             {
@@ -180,6 +187,7 @@ public static class MemberOptionsParser
         {
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 source.PackagePath,
+                sourceKeys,
                 allowPlatformPrefixFallback: true);
             if (probe != null)
             {
@@ -320,7 +328,7 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+            SourceOptions = sourceOptions
         };
 
         options = options with
