@@ -1531,7 +1531,7 @@ public sealed class CSharpDeclarationWriterTests
     /// `csc` rejects it with CS0460. Both declaration paths have to omit it, so the gate
     /// runs with and without a caller-supplied generic-parameter list.
     /// (The `class`/`struct` carve-out C# does allow is covered separately, by
-    /// <see cref="OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows"/>.)
+    /// <see cref="OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires"/>.)
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -1585,38 +1585,41 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     /// <summary>
-    /// C# permits exactly one restatement on a member that inherits its constraints —
-    /// a bare `class` or `struct` — and it is load-bearing, not cosmetic: it decides
-    /// whether `T?` means a nullable reference type or Nullable&lt;T&gt;. Dropping it
-    /// produced an override that no longer compiles (CS0453/CS0115), so the reduction
-    /// keeps it while omitting everything CS0460 forbids.
+    /// The restatement C# permits on a member that inherits its constraints is decided
+    /// by one fact -- whether the type parameter is known to be a reference type, known
+    /// to be a value type, or neither -- and it is load-bearing, not cosmetic: it decides
+    /// whether <c>T?</c> means a nullable reference type or Nullable&lt;T&gt;. Omitting
+    /// it produces an override that does not compile (CS0453/CS0115/CS0534), and naming
+    /// the wrong one is CS8822 or CS8665, so the writer reduces from the classified fact
+    /// rather than from the constraint spelling.
     /// </summary>
+    /// <remarks>
+    /// This gate owns the reduction only. That the classifier assigns the right
+    /// <see cref="TypeParameterTypeKind"/> to compiler-produced metadata -- including the
+    /// System.Enum row, where a class constraint nonetheless requires <c>default</c> -- is
+    /// gated separately against a real compiled artifact by
+    /// <c>ApiOutputFormatterTests.ConstraintRestatement_MatchesWhatCSharpRequires</c>.
+    /// </remarks>
     [Theory]
-    // A reference-type constraint survives, without the annotation `class?` that is
-    // itself CS0460, and without the `new()` that may not be restated.
-    [InlineData(new[] { "class", "new()" }, "where T : class")]
-    [InlineData(new[] { "class?" }, "where T : class")]
-    // A value-type constraint reduces to the one spelling C# accepts here.
-    [InlineData(new[] { "struct" }, "where T : struct")]
-    [InlineData(new[] { "unmanaged" }, "where T : struct")]
-    // Nothing else may be named on an inheriting member.
-    [InlineData(new[] { "notnull" }, "")]
-    [InlineData(new[] { "System.IComparable<T>" }, "")]
-    public void OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows(
-        string[] constraints,
+    // Known to be a reference type: the bare keyword, never the annotated `class?`
+    // metadata records, because the annotated form is itself CS0460 here.
+    [InlineData(TypeParameterTypeKind.ReferenceType, "where T : class")]
+    // Known to be a value type.
+    [InlineData(TypeParameterTypeKind.ValueType, "where T : struct")]
+    // Neither: `default` is the only spelling that keeps `T?` meaning a nullable
+    // reference type, and omitting the clause entirely does not compile.
+    [InlineData(TypeParameterTypeKind.NeitherReferenceNorValue, "where T : default")]
+    // Not classified. Both concrete answers are compile errors when guessed wrong, so
+    // the clause is omitted and the render stays as it was before this rule existed.
+    [InlineData(TypeParameterTypeKind.Undetermined, "")]
+    public void OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires(
+        TypeParameterTypeKind typeKind,
         string expectedClause)
     {
         var (type, member) = CreateConstrainedGenericMethod();
         member.IsStatic = false;
         member.IsOverride = true;
-        var typeParameter = member.SignatureModel!.TypeParameters[0];
-        typeParameter.Constraints = [.. constraints];
-        typeParameter.StructuredConstraints =
-        [
-            .. constraints.Select(constraint => new TypeParameterConstraint(
-                constraint,
-                IsTypeName: constraint is not ("class" or "class?" or "struct" or "unmanaged" or "notnull" or "new()"))),
-        ];
+        member.SignatureModel!.TypeParameters[0].TypeKind = typeKind;
 
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
             type,

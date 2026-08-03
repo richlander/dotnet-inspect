@@ -79,11 +79,25 @@ internal static class LibraryMetadataService
 
             var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
 
+            AssemblySurfaceClassificationOutcome? surfaceClassification =
+                isPlatformAssembly
+                    ? PlatformResolver.ClassifyAssemblySurface(path)
+                    : null;
             var inspection = new LibraryInspection
             {
                 FileName = Path.GetFileName(path),
                 FileType = "dll",
-                IsFacadeAssembly = isPlatformAssembly ? PlatformResolver.IsFacadeOnlyAssembly(path) : null,
+                IsFacadeAssembly = surfaceClassification
+                    is AssemblySurfaceClassificationOutcome.Classified classified
+                        ? classified.Classification.Kind
+                            == AssemblySurfaceKind.Facade
+                        : null,
+                SurfaceClassification = surfaceClassification,
+                SurfaceClassificationInspection = surfaceClassification is null
+                    ? null
+                    : MetadataFindings.InspectAssemblySurface(
+                        surfaceClassification,
+                        FindingSubjectFor(path)),
                 UseDependenciesView = options.IncludeDependencies,
                 PerformanceTriageOptions = options.PerformanceTriage
             };

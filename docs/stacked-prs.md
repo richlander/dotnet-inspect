@@ -97,8 +97,8 @@ pass as routine.
 ## Review inside a stack
 
 **Review depth is per-slice, by that slice's own risk**, not the stack's total
-size. A long stack does not make a trivial slice risky, and a small slice in a
-risky area still earns the two-reviewer tier.
+size. A long stack does not make a trivial slice non-trivial, and every
+non-trivial slice gets the standard review round.
 
 **A slice's head moves for reasons other than findings** — a restack, or a
 retarget after the parent lands. The fixed-head rule applies to those the same
