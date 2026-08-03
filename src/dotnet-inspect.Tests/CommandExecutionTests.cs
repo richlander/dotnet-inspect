@@ -8972,13 +8972,12 @@ public partial class CommandExecutionTests
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     var selectionSucceeded = selectExit == 0
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
-                    var hint = IsSourceLinkBackedSection(command, section) ? TestAssemblySourceLink.FailureHint : string.Empty;
                     Assert.True(selectionSucceeded,
-                        $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}{hint}");
-                    if (RequiresRealDataDiscoveryGuard(command))
+                        $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
+                    if (RequiresNonEmptyDiscoveryResult(command, section))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
-                            $"{command[0]} -S '{section}' produced no data after being listed by -D.{hint}");
+                            $"{command[0]} -S '{section}' produced no data after being listed by -D.");
                         Assert.DoesNotContain("has no data", selectOutput, StringComparison.OrdinalIgnoreCase);
                         Assert.DoesNotContain("has no data", selectError, StringComparison.OrdinalIgnoreCase);
                     }
@@ -9010,40 +9009,24 @@ public partial class CommandExecutionTests
         return [.. args];
     }
 
-    private static bool RequiresRealDataDiscoveryGuard(string[] command)
-        => IsNoMemberTypeDiscoveryCommand(command)
-           || command is ["member", _, var memberName, ..]
-                && memberName == nameof(MemberCallsFixture.Overloaded);
+    private static readonly HashSet<string> TypeUnprobedDiscoverySections =
+        ApiMemberSectionDescriptors.CreatePipeline().GetUnprobedSections();
 
-    /// <summary>
-    /// Whether a failure of <paramref name="section"/> under <paramref name="command"/> could
-    /// plausibly be caused by the test assembly's PDB lacking a SourceLink blob.
-    /// </summary>
-    /// <remarks>
-    /// Two conditions must hold. UNVERIFIED BY ANY GATE: no test asserts this membership. It was
-    /// established by A/B-ing the built CLI against the test assembly with and without the blob,
-    /// by hand, at the commit that introduced it; a section that later gains or loses a SourceLink
-    /// dependency will not be caught here. Re-run that A/B when editing this set.
-    ///
-    /// The command must inspect the test assembly. <c>package</c> and <c>diff</c> reach other
-    /// artifacts whose SourceLink is independent of this build, so a hint about the test
-    /// assembly's PDB would misdirect there.
-    ///
-    /// The section must actually need the blob. <c>Source Locations</c> does — it was the sole
-    /// section to lose its rows when the blob was suppressed. <c>Context: Source Location</c>
-    /// deliberately does not qualify: it resolves from portable-PDB sequence points and still
-    /// renders method, token, file, and line without SourceLink, dropping only the URL, so
-    /// hinting there would misattribute an unrelated token or PDB failure to the environment —
-    /// the very mistake this hint exists to prevent.
-    ///
-    /// The <c>SourceLink:</c> family is deliberately absent. Those sections sit behind the
-    /// <c>@SourceLink</c> category door, which <c>-D</c> reports as a category rather than
-    /// expanding, so this loop never selects one and a clause matching them would be
-    /// unreachable rather than protective.
-    /// </remarks>
-    private static bool IsSourceLinkBackedSection(string[] command, string section)
-        => command.Contains(TestAssemblyPath, StringComparer.Ordinal)
-           && section == SectionNames.SourceLocations;
+    private static readonly HashSet<string> MemberOverloadUnprobedDiscoverySections =
+        ApiMemberOverloadSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static bool RequiresNonEmptyDiscoveryResult(string[] command, string section)
+    {
+        // ProbeEffectiveness=false deliberately allows -D to list a structurally applicable
+        // section whose -S result is empty. Derive that exemption from the same pipeline
+        // declaration while preserving the non-empty guard for probed sections.
+        if (IsNoMemberTypeDiscoveryCommand(command))
+            return !TypeUnprobedDiscoverySections.Contains(section);
+
+        return command is ["member", _, var memberName, ..]
+               && memberName == nameof(MemberCallsFixture.Overloaded)
+               && !MemberOverloadUnprobedDiscoverySections.Contains(section);
+    }
 
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
