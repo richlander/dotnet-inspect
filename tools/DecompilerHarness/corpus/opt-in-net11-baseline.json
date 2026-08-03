@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-07-19T18:26:40.7575084+00:00",
+  "generatedUtc": "2026-08-03T22:24:40.9735726+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -22,12 +22,12 @@
     {
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
-      "totalMethods": 70
+      "totalMethods": 80
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
-      "totalMethods": 70
+      "totalMethods": 80
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.OptInNet11",
@@ -51,6 +51,111 @@
     }
   ],
   "methods": [
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteCount",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteCount#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteEffectful",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteEffectful#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteExplicitLocal",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteExplicitLocal#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteExpression",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteExpression#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteTwoCounts",
+      "overload": 0,
+      "signature": "(corelib:System.Int32, corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteTwoCounts#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "ByteTwoEffectfulCounts",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::ByteTwoEffectfulCounts#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures",
+      "method": "GuidCount",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures::GuidCount#0"
+    },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
       "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
@@ -107,7 +212,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferPrimitiveResiduals::ReadDouble#0"
     },
@@ -122,7 +227,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferPrimitiveResiduals::ReadFloat#0"
     },
@@ -617,7 +722,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::PointerArgumentFirst#0"
     },
@@ -677,7 +782,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.FixedBufferResiduals::PointerReturnFirst#0"
     },
@@ -894,22 +999,80 @@
     {
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
       "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
-      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals",
-      "method": "StackallocPointerInitializer",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives",
+      "method": "CoalescedSpanLocal",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Int32",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "residual": "fidelity: DEC0004",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
           "code": "DEC0004",
-          "discriminator": "cpblk"
+          "sites": 2
         }
       ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives::CoalescedSpanLocal#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives",
+      "method": "SourceAuthoredCopyBlock",
+      "overload": 0,
+      "signature": "(corelib:System.Byte*, corelib:System.Byte*) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives::SourceAuthoredCopyBlock#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives",
+      "method": "StackallocBooleanInitializer",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0004",
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004"
+        },
+        {
+          "code": "DEC0005",
+          "discriminator": "private-implementation-details-type"
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-type-name"
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerNegatives::StackallocBooleanInitializer#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals",
+      "method": "StackallocPointerInitializer",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals::StackallocPointerInitializer#0"
     },
     {
@@ -919,18 +1082,12 @@
       "method": "StackallocSpanInitializer",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Int32",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "cpblk"
-        }
-      ],
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.StackallocInitializerResiduals::StackallocSpanInitializer#0"
     },
     {
@@ -1005,7 +1162,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "Exact",
+      "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.LegacyUnsafe!ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures::FreePointer#0"
     },
     {
@@ -1116,6 +1273,111 @@
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
       "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteCount",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteCount#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteEffectful",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteEffectful#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteExplicitLocal",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteExplicitLocal#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteExpression",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteExpression#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteTwoCounts",
+      "overload": 0,
+      "signature": "(corelib:System.Int32, corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteTwoCounts#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "ByteTwoEffectfulCounts",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::ByteTwoEffectfulCounts#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures",
+      "method": "GuidCount",
+      "overload": 0,
+      "signature": "(corelib:System.Int32) -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures::GuidCount#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
       "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferPrimitiveResiduals",
       "method": "ReadBool",
       "overload": 0,
@@ -1199,7 +1461,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferPrimitiveResiduals::ReadInt#0"
     },
@@ -1289,7 +1551,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferPrimitiveResiduals::ReadShort#0"
     },
@@ -1364,7 +1626,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferPrimitiveResiduals::WriteByte#0"
     },
@@ -1574,7 +1836,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.FixedBufferResiduals::ConsumePointer#0"
     },
@@ -1956,22 +2218,80 @@
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
       "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
-      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals",
-      "method": "StackallocPointerInitializer",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives",
+      "method": "CoalescedSpanLocal",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Int32",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "residual": "fidelity: DEC0004",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
           "code": "DEC0004",
-          "discriminator": "cpblk"
+          "sites": 2
         }
       ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives::CoalescedSpanLocal#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives",
+      "method": "SourceAuthoredCopyBlock",
+      "overload": 0,
+      "signature": "(corelib:System.Byte*, corelib:System.Byte*) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives::SourceAuthoredCopyBlock#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives",
+      "method": "StackallocBooleanInitializer",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Boolean",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0004",
+      "passBug": null,
+      "validity": "syntax-valid",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0004"
+        },
+        {
+          "code": "DEC0005",
+          "discriminator": "private-implementation-details-type"
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "generated-type-name"
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerNegatives::StackallocBooleanInitializer#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
+      "assemblyPath": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
+      "type": "ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals",
+      "method": "StackallocPointerInitializer",
+      "overload": 0,
+      "signature": "() -\u003E corelib:System.Int32",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "valid",
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals::StackallocPointerInitializer#0"
     },
     {
@@ -1981,18 +2301,12 @@
       "method": "StackallocSpanInitializer",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Int32",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "cpblk"
-        }
-      ],
+      "fidelityCheck": "Exact",
       "displayMethod": "ILInspector.Decompiler.Fixtures.NewUnsafe!ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals::StackallocSpanInitializer#0"
     },
     {
@@ -3062,9 +3376,9 @@
     }
   ],
   "metrics": {
-    "totalMethods": 199,
-    "fullyRaisedMethods": 195,
-    "fullyRaisedBasisPoints": 9799,
+    "totalMethods": 219,
+    "fullyRaisedMethods": 215,
+    "fullyRaisedBasisPoints": 9817,
     "conditionalBranchMethods": 0,
     "conditionalBranchBasisPoints": 0,
     "forwardMergeStoppedContainers": 0,
@@ -3074,20 +3388,20 @@
     "semanticDefectMethods": 0,
     "passBugs": 0,
     "residualBuckets": {
-      "fidelity: unsupported-node": 4
+      "fidelity: DEC0004": 4
     },
     "structuring": {
-      "totalMethods": 199,
-      "structuredContainers": 27,
+      "totalMethods": 219,
+      "structuredContainers": 29,
       "stoppedContainers": 0,
       "methodsWithStops": 0,
       "passBugs": 0,
       "stopReasons": {}
     },
     "fidelity": {
-      "contractVersion": 1,
-      "checkedMethods": 68,
-      "exactMethods": 65,
+      "contractVersion": 3,
+      "checkedMethods": 86,
+      "exactMethods": 83,
       "opcodeDiffMethods": 3,
       "operandDiffMethods": 0,
       "fidelityUnavailableMethods": 0,
@@ -3101,7 +3415,7 @@
   "featureCoverage": {
     "await-recovery-methods": 11,
     "cross-assembly-requires-unsafe-methods": 1,
-    "legacy-memory-safety-control-methods": 70,
+    "legacy-memory-safety-control-methods": 80,
     "runtime-async-await-using-methods": 2,
     "runtime-async-awaiter-methods": 6,
     "runtime-async-exception-methods": 5,
@@ -3110,7 +3424,7 @@
     "union-declarations": 2,
     "union-switch-methods": 3,
     "union-types": 3,
-    "updated-memory-safety-methods": 70
+    "updated-memory-safety-methods": 80
   },
   "classicStateMachineCoverage": null
 }

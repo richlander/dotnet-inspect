@@ -817,7 +817,7 @@ public class CorpusSensorComparisonTests
             .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
 
         Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
-        Assert.Equal(2, FidelityCheck.CurrentContractVersion);
+        Assert.Equal(3, FidelityCheck.CurrentContractVersion);
     }
 
     [Fact]
@@ -886,7 +886,9 @@ public class CorpusSensorComparisonTests
         Assert.Equal(4, restored.SchemaVersion);
         Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
         Assert.Equal(5, CorpusSensor.CurrentSchemaVersion);
-        Assert.Equal(2, CorpusSensor.CurrentFidelityContractVersion);
+        Assert.Equal(
+            FidelityCheck.CurrentContractVersion,
+            CorpusSensor.CurrentFidelityContractVersion);
     }
 
     [Fact]

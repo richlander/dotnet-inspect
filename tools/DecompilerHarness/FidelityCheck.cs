@@ -48,10 +48,17 @@ static class FidelityCheck
     /// corpus sensor compares numbers that were never comparable.
     /// </summary>
     /// <remarks>
-    /// v2 (#3491) added generated-member ordinal correspondence. Roslyn's local-function
+    /// v2 (#3580) added generated-member ordinal correspondence. Roslyn's local-function
     /// and state-machine names embed an ordinal over the containing type's members, which
     /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
     /// operand differences between identical bodies.
+    /// <para>
+    /// v3 (#3645) removes the older per-side synthesized-member rewrite. That rewrite
+    /// masked real differences between overloads because uniqueness is not a property
+    /// either side can establish alone. The correspondence now owns lambda methods and
+    /// their cache fields as well as local functions and state machines, so the unsafe
+    /// fallback is no longer needed.
+    /// </para>
     /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
@@ -67,12 +74,13 @@ static class FidelityCheck
     /// body that compared unequal before cannot compare equal after. Measured on the
     /// pinned corpus, it moved nothing: <c>Area=Fidelity</c> is 68/0 before and after,
     /// because the corpus carries no <c>EXPLICITTHIS</c> signature and no instance
-    /// function pointer. A v2 baseline therefore stays comparable to a v2 run. A renderer
+    /// function pointer. A baseline therefore stays comparable within one contract
+    /// version. A renderer
     /// change that is not monotone, or that moves a corpus number, does not get this
     /// argument and must bump.
     /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 2;
+    internal const int CurrentContractVersion = 3;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
@@ -83,13 +91,10 @@ static class FidelityCheck
         // renumbers the containing-method ordinal in every closure name it
         // synthesizes. That renumbering is not decompiler evidence (#3503).
         //
-        // The two options split the name space rather than overlapping: the
-        // correspondence owns `d__`, `g__` and `b__` and folds only where the
-        // ordinal-free key is one-to-one on both sides, and the per-side
-        // rewrite keeps `<>9__`, which it still folds on weaker evidence
-        // (#3645). Retiring that last form needs a field index the
-        // correspondence does not have yet, which is the next slice.
-        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+        // The correspondence folds only where the ordinal-free key is one-to-one on
+        // both sides. That two-sided evidence is the entire contract: the retired
+        // per-side rewrite could not distinguish overloads and masked real differences
+        // (#3645), so contract v3 removes it rather than layering the two mechanisms.
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
