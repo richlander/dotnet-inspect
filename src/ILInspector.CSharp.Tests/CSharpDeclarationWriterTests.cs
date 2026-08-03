@@ -1527,9 +1527,11 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     /// <summary>
-    /// An override inherits its constraints and may not restate them: `csc` rejects
-    /// a restated clause with CS0460. Both declaration paths have to omit it, so the
-    /// gate runs with and without a caller-supplied generic-parameter list.
+    /// An override inherits its constraints, and a type constraint may not be restated:
+    /// `csc` rejects it with CS0460. Both declaration paths have to omit it, so the gate
+    /// runs with and without a caller-supplied generic-parameter list.
+    /// (The `class`/`struct` carve-out C# does allow is covered separately, by
+    /// <see cref="OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows"/>.)
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -1580,6 +1582,53 @@ public sealed class CSharpDeclarationWriterTests
             methodParameters: callerSuppliesTypeParameters ? ["T"] : null);
 
         Assert.DoesNotContain("where", declaration, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C# permits exactly one restatement on a member that inherits its constraints —
+    /// a bare `class` or `struct` — and it is load-bearing, not cosmetic: it decides
+    /// whether `T?` means a nullable reference type or Nullable&lt;T&gt;. Dropping it
+    /// produced an override that no longer compiles (CS0453/CS0115), so the reduction
+    /// keeps it while omitting everything CS0460 forbids.
+    /// </summary>
+    [Theory]
+    // A reference-type constraint survives, without the annotation `class?` that is
+    // itself CS0460, and without the `new()` that may not be restated.
+    [InlineData(new[] { "class", "new()" }, "where T : class")]
+    [InlineData(new[] { "class?" }, "where T : class")]
+    // A value-type constraint reduces to the one spelling C# accepts here.
+    [InlineData(new[] { "struct" }, "where T : struct")]
+    [InlineData(new[] { "unmanaged" }, "where T : struct")]
+    // Nothing else may be named on an inheriting member.
+    [InlineData(new[] { "notnull" }, "")]
+    [InlineData(new[] { "System.IComparable<T>" }, "")]
+    public void OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows(
+        string[] constraints,
+        string expectedClause)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.IsOverride = true;
+        var typeParameter = member.SignatureModel!.TypeParameters[0];
+        typeParameter.Constraints = [.. constraints];
+        typeParameter.StructuredConstraints =
+        [
+            .. constraints.Select(constraint => new TypeParameterConstraint(
+                constraint,
+                IsTypeName: constraint is not ("class" or "class?" or "struct" or "unmanaged" or "notnull" or "new()"))),
+        ];
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: ["T"]);
+
+        Assert.Equal(
+            string.IsNullOrEmpty(expectedClause)
+                ? "public override int Compare<T>(T a, T b)"
+                : $"public override int Compare<T>(T a, T b) {expectedClause}",
+            declaration);
     }
 
     static (ApiType Type, ApiMember Member) CreateConstrainedGenericMethod()

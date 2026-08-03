@@ -782,25 +782,81 @@ internal static class CSharpDeclarationWriter
     }
 
     /// <summary>
-    /// Appends a method's <c>where</c> clauses, except on the two member shapes that
-    /// inherit their constraints and may not restate them: an <c>override</c> and an
-    /// explicit interface implementation both reject a restated constraint with CS0460.
-    /// Omitting the clauses there is faithful as well as compilable, because the
-    /// inherited constraints are exactly the ones metadata recorded.
+    /// Appends a method's <c>where</c> clauses. An <c>override</c> and an explicit
+    /// interface implementation inherit their constraints and mostly may not restate
+    /// them (CS0460) — but C# carves out exactly one exception, and it is load-bearing
+    /// rather than cosmetic: a bare <c>class</c> or <c>struct</c> constraint *may* be
+    /// restated, and it is what decides how <c>T?</c> binds. Dropping it silently
+    /// rewrites <c>T?</c> from a nullable reference type to <see cref="System.Nullable{T}"/>
+    /// (or the reverse), so those two are reduced to their legal spelling and kept
+    /// while every other constraint is omitted.
     /// </summary>
     /// <remarks>
     /// Both member call sites (the <see cref="ApiSignature"/> renderer and the text
     /// path a caller-supplied generic-parameter list forces) route through here, so
-    /// the two cannot disagree about when a clause is legal. The type-declaration call
-    /// site does not: a type always owns, and so always restates, its own constraints.
+    /// the two cannot disagree about which clauses are legal. The type-declaration
+    /// call site does not: a type always owns, and so always restates, its own
+    /// constraints.
     /// </remarks>
     static string AppendMemberTypeParameterConstraints(
         string declaration,
         ApiMember member,
         IReadOnlyList<TypeParameter> typeParameters)
         => member.IsOverride || member.Kind == "explicit-interface-implementation"
-            ? declaration
+            ? AppendInheritedConstraintRestatement(declaration, typeParameters)
             : AppendTypeParameterConstraints(declaration, typeParameters);
+
+    /// <summary>
+    /// Restates only what C# permits on a member that inherits its constraints: the
+    /// bare <c>class</c> or <c>struct</c> keyword. The annotated <c>class?</c> form is
+    /// itself CS0460, and <c>unmanaged</c> is a value-type constraint, so both are
+    /// reduced to the legal spelling that preserves how <c>T?</c> binds. Every other
+    /// constraint — <c>notnull</c>, <c>new()</c>, and type constraints — is inherited
+    /// and cannot be named here.
+    /// </summary>
+    static string AppendInheritedConstraintRestatement(
+        string declaration,
+        IReadOnlyList<TypeParameter> typeParameters)
+    {
+        foreach (var typeParameter in typeParameters)
+        {
+            if (RestatableConstraint(typeParameter) is not { } keyword)
+                continue;
+
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {keyword}";
+        }
+
+        return declaration;
+    }
+
+    /// <summary>
+    /// The single keyword an inheriting member may restate for one type parameter, or
+    /// null when it has no reference- or value-type constraint to restate. Reads
+    /// <see cref="TypeParameter.StructuredConstraints"/> when the producer populated
+    /// it, so a constraint *type* literally named <c>class</c> is never mistaken for
+    /// the keyword.
+    /// </summary>
+    static string? RestatableConstraint(TypeParameter typeParameter)
+    {
+        var keywords = typeParameter.StructuredConstraints is { } structured
+            ? structured.Where(constraint => !constraint.IsTypeName).Select(constraint => constraint.Value)
+            : typeParameter.Constraints.Where(s_specialConstraintKeywords.Contains);
+
+        string? keyword = null;
+        foreach (var candidate in keywords)
+        {
+            switch (candidate)
+            {
+                case "class" or "class?":
+                    return "class";
+                case "struct" or "unmanaged":
+                    keyword = "struct";
+                    break;
+            }
+        }
+
+        return keyword;
+    }
 
     static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
     {

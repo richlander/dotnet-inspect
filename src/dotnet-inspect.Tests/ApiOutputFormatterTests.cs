@@ -717,12 +717,12 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
-    /// The same chain must omit the clauses an override inherits: restating them is
-    /// CS0460 ("constraints ... are inherited from the base method"), so emitting
-    /// them would trade one uncompilable render for another.
+    /// The same chain must drop the parts of an inherited constraint that C# forbids
+    /// restating: `Run&lt;T&gt;` is declared `where T : class, new()`, and `new()` is
+    /// CS0460 on an override while the bare `class` is the permitted carve-out.
     /// </summary>
     [Fact]
-    public void ConstrainedGenericOverride_OmitsInheritedConstraintsInBothDecompiledViews()
+    public void ConstrainedGenericOverride_OmitsTheConstraintsCSharpForbidsRestating()
     {
         string path = typeof(ConstraintFixture).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -751,12 +751,60 @@ public class ApiOutputFormatterTests
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
         Assert.Contains("void Run<T>", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("where T", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.Contains("where T : class", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("new()", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
 
         var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
         Assert.Contains("void Run<T>", typeSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("where T : class", typeSource, StringComparison.Ordinal);
+        Assert.Contains("where T : class", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class, new()", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same chain must reduce, not drop, the constraints an override inherits.
+    /// C# allows exactly a bare `class` or `struct` to be restated, and that carve-out
+    /// decides how `T?` binds: without it `T?` becomes Nullable&lt;T&gt; and the render
+    /// stops compiling (CS0453/CS0115). Real compiled metadata records the constraint
+    /// as `class?`, which is itself CS0460, so this also pins the normalization.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericOverride_RestatesTheNullabilityDecidingConstraint()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Pick));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains("where T : class", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        // The annotated spelling metadata records is itself CS0460 on an override.
+        Assert.DoesNotContain("class?", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("where T : class", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class?", typeSource, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1049,6 +1097,12 @@ public static class RuntimeAsyncHeaderFixture
 public abstract class ConstraintFixtureBase
 {
     public abstract void Run<T>(T value) where T : class, new();
+
+    /// <summary>
+    /// The `class` constraint here is what makes `T?` a nullable reference type rather
+    /// than Nullable&lt;T&gt;, so an override that drops it renders uncompilable C#.
+    /// </summary>
+    public abstract T? Pick<T>(T? value) where T : class;
 }
 
 public class ConstraintFixture : ConstraintFixtureBase
@@ -1056,4 +1110,6 @@ public class ConstraintFixture : ConstraintFixtureBase
     public static int Compare<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b);
 
     public override void Run<T>(T value) => value.ToString();
+
+    public override T? Pick<T>(T? value) where T : class => value;
 }
