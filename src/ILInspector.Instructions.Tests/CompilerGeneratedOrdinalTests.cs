@@ -1502,6 +1502,81 @@ public class CompilerGeneratedOrdinalTests
     /// <paramref name="AttributeNamespace"/> and <paramref name="AttributeName"/> choose
     /// which one; both null means <c>CompilerGeneratedAttribute</c>.
     /// </param>
+
+    /// <summary>
+    /// The gate for the on-demand declaring-type mark. <c>SideIndex.Create</c> fails the
+    /// <em>whole</em> index closed on malformed metadata, so every extra attribute row the
+    /// index reads is another way to lose folding for an entire assembly. Reading the mark
+    /// only once a member name could be owned is what keeps an unrelated malformed row out
+    /// of that path.
+    /// <para>
+    /// <c>Noise</c> carries the malformed row and no ordinal-bearing member name — its only
+    /// method is <c>M</c> — so the on-demand read never reaches it and <c>&lt;M&gt;d__3</c>
+    /// still folds to <c>&lt;M&gt;d__7</c>. Reading the mark eagerly for every type instead
+    /// makes this test fail, which is the tamper that keeps it honest; before this test
+    /// existed that tamper passed the whole suite and the claim was marked UNVERIFIED
+    /// (#3708).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead()
+    {
+        byte[] oldImage = BuildImage("Probe", [], generatedTypes: ["<M>d__3", "Noise"], corruptAttributeOnType: "Noise");
+        byte[] newImage = BuildImage("Probe", [], generatedTypes: ["<M>d__7", "Noise"], corruptAttributeOnType: "Noise");
+
+        // The corruption is real, and it is confined to the unrelated type: reading it
+        // throws while the type whose name must still fold reads cleanly. Without both
+        // halves the fold below could be passing for the wrong reason.
+        Assert.Throws<BadImageFormatException>(() => ReadAttributeTypeNames(oldImage, "Noise"));
+        Assert.Equal("CompilerGeneratedAttribute", Assert.Single(ReadAttributeTypeNames(oldImage, "<M>d__3")));
+        Assert.Equal("M", Assert.Single(ReadMethodNames(oldImage, "Noise")));
+
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
+
+        Assert.False(Compare(oldPe, newPe, IlBodyDiffNormalization.None).IsExact);
+        Assert.True(Compare(oldPe, newPe, Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Enumerates <paramref name="typeName"/>'s custom attributes, resolving each row's
+    /// constructor so a malformed row throws rather than being silently counted.
+    /// </summary>
+    static List<string> ReadAttributeTypeNames(byte[] image, string typeName)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+        var names = new List<string>();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var attributeHandle in type.GetCustomAttributes())
+            {
+                var attribute = reader.GetCustomAttribute(attributeHandle);
+                var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                names.Add(reader.GetString(reader.GetTypeReference((TypeReferenceHandle)member.Parent).Name));
+            }
+        }
+        return names;
+    }
+
+    static List<string> ReadMethodNames(byte[] image, string typeName)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+        var names = new List<string>();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var methodHandle in type.GetMethods())
+                names.Add(reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
+        }
+        return names;
+    }
     readonly record struct Member(
         string Name,
         bool CompilerGenerated,
@@ -1636,7 +1711,8 @@ public class CompilerGeneratedOrdinalTests
         int[]? generatedTypeArities = null,
         GenericParameterAttributes[]? generatedTypeConstraints = null,
         GenericParameterAttributes? declaringTypeConstraint = null,
-        bool declaringTypeAttributed = false)
+        bool declaringTypeAttributed = false,
+        string? corruptAttributeOnType = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1894,8 +1970,18 @@ public class CompilerGeneratedOrdinalTests
         }
         if (typesAttributed)
         {
-            foreach (var handle in generatedTypeHandles)
-                attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle, compilerGeneratedCtor));
+            for (int i = 0; i < generatedTypeHandles.Count; i++)
+            {
+                var handle = generatedTypeHandles[i];
+                // A constructor column pointing past the end of the MemberRef table.
+                // Only this row's column moves, so reading this one attribute throws
+                // while every other attribute row stays well formed — which is what
+                // lets a test tell an on-demand attribute read from an eager one.
+                EntityHandle ctor = extraTypes[i] == corruptAttributeOnType
+                    ? MetadataTokens.MemberReferenceHandle(0xFFFF)
+                    : compilerGeneratedCtor;
+                attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle, ctor));
+            }
         }
         if (declaringTypeAttributed)
         {
