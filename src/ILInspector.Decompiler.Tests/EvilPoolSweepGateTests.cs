@@ -642,6 +642,47 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// A sweep does not reconcile the pool until its new record is durable.
+    ///
+    /// <para>The first run leaves a complete pool and the record that names it. The second
+    /// run would record only the lead, but its <c>assemblies.txt</c> replacement is made to
+    /// fail after the replacement temporary has been written. That failure exits 2 before
+    /// the manifest write, so the first run's record and manifest remain the durable
+    /// description of the pool. Reconciliation before the failed write would delete the
+    /// subject from under that surviving description.</para>
+    ///
+    /// <para>A directory planted at the record path is the deterministic cross-platform
+    /// way to make the atomic move fail. The fixture moves the first record aside and moves
+    /// that same file back after the failed run; it does not reconstruct the expectation.
+    /// <see cref="SweepWorld.AssertPoolMatchesRecord"/> then derives the expected pool from
+    /// the restored durable record, so moving reconciliation ahead of the write makes this
+    /// case fail on the missing subject.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepDoesNotReconcileBeforeItsRecordIsDurable()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        world.AssertPoolMatchesRecord(removals: []);
+
+        world.PinInstead(FixturePackage, "9.9.9", FixtureTfm);
+
+        string savedRecord = Path.Combine(world.Scratch, "assemblies.first.txt");
+        File.Move(world.PooledListPath, savedRecord);
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var second = world.Run();
+
+        Directory.Delete(world.PooledListPath);
+        File.Move(savedRecord, world.PooledListPath);
+
+        Assert.True(second.ExitCode == 2, world.Explain(second, "an assemblies.txt that cannot be replaced"));
+        world.AssertPoolMatchesRecord(removals: []);
+    }
+
+    /// <summary>
     /// A sweep removes a link planted in the pool as a link, rather than deleting what is
     /// on the far side of it.
     ///
