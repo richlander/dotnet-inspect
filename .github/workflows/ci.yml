@@ -125,10 +125,10 @@ jobs:
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
               # The test lane is what actually runs these scripts (the
-              # `Install ilasm/ildasm` step and IlToolsActivationTests), so it
-              # is the only thing that can catch a break in them. Without this,
-              # a PR touching only a script skips that lane and `ci-required`
-              # passes on a `skipped`.
+              # `Install ilasm/ildasm/mdv` step and IlToolsActivationTests), so
+              # it is the only thing that can catch a break in them. Without
+              # this, a PR touching only a script skips that lane and
+              # `ci-required` passes on a `skipped`.
               eng/restore-iltools.sh) CODE=true ;;
               eng/activate-iltools.sh) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
@@ -385,10 +385,16 @@ jobs:
         if: steps.decompiler_pr_corpus.outcome == 'failure'
         run: exit 1
 
-      - name: Install ilasm/ildasm
+      # --mdv matters here and nowhere else: this is the only workflow that runs
+      # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
+      # skips without it -- and a skipped oracle is a green leg that compared
+      # nothing. continue-on-error keeps a feed outage degrading to those skips
+      # rather than failing the lane, so read the step log before treating this
+      # leg as oracle-backed.
+      - name: Install ilasm/ildasm/mdv
         continue-on-error: true
         shell: bash
-        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"

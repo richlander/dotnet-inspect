@@ -218,9 +218,10 @@ goes back to hand-rolling the assembly.
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
 `ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
 directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
-Those workflow steps are `continue-on-error`, so an acquisition failure in CI
-degrades to skips rather than a red run -- check the step's log before reading
-a green decompiler or IL-diff leg as proof.
+Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
+metadata oracle suite. Those workflow steps are `continue-on-error`, so an
+acquisition failure in CI degrades to skips rather than a red run -- check the
+step's log before reading a green decompiler, IL-diff, or metadata leg as proof.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
