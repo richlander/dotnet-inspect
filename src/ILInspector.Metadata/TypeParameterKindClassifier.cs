@@ -31,20 +31,19 @@ internal static class TypeParameterKindClassifier
     static readonly string[] s_classesThatProveNothing =
         ["System.Object", "System.ValueType", "System.Enum"];
 
-    public static TypeParameterTypeKind Classify(
-        MetadataReader reader,
-        GenericParameter parameter,
-        bool hasValueTypeConstraint,
-        bool hasReferenceTypeConstraint)
-        => Classify(reader, parameter, hasValueTypeConstraint, hasReferenceTypeConstraint, new ChainState());
-
     /// <param name="chain">
     /// State for following `where T : U`, which makes T only as known as U. Carries the
     /// parameters on the *current* path, so a cyclic or self-referential chain -- which
     /// metadata can express even though C# cannot -- terminates, and the answers already
     /// computed, so a chain that reconverges is answered rather than re-walked.
+    /// <para>
+    /// Required rather than optional, and one instance is meant to serve a whole parameter
+    /// list: a caller that allocates one per parameter rewalks each chain's entire tail
+    /// and is quadratic in the number of parameters. There is deliberately no overload
+    /// that allocates one per call, so that cost cannot be reintroduced by accident.
+    /// </para>
     /// </param>
-    internal static TypeParameterTypeKind Classify(
+    public static TypeParameterTypeKind Classify(
         MetadataReader reader,
         GenericParameter parameter,
         bool hasValueTypeConstraint,
@@ -142,21 +141,35 @@ internal static class TypeParameterKindClassifier
                 return TypeParameterTypeKind.Undetermined;
 
             var siblingHandle = handles[target.Index];
-            // Already answered on another branch. Reusing it is what keeps a chain that
-            // reconverges from being mistaken for a cycle, and what keeps a long chain
-            // linear instead of quadratic.
+            // Already answered. Reusing it is what keeps a chain that reconverges from
+            // being mistaken for a cycle, and what keeps a long chain linear rather
+            // than quadratic. Only answers reached without cutting the walk are stored,
+            // so this cannot hand back a path-dependent verdict -- see below.
             if (chain.Answers.TryGetValue(siblingHandle, out var answered))
                 return answered;
 
+            // Malformed metadata can make the walk unbounded in ways the path guard
+            // alone does not bound, because a cut answer cannot be cached and so is
+            // recomputed for every parameter that reaches it. Spending a shared budget
+            // keeps a whole parameter list linear in the worst case; running out is a
+            // cut like any other and fails closed.
+            if (chain.Budget <= 0)
+            {
+                chain.Cuts++;
+                return TypeParameterTypeKind.Undetermined;
+            }
+
+            chain.Budget--;
+
             // Only the current path guards against cycles, so a parameter is released
             // once its own subtree is done and stays reachable from a sibling branch.
-            // A cyclic chain answers Undetermined, and caching that can carry the
-            // cycle's verdict to a parameter that merely reaches it -- fail-closed in
-            // the same direction the rest of this classifier takes, and unreachable
-            // from C#, which cannot express a cyclic constraint chain at all.
             if (!chain.Path.Add(siblingHandle))
+            {
+                chain.Cuts++;
                 return TypeParameterTypeKind.Undetermined;
+            }
 
+            int cutsBefore = chain.Cuts;
             try
             {
                 var sibling = reader.GetGenericParameter(siblingHandle);
@@ -167,7 +180,15 @@ internal static class TypeParameterKindClassifier
                     (special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
                     (special & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
                     chain);
-                chain.Answers[siblingHandle] = kind;
+
+                // A subtree that was cut answers for the path it was reached by, not for
+                // the parameter itself: the cut hid constraints that a different path
+                // would have followed. Caching that would carry one parameter's verdict
+                // to another that merely reaches it, which is how a parameter whose real
+                // answer is `class` can come back unclassified and lose its clause.
+                if (chain.Cuts == cutsBefore)
+                    chain.Answers[siblingHandle] = kind;
+
                 return kind;
             }
             finally
@@ -217,9 +238,27 @@ internal static class TypeParameterKindClassifier
     /// </summary>
     internal sealed class ChainState
     {
+        /// <summary>The parameters on the walk currently in progress.</summary>
         public HashSet<GenericParameterHandle> Path { get; } = [];
 
+        /// <summary>
+        /// Answers reached without cutting the walk, and therefore independent of the
+        /// parameter the walk started from.
+        /// </summary>
         public Dictionary<GenericParameterHandle, TypeParameterTypeKind> Answers { get; } = [];
+
+        /// <summary>
+        /// How many times the walk has been cut short, by a cycle or by the budget. A
+        /// subtree spanning a cut is path-dependent and must not be cached.
+        /// </summary>
+        public int Cuts { get; set; }
+
+        /// <summary>
+        /// Sibling classifications left before the walk gives up. Only chains that are
+        /// cut can consume this, since an uncut chain is answered once and then cached;
+        /// the bound exists so malformed metadata cannot make a parameter list quadratic.
+        /// </summary>
+        public int Budget { get; set; } = 100_000;
     }
 
     readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);

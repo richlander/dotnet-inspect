@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
@@ -932,7 +934,7 @@ public class ApiOutputFormatterTests
                 parameters[1].SetInterfaceConstraints(parameters[3]);
                 parameters[2].SetInterfaceConstraints(parameters[3]);
             },
-            "T", "A", "B", "X");
+            ["T", "A", "B", "X"]);
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
@@ -993,6 +995,143 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
+    /// The gate against caching a path-dependent answer. A parameter reached through a
+    /// cycle answers for the path it was reached by, not for itself, because the cut hid
+    /// constraints another path would have followed. Caching that carries one parameter's
+    /// verdict to another that merely reaches it.
+    /// </summary>
+    /// <remarks>
+    /// The shape: <c>T1 : T2</c>, <c>T2 : T1, T4</c>, <c>T3 : T1</c>, <c>T4 : class</c>.
+    /// Classifying T1 walks into T2, back to T1 -- which is on the path, so that branch is
+    /// cut -- and then on to T4, so T1 really is a reference type. T3's only route is
+    /// through T1, so T3 is one too. If the cut answer for T1 is cached, T3 reads it, comes
+    /// back unclassified, and loses the <c>class</c> clause C# requires (CS0115/CS0534).
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_DoesNotCacheAnAnswerReachedThroughACycle()
+    {
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                parameters[3].SetGenericParameterAttributes(GenericParameterAttributes.ReferenceTypeConstraint);
+                parameters[0].SetInterfaceConstraints(parameters[1]);
+                parameters[1].SetInterfaceConstraints(parameters[0], parameters[3]);
+                parameters[2].SetInterfaceConstraints(parameters[0]);
+            },
+            ["T1", "T2", "T3", "T4"],
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            var typeParameters = type.TypeParameters;
+
+            // T1 is a reference type by way of T2 -> T4, despite the T2 -> T1 cycle.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[0].TypeKind);
+
+            // T3's only route is through T1, so it must reach the same answer rather than
+            // the cut verdict cached while T1 was still being classified.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[2].TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for the walk budget. An answer reached through a cycle cannot be cached,
+    /// so a long cyclic chain would otherwise be recomputed from every parameter --
+    /// quadratic, and reachable from malformed metadata. The budget bounds it, and
+    /// giving up is a cut like any other, so the result fails closed rather than guessing.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_BoundsALongCyclicConstraintChain()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                // Every parameter constrained to the next, and the last back to the first.
+                for (int index = 0; index < parameters.Length; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[(index + 1) % parameters.Length]);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            Assert.Equal(Length, type.TypeParameters.Count);
+
+            // Nothing is knowable from a chain that only leads back to itself.
+            Assert.All(
+                type.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {Length}-parameter cyclic chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The same bound, through the other consumer. <c>MetadataDeclarationQuery</c>
+    /// classifies parameters independently of <c>ApiSurfaceExtractor</c>, so it needs its
+    /// own proof that it shares one chain state across a parameter list rather than
+    /// allocating one per parameter, which rewalks the chain's whole tail.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ClassifiesALongChainWithoutRewalkingItInDeclarationQuery()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var reader = pe.GetMetadataReader();
+            var typeDefinition = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "ChainSample");
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDefinition);
+            stopwatch.Stop();
+
+            Assert.Equal(Length, typeParameters.Count);
+            Assert.All(
+                typeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Reading a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
     /// Emits one assembly declaring its own <c>System.Enum</c> alongside a generic
     /// virtual method constrained to it, so the constraint is a same-module
     /// TypeDefinition rather than a cross-assembly TypeReference.
@@ -1035,7 +1174,8 @@ public class ApiOutputFormatterTests
     /// </summary>
     static string EmitConstraintChainSample(
         Action<System.Reflection.Emit.GenericTypeParameterBuilder[]> constrain,
-        params string[] names)
+        string[] names,
+        bool onType = false)
     {
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName("ChainEmit"), typeof(object).Assembly);
@@ -1043,16 +1183,25 @@ public class ApiOutputFormatterTests
         var tb = module.DefineType(
             "ChainSample",
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
-        var mb = tb.DefineMethod(
-            "Pick",
-            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
-        var typeParameters = mb.DefineGenericParameters(names);
-        constrain(typeParameters);
-        mb.SetReturnType(typeParameters[0]);
-        mb.SetParameters(typeParameters[0]);
-        var il = mb.GetILGenerator();
-        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
-        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+
+        if (onType)
+        {
+            constrain(tb.DefineGenericParameters(names));
+        }
+        else
+        {
+            var mb = tb.DefineMethod(
+                "Pick",
+                System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+            var typeParameters = mb.DefineGenericParameters(names);
+            constrain(typeParameters);
+            mb.SetReturnType(typeParameters[0]);
+            mb.SetParameters(typeParameters[0]);
+            var il = mb.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+
         tb.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"chain-{Guid.NewGuid():N}.dll");
