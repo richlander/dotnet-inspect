@@ -80,13 +80,35 @@ public static class NuGetCredentialScope
             return string.Equals(a, b, StringComparison.Ordinal);
         }
 
-        return IsSameOrigin(a, b)
-            && string.Equals(
-                NormalizeEscapes(x.AbsolutePath.TrimEnd('/')),
-                NormalizeEscapes(y.AbsolutePath.TrimEnd('/')),
-                StringComparison.Ordinal)
-            && string.Equals(
-                NormalizeEscapes(x.Query), NormalizeEscapes(y.Query), StringComparison.Ordinal);
+        return string.Equals(
+            CanonicalizeEndpoint(x), CanonicalizeEndpoint(y), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reduces a URL to the spelling-independent form <see cref="IsSameEndpoint"/> compares, so
+    /// two URLs name the same endpoint exactly when their canonical forms are equal.
+    /// </summary>
+    /// <remarks>
+    /// Callers that need an endpoint <em>identity</em> rather than a pairwise comparison — a
+    /// dictionary key or a cache path segment — must derive it from this method. A second
+    /// canonicalizer would be free to drift from this one, and the two failure directions are not
+    /// symmetric: folding a distinction this method preserves lets one feed answer for another.
+    /// </remarks>
+    /// <param name="url">An absolute URL.</param>
+    /// <returns>The canonical form of <paramref name="url"/>.</returns>
+    public static string CanonicalizeEndpoint(Uri url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+
+        // Scheme and host are case-insensitive by definition, so they fold. Path and query are
+        // not, and are preserved as written apart from the percent-escape hex casing that RFC
+        // 3986 defines as equivalent. The path's trailing slash is dropped; the query's is not,
+        // because a trailing slash inside a query is a value, not a path terminator.
+        var origin =
+            $"{url.Scheme.ToLowerInvariant()}://{url.IdnHost.ToLowerInvariant()}:{url.Port}";
+        var path = NormalizeEscapes(url.AbsolutePath.TrimEnd('/'));
+        var query = NormalizeEscapes(url.Query);
+        return $"{origin}{path}{query}";
     }
 
     /// <summary>
