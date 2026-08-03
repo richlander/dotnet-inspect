@@ -314,9 +314,9 @@ public class LibraryBodyIndexTests
         Directory.CreateDirectory(directory);
         try
         {
-            // 7cec85d7bea7798e is System.Private.CoreLib's key, so the forwarded identity is
-            // framework-signed while nothing else in the chain is.
-            byte[] frameworkToken = Convert.FromHexString("7cec85d7bea7798e");
+            // 31bf3856ad364e35 signs Microsoft framework assemblies such as
+            // WindowsBase. It must tighten exactly like the other platform keys.
+            byte[] frameworkToken = Convert.FromHexString("31bf3856ad364e35");
             string appPath = Path.Combine(directory, "Contoso.App.dll");
             string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
             string corelibPath = Path.Combine(directory, "Fake.CoreLib.dll");
@@ -428,44 +428,6 @@ public class LibraryBodyIndexTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
-    }
-
-    [Theory]
-    [InlineData("7cec85d7bea7798e")] // System.Private.CoreLib
-    [InlineData("b03f5f7f11d50a3a")] // System.* contracts
-    [InlineData("cc7b13ffcd2ddd51")] // netstandard
-    public void NextHopScope_AnyForwardedToFrameworkSignedAssembly_TightensToPlatform(string token)
-    {
-        var forwarded = new AssemblyReferenceIdentity("System.Private.CoreLib", Version: null, Culture: null, token);
-
-        Assert.Equal(
-            AssemblyResolutionScope.Platform,
-            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
-    }
-
-    [Theory]
-    [InlineData(null)] // unsigned -- the SpoofRuntimeFixtures adversary
-    [InlineData("1234567890abcdef")] // signed, but not a framework key
-    public void NextHopScope_AnyForwardedToUnsignedOrThirdPartyAssembly_StaysAny(string? token)
-    {
-        var forwarded = new AssemblyReferenceIdentity("System.Runtime", Version: null, Culture: null, token);
-
-        Assert.Equal(
-            AssemblyResolutionScope.Any,
-            LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Any, forwarded));
-    }
-
-    [Fact]
-    public void NextHopScope_PlatformIsNeverDowngraded()
-    {
-        foreach (string? token in new[] { null, "1234567890abcdef", "7cec85d7bea7798e" })
-        {
-            var forwarded = new AssemblyReferenceIdentity("Whatever", Version: null, Culture: null, token);
-
-            Assert.Equal(
-                AssemblyResolutionScope.Platform,
-                LibraryBodyIndex.IndexBuilder.NextHopScope(AssemblyResolutionScope.Platform, forwarded));
-        }
     }
 
     static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)

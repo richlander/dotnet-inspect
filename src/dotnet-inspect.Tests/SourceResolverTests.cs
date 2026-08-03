@@ -6,6 +6,8 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class SourceResolverTests
 {
+    private static readonly IReadOnlyList<string> NoSourceKeys = [];
+
     public SourceResolverTests()
     {
         NuGetCache.Initialize("dotnet-inspect");
@@ -40,7 +42,8 @@ public class SourceResolverTests
         SkipIfCoreLibUnavailable();
 
         var source = await SourceResolver.ResolveAsync(
-            [input], explicitPackage: null, explicitAssembly: null, explicitPlatform: null, verbose: false);
+            [input], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
 
         Assert.Equal("System.Private.CoreLib", source.PlatformAssembly);
         Assert.Equal(expectedTypeName, source.TypeName);
@@ -54,7 +57,8 @@ public class SourceResolverTests
         SkipIfCoreLibUnavailable();
 
         var source = await SourceResolver.ResolveAsync(
-            ["Func"], explicitPackage: null, explicitAssembly: null, explicitPlatform: null, verbose: false);
+            ["Func"], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
 
         Assert.Equal("Func", source.PackagePath);
         Assert.Null(source.PlatformAssembly);
@@ -67,7 +71,8 @@ public class SourceResolverTests
         SkipIfCoreLibUnavailable();
 
         var source = await SourceResolver.ResolveAsync(
-            ["Definitely.NotACoreLibType"], explicitPackage: null, explicitAssembly: null, explicitPlatform: null, verbose: false);
+            ["Definitely.NotACoreLibType"], explicitPackage: null, explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
 
         Assert.Equal("Definitely.NotACoreLibType", source.PackagePath);
         Assert.Null(source.PlatformAssembly);
@@ -80,7 +85,8 @@ public class SourceResolverTests
         SkipIfCoreLibUnavailable();
 
         var source = await SourceResolver.ResolveAsync(
-            ["string"], explicitPackage: "Example.Package", explicitAssembly: null, explicitPlatform: null, verbose: false);
+            ["string"], explicitPackage: "Example.Package", explicitAssembly: null, explicitPlatform: null,
+            NoSourceKeys, verbose: false);
 
         Assert.Equal("Example.Package", source.PackagePath);
         Assert.Equal("string", source.TypeName);
@@ -95,12 +101,56 @@ public class SourceResolverTests
             explicitPackage: null,
             explicitAssembly: null,
             explicitPlatform: null,
+            NoSourceKeys,
             verbose: false,
             tryQualifiedTypeName: true);
 
         Assert.Equal("System.Text.Json", source.PlatformAssembly);
         Assert.Equal("JsonSerializizer", source.TypeName);
         Assert.Null(source.PackagePath);
+    }
+
+    [Fact]
+    public void TryResolveQualifiedTypeName_AmbiguousCatalogFallbackReportsFailure()
+    {
+        var (assemblyPath, _, _, error) =
+            PlatformResolver.ResolveAssembly("System.Numerics");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Numerics not available: {error}");
+            return;
+        }
+
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            "System.Numerics.Enumerator",
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(probe);
+        Assert.Contains("ambiguous", failure, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("System.IO.File", "System.Runtime")]
+    [InlineData("System.Threading.ThreadState", "System.Threading.Thread")]
+    public void TryResolveQualifiedTypeName_UsesQualifiedCatalogIdentity(
+        string typeName,
+        string expectedAssembly)
+    {
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            typeName,
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(failure);
+        Assert.NotNull(probe);
+        Assert.Equal(expectedAssembly, probe.SourceName);
+        Assert.Equal(typeName, probe.Remainder);
+        Assert.Equal(SourceResolver.LocalSourceKind.Platform, probe.Kind);
     }
 
     [Fact]
@@ -111,6 +161,7 @@ public class SourceResolverTests
             explicitPackage: null,
             explicitAssembly: null,
             explicitPlatform: null,
+            NoSourceKeys,
             verbose: false,
             tryQualifiedTypeName: true);
 
@@ -127,6 +178,7 @@ public class SourceResolverTests
             explicitPackage: null,
             explicitAssembly: null,
             explicitPlatform: null,
+            NoSourceKeys,
             verbose: false,
             tryQualifiedTypeName: true);
 

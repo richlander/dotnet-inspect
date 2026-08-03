@@ -3,18 +3,26 @@ name: CI
 on:
   push:
     branches: [main]
-  # The base-branch filter also decides whether a *stacked* PR gets CI at all.
-  # A PR retargeted from `main` onto a long-lived feature branch silently stops
-  # matching `[main]`, so it reports no checks rather than failing ones -- and
-  # once `ci-required` is a required check, "no checks reported" is
-  # indistinguishable at a glance from "not run yet".
+  # Deliberately unfiltered by base branch. A base-branch filter decides whether
+  # a *stacked* PR gets CI at all: a PR retargeted from `main` onto a long-lived
+  # branch silently stops matching, so it reports no checks rather than failing
+  # ones -- and "no checks reported" is indistinguishable at a glance from "not
+  # run yet", while `ci-required` counts a job that never ran as nothing to
+  # block on.
   #
-  # The list must therefore cover every prefix a *base* can have, which is every
+  # An allow list here has to name every prefix a *base* can have, which is every
   # prefix a branch can have, since any branch under review can be stacked on.
-  # `feature/**` alone left `fix/**` uncovered, and that is not a hypothetical
-  # gap: #3684 opened onto `fix/3628-...` and reported no checks at all.
+  # That is not a list that can be maintained, and each way of getting it wrong
+  # is silent: `[main]` alone missed every stacked PR, adding `feature/**` still
+  # left `fix/**` uncovered (#3684 opened onto `fix/3628-...` and reported no
+  # checks), and adding `fix/**` still left #3558 -- open onto
+  # `prototype/wasm-command-ui` -- mergeable with zero checks (#3706).
+  #
+  # So the filter is gone rather than extended. Every pull request runs CI
+  # whatever it targets. The cost is CI on PRs between side branches; the cost
+  # of the allow list was PRs that merge with no CI at all and look clean doing
+  # it.
   pull_request:
-    branches: [main, 'feature/**', 'fix/**']
 
 env:
   DOTNET_NOLOGO: true
@@ -136,6 +144,13 @@ jobs:
               # sweep's own rules. Under docs/, which no arm here would catch.
               docs/data/nuget-top-packages.lock.json) CODE=true ;;
               docs/data/nuget-top-packages.json) CODE=true ;;
+              # The test lane is what actually runs these scripts (the
+              # `Install ilasm/ildasm/mdv` step and IlToolsActivationTests), so
+              # it is the only thing that can catch a break in them. Without
+              # this, a PR touching only a script skips that lane and
+              # `ci-required` passes on a `skipped`.
+              eng/restore-iltools.sh) CODE=true ;;
+              eng/activate-iltools.sh) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.
@@ -407,29 +422,21 @@ jobs:
         if: steps.decompiler_pr_corpus.outcome == 'failure'
         run: exit 1
 
-      - name: Install ilasm/ildasm
+      # --mdv matters here and nowhere else: this is the only workflow that runs
+      # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
+      # skips without it -- and a skipped oracle is a green leg that compared
+      # nothing.
+      #
+      # continue-on-error lets the rest of the lane still report, so a feed
+      # outage does not cost every other result in the job. It does not make
+      # the failure survivable: `Check ilasm/ildasm/mdv result` below fails the
+      # lane once the tests have run. Losing oracle coverage must be red, not a
+      # quietly shorter skip list.
+      - name: Install ilasm/ildasm/mdv
+        id: iltools
         continue-on-error: true
         shell: bash
-        run: |
-          RID=${{ matrix.rid }}
-          VERSION=11.0.0-preview.1.26104.118
-          PACKAGES_DIR=$(mktemp -d)
-          PROJ_DIR=$(mktemp -d)
-          cat > "$PROJ_DIR/iltools.csproj" <<EOF
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
-            <ItemGroup>
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
-            </ItemGroup>
-          </Project>
-          EOF
-          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
-          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
-          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
-          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
-          echo "$ILASM_DIR" >> "$GITHUB_PATH"
-          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
@@ -485,6 +492,16 @@ jobs:
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && needs.changes.outputs.ilroundtrip == 'true'
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+
+      # Deliberately last: the suites above still report their results when
+      # acquisition fails, but the lane must not go green having silently traded
+      # its oracle comparisons for skips.
+      - name: Check ilasm/ildasm/mdv result
+        if: steps.iltools.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          exit 1
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds

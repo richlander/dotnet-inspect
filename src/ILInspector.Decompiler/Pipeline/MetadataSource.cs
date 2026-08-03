@@ -27,19 +27,21 @@ public sealed class MetadataSource : IDisposable
     readonly string? _externalPdbPath;
     readonly bool _readSymbols;
     readonly IAssemblyReferenceResolver _resolver;
+    readonly ResolvedAssemblyReference _assembly;
     readonly MetadataContext? _suppliedContext;
     MetadataContext? _crossContext;
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
+    MetadataSource(string path, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver resolver, MetadataContext? context)
     {
         Path = path;
         _stream = stream;
         Pe = peReader;
         Reader = reader;
         AssemblyName = assemblyName;
+        _assembly = assembly;
         _externalPdbPath = externalPdbPath;
         _readSymbols = readSymbols;
         _resolver = resolver;
@@ -161,7 +163,20 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
             var effectiveResolver = resolver ?? DefaultAssemblyReferenceResolver(path);
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveResolver, context);
+            string fullPath = System.IO.Path.GetFullPath(path);
+            var identity = reader.IsAssembly
+                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                : new AssemblyReferenceIdentity(
+                    assemblyName,
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null);
+            var assembly = ResolvedAssemblyReference.Create(
+                identity,
+                fullPath,
+                () => File.OpenRead(fullPath),
+                AssemblyResolutionProvenance.Local("MetadataSource"));
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, effectiveResolver, context);
         }
         catch
         {
@@ -185,7 +200,7 @@ public sealed class MetadataSource : IDisposable
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;
             string path = assembly.Path ?? assembly.Identity.Name;
-            return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, resolver, context);
+            return new MetadataSource(path, stream, peReader, reader, assemblyName, assembly, externalPdbPath, readSymbols, resolver, context);
         }
         catch
         {
@@ -250,7 +265,10 @@ public sealed class MetadataSource : IDisposable
             {
                 lock (_crossLock)
                 {
-                    _crossAssembly ??= new CrossAssemblyTypeResolver(AssemblyName, Reader, CrossContext);
+                    _crossAssembly ??= new CrossAssemblyTypeResolver(
+                        Reader,
+                        _assembly,
+                        CrossContext);
                 }
             }
             return _crossAssembly;

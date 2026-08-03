@@ -1441,6 +1441,51 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("null member collection", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The snapshot has to carry the classified reference-/value-type fact, not just the
+    /// constraint strings. An inheriting member must restate that fact -- it decides
+    /// whether `T?` binds as a nullable reference type or Nullable&lt;T&gt; -- so a
+    /// snapshot that drops it renders an override that does not compile (CS0115/CS0453),
+    /// silently, across the whole type-printer path.
+    /// </summary>
+    [Fact]
+    public void SnapshotTypeForRendering_CarriesTheClassifiedTypeParameterKind()
+    {
+        var typeParameter = new TypeParameter
+        {
+            Name = "T",
+            Constraints = ["Samples.BaseType"],
+            TypeKind = TypeParameterTypeKind.ReferenceType
+        };
+        var method = new ApiMember
+        {
+            Name = "Pick",
+            Kind = "method",
+            IsOverride = true,
+            Signature = "this text must not be used",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "T?",
+                MemberName = "Pick<T>",
+                TypeParameters = [typeParameter],
+                Parameters = [new ApiParameter { Type = "T?", Name = "value" }]
+            }
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Holder",
+            Kind = "class",
+            Members = [method]
+        };
+
+        var snapshot = CSharpTypePrinter.SnapshotTypeForRendering(type, type.Members);
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            snapshot.Members[0].SignatureModel!.TypeParameters[0].TypeKind);
+    }
+
     [Fact]
     public void RenderingSnapshotDoesNotRetainMutableMetadataAliases()
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using ILInspector.CSharp;
+using ILInspector.Findings;
 
 namespace ILInspector.Metadata;
 
@@ -166,6 +167,17 @@ public class ApiSurface
     /// types were resolved from target assemblies.
     /// </summary>
     public bool IsTypeForwardingAssembly { get; set; }
+
+    /// <summary>
+    /// Typed classification evidence retained for consumers that must
+    /// distinguish a non-facade surface from a failed classification.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
 }
 
 public sealed record ApiSurfaceInspectionFailure(
@@ -180,6 +192,13 @@ public sealed record ApiSurfaceInspectionFailure(
 /// </summary>
 public class TypeForwarder
 {
+    /// <summary>
+    /// Exact metadata lookup name retained for structured definition resolution.
+    /// It is omitted from serialized API surfaces, which predate this currency.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
+
     /// <summary>
     /// Full name of the forwarded type.
     /// </summary>
@@ -227,6 +246,28 @@ public class TypeParameter
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
+    /// Whether the constraint set proves this type parameter is a reference type, a
+    /// value type, or neither — the metadata fact behind C#'s "known to be a reference
+    /// type" rule, which is not the same question as which constraint keywords are
+    /// present. A named <em>class</em> constraint proves reference-ness without any
+    /// keyword, while <c>System.Enum</c> is a class that proves nothing, because a type
+    /// parameter constrained to it may still be a value type.
+    /// </summary>
+    /// <remarks>
+    /// Consumers need this to decide the one constraint an <c>override</c> may restate,
+    /// which is what disambiguates <c>T?</c> between a nullable reference type and
+    /// <see cref="System.Nullable{T}"/>. Populated by metadata producers and left at
+    /// <see cref="TypeParameterTypeKind.Undetermined"/> when a constraint type could not
+    /// be classified — an external <see cref="System.Reflection.Metadata.TypeReference"/>
+    /// whose interface flag this assembly cannot read, or a signature the blob guards
+    /// refused to decode. Undetermined is the fail-closed default, so a producer that
+    /// does not populate it reads as "do not know" rather than as "neither". Not
+    /// serialized.
+    /// </remarks>
+    [JsonIgnore]
+    public TypeParameterTypeKind TypeKind { get; set; } = TypeParameterTypeKind.Undetermined;
+
+    /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
     /// <remarks>
@@ -253,6 +294,36 @@ public class TypeParameter
 /// constraints untouched.
 /// </summary>
 public readonly record struct TypeParameterConstraint(string Value, bool IsTypeName);
+
+/// <summary>
+/// Whether a type parameter's constraints prove it is a reference type, a value type,
+/// or neither. This mirrors the rule C# uses for "known to be a reference type" — the
+/// reference-type constraint flag, or an effective base class other than
+/// <c>System.Object</c>, <c>System.ValueType</c> and <c>System.Enum</c> — rather than
+/// the surface spelling of the constraint list.
+/// </summary>
+public enum TypeParameterTypeKind
+{
+    /// <summary>
+    /// A constraint type could not be classified, so nothing is proven either way. The
+    /// fail-closed default: an unpopulated or degraded read must never be mistaken for
+    /// <see cref="NeitherReferenceNorValue"/>, which is a positive finding.
+    /// </summary>
+    Undetermined = 0,
+
+    /// <summary>
+    /// Every constraint was classified and none proves the parameter is a reference or
+    /// a value type — an unconstrained parameter, or one constrained only by interfaces,
+    /// <c>notnull</c>, <c>new()</c> or <c>System.Enum</c>.
+    /// </summary>
+    NeitherReferenceNorValue,
+
+    /// <summary>Proven a reference type, by the constraint flag or a class constraint.</summary>
+    ReferenceType,
+
+    /// <summary>Proven a value type, by the constraint flag (<c>struct</c> or <c>unmanaged</c>).</summary>
+    ValueType,
+}
 
 public class ApiSignature
 {
@@ -352,6 +423,14 @@ public class ApiType
     /// Null in older serialized surfaces.
     /// </summary>
     public string? MetadataName { get; set; }
+
+    /// <summary>
+    /// Exact structured metadata lookup name retained for in-process
+    /// definition resolution. It is omitted from serialized API surfaces,
+    /// which predate the structured resolution model.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
     
     /// <summary>
     /// Access level for non-public types. Null means public, including for older

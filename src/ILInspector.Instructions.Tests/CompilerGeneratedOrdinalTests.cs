@@ -520,14 +520,134 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Lambda bodies embed the same unstable ordinal, but no measured fidelity diff is
-    /// attributable to them, so they are deliberately out of scope. This pins the
-    /// exclusion so widening it is a decision rather than an accident.
+    /// The lambda form folds on the same terms as the local-function form. Both spell
+    /// <c>N</c> as the containing type's member index, which the harness's rebuilt type
+    /// skeleton renumbers, so both are ordinal drift rather than evidence.
+    /// </summary>
+    /// <remarks>
+    /// Owning this form is the point of #3645. The per-side rewrite folded it on weaker
+    /// evidence — it cannot see the other side, so it could not tell a renumbered lambda
+    /// from a genuinely different one, and
+    /// <see cref="RealLambdaOverloadShape_IsRefusedAsAmbiguous"/> is the shape where that
+    /// masked a real difference. Moving the form here does not merely relocate the fold:
+    /// <see cref="IlBodyDiff"/> hands the correspondence's owned names to the
+    /// correspondence alone, so a name this declines is no longer folded by anything.
+    /// </remarks>
+    [Fact]
+    public void LambdaShape_Folds()
+    {
+        Assert.True(Compare([Generated("<M>b__3_0")], [Generated("<M>b__7_0")], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The #3645 canary. Two overloads of one method, each with a lambda, produce two
+    /// lambda methods on the same type differing only in the scope ordinal, so the
+    /// ordinal-free key is ambiguous on both sides and neither may fold.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is an artifact canary, not a new gate — it reuses the ambiguity checks that
+    /// <see cref="UniqueAgainstAmbiguous_DoesNotFoldOntoAnArbitraryCounterpart"/> and its
+    /// old-side twin already discriminate, exactly as
+    /// <see cref="RealOverloadShape_IsRefusedAsAmbiguous"/> does for local functions.
+    /// </para>
+    /// <para>
+    /// What it adds is that the shape is one Roslyn emits. Measured by compiling
+    /// <c>Func&lt;int&gt; M(int) =&gt; () =&gt; 1;</c> beside
+    /// <c>Func&lt;int&gt; M(string) =&gt; () =&gt; 2;</c> and reading the names back:
+    /// <c>&lt;&gt;c</c> carries <c>&lt;M&gt;b__0_0</c> and <c>&lt;M&gt;b__1_0</c>. Under
+    /// the shipped composed contract that pair compared <c>Exact</c> before this change
+    /// and <c>OperandDiff</c> after it, which is the whole behavioral claim of the slice.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void RealLambdaOverloadShape_IsRefusedAsAmbiguous()
+    {
+        Assert.False(Compare(
+            [Generated("<M>b__0_0"), Generated("<M>b__1_0")],
+            [Generated("<M>b__1_0"), Generated("<M>b__0_0")],
+            Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Only the scope ordinal is elided. The slot ordinal separates two lambdas of one
+    /// containing method — Roslyn emits <c>&lt;Run&gt;b__0_0</c> and
+    /// <c>&lt;Run&gt;b__0_1</c> for two lambdas in <c>Run</c> — so a body that switched
+    /// which one it targets still differs.
     /// </summary>
     [Fact]
-    public void LambdaShape_IsOutOfScope()
+    public void LambdaSlotOrdinals_StayDistinct()
     {
-        Assert.False(Compare([Generated("<M>b__3_0")], [Generated("<M>b__7_0")], Ordinals).IsExact);
+        Assert.False(Compare([Generated("<M>b__3_0")], [Generated("<M>b__3_1")], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The containing method's name is preserved, so two lambdas of different methods
+    /// stay distinct even when both sides renumber.
+    /// </summary>
+    [Fact]
+    public void DistinctLambdaContainingNames_StayDistinct()
+    {
+        Assert.False(Compare([Generated("<A>b__3_0")], [Generated("<B>b__3_0")], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The lambda form's <c>N_K</c> tail is held to the same canonical shape as the
+    /// local-function form's, because both parse it through one shared helper. Each row
+    /// breaks the tail a different way: no separator, an empty scope, an empty slot, a
+    /// padded scope, and a non-digit.
+    /// </summary>
+    /// <remarks>
+    /// The empty-scope row pairs an empty scope against a well-formed one rather than
+    /// against another empty one. Two empty scopes differ in their slots, so that pair
+    /// stays apart whether or not the check exists and would have gated nothing —
+    /// measured, not assumed: with the empty-scope rejection and the canonical check
+    /// both removed, the self-paired form still passed.
+    /// <para>
+    /// Even paired this way the row is doubly guarded: an empty scope is rejected by
+    /// <c>underscore &lt;= 0</c> and again by <c>IsCanonicalOrdinal</c>, which returns
+    /// false for the empty span. Removing either alone leaves the row green, and only
+    /// removing both fails it. That is the "masked by another branch" shape tracked in
+    /// #3588; the row is kept because the outcome it pins is the one that matters, and
+    /// the masking is recorded here rather than left for a reader to discover.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("<M>b__30", "<M>b__70")]
+    [InlineData("<M>b___0", "<M>b__3_0")]
+    [InlineData("<M>b__3_", "<M>b__7_")]
+    [InlineData("<M>b__03_0", "<M>b__07_0")]
+    [InlineData("<M>b__3x_0", "<M>b__7x_0")]
+    public void LambdaOrdinalTails_AreHeldToTheCanonicalShape(string oldName, string newName)
+    {
+        Assert.False(Compare([Generated(oldName)], [Generated(newName)], Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// The real lambda shape: Roslyn marks the generated type and leaves its members
+    /// unmarked, so an unmarked member of a marked type must fold. Measured on a Release
+    /// build — <c>&lt;&gt;c</c> carries <c>CompilerGeneratedAttribute</c> and every
+    /// <c>&lt;M&gt;b__N_K</c> inside it carries none.
+    /// </summary>
+    [Fact]
+    public void UnmarkedMemberOfAGeneratedType_Folds()
+    {
+        Assert.True(Compare(
+            [Plain("<M>b__3_0")],
+            [Plain("<M>b__7_0")],
+            Ordinals,
+            declaringTypeAttributed: true).IsExact);
+    }
+
+    /// <summary>
+    /// The negative that keeps the inheritance from being a blanket pass: an unmarked
+    /// member of an unmarked type is not known to be compiler-generated, whatever its
+    /// name looks like, so it does not fold.
+    /// </summary>
+    [Fact]
+    public void UnmarkedMemberOfAnUnmarkedType_DoesNotFold()
+    {
+        Assert.False(Compare([Plain("<M>b__3_0")], [Plain("<M>b__7_0")], Ordinals).IsExact);
     }
 
     /// <summary>A malformed ordinal is not an ordinal; the name is compared verbatim.</summary>
@@ -1382,6 +1502,137 @@ public class CompilerGeneratedOrdinalTests
     /// <paramref name="AttributeNamespace"/> and <paramref name="AttributeName"/> choose
     /// which one; both null means <c>CompilerGeneratedAttribute</c>.
     /// </param>
+
+    /// <summary>
+    /// The gate for the on-demand declaring-type mark. <c>SideIndex.Create</c> fails the
+    /// <em>whole</em> index closed on malformed metadata, so every extra attribute row the
+    /// index reads is another way to lose folding for an entire assembly. Reading the mark
+    /// only once a member name could be owned is what keeps an unrelated malformed row out
+    /// of that path.
+    /// <para>
+    /// <c>Noise</c> carries the malformed row and no ordinal-bearing member name — its only
+    /// method is <c>M</c> — so the on-demand read never reaches it and <c>&lt;M&gt;d__3</c>
+    /// still folds to <c>&lt;M&gt;d__7</c>. Reading the mark eagerly for every type instead
+    /// makes this test fail, which is the tamper that keeps it honest; before this test
+    /// existed that tamper passed the whole suite and the claim was marked UNVERIFIED
+    /// (#3708).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead()
+    {
+        byte[] oldImage = BuildImage("Probe", [], generatedTypes: ["<M>d__3", "Noise"], corruptAttributeOnType: "Noise");
+        byte[] newImage = BuildImage("Probe", [], generatedTypes: ["<M>d__7", "Noise"], corruptAttributeOnType: "Noise");
+
+        // The corruption is real, and it is confined to the unrelated type: reading it
+        // throws while the type whose name must still fold reads cleanly. Without both
+        // halves the fold below could be passing for the wrong reason.
+        Assert.Throws<BadImageFormatException>(() => ReadAttributeTypeNames(oldImage, "Noise"));
+        Assert.Equal("CompilerGeneratedAttribute", Assert.Single(ReadAttributeTypeNames(oldImage, "<M>d__3")));
+        Assert.Equal("M", Assert.Single(ReadMethodNames(oldImage, "Noise")));
+
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
+
+        Assert.False(Compare(oldPe, newPe, IlBodyDiffNormalization.None).IsExact);
+        Assert.True(Compare(oldPe, newPe, Ordinals).IsExact);
+    }
+
+    /// <summary>
+    /// Enumerates <paramref name="typeName"/>'s custom attributes, resolving each row's
+    /// constructor so a malformed row throws rather than being silently counted.
+    /// </summary>
+    static List<string> ReadAttributeTypeNames(byte[] image, string typeName)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+        var names = new List<string>();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var attributeHandle in type.GetCustomAttributes())
+            {
+                var attribute = reader.GetCustomAttribute(attributeHandle);
+                var member = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor);
+                names.Add(reader.GetString(reader.GetTypeReference((TypeReferenceHandle)member.Parent).Name));
+            }
+        }
+        return names;
+    }
+
+    static List<string> ReadMethodNames(byte[] image, string typeName)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+        var names = new List<string>();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var methodHandle in type.GetMethods())
+                names.Add(reader.GetString(reader.GetMethodDefinition(methodHandle).Name));
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// The declaring type's mark is per type, so a type that earns the mark must not lend
+    /// it to the next type indexed. <c>C</c> is marked and carries an unmarked
+    /// ordinal-bearing member, so the mark is computed and is <see langword="true"/> while
+    /// <c>C</c> is indexed; <c>Target</c> is unmarked and carries an unmarked
+    /// ordinal-bearing member, whose name must therefore stay out of the index.
+    /// <para>
+    /// This is the control for a hole
+    /// <see cref="MalformedAttributeOnUnrelatedType_IsSkippedByTheOnDemandRead"/> cannot
+    /// see. That test catches hoisting the attribute <em>read</em>, but not hoisting the
+    /// cached variable out of the type loop: with the cache shared across types, the first
+    /// type resolves it and the malformed row is never reached, so that test still passes
+    /// while an unmarked type silently inherits a mark it did not earn. Found by
+    /// adversarial review, which is also where the shape of this fixture came from.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void TheDeclaringTypeMark_DoesNotCarryToTheNextType()
+    {
+        byte[] image = BuildImage(
+            "Probe",
+            [new Member("<A>b__1_0", CompilerGenerated: false)],
+            declaringTypeAttributed: true,
+            generatedTypes: ["Target"],
+            typesAttributed: false,
+            generatedTypeMethodNames: ["<M>b__3_0"]);
+
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+
+        // The fixture says what it claims: C marked and its member not, Target unmarked
+        // and its member not. Without this the assertions below could pass because the
+        // fixture never presented the case at all.
+        Assert.Equal("CompilerGeneratedAttribute", Assert.Single(ReadAttributeTypeNames(image, "C")));
+        Assert.Empty(ReadAttributeTypeNames(image, "Target"));
+        Assert.Equal("<M>b__3_0", Assert.Single(ReadMethodNames(image, "Target")));
+
+        var (side, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+
+        // C's member is eligible through C's mark, which is what puts a true into the
+        // cache in the first place. If this stops holding the test no longer exercises
+        // the leak it is named for.
+        Assert.True(side.TryGetMethodName(MethodNamed(reader, "<A>b__1_0"), out _));
+        Assert.False(side.TryGetMethodName(MethodNamed(reader, "<M>b__3_0"), out _));
+    }
+
+    static MethodDefinitionHandle MethodNamed(MetadataReader reader, string name)
+    {
+        foreach (var handle in reader.MethodDefinitions)
+        {
+            if (reader.GetString(reader.GetMethodDefinition(handle).Name) == name)
+                return handle;
+        }
+        throw new InvalidOperationException($"no method named {name}");
+    }
     readonly record struct Member(
         string Name,
         bool CompilerGenerated,
@@ -1465,7 +1716,8 @@ public class CompilerGeneratedOrdinalTests
         string? newCallsReferenceNamed = null,
         AttributeCtorSpelling ctorSpelling = AttributeCtorSpelling.TypeReference,
         string localAttributeNamespace = "System.Runtime.CompilerServices",
-        string localAttributeName = "CompilerGeneratedAttribute")
+        string localAttributeName = "CompilerGeneratedAttribute",
+        bool declaringTypeAttributed = false)
     {
         using var oldPe = new PEReader(new MemoryStream(
             BuildImage(
@@ -1473,7 +1725,8 @@ public class CompilerGeneratedOrdinalTests
                 oldMembers,
                 ctorSpelling: ctorSpelling,
                 localAttributeNamespace: localAttributeNamespace,
-                localAttributeName: localAttributeName)));
+                localAttributeName: localAttributeName,
+                declaringTypeAttributed: declaringTypeAttributed)));
         using var newPe = new PEReader(new MemoryStream(
             BuildImage(
                 "Probe",
@@ -1481,7 +1734,8 @@ public class CompilerGeneratedOrdinalTests
                 newCallsReferenceNamed,
                 ctorSpelling: ctorSpelling,
                 localAttributeNamespace: localAttributeNamespace,
-                localAttributeName: localAttributeName)));
+                localAttributeName: localAttributeName,
+                declaringTypeAttributed: declaringTypeAttributed)));
         return IlAssemblyDiff.CompareMembers(
             oldPe,
             oldPe.GetMetadataReader(),
@@ -1512,7 +1766,10 @@ public class CompilerGeneratedOrdinalTests
         string localAttributeName = "CompilerGeneratedAttribute",
         int[]? generatedTypeArities = null,
         GenericParameterAttributes[]? generatedTypeConstraints = null,
-        GenericParameterAttributes? declaringTypeConstraint = null)
+        GenericParameterAttributes? declaringTypeConstraint = null,
+        bool declaringTypeAttributed = false,
+        string? corruptAttributeOnType = null,
+        string[]? generatedTypeMethodNames = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1731,12 +1988,16 @@ public class CompilerGeneratedOrdinalTests
         // declaration order.
         foreach (var handle in generatedTypeHandles)
         {
+            int extraIndex = generatedTypeHandles.IndexOf(handle);
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("M"),
+                metadata.GetOrAddString(
+                    generatedTypeMethodNames is { } extraMethodNames && extraIndex < extraMethodNames.Length
+                        ? extraMethodNames[extraIndex]
+                        : "M"),
                 signature,
-                extraOffsets[generatedTypeHandles.IndexOf(handle)],
+                extraOffsets[extraIndex],
                 MetadataTokens.ParameterHandle(1));
         }
 
@@ -1770,8 +2031,25 @@ public class CompilerGeneratedOrdinalTests
         }
         if (typesAttributed)
         {
-            foreach (var handle in generatedTypeHandles)
-                attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle, compilerGeneratedCtor));
+            for (int i = 0; i < generatedTypeHandles.Count; i++)
+            {
+                var handle = generatedTypeHandles[i];
+                // A constructor column pointing past the end of the MemberRef table.
+                // Only this row's column moves, so reading this one attribute throws
+                // while every other attribute row stays well formed — which is what
+                // lets a test tell an on-demand attribute read from an eager one.
+                EntityHandle ctor = extraTypes[i] == corruptAttributeOnType
+                    ? MetadataTokens.MemberReferenceHandle(0xFFFF)
+                    : compilerGeneratedCtor;
+                attributeTargets.Add(((MetadataTokens.GetRowNumber(handle) << 5) | 3, handle, ctor));
+            }
+        }
+        if (declaringTypeAttributed)
+        {
+            attributeTargets.Add((
+                (MetadataTokens.GetRowNumber(declaringTypeHandle) << 5) | 3,
+                declaringTypeHandle,
+                compilerGeneratedCtor));
         }
         attributeTargets.Sort((left, right) => left.Coded.CompareTo(right.Coded));
 

@@ -84,10 +84,11 @@ static class FidelityCheck
         // synthesizes. That renumbering is not decompiler evidence (#3503).
         //
         // The two options split the name space rather than overlapping: the
-        // correspondence owns `d__` and `g__` and folds only where the
+        // correspondence owns `d__`, `g__` and `b__` and folds only where the
         // ordinal-free key is one-to-one on both sides, and the per-side
-        // rewrite keeps `b__` and `<>9__`, which it still folds on weaker
-        // evidence (#3645).
+        // rewrite keeps `<>9__`, which it still folds on weaker evidence
+        // (#3645). Retiring that last form needs a field index the
+        // correspondence does not have yet, which is the next slice.
         | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 

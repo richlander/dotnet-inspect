@@ -56,12 +56,13 @@ public static class SharedParsers
 
     public static async Task<SourceSelection> ResolveSourceSelectionAsync(
         SourceSelectionInputs inputs,
+        IReadOnlyList<string> sourceKeys,
         bool verbose,
         bool tryQualifiedTypeName)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            verbose, tryQualifiedTypeName).ConfigureAwait(false);
+            sourceKeys, verbose, tryQualifiedTypeName).ConfigureAwait(false);
 
         return new SourceSelection(
             inputs.Args,
@@ -95,7 +96,9 @@ public static class SharedParsers
 
     internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
         string value,
-        bool allowPlatformPrefixFallback)
+        IReadOnlyList<string> sourceKeys,
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure = null)
     {
         for (var i = value.Length - 1; i > 0; i--)
         {
@@ -107,7 +110,17 @@ public static class SharedParsers
             if (string.IsNullOrWhiteSpace(memberName))
                 continue;
 
-            var probe = SourceResolver.TryResolveQualifiedTypeName(typeCandidate, allowPlatformPrefixFallback);
+            string? platformLookupFailure = null;
+            var probe = SourceResolver.TryResolveQualifiedTypeName(
+                typeCandidate,
+                sourceKeys,
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                reportPlatformLookupFailure?.Invoke(platformLookupFailure);
+                return null;
+            }
             if (probe != null)
                 return (probe, memberName);
 
