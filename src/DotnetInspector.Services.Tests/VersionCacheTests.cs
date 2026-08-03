@@ -8,12 +8,12 @@ namespace DotnetInspector.Services.Tests;
 
 /// <summary>
 /// Tests for version resolution caching in PackageExtractor.
-/// Validates cache-first behavior for nuget.org, multi-source support, TTL expiry, and skipCache.
+/// Validates source-scoped candidate caching, multi-source support, TTL expiry, and skipCache.
 /// </summary>
 [Collection(CoreCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v3";
 
     /// <summary>
     /// An HttpClient that throws on any request — proves cache prevented network access.
@@ -39,7 +39,7 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetLatestVersion_WithCachedVersion_ReturnsCachedValue()
     {
-        CoreCache.Set(VersionCacheCategory, "testpackage", "1.2.3", extension: "txt");
+        SetLatest("TestPackage", NuGetOrgSource, "1.2.3");
 
         var result = await PackageExtractor.GetLatestVersionAsync(
             FailingClient, "TestPackage", [NuGetOrgSource], log: null);
@@ -50,7 +50,7 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetLatestVersion_WithCachedVersion_MultipleSourcesIncludingNuGetOrg_ReturnsCachedValue()
     {
-        CoreCache.Set(VersionCacheCategory, "testpackage", "2.0.0", extension: "txt");
+        SetLatest("TestPackage", NuGetOrgSource, "2.0.0");
 
         var result = await PackageExtractor.GetLatestVersionAsync(
             FailingClient, "TestPackage", [NuGetOrgSource, CustomSource], log: null);
@@ -59,10 +59,10 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task GetLatestVersion_WithCustomSourceOnly_SkipsCache()
+    public async Task GetLatestVersion_CustomSourceDoesNotUseAnotherSourcesCache()
     {
         // Pre-seed cache — should be ignored when nuget.org is not in sources
-        CoreCache.Set(VersionCacheCategory, "testpackage", "1.0.0", extension: "txt");
+        SetLatest("TestPackage", NuGetOrgSource, "1.0.0");
 
         // Custom source can't resolve (no real server), so result is null
         var result = await PackageExtractor.GetLatestVersionAsync(
@@ -72,9 +72,35 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLatestVersion_CustomSourceCandidateCacheAvoidsSecondRequest()
+    {
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: CustomSource.Url,
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: "customcached",
+            versions: ["4.5.6"]));
+
+        Assert.Equal(
+            "4.5.6",
+            await PackageExtractor.GetLatestVersionAsync(
+                client,
+                "CustomCached",
+                [CustomSource],
+                log: null));
+
+        Assert.Equal(
+            "4.5.6",
+            await PackageExtractor.GetLatestVersionAsync(
+                FailingClient,
+                "CustomCached",
+                [CustomSource],
+                log: null));
+    }
+
+    [Fact]
     public async Task GetLatestVersion_WithSkipCache_IgnoresCachedValue()
     {
-        CoreCache.Set(VersionCacheCategory, "testpackage", "1.0.0", extension: "txt");
+        SetLatest("TestPackage", NuGetOrgSource, "1.0.0");
 
         // skipCache: true should bypass cache even with nuget.org source
         var result = await PackageExtractor.GetLatestVersionAsync(
@@ -88,7 +114,9 @@ public class VersionCacheTests : IDisposable
     public async Task GetLatestVersion_WithExpiredCache_DoesNotReturnStaleValue()
     {
         // Write to cache and backdate the file
-        var key = "expiredpackage";
+        var key = PackageExtractor.GetLatestVersionCacheKey(
+            "ExpiredPackage",
+            NuGetOrgSource);
         CoreCache.Set(VersionCacheCategory, key, "0.9.0", extension: "txt");
 
         var cachePath = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
@@ -104,7 +132,7 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetLatestVersion_CacheKeyIsCaseInsensitive()
     {
-        CoreCache.Set(VersionCacheCategory, "system.text.json", "9.0.0", extension: "txt");
+        SetLatest("System.Text.Json", NuGetOrgSource, "9.0.0");
 
         var result = await PackageExtractor.GetLatestVersionAsync(
             FailingClient, "System.Text.Json", [NuGetOrgSource], log: null);
@@ -115,7 +143,7 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetLatestVersion_LogsOnCacheHit()
     {
-        CoreCache.Set(VersionCacheCategory, "logpackage", "3.0.0", extension: "txt");
+        SetLatest("LogPackage", NuGetOrgSource, "3.0.0");
         var logs = new List<string>();
 
         await PackageExtractor.GetLatestVersionAsync(
@@ -131,7 +159,7 @@ public class VersionCacheTests : IDisposable
     public async Task ResolveVersionPattern_WithCachedVersionList_ReturnsCachedMatch()
     {
         var versions = "1.0.0\n2.0.0-beta.1\n2.0.0\n2.1.0";
-        CoreCache.Set(VersionCacheCategory, "testpackage-all", versions, extension: "txt");
+        SetListings("TestPackage", NuGetOrgSource, versions);
 
         var result = await PackageExtractor.ResolveVersionPatternAsync(
             FailingClient, "TestPackage", "2.0.*", [NuGetOrgSource], log: null);
@@ -143,7 +171,7 @@ public class VersionCacheTests : IDisposable
     public async Task GetVersions_WithCachedVersionList_ReturnsCachedValues()
     {
         var versions = "1.0.0\n1.1.0\n2.0.0";
-        CoreCache.Set(VersionCacheCategory, "testpackage-all", versions, extension: "txt");
+        SetListings("TestPackage", NuGetOrgSource, versions);
 
         var result = await PackageExtractor.GetVersionsAsync(
             FailingClient, "TestPackage", includePrerelease: false, limit: null, log: null);
@@ -156,7 +184,7 @@ public class VersionCacheTests : IDisposable
     public async Task GetVersions_WithCachedList_RespectsLimit()
     {
         var versions = "1.0.0\n1.1.0\n2.0.0\n3.0.0";
-        CoreCache.Set(VersionCacheCategory, "limitpackage-all", versions, extension: "txt");
+        SetListings("LimitPackage", NuGetOrgSource, versions);
 
         var result = await PackageExtractor.GetVersionsAsync(
             FailingClient, "LimitPackage", includePrerelease: false, limit: 2, log: null);
@@ -171,7 +199,7 @@ public class VersionCacheTests : IDisposable
     public async Task GetVersions_WithCachedList_FiltersPrerelease()
     {
         var versions = "1.0.0\n2.0.0-beta.1\n2.0.0\n3.0.0-rc.1";
-        CoreCache.Set(VersionCacheCategory, "prerelease-all", versions, extension: "txt");
+        SetListings("Prerelease", NuGetOrgSource, versions);
 
         var result = await PackageExtractor.GetVersionsAsync(
             FailingClient, "Prerelease", includePrerelease: false, limit: null, log: null);
@@ -184,7 +212,7 @@ public class VersionCacheTests : IDisposable
     public async Task GetVersions_WithCachedList_IncludesPrerelease()
     {
         var versions = "1.0.0\n2.0.0-beta.1\n2.0.0\n3.0.0-rc.1";
-        CoreCache.Set(VersionCacheCategory, "prerelease2-all", versions, extension: "txt");
+        SetListings("Prerelease2", NuGetOrgSource, versions);
 
         var result = await PackageExtractor.GetVersionsAsync(
             FailingClient, "Prerelease2", includePrerelease: true, limit: null, log: null);
@@ -196,7 +224,9 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetVersions_WithExpiredCache_DoesNotReturnStaleList()
     {
-        var key = "expired-all";
+        var key = PackageExtractor.GetListingsVersionCacheKey(
+            "Expired",
+            NuGetOrgSource);
         CoreCache.Set(VersionCacheCategory, key, "1.0.0\n2.0.0", extension: "txt");
 
         var cachePath = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
@@ -212,7 +242,10 @@ public class VersionCacheTests : IDisposable
     [Fact]
     public async Task GetVersions_WithCustomSourceOnly_SkipsCache()
     {
-        CoreCache.Set(VersionCacheCategory, "customonly-all", "1.0.0\n2.0.0", extension: "txt");
+        SetListings(
+            "CustomOnly",
+            NuGetOrgSource,
+            "1.0.0\n2.0.0");
 
         // GetVersionsAsync resolves sources internally from NuGetSourceOptions.
         // With a source that isn't nuget.org, cache should be skipped.
@@ -232,7 +265,10 @@ public class VersionCacheTests : IDisposable
         // nuget.org's list is cached and contains no match for the pattern; the only matching
         // version lives on a secondary (custom) feed. Cross-source merging must still find it.
         // Regression guard: a first-source-wins shortcut would never query the custom feed.
-        CoreCache.Set(VersionCacheCategory, "mergepackage-all", "1.0.0\n2.0.0", extension: "txt");
+        SetListings(
+            "MergePackage",
+            NuGetOrgSource,
+            "1.0.0\n2.0.0");
 
         using var client = new HttpClient(new CustomFeedHandler(
             serviceIndexUrl: "https://custom.feed/v3/index.json",
@@ -245,6 +281,26 @@ public class VersionCacheTests : IDisposable
 
         Assert.Equal("9.9.9-custom.1", result);
     }
+
+    private static void SetLatest(
+        string packageName,
+        NuGetSource source,
+        string version)
+        => CoreCache.Set(
+            VersionCacheCategory,
+            PackageExtractor.GetLatestVersionCacheKey(packageName, source),
+            version,
+            extension: "txt");
+
+    private static void SetListings(
+        string packageName,
+        NuGetSource source,
+        string versions)
+        => CoreCache.Set(
+            VersionCacheCategory,
+            PackageExtractor.GetListingsVersionCacheKey(packageName, source),
+            versions,
+            extension: "txt");
 
     /// <summary>
     /// HTTP handler that throws on any request — used to prove cache prevented network access.

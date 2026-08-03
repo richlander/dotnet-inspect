@@ -5,12 +5,12 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Tests for router --version, --latest-version, and --versions behavior.
-/// Validates cache-first resolution, fallthrough, and offline behavior.
+/// Validates candidate-cache resolution, fallthrough, and offline behavior.
 /// </summary>
 [Collection("Console")]
 public class RouterVersionTests
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v3";
 
     public RouterVersionTests()
     {
@@ -23,7 +23,7 @@ public class RouterVersionTests
         // Ensure the package is cached by downloading it first
         await EnsurePackageCached("System.CommandLine");
 
-        var version = NuGetCache.TryGetLatestCachedVersion(
+        var version = PackageExtractor.TryGetLatestCachedCandidateVersion(
             "System.CommandLine",
             NuGetSourceResolver.ResolveSourceKeys(null));
         Assert.NotNull(version);
@@ -55,11 +55,11 @@ public class RouterVersionTests
     }
 
     [Fact]
-    public async Task TryGetLatestCachedVersion_ReturnsNewestVersion()
+    public async Task TryGetLatestCachedCandidateVersion_ReturnsNewestVersion()
     {
         await EnsurePackageCached("System.CommandLine");
 
-        var version = NuGetCache.TryGetLatestCachedVersion(
+        var version = PackageExtractor.TryGetLatestCachedCandidateVersion(
             "System.CommandLine",
             NuGetSourceResolver.ResolveSourceKeys(null));
 

@@ -27,6 +27,26 @@ public record NuGetSourceOptions
 public static class NuGetSourceResolver
 {
     /// <summary>
+    /// Restricts source selection to the producers that reported a discovered
+    /// package coordinate while retaining the config used to resolve their
+    /// credentials.
+    /// </summary>
+    public static NuGetSourceOptions? RestrictToSources(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> sourceUrls)
+    {
+        ArgumentNullException.ThrowIfNull(sourceUrls);
+        if (sourceUrls.Count == 0)
+            return original;
+
+        return new NuGetSourceOptions
+        {
+            Sources = [.. sourceUrls],
+            ConfigFile = original?.ConfigFile,
+        };
+    }
+
+    /// <summary>
     /// Resolves sources and reduces them to the identities the package content
     /// cache records, so a caller can ask the cache for content this
     /// configuration is actually entitled to. Configured order is preserved.

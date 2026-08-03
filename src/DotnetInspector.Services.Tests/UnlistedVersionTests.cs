@@ -15,7 +15,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class UnlistedVersionTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v3";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
 
     public UnlistedVersionTests()
@@ -166,7 +166,13 @@ public class UnlistedVersionTests : IDisposable
             client, "UnlistedPkg", includePrerelease: false, limit: null, log: null);
 
         Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);   // fail-open, unfiltered
-        Assert.Null(CoreCache.TryGet(VersionCacheCategory, "unlistedpkg-all", TimeSpan.FromHours(1), extension: "txt"));
+        Assert.Null(CoreCache.TryGet(
+            VersionCacheCategory,
+            PackageExtractor.GetListingsVersionCacheKey(
+                "UnlistedPkg",
+                NuGetOrgSource),
+            TimeSpan.FromHours(1),
+            extension: "txt"));
     }
 
     [Fact]

@@ -39,6 +39,17 @@
   `Size`, worth a measured 6-7% on real commands for about 9% more binary size
   (#3675).
 
+### Package source fidelity
+
+- Uses package-content caches only for an already-selected exact coordinate.
+  Version candidates come from source-scoped feed metadata, including offline
+  candidate-cache hits; installed package directories no longer introduce
+  versions for bare, wildcard, range, routing, or version-list operations.
+- Uses a NuGet global-packages payload only when `.nupkg.metadata.source`
+  identifies an authorized producer. Discovered coordinates are restricted to
+  feeds that reported the selected version; pinned coordinates may use any
+  active eligible feed.
+
 ### Metadata text containment
 
 - Contains metadata cell text by Unicode general category rather than by a

@@ -410,10 +410,10 @@ internal static class SourceEnricher
     }
 
     /// <summary>
-    /// Finds the latest cached version for a package by checking the cache directory.
+    /// Finds the latest cached version candidate reported by an active source.
     /// </summary>
     private static string? FindCachedPackageVersion(string packageName, ApiOptions options)
-        => NuGetCache.TryGetLatestCachedVersion(
+        => PackageExtractor.TryGetLatestCachedCandidateVersion(
             packageName,
             NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
 

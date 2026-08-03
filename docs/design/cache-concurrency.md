@@ -5,10 +5,10 @@ derived platform packs. [Version resolution](version-resolution.md) owns which
 package coordinate is selected and when network lookup occurs; this document
 owns how content for an exact coordinate becomes visible safely.
 
-The publication and filesystem sections describe the current implementation.
-The source-authorization and provenance sections describe the target contract
-from the [package source model](package-source-model.md) and identify current
-deviations explicitly.
+The publication, filesystem, candidate, source-authorization, and provenance
+sections describe the current implementation. Package source mapping remains
+target behavior tracked by the
+[package source model](package-source-model.md).
 
 ## Source conformance
 
@@ -56,12 +56,6 @@ A source inherited from `nuget.config`, added after `<clear/>`, or selected by
 authorizations, so their cached payloads become unavailable until the
 corresponding source is added back.
 
-The current implementation is more permissive: it reads global-folder content
-without checking provenance and some cache-first paths scan installed versions
-as candidates. Separating candidate discovery from provenance-matched payload
-fulfillment is tracked by
-[#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
-
 ### Selection between two eligible sources
 
 Source declaration order is not feed precedence. When two sources are eligible
@@ -71,10 +65,10 @@ eligible source that appears earlier in configuration. This preserves
 cache-first and offline operation and matches NuGet's contract: package source
 mapping, not declaration order, limits which feed may serve an id.
 
-"Authorized" currently means the source appears in the caller's active sources.
-After `<packageSourceMapping>` and candidate provenance are implemented, the
-payload producer must also be selected by the winning mapping pattern and, for
-a discovered coordinate, have reported that version. See the
+"Authorized" currently means the source appears in the caller's active sources
+and, for a discovered coordinate, reported the selected version. After
+`<packageSourceMapping>` is implemented, the payload producer must also be
+selected by the winning mapping pattern. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
 A source is identified by a digest of its canonical URL, and canonicalization is
@@ -113,7 +107,7 @@ implement any of those architectures exactly.
 
 | Precedent | Pattern adopted by dotnet-inspect | Important difference |
 | --- | --- | --- |
-| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet's global folder is also source-blind, whereas dotnet-inspect's own cache is scoped by source. |
+| NuGet global packages | Package id/version coordinates identify immutable entries, and readers require a completion marker. | NuGet.Client serializes installation with a cross-process file lock; dotnet-inspect allows independent staging and converges through atomic rename. NuGet accepts an exact global-folder hit without source authorization; dotnet-inspect requires its recorded producer to be authorized. |
 | Docker daemon | Concurrent requests for one exact package coordinate share one in-process task. | dotnet-inspect has no daemon, so separate CLI processes can still duplicate download and extraction work. |
 | Git immutable objects | Writers build and validate complete content in a temporary sibling directory, then atomically rename it into place. | Entries are identified by the cache root, normalized package id, version, and source rather than by a content hash. |
 | Git competing writers | One atomic rename wins; a losing publisher validates and uses the committed winner. | The loser may have performed duplicate work before converging. |

@@ -78,7 +78,7 @@ public static class PackageOptionsParser
             ? libraryValue ?? ""
             : null;
 
-        // Bare --version (no value): treat as version query (cache-first)
+        // Bare --version (no value): treat as a version query.
         bool bareVersion = explicitVersion == null && parseResult.GetResult(args.VersionOption) is { Implicit: false };
 
         var versionsValue = parseResult.GetValue(args.VersionsOption);

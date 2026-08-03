@@ -198,7 +198,7 @@ public record InspectionOptions : IProjectionOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// When true, bypass cache-first version resolution and always query the network.
+    /// When true, bypass source-scoped candidate metadata caches and always query the network.
     /// Used when the user specifies @latest.
     /// </summary>
     public bool ForceLatest { get; init; }

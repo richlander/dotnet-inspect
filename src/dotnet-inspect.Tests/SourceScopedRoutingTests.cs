@@ -149,7 +149,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     [Theory]
     [InlineData("type", "Widget")]
     [InlineData("member", "Widget.Render")]
-    public async Task QualifiedName_DoesNotSplitAtPackageCachedOnlyUnderExcludedSource(
+    public async Task QualifiedName_DoesNotSplitFromPackageContentCache(
         string command,
         string suffix)
     {
@@ -157,7 +157,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string qualifiedName = $"{packageName}.{suffix}";
         SeedPackage(packageName);
 
-        Assert.NotNull(SourceResolver.TryResolveQualifiedTypeName(
+        Assert.Null(SourceResolver.TryResolveQualifiedTypeName(
             qualifiedName,
             _ambientSourceKeys,
             allowPlatformPrefixFallback: false));
@@ -169,8 +169,30 @@ public sealed class SourceScopedRoutingTests : IDisposable
             observations,
             observation => observation.Stage == "qualified-type-split"
                 && observation.Detail.Contains(
-                    $"package-cache={packageName}",
+                    $"package-candidate-cache={packageName}",
                     StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void QualifiedName_SplitsFromSourceScopedCandidateMetadata()
+    {
+        string packageName = $"RouteCandidate{Guid.NewGuid():N}.Package";
+        string qualifiedName = $"{packageName}.Widget";
+        var nugetOrg = NuGetFetch.PackageSource.NuGetOrg;
+        CoreCache.Set(
+            "versions-v3",
+            PackageExtractor.GetLatestVersionCacheKey(packageName, nugetOrg),
+            "1.0.0",
+            extension: "txt");
+
+        Assert.NotNull(SourceResolver.TryResolveQualifiedTypeName(
+            qualifiedName,
+            _ambientSourceKeys,
+            allowPlatformPrefixFallback: false));
+        Assert.Null(SourceResolver.TryResolveQualifiedTypeName(
+            qualifiedName,
+            [NuGetCache.GetSourceKey(ExcludedSource)],
+            allowPlatformPrefixFallback: false));
     }
 
     private void SeedPackage(string packageName)

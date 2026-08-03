@@ -12,13 +12,19 @@ public sealed class FileSystemPackageContent : IPackageContent
 {
     private readonly string _root;
 
-    public FileSystemPackageContent(string rootPath, string? nupkgPath, bool fromCache)
+    public FileSystemPackageContent(
+        string rootPath,
+        string? nupkgPath,
+        bool fromCache,
+        string producerKey)
     {
         ArgumentException.ThrowIfNullOrEmpty(rootPath);
+        ArgumentException.ThrowIfNullOrEmpty(producerKey);
         _root = rootPath;
         RootPath = rootPath;
         NupkgPath = nupkgPath;
         FromCache = fromCache;
+        ProducerKey = producerKey;
     }
 
     /// <inheritdoc />
@@ -29,6 +35,9 @@ public sealed class FileSystemPackageContent : IPackageContent
 
     /// <inheritdoc />
     public bool FromCache { get; }
+
+    /// <inheritdoc />
+    public string ProducerKey { get; }
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)

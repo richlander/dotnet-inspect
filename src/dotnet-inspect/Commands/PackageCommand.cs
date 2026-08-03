@@ -339,25 +339,6 @@ public class PackageCommand
                 return 1;
             }
 
-            // Cache-first for bare --version (Limit==1 && !ForceLatest):
-            // check local caches before hitting NuGet, matching router behavior.
-            // Skipped under --include-unlisted: that flag requires the listing-aware path below
-            // (a locally-cached single version carries no listed/unlisted status column).
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
-                && !options.IncludeUnlisted)
-            {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
-                    normalizedName,
-                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
-                if (cachedVersion != null)
-                {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
-                        return cachedLatestExit;
-                    Console.WriteLine(cachedVersion);
-                    return 0;
-                }
-            }
-
             if (options.Limit == 1 && options.ForceLatest)
             {
                 var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);

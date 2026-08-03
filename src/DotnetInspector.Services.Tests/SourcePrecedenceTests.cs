@@ -30,7 +30,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class SourcePrecedenceTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v3";
 
     private const string FeedAIndex = "feed-a.example.test/v3/index.json";
     private const string FeedBIndex = "feed-b.example.test/v3/index.json";
@@ -55,6 +55,51 @@ public class SourcePrecedenceTests : IDisposable
             client, "Markout", [FeedA(), FeedB()], log: null, skipCache: true);
 
         Assert.Equal("0.32.99", version);
+    }
+
+    [Fact]
+    public async Task LatestResolution_AuthorizesOnlySourcesThatReportedSelectedVersion()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.31.0", "0.32.0"],
+            feedBVersions: ["0.32.0", "0.32.99"]);
+        using var client = new HttpClient(handler);
+
+        PackageVersionResolution? resolution =
+            await PackageExtractor.ResolveLatestVersionAsync(
+                client,
+                "Markout",
+                [FeedA(), FeedB()],
+                log: null,
+                skipCache: true);
+
+        Assert.NotNull(resolution);
+        Assert.Equal("0.32.99", resolution.Version);
+        Assert.Collection(
+            resolution.ReportingSources,
+            source => Assert.Equal($"https://{FeedBIndex}", source.Url));
+    }
+
+    [Fact]
+    public async Task LatestResolution_AuthorizesEverySourceThatReportedSelectedVersion()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.32.99"],
+            feedBVersions: ["0.32.99"]);
+        using var client = new HttpClient(handler);
+
+        PackageVersionResolution? resolution =
+            await PackageExtractor.ResolveLatestVersionAsync(
+                client,
+                "Markout",
+                [FeedA(), FeedB()],
+                log: null,
+                skipCache: true);
+
+        Assert.NotNull(resolution);
+        Assert.Equal(
+            [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+            resolution.ReportingSources.Select(source => source.Url));
     }
 
     [Fact]
@@ -121,7 +166,15 @@ public class SourcePrecedenceTests : IDisposable
         string? first = await PackageExtractor.GetLatestVersionAsync(
             client, "CachedPkg", sources, log: null, skipCache: false);
         Assert.Equal("2.0.0", first);
-        Assert.Equal("1.0.0", CoreCache.TryGet(VersionCacheCategory, "cachedpkg", TimeSpan.FromHours(1), extension: "txt"));
+        Assert.Equal(
+            "1.0.0",
+            CoreCache.TryGet(
+                VersionCacheCategory,
+                PackageExtractor.GetLatestVersionCacheKey(
+                    "CachedPkg",
+                    sources[0]),
+                TimeSpan.FromHours(1),
+                extension: "txt"));
 
         string? second = await PackageExtractor.GetLatestVersionAsync(
             client, "CachedPkg", sources, log: null, skipCache: false);
@@ -172,6 +225,61 @@ public class SourcePrecedenceTests : IDisposable
 
         Assert.NotNull(versions);
         Assert.Equal(["0.32.99", "0.32.0", "0.31.0"], versions);
+    }
+
+    [Fact]
+    public async Task WildcardResolution_RetainsOnlySelectedVersionReporters()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.31.0", "0.32.0"],
+            feedBVersions: ["0.32.0", "0.32.99"]);
+        using var client = new HttpClient(handler);
+
+        PackageVersionResolution? resolution =
+            await PackageExtractor.ResolveVersionPatternWithSourcesAsync(
+                client,
+                "Markout",
+                "0.32.*",
+                [FeedA(), FeedB()],
+                log: null);
+
+        Assert.NotNull(resolution);
+        Assert.Equal("0.32.99", resolution.Version);
+        Assert.Collection(
+            resolution.ReportingSources,
+            source => Assert.Equal($"https://{FeedBIndex}", source.Url));
+    }
+
+    [Fact]
+    public async Task VersionRange_RetainsReportersOnEveryAddress()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.31.0", "0.32.0"],
+            feedBVersions: ["0.32.0", "0.32.99"]);
+        using var client = new HttpClient(handler);
+        Assert.True(PackageVersionRange.TryParse(
+            "Markout@0.32.0..0.32.99",
+            out var range,
+            out _));
+
+        PackageVersionVector vector = await PackageVersionVector.ResolveAsync(
+            client,
+            range!,
+            new NuGetSourceOptions
+            {
+                Sources =
+                [
+                    $"https://{FeedAIndex}",
+                    $"https://{FeedBIndex}",
+                ],
+            });
+
+        Assert.Equal(
+            [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
+            vector.Addresses[0].ReportingSourceUrls);
+        Assert.Equal(
+            [$"https://{FeedBIndex}"],
+            vector.Addresses[1].ReportingSourceUrls);
     }
 
     [Fact]

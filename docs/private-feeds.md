@@ -162,16 +162,19 @@ Two practical consequences:
 - `--source` and `--add-source` take part in this. A run that replaces your sources will not read
   content cached under the sources it replaced.
 
-The NuGet global folder (`~/.nuget/packages`) is the exception, and it is read eagerly: a package
-found there is used whatever your sources say. That folder is not a feed dotnet-inspect fetched
-from — it is a local store you populated, mostly by `dotnet restore`. Its content is treated as
-yours, and reading it is what makes inspecting a package you have already restored both fast and
-faithful to the bytes your build actually used.
+The NuGet global folder (`~/.nuget/packages`) is also a payload cache, but its directory layout
+does not include a source. dotnet-inspect therefore reads the `source` recorded in the package's
+`.nupkg.metadata` file and uses the payload only when that producer is authorized for the exact
+coordinate. A package restored from a removed or different feed, or one with missing or malformed
+source metadata, is ignored.
 
-The consequence is worth stating plainly: if a private package is in your global folder, a run
-configured only for nuget.org will still inspect it. `--source` chooses which feeds are consulted
-for a download; it does not hide content already in the global folder. To inspect strictly what
-your configured sources serve, add `--no-nuget-cache`:
+For a concrete `Package@Version`, any active eligible feed can authorize a matching global-folder
+payload. For a discovered version, such as bare `Package`, `Package@latest`, or a wildcard, the
+recorded producer must be one of the feeds that reported the selected version. Installed payloads
+never introduce version candidates by themselves.
+
+Use `--no-nuget-cache` to disable the global folder entirely. This is useful when testing a cold
+feed path; it is not required for strict source fidelity, which is always enforced:
 
 ```bash
 dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache

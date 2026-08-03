@@ -14,7 +14,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class VersionListingTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v3";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
     private static readonly HttpClient FailingClient = new(new FailingHandler());
 
@@ -105,7 +105,13 @@ public class VersionListingTests : IDisposable
         _ = await PackageExtractor.GetVersionListingsAsync(
             client, "Pkg", includePrerelease: true, includeUnlisted: true, limit: null, log: null);
 
-        Assert.Null(CoreCache.TryGet(VersionCacheCategory, "pkg-listings", TimeSpan.FromHours(1), extension: "txt"));
+        Assert.Null(CoreCache.TryGet(
+            VersionCacheCategory,
+            PackageExtractor.GetListingsVersionCacheKey(
+                "Pkg",
+                NuGetOrgSource),
+            TimeSpan.FromHours(1),
+            extension: "txt"));
     }
 
     [Fact]

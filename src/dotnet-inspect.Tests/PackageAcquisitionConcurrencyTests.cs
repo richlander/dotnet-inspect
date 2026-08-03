@@ -661,7 +661,90 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void TryGetLatestCachedVersion_IgnoresVersionsFromUnconfiguredSources()
+    public void GlobalPackageContent_RequiresMatchingRecordedSource()
+    {
+        string packageName = $"globalprovenance.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        const string RecordedSource = "https://private.invalid/v3/index.json";
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "private",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"version":2,"source":"{{RecordedSource}}"}""");
+
+        string recordedKey = NuGetCache.GetSourceKey(RecordedSource);
+        string otherKey = NuGetCache.GetSourceKey(
+            "https://api.nuget.org/v3/index.json");
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [otherKey]));
+
+        CachedPackage? matching = NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [otherKey, recordedKey]);
+
+        Assert.NotNull(matching);
+        Assert.Equal(packageDirectory, matching.ExtractPath);
+        Assert.Equal(recordedKey, matching.ProducerKey);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"version":2,"source":null}""")]
+    [InlineData("""{"version":2,"source":42}""")]
+    [InlineData("""{"version":2,"source":""}""")]
+    [InlineData("""{"version":2,"source":"https://a.invalid","source":"https://b.invalid"}""")]
+    [InlineData("[]")]
+    [InlineData("not json")]
+    public void GlobalPackageContent_RejectsMissingAmbiguousOrMalformedProvenance(
+        string metadata)
+    {
+        string packageName = $"globalmissing.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        string packageDirectory = CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "payload",
+            payloadCount: 1);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            metadata);
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [NuGetCache.GetSourceKey("https://a.invalid")]));
+    }
+
+    [Fact]
+    public void GlobalPackageContent_RejectsAbsentMetadata()
+    {
+        string packageName = $"globalabsent.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        CreateExtractedPackage(
+            Path.Combine(_testRoot, "global", packageName, Version),
+            packageName,
+            "payload",
+            payloadCount: 1);
+
+        Assert.Null(NuGetCache.TryGetGlobalPackageContent(
+            Path.Combine(_testRoot, "global"),
+            packageName,
+            Version,
+            [TestSourceKey]));
+    }
+
+    [Fact]
+    public void PackageContentCaches_DoNotIntroduceVersionCandidates()
     {
         string packageName = $"latestscope.test.{Guid.NewGuid():N}";
         string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
@@ -678,9 +761,9 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             NuGetCache.CommitPackage(staged, nupkgPath: null, packageName, version, sourceKey);
         }
 
-        // 2.0.0 is newer but came from a feed this caller no longer reads.
-        Assert.Equal("1.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey]));
-        Assert.Equal("2.0.0", NuGetCache.TryGetLatestCachedVersion(packageName, [publicFeedKey, privateFeedKey]));
+        Assert.Null(PackageExtractor.TryGetLatestCachedCandidateVersion(
+            packageName,
+            [publicFeedKey, privateFeedKey]));
     }
 
     [Theory]
@@ -839,6 +922,117 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         // immaterial here — the point is that the flights were separate.
         Assert.True(outcomes[0].IsSuccess);
         AssertNoTemporaryDirectories(tempPrefix);
+    }
+
+    [Fact]
+    public void PackageAcquisitionIdentity_UsesAuthorizedProducerSetNotSourceOrder()
+    {
+        string producerA = NuGetCache.GetSourceKey(
+            "https://feed-a.invalid/v3/index.json");
+        string producerB = NuGetCache.GetSourceKey(
+            "https://feed-b.invalid/v3/index.json");
+
+        var forward = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerA, producerB]);
+        var reversed = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerB, producerA]);
+        var reporterAOnly = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producerA]);
+
+        Assert.Equal(forward, reversed);
+        Assert.NotEqual(forward, reporterAOnly);
+    }
+
+    [Fact]
+    public async Task DiscoveredPackage_DoesNotUsePayloadFromNonReportingActiveSource()
+    {
+        string packageName = $"reporterscope.test.{Guid.NewGuid():N}";
+        const string SelectedVersion = "2.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        string producerA = NuGetCache.GetSourceKey(FeedA);
+        string producerB = NuGetCache.GetSourceKey(FeedB);
+
+        NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "reporter-a"),
+                packageName,
+                "A",
+                payloadCount: 1),
+            nupkgPath: null,
+            packageName,
+            SelectedVersion,
+            producerA);
+
+        byte[] selectedArchive = CreatePackageArchive(
+            packageName,
+            SelectedVersion);
+        var handler = new ReporterScopedPackageHandler(
+            packageName,
+            selectedArchive);
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                });
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(SelectedVersion, outcome.Result!.Version);
+        Assert.Equal(producerB, outcome.Result.ProducerKey);
+        Assert.Equal(1, handler.PackageDownloadCount);
+        Assert.Equal(
+            NuGetCache.GetPackageCachePath(
+                packageName,
+                SelectedVersion,
+                producerB),
+            outcome.Result.ExtractPath);
+    }
+
+    [Fact]
+    public async Task PinnedPackage_MayUseAnyActiveProducer()
+    {
+        string packageName = $"pinnedscope.test.{Guid.NewGuid():N}";
+        const string Version = "2.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        string producerA = NuGetCache.GetSourceKey(FeedA);
+
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "pinned-a"),
+                packageName,
+                "A",
+                payloadCount: 1),
+            nupkgPath: null,
+            packageName,
+            Version,
+            producerA);
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                },
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(committed.ExtractPath, outcome.Result!.ExtractPath);
+        Assert.Equal(producerA, outcome.Result.ProducerKey);
     }
 
     [Fact]
@@ -1243,6 +1437,59 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                     Content = new ByteArrayContent(_responses.Dequeue()),
                 });
         }
+    }
+
+    private sealed class ReporterScopedPackageHandler(
+        string packageName,
+        byte[] packageArchive)
+        : HttpMessageHandler
+    {
+        private readonly string _normalizedName =
+            packageName.ToLowerInvariant();
+        private int _packageDownloadCount;
+
+        public int PackageDownloadCount =>
+            Volatile.Read(ref _packageDownloadCount);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url == "https://feed-a.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == "https://feed-b.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == $"https://content-a.invalid/flat/{_normalizedName}/index.json")
+                return Json("""{"versions":["1.0.0"]}""");
+            if (url == $"https://content-b.invalid/flat/{_normalizedName}/index.json")
+                return Json("""{"versions":["2.0.0"]}""");
+            if (url == $"https://content-b.invalid/flat/{_normalizedName}/2.0.0/{_normalizedName}.2.0.0.nupkg")
+            {
+                Interlocked.Increment(ref _packageDownloadCount);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(packageArchive),
+                });
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        private static Task<HttpResponseMessage> Json(string body) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+            });
     }
 
     private sealed class FailingHandler : HttpMessageHandler

@@ -4,10 +4,10 @@ dotnet-inspect uses Docker-style version tags to balance freshness against
 latency. Version discovery is cached briefly; package contents are cached
 permanently by exact version.
 
-The command modes and listing rules describe current behavior. Candidate-source
-and payload-provenance rules describe the target
-[package source model](package-source-model.md); its implementation boundaries
-identify current deviations.
+The command modes, listing rules, source-scoped candidate caches, and
+payload-provenance rules describe current behavior. Package source mapping and
+the remaining source-policy boundaries are tracked by the
+[package source model](package-source-model.md).
 
 ## Four modes
 
@@ -191,10 +191,11 @@ the nuget.org gallery:
   stable "latest" path already uses the listing-aware search API and is
   unaffected. This is nuget.org-only; other feeds have no listed concept and are
   returned unfiltered.
-- **Explicit access is preserved.** A pinned `Name@Version` (including
-  `Name@latest` and the addressable-vector endpoints) never enumerates, so a
-  known unlisted version still resolves and loads — matching NuGet's own
-  behavior of restoring a known unlisted version.
+- **Explicit access is preserved.** A pinned concrete `Name@Version` never
+  enumerates, so a known unlisted version still resolves and loads — matching
+  NuGet's own behavior of restoring a known unlisted version. `Name@latest`,
+  wildcard versions, and addressable-vector endpoints are discovered
+  coordinates; they retain the feeds that reported each selected version.
 - **Fail-open vs. fail-closed on outage.** If the registration index cannot be
   fetched or parsed (network failure, or a valid-JSON document whose shape
   defies the expected schema), the condition is logged and behavior depends on
@@ -206,9 +207,9 @@ the nuget.org gallery:
   unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
   cache TTL; only an authoritatively filtered list is persisted. The version
-  cache category is versioned (`versions-v2`) so lists written by an older,
-  pre-filter build are never read after upgrading — the filter takes effect
-  immediately rather than being delayed by up to the cache TTL.
+  cache category is versioned (`versions-v3`). Every key contains the producer
+  identity, so one feed's candidates cannot answer for another; the category
+  bump also fences older source-blind and pre-filter entries.
 
 ### Revealing unlisted versions
 
@@ -227,10 +228,10 @@ listing, so verifying a known unlisted version reports it rather than
 feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions 1 --include-unlisted`) it takes the listing-aware path — every
-single-version shortcut (the local package cache, a pinned `Name@Version`, and
-`Name@latest`) still emits a one-row tagged table rather than a bare version, so
-the result always carries the `listed`/`unlisted` column the flag requests.
+(`--versions 1 --include-unlisted`) it takes the listing-aware path. A pinned
+`Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
+bare version, so the result always carries the `listed`/`unlisted` column the
+flag requests.
 (`Name@latest` resolves through the listing-aware latest path, so its single row
 is listed by construction.) With an addressable range (`Name@A..B --versions
 --include-unlisted`) the vector is resolved from the full listing set — unlisted
@@ -253,7 +254,7 @@ read as listed.
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client; payload-only, with producer in `.nupkg.metadata` |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v4/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v3/` | 1 hour | dotnet-inspect; one entry per producer and package id |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
@@ -261,7 +262,7 @@ read as listed.
 The app package cache carries a `{source}` segment because cached content is
 scoped to the source that supplied it; see
 [Source conformance](cache-concurrency.md#source-conformance). The NuGet global
-cache has no such segment. The target source model reads its
+cache has no such segment. dotnet-inspect reads its
 `.nupkg.metadata.source` before using it as a payload replica of an authorized
 feed.
 

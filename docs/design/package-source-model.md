@@ -414,9 +414,11 @@ decide whether a cache key is allowed. Version discovery, package extraction,
 nuspec reads, search, routing, metadata enrichment, RID verification, and
 symbols should consume that shared result.
 
-The current implementation already source-scopes downloaded package content,
-aggregates versions across sources, and threads caller options through routing
-probes. The remaining implementation work includes:
+The current implementation source-scopes downloaded package content and
+candidate metadata, aggregates versions across sources while retaining the
+reporting feeds, uses global-folder payloads only when their recorded producer
+is authorized, and threads caller options through routing probes. The remaining
+implementation work includes:
 
 - honoring `<packageSourceMapping>` across every operation
   ([#3722](https://github.com/richlander/dotnet-inspect/issues/3722));
@@ -433,9 +435,6 @@ probes. The remaining implementation work includes:
 - carrying payload producer provenance through package inspection indexes,
   projected platform packs, and package-associated symbols
   ([#3738](https://github.com/richlander/dotnet-inspect/issues/3738));
-- separating candidate caches from payload caches and requiring
-  provenance-matched `global-packages` payloads
-  ([#3752](https://github.com/richlander/dotnet-inspect/issues/3752));
 - exposing producer feed and payload location as standard package provenance;
 - defining canonical local-source identity and acquiring packages and nuspecs
   from configured folder feeds
