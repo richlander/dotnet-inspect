@@ -104,11 +104,81 @@ public class ApiCommand
             return null;
 
         return selectResult.Sections != null
-            ? options with { IncludeSections = selectResult.Sections }
-            : options;
+            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            : options with { SelectDeferredToListing = false };
     }
 
     // ===== Shared Preamble =====
+
+    /// <summary>
+    /// True when <c>-S</c> failed against the single-type pipeline but resolves against the type
+    /// listing, so the preamble must carry the decision forward instead of rejecting it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This deliberately only intercepts the <em>total</em> failure that would otherwise return 1,
+    /// mirroring <see cref="SelectOutput.WriteUnresolved"/>'s own definition of that state. Nothing
+    /// that succeeds today can reach the deferral, which bounds the change to invocations that
+    /// already exit 1: a partial match still warns and proceeds exactly as before.
+    /// </para>
+    /// <para>
+    /// A name valid for neither pipeline is a plain typo and still fails here, keeping the fast
+    /// rejection -- and the single-type suggestions -- for the case that cannot be a listing.
+    /// </para>
+    /// </remarks>
+    internal static bool ShouldDeferSelectToListing(
+        ApiOptions options,
+        bool singleTypeMode,
+        SelectResult singleTypeResult,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        // Only `type` falls back from a single-type request to a listing. `member` renders a member
+        // view or nothing, and the `api` shim renders nothing at all.
+        if (options is not TypeOptions || !singleTypeMode || options.Select is not { Length: > 0 })
+            return false;
+
+        bool totalFailure = singleTypeResult.Unresolved.Count > 0
+            && singleTypeResult.Sections is null or { Count: 0 };
+        if (!totalFailure)
+            return false;
+
+        return ResolveSelectForListing(options, typePipeline).Sections is { Count: > 0 };
+    }
+
+    private static SelectResult ResolveSelectForListing(ApiOptions options, SectionPipeline<ApiSurface> typePipeline)
+        => SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            typePipeline.SelectableSectionNames,
+            typePipeline.FixedOverviewSectionNames,
+            typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+
+    /// <summary>
+    /// Reports a deferred <c>-S</c> against the single-type pipeline for a query that turned out to
+    /// render a single type after all, restoring the rejection the preamble held back. Returns true
+    /// when the caller should stop.
+    /// </summary>
+    /// <remarks>
+    /// Resolution is repeated against the same three inputs the preamble used, so it reproduces the
+    /// same total failure and the same message. It reports unconditionally rather than forwarding
+    /// <see cref="SelectOutput.WriteUnresolved"/>'s partial-match result: a deferral is only ever
+    /// created from a total failure, and treating a hypothetical partial as "carry on" would render
+    /// the single-type view with the selector silently dropped.
+    /// </remarks>
+    internal static bool RejectDeferredSelectForSingleType(ApiOptions options, SectionPipeline<ApiType> memberPipeline)
+    {
+        if (!options.SelectDeferredToListing)
+            return false;
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            memberPipeline.SelectableSectionNames,
+            memberPipeline.FixedOverviewSectionNames,
+            memberPipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        SelectOutput.WriteUnresolved(result);
+        return true;
+    }
 
     internal record PreambleResult(
         ApiOptions Options,
@@ -200,12 +270,29 @@ public class ApiCommand
             bareSelectSections,
             singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
-        if (SelectOutput.WriteUnresolved(selectResult))
-            return (null!, 1);
-        if (selectResult.Sections != null)
-            options = options with { IncludeSections = selectResult.Sections };
+        if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+        {
+            // `-D` advertised these names and `-S` rejected them, on the same command line: the
+            // preamble was answering for the single-type pipeline while the render is a listing.
+            // Hold the rejection rather than resolving it here, because which pipeline is right is
+            // not known until the type lookup runs.
+            options = options with { SelectDeferredToListing = true };
+        }
+        else
+        {
+            if (SelectOutput.WriteUnresolved(selectResult))
+                return (null!, 1);
+            if (selectResult.Sections != null)
+                options = options with { IncludeSections = selectResult.Sections };
+        }
 
-        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        // A deferred select has no IncludeSections yet, so ask the listing pipeline how many
+        // sections it resolves to; otherwise every deferred --count would fail the arity check on
+        // an empty set rather than on what the listing will actually render.
+        var countSections = options.SelectDeferredToListing
+            ? ResolveSelectForListing(options, typePipeline).Sections
+            : options.IncludeSections;
+        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(countSections))
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);

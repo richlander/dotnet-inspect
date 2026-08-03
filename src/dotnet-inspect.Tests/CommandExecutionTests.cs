@@ -3321,6 +3321,150 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// A dotted name that does not resolve to a type renders a listing, so a listing section name
+    /// has to be selectable on it. The preamble picks its pipeline from the argument shape, long
+    /// before the assembly is read, so it was answering for the single-type view: <c>-D</c>
+    /// advertised <c>Classes</c> and <c>-S Classes</c> was rejected on the same command line,
+    /// against a section list the user was never shown.
+    /// </summary>
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData(SectionNames.ApiInfo)]
+    public async Task Type_PrefixBrowse_ListingSectionName_IsSelectable(string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
+
+        // Renders the named section and only it -- a fall-through to the verbosity ladder would
+        // also pass a bare "contains Classes" check.
+        Assert.Equal([section], SectionHeadings(output));
+    }
+
+    /// <summary>
+    /// The deferral must not leak into the view it was deferred for. A type that resolves renders a
+    /// single type, where a listing section name is exactly as wrong as it was before -- reported
+    /// against the single-type pipeline, with that pipeline's sections offered.
+    /// </summary>
+    [Fact]
+    public async Task Type_SingleType_ListingSectionName_IsStillRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
+            "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
+
+        // Names the pipeline that rejected it, so the message is actionable rather than merely
+        // negative -- and proves the single-type list is what was consulted.
+        Assert.Contains(SectionNames.Baseclass, error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With no prefix matches there is no listing for a deferred select to belong to, so it is
+    /// reported exactly as the preamble would have reported it. Holding the rejection must not turn
+    /// into dropping it.
+    /// </summary>
+    [Fact]
+    public async Task Type_UnresolvedTypeWithoutPrefixMatches_StillReportsTheDeferredSelect()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A name that is valid for neither pipeline is a plain typo and still fails in the preamble,
+    /// keeping the fast rejection for the case that cannot be a listing.
+    /// </summary>
+    [Theory]
+    [InlineData("Command")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests")]
+    public async Task Type_SelectValidForNeitherPipeline_FailsRegardlessOfWhatTheNameResolvesTo(string target)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Zzznosuchsection' not found", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every consumer of a deferred select has to resolve it, not just the one that renders the
+    /// table. <c>--count</c> checks section arity in the preamble and discovery filters by the
+    /// selected sections, so both would otherwise read the deferral's empty include set as "no
+    /// sections" and answer about the wrong thing.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_ListingSectionName_ReachesCountAndDiscovery()
+    {
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+
+        // Agrees with the rows the same selection renders, so this cannot pass by counting a
+        // different section or an unfiltered surface.
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+        Assert.Equal(0, rowsExit);
+        var rowCount = rowsOutput.Split('\n').Count(l => l.Trim().Length > 0) - 1;
+        Assert.Equal(rowCount, int.Parse(countOutput.Trim()));
+
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        Assert.Contains("Classes", discoverOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enums", discoverOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Section arity for <c>--count</c> is still judged against what the listing will actually
+    /// render, so a deferred select naming two sections fails the same way a direct one does.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_MultiSectionSelect_StillFailsCountArity()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("exactly one section", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The platform prefix browse renders a listing for what entered as a single-type request, so
+    /// it needs the same re-resolution the local prefix browse does. It is reached by a different
+    /// route -- the wide fallback, after the local lookup finds neither the type nor a prefix match
+    /// -- so covering only the local browse would leave this one dropping the selector silently.
+    /// </summary>
+    [Fact]
+    public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.IO.Fil", "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        // Names the route, so that this silently becoming the local browse -- which has its own
+        // coverage -- shows up as a failure rather than as duplicate coverage of one path.
+        Assert.Contains("platform prefix matches", error, StringComparison.Ordinal);
+        Assert.Equal(["Classes"], SectionHeadings(output));
+
+        // A name valid for neither pipeline still fails on this route.
+        var (bogusExit, _, bogusError) = await RunAppAsync(
+            "type", "System.IO.Fil", "-S", "Zzznosuchsection", "--tips", "q");
+        Assert.Equal(1, bogusExit);
+        Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The compact fields list is the whole of the <c>-v:q</c> view and appears nowhere else. Every
     /// other view can reach the same facts through the bounded API Info section, so carrying them
     /// as a document scalar as well printed identity twice on any view that showed both.
