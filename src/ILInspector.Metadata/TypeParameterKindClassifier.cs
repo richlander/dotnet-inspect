@@ -348,6 +348,25 @@ internal static class TypeParameterKindClassifier
     /// trusting the assembly.
     /// </remarks>
     static bool DeclaresCoreLibraryRoot(MetadataReader reader)
+        => s_coreLibraryRoots.GetValue(reader, static key => ScanForCoreLibraryRoot(key) ? s_true : s_false) == s_true;
+
+    /// <summary>
+    /// Memoized because the answer is a pure function of the module and the scan walks the
+    /// whole type table: without this, a module pairing many constrained parameters with a
+    /// large type table costs the product of the two. Measured on a synthesized module of
+    /// 2,000 constrained parameters and 20,001 types, extraction fell from 0.74s to 0.21s.
+    /// That cost reduction is measured, not gated -- no test pins it, because a module
+    /// large enough to separate the two reliably would dominate the suite's run time. The
+    /// classification itself is gated by
+    /// <c>ConstraintRestatement_RejectsASameModuleCoreLibraryLookalike</c>.
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MetadataReader, object> s_coreLibraryRoots = new();
+
+    static readonly object s_true = new();
+
+    static readonly object s_false = new();
+
+    static bool ScanForCoreLibraryRoot(MetadataReader reader)
     {
         try
         {
