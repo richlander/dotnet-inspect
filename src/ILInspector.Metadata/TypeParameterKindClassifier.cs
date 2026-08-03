@@ -32,20 +32,15 @@ internal static class TypeParameterKindClassifier
         ["System.Object", "System.ValueType", "System.Enum"];
 
     /// <param name="chain">
-    /// State for following `where T : U`, which makes T only as known as U. Carries the
-    /// parameters on the *current* path, so a cyclic or self-referential chain -- which
-    /// metadata can express even though C# cannot -- terminates, and the answers already
-    /// computed, so a chain that reconverges is answered rather than re-walked.
-    /// <para>
-    /// Required rather than optional, and one instance is meant to serve a whole parameter
-    /// list: a caller that allocates one per parameter rewalks each chain's entire tail
-    /// and is quadratic in the number of parameters. There is deliberately no overload
-    /// that allocates one per call, so that cost cannot be reintroduced by accident.
-    /// </para>
+    /// The answers for the parameter list <paramref name="handle"/> belongs to. One
+    /// instance is meant to serve a whole list: `where T : U` makes the list a graph, and
+    /// this holds the graph's answers, so it is resolved once rather than re-resolved from
+    /// every parameter that reaches it. There is deliberately no overload that allocates
+    /// one per call, so that cost cannot be reintroduced by accident.
     /// </param>
     public static TypeParameterTypeKind Classify(
         MetadataReader reader,
-        GenericParameter parameter,
+        GenericParameterHandle handle,
         bool hasValueTypeConstraint,
         bool hasReferenceTypeConstraint,
         ChainState chain)
@@ -56,74 +51,110 @@ internal static class TypeParameterKindClassifier
         if (hasReferenceTypeConstraint)
             return TypeParameterTypeKind.ReferenceType;
 
-        var kind = TypeParameterTypeKind.NeitherReferenceNorValue;
-        foreach (var constraintHandle in parameter.GetConstraints())
-        {
-            GenericParameterConstraint constraint;
-            try
-            {
-                constraint = reader.GetGenericParameterConstraint(constraintHandle);
-            }
-            catch (BadImageFormatException)
-            {
-                return TypeParameterTypeKind.Undetermined;
-            }
-
-            switch (ClassifyConstraintType(reader, constraint.Type))
-            {
-                // One class constraint settles it; nothing later can unprove it.
-                case ConstraintClass.ProvesReferenceType:
-                    return TypeParameterTypeKind.ReferenceType;
-                case ConstraintClass.Unreadable:
-                    kind = TypeParameterTypeKind.Undetermined;
-                    break;
-                case ConstraintClass.ProvesNothing:
-                    break;
-
-                // `where T : U` -- T is exactly as known as U, so follow the chain.
-                case ConstraintClass.DeferToTypeParameter:
-                    switch (ClassifySibling(reader, parameter, constraint.Type, chain))
-                    {
-                        case TypeParameterTypeKind.ReferenceType:
-                            return TypeParameterTypeKind.ReferenceType;
-
-                        // A value-type parameter cannot be a constraint in C#, so this
-                        // is malformed rather than a row of the table; fail closed.
-                        case TypeParameterTypeKind.ValueType:
-                        case TypeParameterTypeKind.Undetermined:
-                            kind = TypeParameterTypeKind.Undetermined;
-                            break;
-                        case TypeParameterTypeKind.NeitherReferenceNorValue:
-                            break;
-                    }
-
-                    break;
-            }
-        }
-
-        return kind;
+        return chain.Answer(reader, handle);
     }
 
     /// <summary>
-    /// Classifies the generic parameter that <paramref name="constraintType"/> names,
-    /// so that `where T : U` inherits U's answer. Both parameters belong to the same
+    /// Reads one parameter into the facts the two closures need: whether it is settled by
+    /// its own flags or by a constraint that proves reference-ness on its own, whether
+    /// anything about it was unreadable, and which sibling parameters it defers to.
+    /// </summary>
+    /// <remarks>
+    /// Unreadability is recorded rather than returned, so that a constraint this assembly
+    /// cannot read does not hide a later one that proves reference-ness outright. A proof
+    /// is a proof wherever it sits in the list, and nothing unreadable can unprove it;
+    /// answering otherwise would make the verdict depend on constraint order.
+    /// </remarks>
+    static Node Describe(MetadataReader reader, GenericParameterHandle handle)
+    {
+        var node = new Node(handle);
+        GenericParameter parameter;
+        try
+        {
+            parameter = reader.GetGenericParameter(handle);
+        }
+        catch (BadImageFormatException)
+        {
+            node.Unreadable = true;
+            return node;
+        }
+
+        var special = parameter.Attributes & GenericParameterAttributes.SpecialConstraintMask;
+        if ((special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0)
+        {
+            node.IsValueType = true;
+            return node;
+        }
+
+        if ((special & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
+        {
+            node.ProvesReference = true;
+            return node;
+        }
+
+        try
+        {
+            foreach (var constraintHandle in parameter.GetConstraints())
+            {
+                GenericParameterConstraint constraint;
+                try
+                {
+                    constraint = reader.GetGenericParameterConstraint(constraintHandle);
+                }
+                catch (BadImageFormatException)
+                {
+                    node.Unreadable = true;
+                    continue;
+                }
+
+                switch (ClassifyConstraintType(reader, constraint.Type))
+                {
+                    case ConstraintClass.ProvesReferenceType:
+                        node.ProvesReference = true;
+                        break;
+                    case ConstraintClass.Unreadable:
+                        node.Unreadable = true;
+                        break;
+                    case ConstraintClass.ProvesNothing:
+                        break;
+
+                    // `where T : U` -- T is exactly as known as U, so record the edge.
+                    case ConstraintClass.DeferToTypeParameter:
+                        if (SiblingHandle(reader, parameter, constraint.Type) is { } target)
+                            node.Defers.Add(target);
+                        else
+                            node.Unreadable = true;
+                        break;
+                }
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            node.Unreadable = true;
+        }
+
+        return node;
+    }
+
+    /// <summary>
+    /// The generic parameter that <paramref name="constraintType"/> names, so that
+    /// `where T : U` can be recorded as an edge to U. Both parameters belong to the same
     /// declaration, so U is found among the siblings of <paramref name="parameter"/>
     /// rather than by resolving anything -- a method type parameter among the owning
     /// method's, a type type parameter among the declaring type's.
     /// </summary>
     /// <remarks>
-    /// Fails closed on anything unexpected: a signature that does not decode to a single
-    /// parameter index, an index outside the owning collection, an owner this assembly
-    /// cannot read, or a chain that revisits a parameter it is already classifying.
+    /// Yields null, and so fails closed, on anything unexpected: a signature that does not
+    /// decode to a single parameter index, an index outside the owning collection, or an
+    /// owner this assembly cannot read.
     /// </remarks>
-    static TypeParameterTypeKind ClassifySibling(
+    static GenericParameterHandle? SiblingHandle(
         MetadataReader reader,
         GenericParameter parameter,
-        EntityHandle constraintType,
-        ChainState chain)
+        EntityHandle constraintType)
     {
         if (constraintType.Kind != HandleKind.TypeSpecification)
-            return TypeParameterTypeKind.Undetermined;
+            return null;
 
         var reference = GuardedProviderDecode.TypeSpec(
             reader,
@@ -132,74 +163,44 @@ internal static class TypeParameterKindClassifier
             (GenericContext?)null,
             fallback: null);
         if (reference is not { } target)
-            return TypeParameterTypeKind.Undetermined;
+            return null;
 
         try
         {
             var siblings = SiblingParameters(reader, parameter, target.IsMethodParameter);
             if (siblings is not { } handles || target.Index < 0 || target.Index >= handles.Count)
-                return TypeParameterTypeKind.Undetermined;
+                return null;
 
-            var siblingHandle = handles[target.Index];
-            // Already answered. Reusing it is what keeps a chain that reconverges from
-            // being mistaken for a cycle, and what keeps a long chain linear rather
-            // than quadratic. Only answers reached without cutting the walk are stored,
-            // so this cannot hand back a path-dependent verdict -- see below.
-            if (chain.Answers.TryGetValue(siblingHandle, out var answered))
-                return answered;
-
-            // Malformed metadata can make the walk unbounded in ways the path guard
-            // alone does not bound, because a cut answer cannot be cached and so is
-            // recomputed for every parameter that reaches it. Spending a shared budget
-            // keeps a whole parameter list linear in the worst case; running out is a
-            // cut like any other and fails closed.
-            if (chain.Budget <= 0)
-            {
-                chain.Cuts++;
-                return TypeParameterTypeKind.Undetermined;
-            }
-
-            chain.Budget--;
-
-            // Only the current path guards against cycles, so a parameter is released
-            // once its own subtree is done and stays reachable from a sibling branch.
-            if (!chain.Path.Add(siblingHandle))
-            {
-                chain.Cuts++;
-                return TypeParameterTypeKind.Undetermined;
-            }
-
-            int cutsBefore = chain.Cuts;
-            try
-            {
-                var sibling = reader.GetGenericParameter(siblingHandle);
-                var special = sibling.Attributes & GenericParameterAttributes.SpecialConstraintMask;
-                var kind = Classify(
-                    reader,
-                    sibling,
-                    (special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
-                    (special & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
-                    chain);
-
-                // A subtree that was cut answers for the path it was reached by, not for
-                // the parameter itself: the cut hid constraints that a different path
-                // would have followed. Caching that would carry one parameter's verdict
-                // to another that merely reaches it, which is how a parameter whose real
-                // answer is `class` can come back unclassified and lose its clause.
-                if (chain.Cuts == cutsBefore)
-                    chain.Answers[siblingHandle] = kind;
-
-                return kind;
-            }
-            finally
-            {
-                chain.Path.Remove(siblingHandle);
-            }
+            return handles[target.Index];
         }
         catch (BadImageFormatException)
         {
-            return TypeParameterTypeKind.Undetermined;
+            return null;
         }
+    }
+
+    /// <summary>
+    /// One parameter as the constraint graph sees it.
+    /// </summary>
+    sealed class Node(GenericParameterHandle handle)
+    {
+        public GenericParameterHandle Handle { get; } = handle;
+
+        /// <summary>The sibling parameters this one defers to, one entry per constraint.</summary>
+        public List<GenericParameterHandle> Defers { get; } = [];
+
+        /// <summary>Reference-ness is settled by this parameter alone, with no edge followed.</summary>
+        public bool ProvesReference { get; set; }
+
+        /// <summary>The value-type flag, which settles the parameter and admits no constraints.</summary>
+        public bool IsValueType { get; set; }
+
+        /// <summary>
+        /// Something about this parameter could not be read, so it can never be proven to
+        /// constrain nothing. Left unanswered by both closures, which is what fails it
+        /// closed to <see cref="TypeParameterTypeKind.Undetermined"/>.
+        /// </summary>
+        public bool Unreadable { get; set; }
     }
 
     /// <summary>
@@ -231,34 +232,251 @@ internal static class TypeParameterKindClassifier
     }
 
     /// <summary>
-    /// The two things following a `where T : U` chain needs: the parameters on the path
-    /// currently being walked, and the answers already reached. Answers outlive a single
-    /// walk -- a handle identifies the same parameter for the whole module -- so a caller
-    /// classifying a parameter list reuses one instance across it.
+    /// The answers for one declaration's type parameters, and the resolution that computes
+    /// them. A caller classifying a parameter list reuses one instance across it; answers
+    /// outlive a single resolution, since a handle identifies the same parameter for the
+    /// whole module.
     /// </summary>
+    /// <remarks>
+    /// `where T : U` makes a declaration's parameters a directed graph rather than a tree,
+    /// and metadata can make that graph cyclic even though C# rejects it (CS0454). This
+    /// resolves it as a graph -- two closures over explicit worklists, no recursion and no
+    /// walk order -- so every answer is a function of the graph alone and all of them can
+    /// be cached unconditionally.
+    /// <para>
+    /// That property is the point. An earlier design walked depth-first and cut the walk at
+    /// a parameter already on the path, which made an answer depend on where the walk
+    /// started and so forced a rule about which answers were safe to keep. It also turned
+    /// depth into stack frames and repeated work into a budget to be rationed, and valid
+    /// metadata could reach both bounds: a long chain overflowed the stack, and a wide
+    /// acyclic graph exhausted the budget and lost a clause it had already proven. Neither
+    /// bound exists here, because neither quantity is consumed.
+    /// </para>
+    /// </remarks>
     internal sealed class ChainState
     {
-        /// <summary>The parameters on the walk currently in progress.</summary>
-        public HashSet<GenericParameterHandle> Path { get; } = [];
+        readonly Dictionary<GenericParameterHandle, TypeParameterTypeKind> _answers = [];
+
+        internal TypeParameterTypeKind Answer(MetadataReader reader, GenericParameterHandle handle)
+        {
+            if (_answers.TryGetValue(handle, out var answer))
+                return answer;
+
+            Resolve(reader, handle);
+
+            // Resolve answers everything it reached, so the miss below cannot happen; it
+            // fails closed rather than asserting.
+            return _answers.TryGetValue(handle, out var resolved)
+                ? resolved
+                : TypeParameterTypeKind.Undetermined;
+        }
 
         /// <summary>
-        /// Answers reached without cutting the walk, and therefore independent of the
-        /// parameter the walk started from.
+        /// Answers <paramref name="root"/> and everything reachable from it, by resolving
+        /// the constraint graph that contains it.
         /// </summary>
-        public Dictionary<GenericParameterHandle, TypeParameterTypeKind> Answers { get; } = [];
+        void Resolve(MetadataReader reader, GenericParameterHandle root)
+        {
+            var nodes = Discover(reader, root);
+            var predecessors = Predecessors(nodes);
+
+            ProveReferenceTypes(nodes, predecessors);
+            ProveConstrainsNothing(nodes, predecessors);
+
+            // Whatever neither closure could prove. A parameter lands here by deferring,
+            // however indirectly, to something unreadable or to a cycle -- in both cases
+            // its answer is genuinely unknown, and both wrong guesses are compile errors
+            // in the consumer, so it stays unclassified.
+            foreach (var handle in nodes.Keys)
+            {
+                if (!_answers.ContainsKey(handle))
+                    _answers[handle] = TypeParameterTypeKind.Undetermined;
+            }
+        }
 
         /// <summary>
-        /// How many times the walk has been cut short, by a cycle or by the budget. A
-        /// subtree spanning a cut is path-dependent and must not be cached.
+        /// The parameters reachable from <paramref name="root"/> that are not answered
+        /// already, read once each. Cycles terminate because a parameter is described
+        /// before its edges are followed.
         /// </summary>
-        public int Cuts { get; set; }
+        Dictionary<GenericParameterHandle, Node> Discover(MetadataReader reader, GenericParameterHandle root)
+        {
+            var nodes = new Dictionary<GenericParameterHandle, Node>();
+            var pending = new Stack<GenericParameterHandle>();
+            pending.Push(root);
+
+            while (pending.Count > 0)
+            {
+                var handle = pending.Pop();
+                if (_answers.ContainsKey(handle) || nodes.ContainsKey(handle))
+                    continue;
+
+                var node = Describe(reader, handle);
+                nodes[handle] = node;
+                foreach (var target in node.Defers)
+                {
+                    if (!_answers.ContainsKey(target) && !nodes.ContainsKey(target))
+                        pending.Push(target);
+                }
+            }
+
+            return nodes;
+        }
 
         /// <summary>
-        /// Sibling classifications left before the walk gives up. Only chains that are
-        /// cut can consume this, since an uncut chain is answered once and then cached;
-        /// the bound exists so malformed metadata cannot make a parameter list quadratic.
+        /// Reverses the edges, so a proof can be pushed to everything that defers to the
+        /// parameter it was proven about. Edges leaving the discovered graph point at
+        /// parameters already answered, so they are folded into the deferring node here as
+        /// the constants they are.
         /// </summary>
-        public int Budget { get; set; } = 100_000;
+        Dictionary<GenericParameterHandle, List<Node>> Predecessors(Dictionary<GenericParameterHandle, Node> nodes)
+        {
+            var predecessors = new Dictionary<GenericParameterHandle, List<Node>>();
+            foreach (var node in nodes.Values)
+            {
+                foreach (var target in node.Defers)
+                {
+                    if (!nodes.ContainsKey(target))
+                    {
+                        switch (_answers.TryGetValue(target, out var settled)
+                            ? settled
+                            : TypeParameterTypeKind.Undetermined)
+                        {
+                            case TypeParameterTypeKind.ReferenceType:
+                                node.ProvesReference = true;
+                                break;
+                            case TypeParameterTypeKind.NeitherReferenceNorValue:
+                                break;
+
+                            // A value-type parameter cannot be a constraint in C#, so
+                            // this is malformed rather than a row of the table.
+                            default:
+                                node.Unreadable = true;
+                                break;
+                        }
+
+                        continue;
+                    }
+
+                    if (!predecessors.TryGetValue(target, out var waiting))
+                        predecessors[target] = waiting = [];
+
+                    waiting.Add(node);
+                }
+            }
+
+            return predecessors;
+        }
+
+        /// <summary>
+        /// Settles every parameter the value-type flag settles, then spreads reference-ness
+        /// backwards: a parameter that defers to one known to be a reference type is itself
+        /// known to be one, however long the chain and whether or not it rejoins itself.
+        /// </summary>
+        void ProveReferenceTypes(
+            Dictionary<GenericParameterHandle, Node> nodes,
+            Dictionary<GenericParameterHandle, List<Node>> predecessors)
+        {
+            var proven = new Queue<Node>();
+            foreach (var node in nodes.Values)
+            {
+                if (node.IsValueType)
+                {
+                    _answers[node.Handle] = TypeParameterTypeKind.ValueType;
+                    continue;
+                }
+
+                if (node.ProvesReference)
+                {
+                    _answers[node.Handle] = TypeParameterTypeKind.ReferenceType;
+                    proven.Enqueue(node);
+                }
+            }
+
+            while (proven.Count > 0)
+            {
+                var settled = proven.Dequeue();
+                if (!predecessors.TryGetValue(settled.Handle, out var waiting))
+                    continue;
+
+                foreach (var node in waiting)
+                {
+                    if (_answers.ContainsKey(node.Handle))
+                        continue;
+
+                    _answers[node.Handle] = TypeParameterTypeKind.ReferenceType;
+                    proven.Enqueue(node);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Proves the remaining parameters constrain nothing, which -- unlike reference-ness
+        /// -- takes agreement from every edge rather than one witness: a parameter
+        /// constrains nothing only once all of its own deferrals are known to.
+        /// </summary>
+        /// <remarks>
+        /// Counting down outstanding deferrals is what makes a cycle answer correctly
+        /// without being detected as one. A parameter on a cycle can never reach zero,
+        /// because that would require the cycle to have already been proven through itself,
+        /// so it is left for the caller to fail closed. A parameter that reaches a cycle,
+        /// or anything unreadable, is stranded the same way and for the same reason.
+        /// </remarks>
+        void ProveConstrainsNothing(
+            Dictionary<GenericParameterHandle, Node> nodes,
+            Dictionary<GenericParameterHandle, List<Node>> predecessors)
+        {
+            var outstanding = new Dictionary<GenericParameterHandle, int>();
+            var proven = new Queue<Node>();
+            foreach (var node in nodes.Values)
+            {
+                if (_answers.ContainsKey(node.Handle))
+                    continue;
+
+                int pending = 0;
+                foreach (var target in node.Defers)
+                {
+                    if (!nodes.ContainsKey(target))
+                        continue;
+
+                    // Settled already, and only the value-type flag can have settled it:
+                    // a parameter deferring to a proven reference type was itself proven
+                    // one, so it is not here.
+                    if (_answers.ContainsKey(target))
+                    {
+                        node.Unreadable = true;
+                        continue;
+                    }
+
+                    pending++;
+                }
+
+                outstanding[node.Handle] = pending;
+                if (pending == 0 && !node.Unreadable)
+                    proven.Enqueue(node);
+            }
+
+            while (proven.Count > 0)
+            {
+                var settled = proven.Dequeue();
+                _answers[settled.Handle] = TypeParameterTypeKind.NeitherReferenceNorValue;
+                if (!predecessors.TryGetValue(settled.Handle, out var waiting))
+                    continue;
+
+                foreach (var node in waiting)
+                {
+                    if (_answers.ContainsKey(node.Handle)
+                        || !outstanding.TryGetValue(node.Handle, out var pending))
+                    {
+                        continue;
+                    }
+
+                    outstanding[node.Handle] = --pending;
+                    if (pending == 0 && !node.Unreadable)
+                        proven.Enqueue(node);
+                }
+            }
+        }
     }
 
     readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);

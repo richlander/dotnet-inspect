@@ -995,20 +995,20 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
-    /// The gate against caching a path-dependent answer. A parameter reached through a
-    /// cycle answers for the path it was reached by, not for itself, because the cut hid
-    /// constraints another path would have followed. Caching that carries one parameter's
-    /// verdict to another that merely reaches it.
+    /// A parameter whose only route to a proof runs through a cycle still gets the proof.
+    /// Both parameters here are reference types, and the cycle between them is incidental
+    /// to that; an answer that came out different depending on which parameter was asked
+    /// first would drop a <c>class</c> clause C# requires (CS0115/CS0534).
     /// </summary>
     /// <remarks>
     /// The shape: <c>T1 : T2</c>, <c>T2 : T1, T4</c>, <c>T3 : T1</c>, <c>T4 : class</c>.
-    /// Classifying T1 walks into T2, back to T1 -- which is on the path, so that branch is
-    /// cut -- and then on to T4, so T1 really is a reference type. T3's only route is
-    /// through T1, so T3 is one too. If the cut answer for T1 is cached, T3 reads it, comes
-    /// back unclassified, and loses the <c>class</c> clause C# requires (CS0115/CS0534).
+    /// T1 reaches T4 by way of T2, so T1 is a reference type; T3's only route is through
+    /// T1, so T3 is one too. This was the counterexample that retired a design in which
+    /// meeting the <c>T2 : T1</c> edge made T1's answer belong to the route rather than
+    /// to T1 -- T3 then inherited a verdict that was never about it.
     /// </remarks>
     [Fact]
-    public void ConstraintRestatement_DoesNotCacheAnAnswerReachedThroughACycle()
+    public void ConstraintRestatement_AnswersEveryParameterOnARouteThroughACycle()
     {
         string dllPath = EmitConstraintChainSample(
             static parameters =>
@@ -1031,7 +1031,7 @@ public class ApiOutputFormatterTests
             Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[0].TypeKind);
 
             // T3's only route is through T1, so it must reach the same answer rather than
-            // the cut verdict cached while T1 was still being classified.
+            // one that belonged to the route T1 was reached by.
             Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[2].TypeKind);
         }
         finally
@@ -1041,13 +1041,13 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
-    /// The gate for the walk budget. An answer reached through a cycle cannot be cached,
-    /// so a long cyclic chain would otherwise be recomputed from every parameter --
-    /// quadratic, and reachable from malformed metadata. The budget bounds it, and
-    /// giving up is a cut like any other, so the result fails closed rather than guessing.
+    /// A parameter list that is one long cycle. Nothing in it is knowable, and finding
+    /// that out has to cost about what reading the list costs -- a cycle is the shape that
+    /// invites re-deriving the same parameters once per parameter, which is quadratic and
+    /// reachable from malformed metadata.
     /// </summary>
     [Fact]
-    public void ConstraintRestatement_BoundsALongCyclicConstraintChain()
+    public void ConstraintRestatement_ResolvesALongCyclicConstraintChain()
     {
         const int Length = 4000;
         string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
@@ -1172,6 +1172,165 @@ public class ApiOutputFormatterTests
     /// <paramref name="constrain"/>, which is how `where T : U` chains -- absent from
     /// every assembly measured, but expressible -- reach the classifier.
     /// </summary>
+    /// <summary>
+    /// The gate on resolving the constraint graph without recursion. A chain this long
+    /// exhausts the call stack when each link is a stack frame -- measured at roughly
+    /// 21,000 frames, which a 30,000-link chain passes -- and the process dies rather
+    /// than answering. Nothing about such a chain is invalid: it is acyclic, every link
+    /// is readable, and the proof at the far end is real, so the answer is required to
+    /// arrive.
+    /// </summary>
+    /// <remarks>
+    /// Asserting the proof reaches every link, rather than merely that the call returns,
+    /// is what keeps this from passing on a depth-limited walk that fails closed instead
+    /// of overflowing. A limit would answer <c>Undetermined</c> here and drop 30,000
+    /// required clauses.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_ResolvesADeepConstraintChainWithoutRecursion()
+    {
+        const int Length = 30_000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+
+                // The one witness, as far from the start of the chain as it can be.
+                parameters[^1].SetGenericParameterAttributes(
+                    System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            Assert.Equal(Length, type.TypeParameters.Count);
+
+            // Every link inherits the far end's answer, however far away it is.
+            Assert.All(
+                type.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameter.TypeKind));
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// A proof that sits past a cycle still arrives. Parameters here reach both a cycle
+    /// and, further on, a parameter constrained to <c>class</c>; the cycle is genuinely
+    /// unanswerable, and the proof is genuinely a proof, so the two must not contaminate
+    /// each other.
+    /// </summary>
+    /// <remarks>
+    /// The shape, from adversarial review: <c>TCycle : TCycle</c>, then a fan of
+    /// <c>Ti : TCycle, Ti+1, Ti+2</c>, with <c>T0 : T1, TClass</c> and
+    /// <c>TClass : class</c>. A design that treats meeting a cycle as a reason to
+    /// distrust everything computed around it answers <c>T0</c> as <c>Undetermined</c>
+    /// and drops its required clause; one that re-derives the fan for every path through
+    /// it does not finish. Both were real behaviors of the walk this replaced, which is
+    /// why the assertions below pin the answer and the time together.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_ProvesAReferenceTypeReachedPastACycle()
+    {
+        const int Depth = 30;
+
+        // T0 .. T31, then TCycle, then TClass.
+        string[] names =
+        [
+            .. Enumerable.Range(0, Depth + 2).Select(index => $"T{index}"),
+            "TCycle",
+            "TClass",
+        ];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                var cycle = parameters[^2];
+                var proof = parameters[^1];
+                cycle.SetInterfaceConstraints(cycle);
+                proof.SetGenericParameterAttributes(
+                    System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint);
+
+                for (int index = 1; index < Depth; index++)
+                    parameters[index].SetInterfaceConstraints(cycle, parameters[index + 1], parameters[index + 2]);
+
+                parameters[0].SetInterfaceConstraints(parameters[1], proof);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            var byName = type.TypeParameters.ToDictionary(typeParameter => typeParameter.Name);
+
+            // The proof is reached, past the cycle every parameter between also reaches.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, byName["T0"].TypeKind);
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, byName["TClass"].TypeKind);
+
+            // The cycle itself remains unanswerable, and says nothing about anything else.
+            Assert.Equal(TypeParameterTypeKind.Undetermined, byName["TCycle"].TypeKind);
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {names.Length}-parameter graph around a cycle took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// Many declarations, each with its own cyclic parameter list. Resolution is per
+    /// declaration, so a module pays for each one; this pins that the per-declaration
+    /// cost stays proportional to that declaration rather than to a fixed allowance that
+    /// each list is free to spend in full.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ResolvesManyCyclicListsWithoutPerListWaste()
+    {
+        const int Lists = 512;
+        const int Length = 317;
+        string dllPath = EmitManyCyclicListsSample(Lists, Length);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var types = surface.Types
+                .Where(candidate => candidate.Name.StartsWith("Many", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(Lists, types.Count);
+            Assert.All(
+                types,
+                type => Assert.All(
+                    type.TypeParameters,
+                    typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
     static string EmitConstraintChainSample(
         Action<System.Reflection.Emit.GenericTypeParameterBuilder[]> constrain,
         string[] names,
@@ -1205,6 +1364,34 @@ public class ApiOutputFormatterTests
         tb.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"chain-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Emits one module holding <paramref name="lists"/> generic types, each with its own
+    /// self-contained cycle of <paramref name="length"/> type parameters.
+    /// </summary>
+    static string EmitManyCyclicListsSample(int lists, int length)
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ManyEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("ManyEmit");
+        string[] names = [.. Enumerable.Range(0, length).Select(index => $"T{index}")];
+
+        for (int list = 0; list < lists; list++)
+        {
+            var tb = module.DefineType(
+                $"Many{list}",
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+            var parameters = tb.DefineGenericParameters(names);
+            for (int index = 0; index < parameters.Length; index++)
+                parameters[index].SetInterfaceConstraints(parameters[(index + 1) % parameters.Length]);
+
+            tb.CreateType();
+        }
+
+        string path = Path.Combine(Path.GetTempPath(), $"many-{Guid.NewGuid():N}.dll");
         ab.Save(path);
         return path;
     }

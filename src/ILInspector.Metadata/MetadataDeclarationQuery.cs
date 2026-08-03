@@ -796,7 +796,7 @@ public static class MetadataDeclarationQuery
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
                 TypeKind = TypeParameterKindClassifier.Classify(
                     reader,
-                    parameter,
+                    handle,
                     hasValueTypeConstraint: isStruct,
                     hasReferenceTypeConstraint: (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
                     chain),
