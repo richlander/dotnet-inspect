@@ -256,7 +256,7 @@ public static class AnnotationAnchor
     /// corpus shares an offset with a printed <c>__exception</c>, which is
     /// excluded because it is the same shape, not because it was observed.
     /// </remarks>
-    internal static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
+    static Dictionary<int, IrNode> NarrowestPrintedByOffset(PrintedRangeMap printedRanges)
     {
         var narrowest = new Dictionary<int, IrNode>();
         var widths = new Dictionary<int, int>();
@@ -329,7 +329,7 @@ public static class AnnotationAnchor
     /// anchor to printed nodes walks no extra tree.
     /// </para>
     /// </remarks>
-    internal static Dictionary<int, IrNode> AdoptedPrintedByOffset(
+    static Dictionary<int, IrNode> AdoptedPrintedByOffset(
         IReadOnlyList<IAnnotation> annotations,
         List<StatementSpan> statements,
         PrintedRangeMap printedRanges,
@@ -367,14 +367,18 @@ public static class AnnotationAnchor
                 // different places. That is rare but never benign: of the 1,907
                 // offsets adoption resolves, 66 carry more than one distinct
                 // unprinted owner, and on every one of those 66 the owners pick
-                // different nodes -- each a group of `Box` nodes over different
-                // locals of equal width. No choice among them is more correct
-                // than another, so the requirement is only that it be a function
-                // of the ranges rather than of the walk: leftmost, and narrowest
-                // where two start together. On this corpus that agrees with what
-                // the unarbitrated walk already produced on all 66, so it changes
-                // no rendered output here; it exists so the choice cannot move
-                // when traversal order does.
+                // different nodes. Each is a group of `Box` nodes over the same
+                // local -- all 66 choose ranges of identical width printing
+                // identical text, differing only in column, so what is being
+                // chosen is which *occurrence* of that local gets underlined.
+                // None is more correct than another, and because the text is the
+                // same a reader cannot see which was taken; only the column
+                // moves. So the requirement is not that the choice be right but
+                // that it be a function of the ranges rather than of the walk:
+                // leftmost, and narrowest where two start together. On this
+                // corpus that agrees with what the unarbitrated walk already
+                // produced on all 66, so it changes no rendered output here; it
+                // exists so the choice cannot move when traversal order does.
                 if (chosen.TryGetValue(offset, out var best)
                     && (best.Start < innerRange.Start.Value
                         || (best.Start == innerRange.Start.Value
