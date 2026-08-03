@@ -75,6 +75,20 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 // Consequently the fuzzer is sound in one direction only: every flag is a real
 // over-vouch, but a clean run is evidence, not proof -- it cannot flag a defect
 // the generator never spells (it emits no #line and no #define/#undef).
+//
+// Three consecutive rounds have now found a defect in the generator's REACH
+// rather than in its case count, so treat that as the expected failure mode:
+//   - round 7: every group sat at file scope, so no member row was ever
+//     compared across 140,000 clean cases.
+//   - round 8: Group spelled both branches from one body, so asymmetric
+//     branches were unreachable at any case count; enums appeared only as
+//     one-line declarations, so no enum interior was ever conditional.
+//   - round 9: DifferFromProduct silently omitted SignatureEndLine and
+//     BodyStartLine, so product mode vouched for fields it never read; and
+//     constructors were emitted only in forms that can never be vouched, and
+//     so were never compared at all.
+// Before citing a clean run, read the cmp1/cmp2 buckets it printed and check
+// that the rows you care about are actually in them.
 // ---------------------------------------------------------------------------
 
 public class ConditionalRecoveryFuzzTests
@@ -119,6 +133,11 @@ public class ConditionalRecoveryFuzzTests
     /// row matched in fewer than two configurations, so an existentially branch-dependent row was
     /// never checked by anything. Running the product comparison in CI rather than only from
     /// eng/conditional-recovery-fuzz.cs closes it.
+    ///
+    /// Round 9 (GPT-5.6 Sol) then found this gate reading only four of the six span fields:
+    /// <c>DifferFromProduct</c> omitted <c>SignatureEndLine</c> and <c>BodyStartLine</c>, so
+    /// setting <c>BodyStartLine</c> to a constant left all five cases green. Both are compared
+    /// now, and that mutation fails all five.
     /// </summary>
     [Theory]
     [MemberData(nameof(Seeds))]
@@ -250,6 +269,8 @@ public class ConditionalRecoveryFuzzTests
         if (p.TriviaStartLine != o.TriviaStartLine) w.Add("trivia");
         if (p.SignatureStartLine != o.SignatureStartLine) w.Add("sig");
         if (p.EndLine != o.EndLine) w.Add("end");
+        if (p.SignatureEndLine != o.SignatureEndLine) w.Add("sigEnd");
+        if (p.BodyStartLine != o.BodyStartLine) w.Add("body");
         if (AttrsL(p.AttributeLists) != Attrs(o.AttributeLists)) w.Add("attrs");
         return string.Join("+", w);
     }
@@ -258,6 +279,13 @@ public class ConditionalRecoveryFuzzTests
     // Widened generator.
     // -----------------------------------------------------------------------
     static int n;
+
+    // The type MemberPool is generating members for, or null at file scope. A constructor is only
+    // a constructor if its name matches its enclosing type: the product classifies a mismatched
+    // one as a Method while Roslyn's parser still calls it a ConstructorDeclaration, so the two
+    // never match by (Kind, Name) and the row is silently never compared. That is why naming these
+    // "Ctor{a}" produced zero Constructor comparisons.
+    static string? curType;
 
     static string[] MemberPool()
     {
@@ -277,6 +305,13 @@ public class ConditionalRecoveryFuzzTests
             $"interface i{a} {{ }}",
             $"event System.Action ev{a};",
             $"public int c{a} {{ get {{ return 1; }} }}",
+            // A constructor and a destructor that no group splits. EmitSplit case 9 already emits
+            // a constructor, but always with its initializer inside a conditional, so it is never
+            // vouched and therefore never compared -- a 50,000-case sweep covered zero of either
+            // kind (adversarial review round 9, GPT-5.6 Sol). The constructor has to carry the
+            // enclosing type's name to be classified as one by both sides; see curType.
+            curType is null ? $"void mc{a}() {{ }}" : $"public {curType}() {{ }}",
+            $"~Dtor{a}() {{ }}",
             // (W3b) A bare initializer continuation. A property whose ACCESSOR BLOCK closed
             // inside a conditional group, followed by "= v;" after the #endif, makes which
             // declaration the initializer binds to branch-dependent while the ";" itself is
@@ -377,6 +412,7 @@ public class ConditionalRecoveryFuzzTests
         n = 0;
         var lines = new List<string>();
         bool inType = rnd.Next(2) == 0;
+        curType = inType ? $"Outer{iter}" : null;
 
         if (inType)
             lines.Add($"class Outer{iter}");
