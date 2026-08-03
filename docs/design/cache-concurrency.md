@@ -7,10 +7,10 @@ owns how content for an exact coordinate becomes visible safely.
 
 ## Source conformance
 
-Cached content is scoped to the source that supplied it. A request is served
-only the exact bytes downloaded from a source the current configuration lists.
-Content obtained from any other source is invisible to it, even for an
-identical package id and version.
+Content that dotnet-inspect downloaded is scoped to the source that supplied it.
+A request is served only the exact bytes downloaded from a source the current
+configuration lists. Content obtained from any other source is invisible to it,
+even for an identical package id and version.
 
 This is a correctness boundary, not an optimization. Two feeds may publish the
 same coordinate with different content, so serving one feed's bytes for another
@@ -28,13 +28,32 @@ should be read with them in mind:
 - in-flight acquisitions are shared only between callers with the same source
   configuration.
 
-A source is identified by a digest of its normalized URL. Scheme and host are
-case-insensitive by definition and are folded; path and query are not, because
-`/FeedA` and `/feeda` can be different feeds on a case-sensitive server. The
-digest keeps source URLs out of cache paths and makes every identity a valid
-path segment. It is opacity rather than confidentiality: a feed URL is low
-entropy, and a local reader who can see these paths can already see which
-packages were cached.
+### The NuGet global folder is outside this boundary
+
+`~/.nuget/packages` is read eagerly, ahead of source scoping, and a package
+found there answers regardless of the configured sources. This is deliberate.
+That folder holds what the user restored, not what dotnet-inspect fetched, and
+binding to it eagerly is what makes an inspection agree with the bytes a build
+actually consumed — the fidelity argument and the performance argument point the
+same way. The scoping above governs content dotnet-inspect acquired, where the
+tool chose the source and is accountable for the choice.
+
+The rule is therefore *strict conformance to the sources dotnet-inspect fetched
+from*, not *strict conformance to everything on the machine*. Callers that need
+only configured sources to answer pass `--no-nuget-cache`, which drops the
+folder from lookup. Note that NuGet does record an installed package's source in
+`.nupkg.metadata`; the folder is treated as source-blind by choice, not for want
+of the data.
+
+A source is identified by a digest of its canonical URL, and canonicalization is
+shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
+one URL cannot mean two things in one tool. Scheme, host, default port,
+percent-escape casing and a trailing path slash fold, because the URI grammar
+defines them as equivalent; path and query case do not, because `/FeedA` and
+`/feeda` can be different feeds on a case-sensitive server. The digest keeps
+source URLs out of cache paths and makes every identity a valid path segment. It
+is opacity rather than confidentiality: a feed URL is low entropy, and a local
+reader who can see these paths can already see which packages were cached.
 
 ## Guarantees
 

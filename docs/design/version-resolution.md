@@ -283,11 +283,17 @@ complete app-cache entries transactionally. Separate processes may duplicate
 immutable work, but readers observe only a marked, atomically published winner.
 Platform-pack projection uses the same model in a separate cache namespace.
 
-Cache identity is the cache root, normalized package id, and version.
-Source order selects the producer on a miss and is not a separate durable cache
-identity. See [cache concurrency and publication](cache-concurrency.md) for the
+Cache identity is the cache root, normalized package id, version, and the source
+that supplied the bytes. Source order selects the producer on a miss. See
+[cache concurrency and publication](cache-concurrency.md) for the
 single-flight boundary, dependency-overlap safety, filesystem rename semantics,
 failure model, and NuGet, Docker, and Git precedents.
+
+The NuGet global folder is deliberately outside this scheme. It is read eagerly,
+before source scoping is considered, because it is not a feed dotnet-inspect
+fetched from: the user populated it, normally by restoring, and binding to it is
+what makes inspection agree with what a build actually consumed. `--no-nuget-cache`
+excludes it for callers that need only configured sources to answer.
 
 ## Multiple sources
 

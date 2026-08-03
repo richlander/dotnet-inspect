@@ -162,10 +162,20 @@ Two practical consequences:
 - `--source` and `--add-source` take part in this. A run that replaces your sources will not read
   content cached under the sources it replaced.
 
-The NuGet global folder (`~/.nuget/packages`) is the exception. It records no source, because
-NuGet does not track one there, so dotnet-inspect reads it as a local store that `dotnet restore`
-also writes to rather than as a feed. If that distinction matters for what you are checking, use
-`--source` to name the feed explicitly and confirm the package is served from it.
+The NuGet global folder (`~/.nuget/packages`) is the exception, and it is read eagerly: a package
+found there is used whatever your sources say. That folder is not a feed dotnet-inspect fetched
+from — it is a local store you populated, mostly by `dotnet restore`. Its content is treated as
+yours, and reading it is what makes inspecting a package you have already restored both fast and
+faithful to the bytes your build actually used.
+
+The consequence is worth stating plainly: if a private package is in your global folder, a run
+configured only for nuget.org will still inspect it. `--source` chooses which feeds are consulted
+for a download; it does not hide content already in the global folder. To inspect strictly what
+your configured sources serve, add `--no-nuget-cache`:
+
+```bash
+dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache
+```
 
 ## Checking a source without changing your config
 
