@@ -201,23 +201,26 @@ that proved less than it appears to, so restore them before trusting a clean
 result:
 
 ```bash
-iltools="$(eng/restore-iltools.sh --mdv)" && [ -n "$iltools" ] &&
-    export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
+source eng/activate-iltools.sh --mdv
 ```
 
-The chaining is deliberate. `export PATH="$(eng/restore-iltools.sh ...)"`
-reports `export`'s exit status, not the script's, so a failed restore would
-look like success and leave you running tests whose oracles silently skip --
-the exact failure the script exists to prevent. Splitting the assignment out is
-not enough on its own: outside `set -e` a failed assignment does not stop the
-next command, and empty output would prepend an empty PATH entry, which means
-the current directory.
+`eng/restore-iltools.sh` does the acquisition and prints the directories;
+`eng/activate-iltools.sh` is the sourceable wrapper that puts them on PATH.
+Source the wrapper rather than assembling PATH by hand. A child process cannot
+change its parent's PATH, so the assembly has to happen in your shell, and
+every way of getting it wrong is silent -- a masked exit status, a lost
+trailing newline, or empty output prepending an empty PATH entry, which means
+the current directory. Each leaves a plausible PATH with no oracles on it. The
+wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
+`src/dotnet-inspect.Tests` is its gate, and also fails if this documentation
+goes back to hand-rolling the assembly.
 
 The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
-`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke it rather than
-duplicating the restore. Those workflow steps are `continue-on-error`, so an
-acquisition failure in CI degrades to skips rather than a red run — check the
-step's log before reading a green decompiler or IL-diff leg as proof.
+`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
+directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
+Those workflow steps are `continue-on-error`, so an acquisition failure in CI
+degrades to skips rather than a red run -- check the step's log before reading
+a green decompiler or IL-diff leg as proof.
 
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.

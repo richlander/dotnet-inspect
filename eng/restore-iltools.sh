@@ -15,16 +15,17 @@
 # output can be consumed directly:
 #
 #   CI:     eng/restore-iltools.sh >> "$GITHUB_PATH"
-#   local:  iltools="$(eng/restore-iltools.sh --mdv)" && [ -n "$iltools" ] &&
-#               export PATH="$(printf '%s\n' "$iltools" | tr '\n' ':')$PATH"
+#   local:  source eng/activate-iltools.sh --mdv
 #
-# The local form is chained deliberately. `export PATH="$(...)"` reports
-# export's exit status rather than the script's, so a failed restore would look
-# like success and leave the caller running tests whose oracles silently skip --
-# the exact failure this script exists to prevent. Splitting the assignment out
-# is not enough on its own: outside `set -e` a failed assignment does not stop
-# the next command, and empty output would prepend an empty PATH entry, which
-# means the current directory. `&&` plus the -n guard covers both.
+# Do not assemble PATH from this script's output by hand. A child process
+# cannot change its parent's PATH, so the joining has to happen in the calling
+# shell, and every way of getting it wrong is silent -- `export PATH="$(...)"`
+# reports export's status rather than this script's, a lost trailing newline
+# glues the last directory to the first pre-existing PATH entry, and empty
+# output prepends an empty PATH entry, which means the current directory. Each
+# leaves a plausible-looking PATH with no oracles on it, which is the exact
+# failure this script exists to prevent. eng/activate-iltools.sh is the one
+# tested copy of that logic; IlToolsActivationTests is its gate.
 #
 # Packages land in artifacts/iltools (gitignored), so a re-run is a no-op.
 set -euo pipefail
