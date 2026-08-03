@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Sections;
@@ -274,6 +275,25 @@ public class ApiMemberAnalysisInspectionTests
             .First(m => m.DeclaringType.Name == declaringTypeName && m.Name == methodName)
             .MetadataToken;
 
+    static int MetadataTokenOf(
+        string assemblyPath,
+        string declaringTypeName,
+        string methodName)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var type = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == declaringTypeName);
+        var method = reader.GetTypeDefinition(type).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == methodName);
+        return System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            method);
+    }
+
     static string[] FullScope =>
     [
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
@@ -281,6 +301,45 @@ public class ApiMemberAnalysisInspectionTests
         FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath(),
         FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath(),
     ];
+
+    [Fact]
+    public void CallerEdges_BodilessTargetRetainsSameAssemblyCallers()
+    {
+        int target = MetadataTokenOf(
+            SelfPath,
+            nameof(SamplePInvokeClass),
+            nameof(SamplePInvokeClass.GetCurrentProcessId));
+
+        var edges = CreateForCallers(SelfPath, scope: null)
+            .CallerEdges(target);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name
+                == nameof(SamplePInvokeClass.CallGetCurrentProcessId));
+    }
+
+    [Fact]
+    public void CallerEdges_ScopeTargetCopyDoesNotSuppressCaller()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string copiedTarget = Path.Combine(
+            Path.GetDirectoryName(caller)!,
+            Path.GetFileName(target));
+        int ping = TokenOf(target, "Api", "Ping");
+
+        var edges = CreateForCallers(
+                target,
+                [caller, copiedTarget])
+            .CallerEdges(ping);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == "Run");
+    }
 
     // The Callers table is built from strictly single-hop edges, so it needs the assemblies that
     // name the declaring type, not the transitive closure the Call Graph needs. Box`1 is declared

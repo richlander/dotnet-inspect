@@ -1957,7 +1957,9 @@ under the inspection catalog:
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
    Every pair is contributed as a binding-only discovery root and frozen before
-   reverse closure begins.
+   reverse closure begins. The command-selected target descriptor is
+   authoritative for an exact reference to its identity; competing non-target
+   scope roots remain ambiguous.
 4. Expand assembly-level forwarding adjacency. For every candidate selected by
    an adjacency edge or resolution root, read its `ExportedType` inventory and
    collect only the `AssemblyRef` targets that terminate valid forwarder

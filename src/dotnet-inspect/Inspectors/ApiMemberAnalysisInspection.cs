@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -83,7 +84,14 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal ImmutableArray<CallerEdge> CallerEdges(int methodToken)
     {
-        Analysis.CallerScopeReachabilityPlan plan = Plan(methodToken);
+        if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
+        {
+            return Session.CallerEdges(
+                methodToken,
+                DirectCallerScopes(methodToken));
+        }
+
+        Analysis.CallerScopeReachabilityPlan plan = Plan(target);
         return Session.CallerEdges(
             methodToken,
             DirectCallerScopes(methodToken),
@@ -194,7 +202,18 @@ internal sealed class ApiMemberAnalysisInspection
         if (_callerScopeAssemblies is not { Count: > 0 })
             return null;
 
-        Analysis.CallerScopeReachabilityPlan plan = Plan(methodToken);
+        if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
+        {
+            List<MethodBodyInspectionSession> unfiltered =
+                OpenScopes(ScopeCandidates, includeAllocations);
+            if (unfiltered.Count == 0)
+                return null;
+
+            cached = unfiltered;
+            return cached;
+        }
+
+        Analysis.CallerScopeReachabilityPlan plan = Plan(target);
         List<MethodBodyInspectionSession> opened =
             OpenScopes(plan.GraphCandidates, includeAllocations);
         if (opened.Count == 0
@@ -218,8 +237,10 @@ internal sealed class ApiMemberAnalysisInspection
         if (_callerScopesResolved && _callerScopes is not null)
             return _callerScopes;
 
-        Analysis.CallerScopeReachabilityPlan plan = Plan(methodToken);
-        Analysis.TypeRef target = TargetType(methodToken);
+        if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
+            return CallerScopes(includeAllocations: false, methodToken);
+
+        Analysis.CallerScopeReachabilityPlan plan = Plan(target);
         if (_directCallerScopes.TryGetValue(target, out var cached))
             return cached;
 
@@ -231,9 +252,8 @@ internal sealed class ApiMemberAnalysisInspection
         return opened;
     }
 
-    Analysis.CallerScopeReachabilityPlan Plan(int methodToken)
+    Analysis.CallerScopeReachabilityPlan Plan(Analysis.TypeRef target)
     {
-        Analysis.TypeRef target = TargetType(methodToken);
         if (_plans.TryGetValue(target, out var plan))
             return plan;
 
@@ -250,20 +270,23 @@ internal sealed class ApiMemberAnalysisInspection
         return plan;
     }
 
-    Analysis.TypeRef TargetType(int methodToken)
+    bool TryTargetType(
+        int methodToken,
+        [NotNullWhen(true)]
+        out Analysis.TypeRef? target)
     {
         Analysis.MethodIdentity? method = Session.BodyIndex.Methods
             .FirstOrDefault(candidate =>
                 candidate.MetadataToken == methodToken);
         if (method is null)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(methodToken),
-                "The target method is not present in the body index.");
+            target = null;
+            return false;
         }
 
-        return Analysis.GenericMemberIdentity.OpenDeclaringType(
+        target = Analysis.GenericMemberIdentity.OpenDeclaringType(
             method.DeclaringType);
+        return true;
     }
 
     List<MethodBodyInspectionSession> OpenScopes(

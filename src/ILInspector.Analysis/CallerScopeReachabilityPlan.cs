@@ -53,10 +53,12 @@ public sealed class CallerScopeReachabilityPlan
         ResolvedAssemblyReference[] openable = snapshots
             .Where(static snapshot => snapshot.Openable)
             .Select(static snapshot => snapshot.Assembly)
-            .Prepend(targetAssembly)
             .DistinctBy(static assembly => assembly.Registration)
             .ToArray();
-        var policy = new ScopeFirstBindingPolicy(bindingPolicy, openable);
+        var policy = new ScopeFirstBindingPolicy(
+            bindingPolicy,
+            targetAssembly,
+            openable);
         using var catalog = new TypeResolutionCatalog(options);
         return CreateCore(
                 catalog,
@@ -584,13 +586,16 @@ public sealed class CallerScopeReachabilityPlan
     sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
     {
         readonly IAssemblyBindingPolicy _fallback;
+        readonly ResolvedAssemblyReference _target;
         readonly IReadOnlyList<ResolvedAssemblyReference> _roots;
 
         internal ScopeFirstBindingPolicy(
             IAssemblyBindingPolicy fallback,
+            ResolvedAssemblyReference target,
             IReadOnlyList<ResolvedAssemblyReference> roots)
         {
             _fallback = fallback;
+            _target = target;
             _roots = roots;
         }
 
@@ -603,6 +608,9 @@ public sealed class CallerScopeReachabilityPlan
             {
                 return _fallback.Select(request);
             }
+
+            if (_target.Identity == reference.Identity)
+                return AssemblyBindingSelection.Found(_target);
 
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
                 .Where(root => root.Identity == reference.Identity)

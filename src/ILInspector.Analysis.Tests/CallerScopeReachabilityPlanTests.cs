@@ -76,6 +76,36 @@ public class CallerScopeReachabilityPlanTests
             plan.Resolution.GetRelation(caller, callerType));
     }
 
+    [Fact]
+    public void TargetIdentityBinding_PrefersSelectedTargetOverScopeCopy()
+    {
+        byte[] targetImage = BuildTarget();
+        AssemblyReferenceIdentity targetIdentity =
+            ReadIdentity(targetImage);
+        byte[] callerImage = BuildCaller(targetIdentity);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference duplicate = Descriptor(targetImage);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        TypeRef targetType = ReadTargetDefinition(targetImage);
+        var policy = new ExactPolicy([]);
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                policy,
+                target,
+                targetType,
+                [caller, duplicate]);
+
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(
+                caller,
+                ReadCallerReference(callerImage)));
+        Assert.IsType<CandidateTypeRelation.Indeterminate>(
+            plan.Resolution.GetRelation(
+                duplicate,
+                targetType));
+    }
+
     static TypeRef ReadTargetDefinition(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
