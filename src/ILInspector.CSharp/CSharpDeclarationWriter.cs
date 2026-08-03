@@ -351,7 +351,22 @@ internal static class CSharpDeclarationWriter
             && !IsExplicitInterfaceEvent(member))
         {
             if (methodParameters is { Count: > 0 })
+            {
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
+                // TryRenderSignatureModel appends the `where` clauses itself, but it
+                // declines whenever a caller supplies its own generic-parameter names,
+                // so this text path has to recover them. Without this a constrained
+                // generic method renders as uncompilable C# (the body may rely on a
+                // constraint the declaration no longer states). The caller's names come
+                // from the same GenericParameter rows in the same order as the model's,
+                // so the two line up by construction; requiring equal arity keeps a
+                // mismatched pairing from spelling a clause for the wrong parameter.
+                if (member.SignatureModel?.TypeParameters is { Count: > 0 } modelTypeParameters
+                    && modelTypeParameters.Count == methodParameters.Count)
+                {
+                    signature = AppendMemberTypeParameterConstraints(signature, member, modelTypeParameters);
+                }
+            }
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
             signature = EscapeMemberNameInSignature(signature, member.Name);
@@ -766,6 +781,27 @@ internal static class CSharpDeclarationWriter
         }
     }
 
+    /// <summary>
+    /// Appends a method's <c>where</c> clauses, except on the two member shapes that
+    /// inherit their constraints and may not restate them: an <c>override</c> and an
+    /// explicit interface implementation both reject a restated constraint with CS0460.
+    /// Omitting the clauses there is faithful as well as compilable, because the
+    /// inherited constraints are exactly the ones metadata recorded.
+    /// </summary>
+    /// <remarks>
+    /// Both member call sites (the <see cref="ApiSignature"/> renderer and the text
+    /// path a caller-supplied generic-parameter list forces) route through here, so
+    /// the two cannot disagree about when a clause is legal. The type-declaration call
+    /// site does not: a type always owns, and so always restates, its own constraints.
+    /// </remarks>
+    static string AppendMemberTypeParameterConstraints(
+        string declaration,
+        ApiMember member,
+        IReadOnlyList<TypeParameter> typeParameters)
+        => member.IsOverride || member.Kind == "explicit-interface-implementation"
+            ? declaration
+            : AppendTypeParameterConstraints(declaration, typeParameters);
+
     static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
     {
         foreach (var typeParameter in typeParameters)
@@ -877,7 +913,7 @@ internal static class CSharpDeclarationWriter
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendTypeParameterConstraints($"{returnType} {memberName}({parameters})", model.TypeParameters);
+            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))

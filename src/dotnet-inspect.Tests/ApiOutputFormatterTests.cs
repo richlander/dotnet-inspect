@@ -668,6 +668,97 @@ public class ApiOutputFormatterTests
         Assert.Contains("\"is_finalizer\": true", json, System.StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Real-artifact canary for issue #3664. The single-member decompiled-source
+    /// view supplies its own generic-parameter names, which makes the ApiSignature
+    /// renderer decline; the text path it falls back to used to drop the `where`
+    /// clauses, so a constrained generic method rendered as C# that no longer
+    /// compiles. Runs against this test assembly's own compiled metadata, so it
+    /// pins the whole chain — constraint decoding, the member view, and the
+    /// whole-type listing — rather than a hand-built signature model.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericMethod_KeepsConstraintsInBothDecompiledViews()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Compare));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains(
+            "where T : System.IComparable<T>",
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("where T : IComparable<T>", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same chain must omit the clauses an override inherits: restating them is
+    /// CS0460 ("constraints ... are inherited from the base method"), so emitting
+    /// them would trade one uncompilable render for another.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericOverride_OmitsInheritedConstraintsInBothDecompiledViews()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Run));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains("void Run<T>", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("where T", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("void Run<T>", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("where T : class", typeSource, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -948,4 +1039,21 @@ public static class RuntimeAsyncHeaderFixture
     }
 
     public static unsafe int ReadAddress(nint address) => *(int*)address;
+}
+
+/// <summary>
+/// Real compiled witness for issue #3664: generic methods whose constraints the
+/// decompiled-source views have to spell, and an override whose inherited
+/// constraints they must not restate (CS0460).
+/// </summary>
+public abstract class ConstraintFixtureBase
+{
+    public abstract void Run<T>(T value) where T : class, new();
+}
+
+public class ConstraintFixture : ConstraintFixtureBase
+{
+    public static int Compare<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b);
+
+    public override void Run<T>(T value) => value.ToString();
 }
