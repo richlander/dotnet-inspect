@@ -335,6 +335,17 @@ own lines — indentation, braces, IL comment-column alignment, and inline
 annotations already live in `Text` — so the correlation layer owns only the
 *cross-medium* framing, for which `Medium` is exactly enough.
 
+The printer carries a separate structural coordinate plane. Its bound
+`PrintedRangeMap` records exact character ranges while the IR graph is alive;
+`PrintedBodyMap` projects them to portable, end-exclusive `PrintedExtent`
+coordinates. Node extents and the printer-recorded
+`PrintedRegionRole { Construct, Header, Body, Else, Catch, Finally, Case }`
+regions form a laminar family, enforced when the portable map is constructed.
+That lets a consumer rebuild containment from coordinates alone without parent
+pointers. Multi-line nodes remain in the projection rather than disappearing,
+and a fact whose node could not be placed remains present with a null extent
+rather than inheriting a guessed position.
+
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case
 where the body is empty. The scalar render reads no offset axis, but that is a
