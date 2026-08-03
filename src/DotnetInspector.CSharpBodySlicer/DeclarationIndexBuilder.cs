@@ -55,7 +55,10 @@ internal static class DeclarationIndexBuilder
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
         // collection initializer. Members are only recognized inside a type, so an anonymous
         // scope is exactly what stops a local function from being indexed as a member.
-        var scopes = new List<int>();
+        // Most scopes own the row whose body they delimit. Anonymous scopes and extension blocks
+        // do not. An extension block still carries its enclosing type's index so its members land
+        // on that type, but closing it must not close or otherwise mutate that enclosing row.
+        var scopes = new List<(int RowIndex, bool OwnsRow)>();
         var pending = new List<ScanToken>();
         int triviaStart = -1;
 
@@ -121,12 +124,12 @@ internal static class DeclarationIndexBuilder
         int commentOpenLine = 0;
 
         string Text(ScanToken t) => t.TextIn(lines[t.Line]).ToString();
-        Row? Enclosing() => scopes.Count > 0 && scopes[^1] >= 0 ? rows[scopes[^1]] : null;
+        Row? Enclosing() => scopes.Count > 0 && scopes[^1].RowIndex >= 0 ? rows[scopes[^1].RowIndex] : null;
         // A type at file scope and a statement inside a method body both report no enclosing row.
         // Only the first may declare anything: "@namespace = x;" in a method body is an
         // assignment, and reading it as a namespace is what an unqualified null check does.
-        bool InAnonymousScope() => scopes.Count > 0 && scopes[^1] < 0;
-        int EnclosingIndex() => scopes.Count > 0 ? scopes[^1] : -1;
+        bool InAnonymousScope() => scopes.Count > 0 && scopes[^1].RowIndex < 0;
+        int EnclosingIndex() => scopes.Count > 0 ? scopes[^1].RowIndex : -1;
 
         // Ends the run of trivia, attribute lists and signature tokens gathered for the next
         // declaration, at a terminator sitting in conditional section <paramref name="section"/>.
@@ -587,7 +590,7 @@ internal static class DeclarationIndexBuilder
                 if (Truncate(pending, Text).CutAtEquals)
                 {
                     initializerDepth++;
-                    scopes.Add(-1);
+                    scopes.Add((-1, false));
                     pending.Add(tok);
                     continue;
                 }
@@ -598,7 +601,7 @@ internal static class DeclarationIndexBuilder
                 // inside a parent that has no metadata counterpart.
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
-                    scopes.Add(EnclosingIndex());
+                    scopes.Add((EnclosingIndex(), false));
                     EndDeclaration(tok);
                     lastClosed = -1;
                     continue;
@@ -620,11 +623,11 @@ internal static class DeclarationIndexBuilder
                         AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
                     });
-                    scopes.Add(rows.Count - 1);
+                    scopes.Add((rows.Count - 1, true));
                 }
                 else
                 {
-                    scopes.Add(-1);
+                    scopes.Add((-1, false));
                 }
                 EndDeclaration(tok);
                 lastClosed = -1;
@@ -671,9 +674,9 @@ internal static class DeclarationIndexBuilder
 
                 if (scopes.Count > 0)
                 {
-                    int idx = scopes[^1];
+                    var (idx, ownsRow) = scopes[^1];
                     scopes.RemoveAt(scopes.Count - 1);
-                    if (idx >= 0)
+                    if (idx >= 0 && ownsRow)
                     {
                         rows[idx].EndLine = tok.Line + 1;
                         if (!tok.DepthKnown) rows[idx].SpanKnown = false;
@@ -861,10 +864,13 @@ internal static class DeclarationIndexBuilder
                     continue;
                 }
 
-                // The same hole one step further out, and the generator reached it before anyone
-                // could hand-write it. A file-scoped namespace ENDS a declaration without closing a
-                // block, so it leaves lastClosed at -1 and the test above does not run at all --
-                // not because the ";" has no target, but because the scan has forgotten it:
+                // The scan can forget the row that the ";" appears to follow, or remember a row
+                // that itself exists only in one branch. In either case, if both the pending run
+                // and the remembered predecessor can vanish before this terminator, the ";" can
+                // reach an earlier declaration that the lexical scan no longer sees as adjacent.
+                //
+                // A file-scoped namespace is the first shape: it ENDS a declaration without
+                // closing a block, so it leaves lastClosed at -1:
                 //
                 //     class Sr { }
                 //     #if X
@@ -877,21 +883,11 @@ internal static class DeclarationIndexBuilder
                 // build-vs-build gate can never see this: it was the PRODUCT gate, comparing the
                 // product's own numbers against the single valid build, that caught it.
                 //
-                // The last row being unvouched is not a usable test: a namespace declared inside a
-                // type is not an allowed row at all, so the branch-dependent thing that cleared
-                // lastClosed can leave no trace among the rows. What it does leave is a terminator,
-                // so the test is whether THAT terminator was written in this branch. It was not,
-                // here, and in the build that drops it the ";" reaches further back than the scan
-                // now remembers. An ordinary stray ";" shares its predecessor's section and is
-                // unaffected, including in a file with unrelated groups earlier in it. Found by
-                // adversarial review round 10 (Claude Opus 5), who predicted this arm without being
-                // Found by adversarial review round 10 (Claude Opus 5), who predicted this arm
-                // without being able to build a parsing case for it; the widened generator built
-                // one.
+                // Such a namespace can leave no row at all when it appears inside a type. It does
+                // leave a terminator, so lastTerminatorSection carries the branch evidence that
+                // lastClosed cannot. Found by round 10 (Claude Opus 5).
                 //
-                // The pending run is tested the same way the thirteenth-way rule below tests it,
-                // and round 11 is why. Requiring an EMPTY run here let a second group mask this
-                // arm exactly as the thirteenth way masked the twelfth:
+                // Requiring an EMPTY pending run then let a second group mask that fix:
                 //
                 //     class C {
                 //         class Sr { }
@@ -904,45 +900,29 @@ internal static class DeclarationIndexBuilder
                 //         ;
                 //     }
                 //
-                // Both round-10 arms are bypassed at once: this one because Field is pending, and
-                // the thirteenth-way one because the brace-less namespace left lastClosed at -1.
-                // With {!X,!Y} the file is "class C { class Sr { } ; }" and Sr ends at the ";" on
-                // line 9; with {!X,Y} the ";" is Field's and Sr ends at its brace on line 2. Both
-                // parse, and Sr was vouched at 2..2. Found by adversarial review round 11
-                // (Gemini 3.1 Pro).
+                // Round 12 supplied the last missing combination: a brace-bodied non-type member
+                // leaves lastClosed >= 0 but is not a trailerTarget, so the old kind test defeated
+                // both masked-trailer arms while the nonnegative index defeated the brace-less
+                // arm. With X below, Mh and Fh stand between Sh and the ";"; without X they both
+                // vanish and the ";" becomes Sh's optional trailer:
+                //
+                //     class Sh { }
+                // #if X
+                //     void Mh() { }
+                //     int Fh = 1
+                // #endif
+                //     ;
+                //
+                // The relevant question is therefore not the remembered row's kind. It is whether
+                // that row (or the terminator that replaced it when lastClosed is -1) and the
+                // pending run can both be absent in a build where this ";" remains. Ordinary
+                // unconditional text shares this terminator's section and is unaffected. Found by
+                // adversarial review round 12 (Claude Opus 5).
+                bool predecessorCanVanish = lastClosed >= 0
+                    ? lastClosedSection != tok.Section
+                    : lastTerminatorSection != tok.Section;
                 if ((pending.Count == 0 || PendingCanVanishBefore(tok.Section))
-                    && lastClosed < 0 && lastTerminatorSection != tok.Section)
-                {
-                    RefuseSiblingsAnInitializerCouldReach();
-                }
-
-                // The thirteenth way, and it SHIELDS the twelfth. The test above asks for an empty
-                // pending run, because a declaration under construction owns the ";" it reaches.
-                // But the scan lexes every branch, so a declaration written in a branch that this
-                // build discards is still pending here, and it hides the trailing ";" behind
-                // itself:
-                //
-                //     class C {
-                //         class Sy { }
-                //     #if X
-                //         int Field = 1
-                //     #endif
-                //         ;
-                //     }
-                //
-                // With X the ";" terminates Field and Sy ends at its brace on line 2; without X
-                // there is no Field, so the ";" is Sy's own optional trailer and Sy ends on line 6.
-                // Both builds parse with zero errors, and the row was vouched at 2..2. This is the
-                // same masking shape as the tenth and eleventh ways -- a real reach hidden behind
-                // another branch's text rather than a new direction -- which is the argument that
-                // masking, not direction, is the axis worth attacking next.
-                //
-                // The pending run can vanish only if a directive separates it from the ";", and only
-                // if every one of its tokens is inside a group; a member whose HEADER is written
-                // outside the group and carries a conditional initializer keeps its terminator in
-                // every build and is not this. Found by adversarial review round 10
-                // (Gemini 3.1 Pro).
-                if (trailerTarget && PendingCanVanishBefore(tok.Section))
+                    && predecessorCanVanish)
                 {
                     RefuseSiblingsAnInitializerCouldReach();
                 }
@@ -972,7 +952,7 @@ internal static class DeclarationIndexBuilder
                             var ns = rows[^1];
                             ns.EndLine = -1;
                             ns.ClosesAtEndOfFile = true;
-                            scopes.Add(rows.Count - 1);
+                            scopes.Add((rows.Count - 1, true));
 
                             // A file-scoped namespace is the one scope opener in C# that uses no
                             // brace, so neither the balance rule nor the opening-depth floor can

@@ -163,12 +163,17 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// enforces the property across sites is not a citation but the differential:
 /// <c>ConditionalRecoveryFuzzTests.NoVouchedRowMovesBetweenBuilds</c> compares every vouched row
 /// against Roslyn under four symbol configurations and fails on any row whose lines move between
-/// two builds that both compile, which is the property this paragraph asserts. It answers only
+/// two configurations that both parse, which is the property this paragraph asserts. Parse
+/// validity is weaker than compilation validity: the generator can spell, for example,
+/// <c>public namespace N;</c>, which Roslyn parses but the language rejects (CS1671). Lines remain
+/// well defined there, so that distinction does not invalidate this line differential, but a
+/// structural oracle such as the ParentIndex/Depth follow-up in issue #3725 must apply the stronger
+/// validity gate. It answers only
 /// half the question, because it compares the builds against each other and never reads the
 /// product's own numbers;
 /// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
 /// the other half by checking the product's numbers against each build.
-/// Both are only as good as the generator's reach, which rounds 7 through 10 each falsified, so
+/// Both are only as good as the generator's reach, which rounds 7 through 12 each falsified, so
 /// read
 /// that file's header before reading a clean run as proof. The per-site gates
 /// remain as regression pins:
@@ -180,7 +185,11 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// direction, <c>ATrailingSemicolonShieldedByAConditionalMember_LosesTheTypeBeforeIt</c>,
 /// <c>ATrailingSemicolonBehindAConditionalFileScopedNamespace_LosesTheTypeAtTheOuterScope</c> and
 /// <c>ATrailingSemicolonAfterAConditionalBracelessDeclaration_LosesTheTypeBeforeIt</c> for the
-/// round-10 trio, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// round-10 trio,
+/// <c>ATrailingSemicolonMaskedAfterABracelessOpener_DoesNotVouchTheRowBeforeIt</c> for round 11,
+/// <c>ATrailingSemicolonMaskedByANonTypeBlock_DoesNotVouchTheEarlierType</c> and
+/// <c>ATrailingSemicolonAfterAConditionalExtensionBlock_RefusesItsSiblingNotItsParent</c> for
+/// round 12, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
 /// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
 /// Recovery after a balanced group is
 /// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over

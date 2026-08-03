@@ -3041,6 +3041,91 @@ public class DeclarationIndexTests
         Assert.False(tail.SpanKnown, "the scan never regains the depth after an unbalanced group");
     }
 
+    /// <summary>
+    /// The fifteenth way defeats all three trailing-<c>;</c> arms at once. A brace-bodied
+    /// non-type member leaves <c>lastClosed &gt;= 0</c> but is not a trailer target, while a
+    /// pending field defeats the empty-run arm. With <c>X</c>, the final <c>;</c> terminates
+    /// <c>Fh</c> and <c>Sh</c> ends on line 3; without <c>X</c>, both members vanish and the
+    /// <c>;</c> is <c>Sh</c>'s optional trailer on line 8. All four X/Y configurations compile.
+    /// Found by adversarial review round 12 (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonMaskedByANonTypeBlock_DoesNotVouchTheEarlierType()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                class Sh { }
+            #if X
+                void Mh() { }
+                int Fh = 1
+            #endif
+                ;
+            }
+            """);
+
+        var sh = Assert.Single(index.Declarations, s => s.Name == "Sh");
+        Assert.False(sh.SpanKnown, "without X the trailing \";\" belongs to Sh");
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.True(c.SpanKnown, "the reach stays inside C");
+    }
+
+    /// <summary>
+    /// The same non-type mask without a pending declaration. A property closed inside the group
+    /// used to leave <c>lastClosed</c> nonnegative, but its kind made <c>trailerTarget</c> false
+    /// while the nonnegative index made the brace-less arm false. Without <c>X</c>, the
+    /// <c>;</c> reaches <c>Sh</c>; with <c>X</c>, the property stands between them.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterAConditionalProperty_DoesNotVouchTheEarlierType()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                class Sh { }
+            #if X
+                int P { get; set; }
+            #endif
+                ;
+            }
+            """);
+
+        var sh = Assert.Single(index.Declarations, s => s.Name == "Sh");
+        Assert.False(sh.SpanKnown, "without X the trailing \";\" belongs to Sh");
+    }
+
+    /// <summary>
+    /// An extension block is transparent for parenting but its braces do not close the enclosing
+    /// type. Treating the block's carried parent index as the row its <c>}</c> closed made the
+    /// trailing-<c>;</c> refusal start one scope too high: it declined <c>C</c> and left
+    /// <c>Sy</c> vouched. With <c>X</c>, the <c>;</c> follows the extension block and
+    /// <c>Sy</c> ends on line 3; without it, the <c>;</c> is <c>Sy</c>'s trailer on line 9.
+    /// All four X/Y configurations compile. Found by adversarial review round 12
+    /// (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterAConditionalExtensionBlock_RefusesItsSiblingNotItsParent()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                class Sy { }
+            #if X
+                extension(int x)
+                {
+                }
+            #endif
+                ;
+            }
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.False(sy.SpanKnown, "without X the trailing \";\" belongs to Sy");
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.True(c.SpanKnown, "closing the extension block does not close C");
+        Assert.Equal(10, c.EndLine);
+    }
+
     private static string Format(Declaration d) =>
         $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
 

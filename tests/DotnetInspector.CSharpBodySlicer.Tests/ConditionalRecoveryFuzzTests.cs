@@ -34,8 +34,8 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //
 // A generated file is a FAIR CASE only when at least TWO of the four symbol
 // configurations parse with no error-severity diagnostic. The differential
-// question is "do two VALID builds disagree about a vouched row's lines?"; a
-// file that compiles under fewer than two configurations offers no pair to
+// question is "do two valid PARSES disagree about a vouched row's lines?"; a
+// file that parses under fewer than two configurations offers no pair to
 // compare, so it is generated, run, and then DISCARDED -- it is not counted as
 // fair and can never flag. (Random generation produces many syntactically
 // invalid files; excluding them is why `fair` is well below the case count.)
@@ -76,7 +76,7 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 // over-vouch, but a clean run is evidence, not proof -- it cannot flag a defect
 // the generator never spells (it emits no #line and no #define/#undef).
 //
-// Four consecutive rounds have now found a defect in the generator's REACH
+// Six consecutive rounds have now found a defect in the generator's REACH
 // rather than in its case count, so treat that as the expected failure mode:
 //   - round 7: every group sat at file scope, so no member row was ever
 //     compared across 140,000 clean cases.
@@ -92,6 +92,12 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //   - round 10: no case put a BRACE-LESS scope opener between a closed type
 //     and a trailing ";", and cases 19-21 spelled only "class" though the rule
 //     names six kinds. Both holes in the twelfth way's refusal set lived there.
+//   - round 11: neither differential compared ParentIndex or Depth, so a vouched
+//     row whose parent differed between builds while every line stayed fixed was
+//     invisible by construction. That separate defect class is tracked in #3725.
+//   - round 12: no case put a brace-bodied NON-TYPE member before a trailing
+//     ";", and no case put a C# 14 extension block there. The fifteenth way and
+//     the extension-block starting-point defect both lived in those gaps.
 // Before citing a clean run, read the cmp1/cmp2 buckets it printed and check
 // that the rows you care about are actually in them. Note also that "fair"
 // means "parses", not "compiles": the oracle reads parse diagnostics, so
@@ -506,9 +512,17 @@ public class ConditionalRecoveryFuzzTests
         }
 
         // Cases 16-26 are enum and type shapes, all legal at both scopes, so the non-member pick
-        // is remapped onto them rather than leaving them reachable only inside a type.
-        int pick = rnd.Next(inType ? 28 : 15);
-        if (!inType && pick >= 4) pick += 12;
+        // is remapped onto them rather than leaving them reachable only inside a type. Cases
+        // 27-28 are member-only. Case 29 contains its own static class because an extension block
+        // has stricter ownership rules, so it is selected only at file scope.
+        int pick = rnd.Next(inType ? 30 : 16);
+        if (!inType)
+            pick = pick switch
+            {
+                >= 4 and <= 14 => pick + 12,
+                15 => 29,
+                _ => pick,
+            };
         switch (pick)
         {
             case 0:
@@ -712,6 +726,36 @@ public class ConditionalRecoveryFuzzTests
                 lines.Add($"delegate void Dk{a}(");
                 Group($"    int pk{a}");
                 lines.Add(");");
+                return;
+            case 27:
+                // The fifteenth way: a brace-bodied NON-TYPE member and a pending declaration
+                // mask every trailing-";" rule at once. Before round 12, cases 19-25 placed only a
+                // type, field, delegate or brace-less namespace before the ";", so no case count
+                // could make lastClosed name Method/Property/Event/Constructor/Destructor while
+                // a second declaration was pending (adversarial review round 12, Claude Opus 5).
+                lines.Add($"    class Sh{a} {{ }}");
+                Group($"    void Mh{a}() {{ }}", $"    int Fh{a} = 1");
+                lines.Add("    ;");
+                return;
+            case 28:
+                // The same kind-test hole without a pending run. Only the build that drops the
+                // method parses, so the product gate is the one that can compare the vouched row
+                // against Roslyn; this keeps the empty-run half independently reachable.
+                lines.Add($"    class Si{a} {{ }}");
+                Group($"    void Mi{a}() {{ }}");
+                lines.Add("    ;");
+                return;
+            case 29:
+                // A C# 14 extension block is transparent for parenting, but before round 12 its
+                // carried parent index made the closing brace look as if it closed the enclosing
+                // class. The trailing-";" refusal then started one scope too high and refused the
+                // class's siblings rather than the earlier nested type it could reach.
+                lines.Add($"static class Ce{a}");
+                lines.Add("{");
+                lines.Add($"    class Sj{a} {{ }}");
+                Group($"    extension(int x{a}) {{ }}");
+                lines.Add("    ;");
+                lines.Add("}");
                 return;
             default:
                 lines.Add($"    [System.Obsolete]");
